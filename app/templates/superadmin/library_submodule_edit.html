@@ -1,0 +1,270 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+{% set msg = request.query_params.get('msg','') %}
+{% if msg == 'saved'      %}<div class="alert alert-green">✓ Sub-module saved.</div>{% endif %}
+{% if msg == 'deployed'   %}<div class="alert alert-green">✓ Deployed to tenant.</div>{% endif %}
+{% if msg == 'revoked'    %}<div class="alert alert-green">✓ Access revoked from tenant.</div>{% endif %}
+{% if msg == 'bulk_pushed'%}<div class="alert alert-green">✓ Bulk push complete.</div>{% endif %}
+{% if msg == 'duplicated' %}<div class="alert alert-blue">This is a duplicate — edit freely and save.</div>{% endif %}
+{% if error %}<div class="alert alert-red">{{ error }}</div>{% endif %}
+
+{% include "superadmin/library_nav.html" %}
+
+<div class="page-header" style="margin-top:16px">
+  <h2 class="page-title">
+    {% if item %}
+      {% if item.is_system %}View{% else %}Edit{% endif %} Sub-module: {{ item.name }}
+    {% else %}New Sub-module{% endif %}
+  </h2>
+  <a href="/superadmin/library/submodules" class="btn btn-gray btn-sm">← Back</a>
+</div>
+
+{% if item and item.is_system %}
+<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#fcd34d">
+  ⚠ This is a <strong>System</strong> sub-module and cannot be edited directly.
+  <a href="" onclick="event.preventDefault();document.getElementById('dupForm').submit()" style="color:#fcd34d;text-decoration:underline">Duplicate it</a> to create a custom version.
+</div>
+<form id="dupForm" method="post" action="/superadmin/library/submodules/{{ item.id }}/duplicate" style="display:none"></form>
+{% endif %}
+
+<div class="grid2" style="gap:16px;align-items:start">
+
+<!-- Left: Form Designer -->
+<div>
+<div class="card">
+  <h2>Form Fields</h2>
+  <p style="font-size:12px;color:#64748b;margin-bottom:14px">
+    Design the data-entry form. Drag ↕ to reorder, set field type, mark required fields.
+  </p>
+
+  <div id="fieldsList" style="margin-bottom:12px"></div>
+
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <select id="addTypeSelect" style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;color:#e2e8f0;font-size:12px">
+      {% for ftype, flabel in field_types %}
+      <option value="{{ ftype }}">{{ flabel }}</option>
+      {% endfor %}
+    </select>
+    <button type="button" onclick="addField()" class="btn btn-sm btn-primary">+ Add Field</button>
+  </div>
+</div>
+
+<!-- Live Preview -->
+<div class="card">
+  <h2>Live Preview</h2>
+  <p style="font-size:11px;color:#64748b;margin-bottom:12px">How the form looks to users.</p>
+  <div id="previewPanel"></div>
+</div>
+</div>
+
+<!-- Right: Metadata & Deploy -->
+<div>
+<div class="card">
+  <h2>{% if item %}Edit{% else %}Create{% endif %} Sub-module</h2>
+  <form method="post"
+        action="{% if item %}/superadmin/library/submodules/{{ item.id }}{% else %}/superadmin/library/submodules/new{% endif %}"
+        id="subForm">
+    <div class="form-group">
+      <label>Name *</label>
+      <input type="text" name="name" value="{{ item.name if item else '' }}" required
+             {% if item and item.is_system %}readonly{% endif %}>
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea name="description" {% if item and item.is_system %}readonly{% endif %}>{{ item.description if item else '' }}</textarea>
+    </div>
+    <div class="form-group">
+      <label>Industry</label>
+      <input type="text" name="industry" value="{{ item.industry if item else '' }}"
+             placeholder="Manufacturing, Construction …"
+             {% if item and item.is_system %}readonly{% endif %}>
+    </div>
+    <div class="form-group">
+      <label>Status</label>
+      <select name="status" {% if item and item.is_system %}disabled{% endif %}>
+        {% for s in status_options %}
+        <option value="{{ s }}" {% if item and item.status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if item and not item.is_system %}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <input type="checkbox" name="bump_version" id="bumpVer" value="true">
+      <label for="bumpVer" style="font-size:12px;color:#94a3b8;text-transform:none;letter-spacing:0;font-weight:400">
+        Bump version (currently v{{ item.version }})
+      </label>
+    </div>
+    {% endif %}
+    <input type="hidden" name="fields_json" id="fieldsJsonInput" value="{{ item.fields_json or '[]' if item else '[]' }}">
+    {% if not (item and item.is_system) %}
+    <button type="submit" class="btn btn-purple">{% if item %}Save{% else %}Create{% endif %}</button>
+    {% endif %}
+  </form>
+</div>
+
+{% if item %}
+<div class="card">
+  <h2>Deploy to Tenant</h2>
+  <p style="font-size:11px;color:#64748b;margin-bottom:10px">
+    Deploying grants that tenant the ability to attach this sub-module to flow stages.
+    Revoking removes access — existing stage tags remain but panels return 403.
+  </p>
+
+  <!-- Deploy form — only show tenants not yet deployed -->
+  {% set undeployed = tenants | rejectattr('id', 'in', deployed_tenant_ids) | list %}
+  {% if undeployed %}
+  <form method="post" action="/superadmin/library/submodules/{{ item.id }}/deploy"
+        style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
+    <div class="form-group" style="flex:1;margin:0;min-width:160px">
+      <label>Deploy to Tenant</label>
+      <select name="tenant_id">
+        {% for t in undeployed %}
+        <option value="{{ t.id }}">{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-green btn-sm">Deploy</button>
+  </form>
+  {% else %}
+  <p style="font-size:12px;color:#10b981;margin-bottom:14px">✓ Deployed to all tenants.</p>
+  {% endif %}
+
+  <!-- Currently deployed tenants with Revoke -->
+  {% if deployments %}
+  <div style="border-top:1px solid rgba(255,255,255,0.07);padding-top:10px;margin-bottom:10px">
+    <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">
+      Currently Deployed ({{ deployments|length }})
+    </div>
+    {% for dep in deployments %}
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+      <div>
+        <span style="color:#e2e8f0;font-size:12px">{{ dep.tenant.name }}</span>
+        <span style="color:#64748b;font-size:11px;margin-left:6px">v{{ dep.deployed_version }} · {{ dep.deployed_at.strftime('%d %b %Y') }}</span>
+      </div>
+      <form method="post" action="/superadmin/library/submodules/{{ item.id }}/revoke"
+            onsubmit="return confirm('Revoke {{ item.name }} from {{ dep.tenant.name }}?')">
+        <input type="hidden" name="tenant_id" value="{{ dep.tenant_id }}">
+        <button class="btn btn-sm btn-red" style="padding:3px 10px;font-size:11px">Revoke</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  <form method="post" action="/superadmin/library/submodules/{{ item.id }}/bulk-push"
+        onsubmit="return confirm('Push v{{ item.version }} to all {{ deployments|length }} tenants?')">
+    <button class="btn btn-sm btn-amber">⬆ Bulk Push v{{ item.version }} to all {{ deployments|length }} tenant(s)</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+</div>
+
+</div><!-- grid2 -->
+
+<style>
+.field-row{background:#0d1424;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:12px;margin-bottom:8px}
+.field-row input[type=text]{background:#111827;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:7px 10px;color:#e2e8f0;font-size:12px;font-family:inherit;width:100%}
+.field-row input[type=text]:focus{outline:none;border-color:#3b82f6}
+.field-type-badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;background:rgba(99,102,241,0.2);color:#a5b4fc;margin-right:6px}
+.preview-field{margin-bottom:14px}
+.preview-label{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px}
+.preview-input{background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:#64748b;font-size:12px;width:100%}
+</style>
+
+<script>
+var FIELD_TYPE_LABELS = {
+  text:'Short Text', longtext:'Long Text', number:'Number', date:'Date',
+  datetime:'Date + Time', yesno:'Yes / No', dropdown:'Dropdown',
+  photo:'Photo Upload', file:'File Upload', signature:'Signature'
+};
+
+var fields = [];
+try { fields = JSON.parse(document.getElementById('fieldsJsonInput').value || '[]'); }
+catch(e) { fields = []; }
+
+function uid() { return 'f' + Math.random().toString(36).substr(2,8); }
+
+function renderFields() {
+  var el = document.getElementById('fieldsList');
+  el.innerHTML = '';
+  if (!fields.length) {
+    el.innerHTML = '<div style="color:#4b5563;font-size:12px;text-align:center;padding:16px">No fields yet. Add one above.</div>';
+    renderPreview(); return;
+  }
+  fields.forEach(function(f, i) {
+    var row = document.createElement('div');
+    row.className = 'field-row';
+    var optHtml = '';
+    if (f.type === 'dropdown') {
+      var optVal = (f.options || []).join(', ');
+      optHtml = '<div style="margin-top:8px"><input type="text" value="'+ escHtml(optVal) +'" placeholder="Options: comma-separated" '+
+        'oninput="fields['+i+'].options=this.value.split(\',\').map(s=>s.trim()).filter(s=>s);syncFields()"></div>';
+    }
+    row.innerHTML =
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        '<span class="field-type-badge">'+FIELD_TYPE_LABELS[f.type]+'</span>' +
+        '<input type="text" value="'+ escHtml(f.label||'') +'" placeholder="Field label *" style="flex:1;min-width:120px" ' +
+               'oninput="fields['+i+'].label=this.value;syncFields();renderPreview()">' +
+        '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#94a3b8;white-space:nowrap">' +
+          '<input type="checkbox" '+(f.required?'checked':'')+' onchange="fields['+i+'].required=this.checked;syncFields()"> Required' +
+        '</label>' +
+        '<button type="button" onclick="moveField('+i+',-1)" class="btn btn-sm btn-outline" '+(i===0?'disabled':'')+'>↑</button>' +
+        '<button type="button" onclick="moveField('+i+',1)"  class="btn btn-sm btn-outline" '+(i===fields.length-1?'disabled':'')+'>↓</button>' +
+        '<button type="button" onclick="removeField('+i+')" class="btn btn-sm btn-red" style="padding:4px 8px">✕</button>' +
+      '</div>' + optHtml;
+    el.appendChild(row);
+  });
+  renderPreview();
+}
+
+function addField() {
+  var t = document.getElementById('addTypeSelect').value;
+  fields.push({id:uid(), label:'', type:t, required:false, options:[], order:fields.length});
+  renderFields(); syncFields();
+}
+
+function removeField(i) { fields.splice(i,1); renderFields(); syncFields(); }
+
+function moveField(i, dir) {
+  var j = i + dir;
+  if (j < 0 || j >= fields.length) return;
+  var tmp = fields[i]; fields[i] = fields[j]; fields[j] = tmp;
+  renderFields(); syncFields();
+}
+
+function syncFields() {
+  fields.forEach(function(f,i){ f.order = i; });
+  document.getElementById('fieldsJsonInput').value = JSON.stringify(fields);
+}
+
+function renderPreview() {
+  var el = document.getElementById('previewPanel');
+  if (!fields.length) { el.innerHTML = '<div style="color:#4b5563;font-size:12px">Add fields to preview the form.</div>'; return; }
+  var html = '';
+  fields.forEach(function(f) {
+    if (!f.label) return;
+    html += '<div class="preview-field">';
+    html += '<div class="preview-label">'+escHtml(f.label)+(f.required?' <span style="color:#ef4444">*</span>':'')+'</div>';
+    if (f.type === 'yesno') {
+      html += '<div style="display:flex;gap:10px"><label style="font-size:12px;color:#94a3b8"><input type="radio" disabled> Yes</label>' +
+              '<label style="font-size:12px;color:#94a3b8"><input type="radio" disabled> No</label></div>';
+    } else if (f.type === 'dropdown') {
+      html += '<select class="preview-input" disabled><option>— Select —</option>';
+      (f.options||[]).forEach(function(o){ html += '<option>'+escHtml(o)+'</option>'; });
+      html += '</select>';
+    } else if (f.type === 'photo' || f.type === 'file' || f.type === 'signature') {
+      html += '<div class="preview-input" style="text-align:center;color:#4b5563;padding:12px">📎 '+ FIELD_TYPE_LABELS[f.type] +'</div>';
+    } else if (f.type === 'longtext') {
+      html += '<textarea class="preview-input" disabled rows="2" style="resize:none"></textarea>';
+    } else {
+      html += '<input class="preview-input" type="'+(f.type==='number'?'number':f.type==='date'?'date':f.type==='datetime'?'datetime-local':'text')+'" disabled>';
+    }
+    html += '</div>';
+  });
+  el.innerHTML = html || '<div style="color:#4b5563;font-size:12px">Add labelled fields to preview.</div>';
+}
+
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+renderFields();
+</script>
+{% endblock %}

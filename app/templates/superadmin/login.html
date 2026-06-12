@@ -1,0 +1,35 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+<div style="max-width:380px;margin:80px auto">
+  <div style="text-align:center;margin-bottom:32px">
+    <div style="font-size:32px;font-weight:800;color:#f1f5f9;letter-spacing:-0.5px">FactoryOS <span style="color:#a78bfa">SA</span></div>
+    <div style="color:#64748b;font-size:13px;margin-top:6px">Super Admin Portal</div>
+  </div>
+  {% if error %}<div class="alert alert-red">{{ error }}</div>{% endif %}
+  {% set msg = request.query_params.get('msg','') %}
+  {% if msg == 'password_changed' %}<div class="alert alert-green">Password changed. Please sign in again.</div>{% endif %}
+  <div class="card card-purple">
+    <form method="post" action="/superadmin/login">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" name="email" placeholder="admin@yourcompany.com" required autofocus>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" placeholder="••••••••" required>
+      </div>
+      <button type="submit" class="btn btn-purple" style="width:100%;justify-content:center;padding:10px">
+        Sign In →
+      </button>
+    </form>
+  </div>
+  {% if no_accounts %}
+  <div style="background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);border-radius:8px;padding:12px 16px;margin-top:16px;font-size:12px;color:#a78bfa;text-align:center">
+    No accounts yet. <a href="/superadmin/setup" style="color:#c4b5fd;font-weight:600">Create the first Super Admin →</a>
+  </div>
+  {% endif %}
+  <p style="text-align:center;margin-top:16px">
+    <a href="/login" style="color:#4b5568;font-size:12px">← Back to factory login</a>
+  </p>
+</div>
+{% endblock %}

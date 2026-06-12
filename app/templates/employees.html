@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+/* ── Org Chart ───────────────────────────────────────────────── */
+.org-wrap { overflow-x: auto; padding: 8px 0 20px; }
+.org-level { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 0; }
+.org-card {
+  background: #111827; border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; padding: 12px 14px; min-width: 150px; max-width: 180px;
+  text-align: center; position: relative; cursor: default;
+  transition: border-color .15s;
+}
+.org-card:hover { border-color: rgba(255,255,255,0.2); }
+.org-card .oc-name { font-size: 13px; font-weight: 600; color: #f1f5f9; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.org-card .oc-phone { font-size: 11px; color: #64748b; margin-bottom: 6px; }
+.org-card .oc-dept { font-size: 10px; color: #475569; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.org-tree { position: relative; }
+.org-branch { display: flex; flex-direction: column; align-items: center; }
+.org-branch-children {
+  display: flex; gap: 12px; justify-content: center; padding-top: 20px;
+  position: relative; flex-wrap: wrap;
+}
+.org-branch-children::before {
+  content: ''; position: absolute; top: 0; left: 50%; width: 1px;
+  height: 20px; background: rgba(255,255,255,0.1);
+}
+.org-branch-child { display: flex; flex-direction: column; align-items: center; position: relative; }
+.org-branch-child::before {
+  content: ''; position: absolute; top: 0; left: 50%; width: 1px;
+  height: 12px; background: rgba(255,255,255,0.1);
+}
+.org-branch-child-inner { padding-top: 12px; }
+.org-section { margin-bottom: 28px; }
+.org-section-title {
+  font-size: 10px; font-weight: 700; color: #374151; text-transform: uppercase;
+  letter-spacing: .08em; text-align: center; margin-bottom: 12px;
+}
+.view-btn { padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 500; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; background: transparent; color: #64748b; transition: all .12s; }
+.view-btn.active { background: rgba(59,130,246,0.2); color: #7dd3fc; border-color: rgba(59,130,246,0.4); }
+</style>
+
+<div class="page-header">
+  <h2 class="page-title">{{ L.Employees }}</h2>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <div style="display:flex;border:1px solid rgba(255,255,255,0.1);border-radius:8px;overflow:hidden">
+      <button class="view-btn active" id="btn-list" onclick="switchView('list')">List</button>
+      <button class="view-btn" id="btn-org" onclick="switchView('org')">Org Chart</button>
+    </div>
+    {% if can_bulk and user.role == 'ADMIN' %}
+    <button onclick="show('bulk-modal')" class="btn btn-outline btn-sm">⬆ Bulk Import</button>
+    {% endif %}
+    {% if user.role == 'ADMIN' %}
+    <button onclick="show('create-modal')" class="btn btn-primary">+ Add Employee</button>
+    {% endif %}
+  </div>
+</div>
+
+{% set err = request.query_params.get('error') %}
+{% if err %}<div class="alert alert-red">{{ err }}</div>{% endif %}
+{% set imported = request.query_params.get('imported') %}
+{% if imported %}
+<div style="background:rgba(16,185,129,0.12);color:#6ee7b7;border:1px solid rgba(16,185,129,0.25);padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px">
+  ✓ Successfully imported {{ imported }} employee(s).
+</div>
+{% endif %}
+
+<!-- ══ LIST VIEW ══════════════════════════════════════════════════════════ -->
+<div id="view-list">
+<div class="card" style="padding:0">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Phone</th><th>Role</th><th>Department</th>
+        <th>Manager</th><th>Status</th>
+        {% if user.role == 'ADMIN' %}<th>Actions</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+    {% for emp in employees %}
+    <tr>
+      <td style="font-weight:500;color:#f1f5f9">{{ emp.name }}</td>
+      <td style="color:#94a3b8">{{ emp.phone }}</td>
+      <td>
+        <span class="badge {% if emp.role=='ADMIN' %}badge-purple{% elif emp.role=='MANAGER' %}badge-blue{% elif emp.role=='STORE_MANAGER' %}badge-amber{% else %}badge-gray{% endif %}">
+          {{ emp.role }}
+        </span>
+      </td>
+      <td style="color:#94a3b8">{{ emp.department.name if emp.department else '—' }}</td>
+      <td style="color:#94a3b8">{{ emp.manager.name if emp.manager else '—' }}</td>
+      <td>
+        <span class="badge {% if emp.is_active %}badge-green{% else %}badge-red{% endif %}">
+          {{ 'Active' if emp.is_active else 'Inactive' }}
+        </span>
+      </td>
+      {% if user.role == 'ADMIN' %}
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="toggleRow('mgr-{{ emp.id }}')" class="btn btn-sm btn-outline">Set Manager</button>
+        <button onclick="toggleRow('pw-{{ emp.id }}')" class="btn btn-sm btn-gray">Reset PW</button>
+      </td>
+      {% endif %}
+    </tr>
+    {% if user.role == 'ADMIN' %}
+    <tr id="mgr-{{ emp.id }}" style="display:none;background:rgba(59,130,246,0.04)">
+      <td colspan="7" style="padding:10px 16px">
+        <form method="post" action="/employees/{{ emp.id }}/assign-manager"
+              style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:#94a3b8;white-space:nowrap">
+            Manager for <strong style="color:#f1f5f9">{{ emp.name }}</strong>:
+          </span>
+          <select name="manager_id"
+                  style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:200px">
+            <option value="">— None —</option>
+            {% for m in managers %}
+            {% if m.id != emp.id %}
+            <option value="{{ m.id }}" {% if emp.manager_id == m.id %}selected{% endif %}>
+              {{ m.name }} ({{ m.role }})
+            </option>
+            {% endif %}
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+          <button type="button" onclick="toggleRow('mgr-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
+        </form>
+      </td>
+    </tr>
+    <tr id="pw-{{ emp.id }}" style="display:none;background:rgba(239,68,68,0.04)">
+      <td colspan="7" style="padding:10px 16px">
+        <form method="post" action="/employees/{{ emp.id }}/reset-password"
+              style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:#94a3b8;white-space:nowrap">
+            Set temp password for <strong style="color:#f1f5f9">{{ emp.name }}</strong>:
+          </span>
+          <input type="text" name="temp_password" placeholder="Temporary password" minlength="6" required
+                 style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:200px">
+          <button type="submit" class="btn btn-sm btn-red"
+                  onclick="return confirm('Reset password for {{ emp.name }}? Share the new password with them directly.')">
+            Set Password
+          </button>
+          <button type="button" onclick="toggleRow('pw-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
+        </form>
+        <div style="font-size:11px;color:#64748b;margin-top:6px">
+          Share this temporary password with the employee via WhatsApp. Ask them to change it after signing in.
+        </div>
+      </td>
+    </tr>
+    {% endif %}
+    {% else %}
+    <tr>
+      <td colspan="7" style="text-align:center;color:#64748b;padding:48px">
+        No employees yet.
+        {% if user.role == 'ADMIN' %}
+        <button onclick="show('create-modal')" class="btn btn-sm btn-primary" style="margin-left:10px">Add first employee</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+</div>
+
+<!-- ══ ORG CHART VIEW ════════════════════════════════════════════════════ -->
+<div id="view-org" style="display:none">
+  <!-- Filter bar -->
+  <div style="background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+    <div>
+      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Department</div>
+      <select id="orgDeptFilter" onchange="renderOrg()" style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:160px">
+        <option value="">All Departments</option>
+        {% for d in departments %}
+        <option value="{{ d.name }}">{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Show</div>
+      <select id="orgRoleFilter" onchange="renderOrg()" style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:140px">
+        <option value="">All Roles</option>
+        <option value="ADMIN">Admins only</option>
+        <option value="MANAGER">Managers only</option>
+        <option value="STORE_MANAGER">Store Managers only</option>
+        <option value="EMPLOYEE">Employees only</option>
+      </select>
+    </div>
+    <div style="margin-left:auto;font-size:11px;color:#374151" id="orgCount"></div>
+  </div>
+
+  <div class="card org-wrap" id="orgChart"></div>
+</div>
+
+
+<!-- ══ ADD EMPLOYEE MODAL ════════════════════════════════════════════════ -->
+{% if user.role == 'ADMIN' %}
+<div id="create-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
+  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:480px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">Add Employee</h3>
+      <button onclick="hide('create-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+    </div>
+    <form method="post" action="/employees/create">
+      <div class="form-group">
+        <label>Full Name</label>
+        <input name="name" required placeholder="e.g. Ravi Kumar">
+      </div>
+      <div class="form-group">
+        <label>Phone Number</label>
+        <input name="phone" required placeholder="e.g. 9876543210"
+               pattern="[0-9]{10}" maxlength="10"
+               title="Enter a valid 10-digit phone number">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" required minlength="6">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Role</label>
+          <select name="role">
+            <option value="EMPLOYEE">Employee</option>
+            <option value="MANAGER">Manager</option>
+            <option value="STORE_MANAGER">Store Manager</option>
+            <option value="ADMIN">Admin</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Department</label>
+          <select name="department_id">
+            <option value="">— None —</option>
+            {% for d in departments %}
+            <option value="{{ d.id }}">{{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Reports To (Manager)</label>
+        <select name="manager_id">
+          <option value="">— None —</option>
+          {% for m in managers %}
+          <option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button type="button" onclick="hide('create-modal')" class="btn btn-outline" style="flex:1">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="flex:1">Add Employee</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- ══ BULK IMPORT MODAL ══════════════════════════════════════════════════ -->
+{% if can_bulk and user.role == 'ADMIN' %}
+<div id="bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
+  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">Bulk Import via CSV</h3>
+      <button onclick="hide('bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+    </div>
+    <p style="font-size:12px;color:#64748b;margin-bottom:14px">Download a template, fill it in, then upload. Rows with errors are returned as a downloadable report — valid rows are still imported.</p>
+    <div style="background:#0d1424;border-radius:8px;padding:12px 14px;margin-bottom:16px">
+      <p style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Step 1 — Download Template</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a href="/employees/import/template?entity=employees" class="btn btn-sm btn-outline">⬇ Employees CSV</a>
+        <a href="/employees/import/template?entity=departments" class="btn btn-sm btn-outline">⬇ Departments CSV</a>
+        <a href="/employees/import/template?entity=branches" class="btn btn-sm btn-outline">⬇ Branches CSV</a>
+      </div>
+    </div>
+    <p style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Step 2 — Upload Filled CSV</p>
+    {% for label, icon, action in [('Employees','👤','/employees/import'),('Departments','🏢','/departments/import'),('Branches','📍','/branches/import')] %}
+    <div style="border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+      <p style="font-size:12px;font-weight:600;color:#e2e8f0;margin-bottom:8px">{{ icon }} {{ label }}</p>
+      <form method="post" action="{{ action }}" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
+        <input type="file" name="file" accept=".csv" required
+               style="flex:1;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0">
+        <button type="submit" class="btn btn-sm btn-primary">Import</button>
+      </form>
+    </div>
+    {% endfor %}
+    <button onclick="hide('bulk-modal')" class="btn btn-gray" style="width:100%">Close</button>
+  </div>
+</div>
+{% endif %}
+
+{% if not can_bulk and user.role == 'ADMIN' %}
+<div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);border-radius:10px;padding:14px 18px;margin-top:16px;display:flex;gap:14px;align-items:center">
+  <span style="font-size:22px">🔒</span>
+  <div>
+    <div style="font-weight:600;color:#c4b5fd;font-size:13px">Bulk Import — Professional Plan Feature</div>
+    <div style="font-size:12px;color:#64748b;margin-top:3px">Import employees, departments and branches in bulk via CSV with row-level validation and error reports.</div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function show(id){ document.getElementById(id).style.display = 'flex'; }
+function hide(id){ document.getElementById(id).style.display = 'none'; }
+function toggleRow(id){
+  var el = document.getElementById(id);
+  el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'table-row' : 'none';
+}
+
+// ── View toggle ────────────────────────────────────────────────────────────
+function switchView(v) {
+  document.getElementById('view-list').style.display = v === 'list' ? '' : 'none';
+  document.getElementById('view-org').style.display  = v === 'org'  ? '' : 'none';
+  document.getElementById('btn-list').classList.toggle('active', v === 'list');
+  document.getElementById('btn-org').classList.toggle('active', v === 'org');
+  if (v === 'org') renderOrg();
+}
+
+// ── Employee data ──────────────────────────────────────────────────────────
+const EMP_DATA = [
+  {% for emp in employees %}
+  {
+    id: {{ emp.id | tojson }},
+    name: {{ emp.name | tojson }},
+    phone: {{ emp.phone | tojson }},
+    role: {{ emp.role | tojson }},
+    dept: {{ (emp.department.name if emp.department else '') | tojson }},
+    manager_id: {{ (emp.manager_id or '') | tojson }},
+    active: {{ 'true' if emp.is_active else 'false' }},
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+
+const ROLE_COLOR = { ADMIN: '#7c3aed', MANAGER: '#2563eb', STORE_MANAGER: '#d97706', EMPLOYEE: '#0f766e' };
+const ROLE_BG    = { ADMIN: 'rgba(124,58,237,.15)', MANAGER: 'rgba(37,99,235,.15)', STORE_MANAGER: 'rgba(217,119,6,.15)', EMPLOYEE: 'rgba(15,118,110,.15)' };
+
+function empCard(e) {
+  const initials = e.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
+  return `<div class="org-card" title="${e.name}${e.dept ? ' · ' + e.dept : ''}">
+    <div style="width:36px;height:36px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;background:${ROLE_BG[e.role]};color:${ROLE_COLOR[e.role]};border:1.5px solid ${ROLE_COLOR[e.role]}44">${initials}</div>
+    <div class="oc-name">${e.name}</div>
+    <div style="display:inline-block;font-size:9px;padding:1px 7px;border-radius:99px;font-weight:700;background:${ROLE_BG[e.role]};color:${ROLE_COLOR[e.role]};margin-bottom:4px">${e.role}</div>
+    ${e.dept ? `<div class="oc-dept">${e.dept}</div>` : ''}
+    ${!e.active ? '<div style="font-size:9px;color:#ef4444;margin-top:3px">Inactive</div>' : ''}
+  </div>`;
+}
+
+function renderOrg() {
+  const deptF = document.getElementById('orgDeptFilter').value;
+  const roleF = document.getElementById('orgRoleFilter').value;
+
+  let filtered = EMP_DATA.filter(e => {
+    if (deptF && e.dept !== deptF) return false;
+    if (roleF && e.role !== roleF) return false;
+    return true;
+  });
+
+  document.getElementById('orgCount').textContent = `${filtered.length} of ${EMP_DATA.length} shown`;
+
+  const byId = {};
+  EMP_DATA.forEach(e => byId[e.id] = e);
+
+  // Build child map from ALL employees (for structural relationships)
+  const children = {};
+  EMP_DATA.forEach(e => {
+    if (e.manager_id) {
+      children[e.manager_id] = children[e.manager_id] || [];
+      children[e.manager_id].push(e.id);
+    }
+  });
+
+  // Find roots (no manager or manager not in list)
+  const filteredIds = new Set(filtered.map(e => e.id));
+  const roots = filtered.filter(e => !e.manager_id || !filteredIds.has(e.manager_id));
+
+  function buildNode(eid, depth) {
+    const e = byId[eid];
+    if (!e) return '';
+    const kids = (children[eid] || []).filter(cid => filteredIds.has(cid));
+
+    if (kids.length === 0) {
+      return `<div class="org-branch-child"><div class="org-branch-child-inner">${empCard(e)}</div></div>`;
+    }
+
+    const kidHtml = kids.map(cid => buildNode(cid, depth + 1)).join('');
+    return `<div class="org-branch">
+      ${empCard(e)}
+      <div class="org-branch-children">${kidHtml}</div>
+    </div>`;
+  }
+
+  if (filtered.length === 0) {
+    document.getElementById('orgChart').innerHTML = '<div style="text-align:center;padding:48px;color:#374151">No employees match the selected filters.</div>';
+    return;
+  }
+
+  let html = '<div class="org-tree" style="display:flex;gap:24px;flex-wrap:wrap;justify-content:center;padding:16px">';
+  roots.forEach(e => { html += buildNode(e.id, 0); });
+  html += '</div>';
+  document.getElementById('orgChart').innerHTML = html;
+}
+</script>
+{% endblock %}

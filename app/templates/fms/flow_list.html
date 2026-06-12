@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}FMS Flows{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+  <div>
+    <h2 class="page-title">Flow Templates</h2>
+    <div class="muted">Workflows deployed to your account by your FactoryOS manager</div>
+  </div>
+  <a href="/fms/dashboard" class="btn btn-gray btn-sm">← FMS Board</a>
+</div>
+
+{% if request.query_params.get('err') %}
+<div class="alert alert-red">{{ request.query_params.get('err').replace('+',' ') }}</div>
+{% endif %}
+
+<div style="background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.2);border-radius:9px;padding:12px 16px;margin-bottom:18px;font-size:12px;color:#7dd3fc;display:flex;align-items:center;gap:8px">
+  <span style="font-size:16px">ℹ️</span>
+  <div>Flow definitions are managed by your FactoryOS account manager. You can view flows and their stages here, and create tickets against them on the <a href="/fms/dashboard" style="color:#93c5fd">FMS Board</a>. To request changes to a flow, contact support.</div>
+</div>
+
+{% if flow_info %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
+  {% for item in flow_info %}
+  {% set f = item.flow %}
+  <div class="card" style="border-left:4px solid {{ f.color }};border-radius:0 9px 9px 0;padding:16px 18px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+      <div>
+        <div style="font-size:14px;font-weight:600;color:#f1f5f9">{{ f.name }}</div>
+        {% if f.description %}
+        <div style="font-size:11px;color:#64748b;margin-top:2px">{{ f.description[:80] }}{% if f.description|length > 80 %}…{% endif %}</div>
+        {% endif %}
+      </div>
+      <span class="badge {% if f.is_active %}badge-green{% else %}badge-gray{% endif %}" style="flex-shrink:0;margin-left:8px">
+        {{ 'Active' if f.is_active else 'Inactive' }}
+      </span>
+    </div>
+
+    <div style="display:flex;gap:14px;font-size:11px;color:#64748b;margin-bottom:12px">
+      <span>{{ item.stage_count }} stages</span>
+      <span>{{ item.active_tickets }} active tickets</span>
+    </div>
+
+    <!-- Stage pipeline preview — read only -->
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">
+      {% for stage in f.stages if not stage.is_deleted %}
+      <div style="display:flex;align-items:center;gap:3px">
+        <span style="background:{{ stage.color }}22;border:1px solid {{ stage.color }}44;border-radius:99px;padding:3px 9px;font-size:10px;font-weight:500;color:#e2e8f0">
+          {{ stage.name }}
+          {% if stage.is_terminal %} ✓{% endif %}
+        </span>
+        {% if not loop.last %}<span style="color:#374151;font-size:10px">›</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Stage details expandable -->
+    <details style="margin-bottom:10px">
+      <summary style="font-size:11px;color:#60a5fa;cursor:pointer;user-select:none">
+        View stage details ({{ item.stage_count }} stages)
+      </summary>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+        {% for stage in f.stages if not stage.is_deleted %}
+        <div style="background:#0d1424;border-radius:7px;padding:10px 12px;border-left:3px solid {{ stage.color }}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:12px;font-weight:600;color:#f1f5f9">{{ loop.index }}. {{ stage.name }}</span>
+            <div style="display:flex;gap:5px">
+              {% if stage.is_terminal %}<span class="badge badge-green" style="font-size:9px">Terminal</span>{% endif %}
+              {% if stage.is_mandatory %}<span class="badge badge-blue" style="font-size:9px">Mandatory</span>{% endif %}
+            </div>
+          </div>
+          <div style="font-size:11px;color:#64748b;display:flex;flex-wrap:wrap;gap:10px">
+            {% if stage.target_tat_hours %}
+            <span>⏱ {{ stage.target_tat_hours }}h TaT target</span>
+            {% endif %}
+            {% if stage.sub_module_tag %}
+            {% set sm_labels = {'PMS':'📊 Production Log','DISPATCH':'🚛 Dispatch','INVOICE':'🧾 Invoice','MATERIAL_REQ':'📦 Material Req','CUSTOM':'📋 Custom Form'} %}
+            <span>{{ sm_labels.get(stage.sub_module_tag, stage.sub_module_tag) }}</span>
+            {% endif %}
+            {% if stage.completion_note_required %}
+            <span>📝 Note required</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+
+    <div style="display:flex;gap:8px">
+      <a href="/fms/dashboard?flow_id={{ f.id }}" class="btn btn-sm btn-primary" style="flex:1;text-align:center">
+        View Board →
+      </a>
+      <a href="/fms/tickets/new?flow_id={{ f.id }}" class="btn btn-sm btn-outline" style="flex:1;text-align:center">
+        + New Ticket
+      </a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:60px 0;color:#374151">
+  <div style="font-size:40px;margin-bottom:12px">🔧</div>
+  <div style="font-size:15px;font-weight:500;color:#64748b;margin-bottom:8px">No flows deployed yet</div>
+  <div style="font-size:12px;color:#374151">Your FactoryOS account manager will set up your flows. Contact support to get started.</div>
+  <a href="/help" class="btn btn-primary" style="margin-top:16px;display:inline-block">Contact Support →</a>
+</div>
+{% endif %}
+{% endblock %}

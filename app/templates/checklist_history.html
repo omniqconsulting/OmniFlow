@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2 class="page-title">{{ tmpl.title }} — History</h2>
+    <div class="muted">{{ tmpl.frequency }} · {{ history|length }} total records</div>
+  </div>
+  <a href="/checklists" class="btn btn-gray">← Back to Checklists</a>
+</div>
+
+<!-- Stats strip -->
+{% set done_count = history|selectattr('status','equalto','DONE')|list|length %}
+{% set fail_count = history|selectattr('status','equalto','FAILED')|list|length %}
+{% set total = history|length %}
+{% set comp = ((done_count / total * 100)|round|int) if total else 0 %}
+
+<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-bottom:16px">
+  <div class="kpi-tile"><div class="label">Total</div><div class="value">{{ total }}</div></div>
+  <div class="kpi-tile"><div class="label">Completed</div><div class="value" style="color:#6ee7b7">{{ done_count }}</div></div>
+  <div class="kpi-tile"><div class="label">Failed</div><div class="value" style="color:#f87171">{{ fail_count }}</div></div>
+  <div class="kpi-tile">
+    <div class="label">Compliance</div>
+    <div class="value" style="color:{% if comp >= 80 %}#6ee7b7{% elif comp >= 50 %}#fcd34d{% else %}#f87171{% endif %}">{{ comp }}%</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-bottom:14px">All Occurrences</h2>
+  {% if history %}
+  <table>
+    <thead>
+      <tr>
+        <th>Assigned To</th>
+        <th>Due Date</th>
+        <th>Completed</th>
+        <th>Status</th>
+        <th>Note</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for a in history %}
+    <tr>
+      <td style="color:#e2e8f0;font-weight:500">{{ a.user.name if a.user else '—' }}</td>
+      <td style="font-size:12px;color:#94a3b8">{{ a.due_at.strftime('%d %b %Y, %I:%M %p') if a.due_at else '—' }}</td>
+      <td style="font-size:12px;color:#94a3b8">
+        {% if a.completed_at %}{{ a.completed_at.strftime('%d %b %Y, %I:%M %p') }}
+        {% else %}<span class="muted">—</span>{% endif %}
+      </td>
+      <td>
+        <span class="badge badge-{% if a.status=='DONE' %}green{% elif a.status=='FAILED' %}red{% elif a.status=='OVERDUE' %}red{% elif a.status=='IN_PROGRESS' %}yellow{% else %}blue{% endif %}" style="font-size:10px">
+          {{ a.status }}
+        </span>
+      </td>
+      <td style="font-size:11px;color:#64748b;max-width:200px">{{ a.failure_note or '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted" style="font-size:12px;padding:8px 0">No history yet for this checklist.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

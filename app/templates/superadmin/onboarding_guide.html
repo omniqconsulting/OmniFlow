@@ -1,0 +1,579 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2 class="page-title">🗺 SA Onboarding Guide</h2>
+    <div class="muted">Step-by-step playbook for onboarding a new client from zero to live</div>
+  </div>
+  <a href="/superadmin/tenants/new" class="btn btn-purple">+ Create New Tenant</a>
+</div>
+
+<!-- Progress navigation -->
+<div class="card" style="padding:14px 20px;margin-bottom:6px">
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+    <span style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-right:6px">Jump to:</span>
+    {% for step in [
+      ('step1','1. Create Tenant'),
+      ('step2','2. Checklists'),
+      ('step3','3. Flow Board'),
+      ('step4','4. Inventory'),
+      ('step5','5. Employees'),
+      ('step6','6. Verify & Go Live'),
+    ] %}
+    <a href="#{{ step[0] }}" style="padding:5px 12px;border-radius:99px;background:rgba(124,58,237,0.12);color:#c4b5fd;font-size:12px;font-weight:500;border:1px solid rgba(124,58,237,0.25)">{{ step[1] }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- EXAMPLE BANNER -->
+<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:14px 18px;margin-bottom:18px;display:flex;gap:12px;align-items:flex-start">
+  <span style="font-size:20px">🏭</span>
+  <div>
+    <div style="font-weight:600;color:#fcd34d;font-size:13px">Running example throughout this guide</div>
+    <div style="color:#94a3b8;font-size:12px;margin-top:3px">
+      <strong style="color:#e2e8f0">Acme Manufacturing Ltd</strong> — a mid-size factory that needs:
+      daily safety checklists, a production order pipeline with material requests, and an inventory store.
+      We'll build this live as we go through each step.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- STEP 1: CREATE TENANT -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="step1" class="card card-purple" style="border-left:3px solid #7c3aed">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0">1</div>
+    <div>
+      <h2 style="margin:0">Create the Tenant</h2>
+      <div style="color:#64748b;font-size:12px">Set up the factory workspace, admin account, and choose modules</div>
+    </div>
+    <a href="/superadmin/tenants/new" class="btn btn-purple btn-sm" style="margin-left:auto">Open Form →</a>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div>
+      <div class="guide-section-label">What to fill in</div>
+      <div class="guide-step">
+        <span class="guide-num">①</span>
+        <div>
+          <strong>Factory Name</strong> — full legal or brand name.<br>
+          <span class="eg">e.g. Acme Manufacturing Ltd</span>
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num">②</span>
+        <div>
+          <strong>Factory ID (slug)</strong> — auto-generated; employees type this on login.<br>
+          <span class="eg">e.g. acme-mfg &nbsp;→&nbsp; employees log in at slug "acme-mfg"</span>
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num">③</span>
+        <div>
+          <strong>Industry Preset</strong> — sets label vocabulary.<br>
+          <span class="eg">e.g. Manufacturing → "Work Order", "Production", "Dispatch"</span>
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num">④</span>
+        <div>
+          <strong>Plan</strong> — Starter / Professional / Enterprise. Affects feature limits.
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num">⑤</span>
+        <div>
+          <strong>Admin Account</strong> — name + phone + password. This person gets the ADMIN role and sees all dashboards.
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="guide-section-label">Module Selection — key decision</div>
+      <p style="font-size:12px;color:#94a3b8;margin-bottom:10px">
+        Only tick what this client's domain actually uses. You can add/remove later via Feature Flags on their tenant page.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="module-pill always-on">🎫 Tickets — always on (cannot disable)</div>
+        <div class="module-pill">✅ Checklists — tick for SOPs, daily inspections, QC</div>
+        <div class="module-pill">🔄 Flow Board — tick for multi-stage pipelines</div>
+        <div class="module-pill">📦 Inventory — tick for physical stock / material tracking</div>
+        <div class="module-pill">✦ Ask AI — tick only if plan allows and client wants it</div>
+      </div>
+      <div style="margin-top:12px;padding:10px 12px;background:rgba(245,158,11,0.08);border-radius:7px;border:1px solid rgba(245,158,11,0.2)">
+        <div style="font-size:11px;color:#fcd34d;font-weight:600;margin-bottom:4px">For Acme Manufacturing</div>
+        <div style="font-size:12px;color:#94a3b8">Tick: ✅ Checklists + 🔄 Flow Board + 📦 Inventory</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="guide-tip">
+    <strong>After submitting:</strong> you land on the tenant detail page. Note the Tenant ID — you'll use it when deploying library items. The admin can now log in immediately.
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- STEP 2: CHECKLISTS -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="step2" class="card" style="border-left:3px solid #10b981">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <div style="width:32px;height:32px;border-radius:50%;background:#059669;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0">2</div>
+    <div>
+      <h2 style="margin:0">Set Up Checklists</h2>
+      <div style="color:#64748b;font-size:12px">SA Library → create template → add steps → deploy to tenant</div>
+    </div>
+    <a href="/superadmin/library" class="btn btn-green btn-sm" style="margin-left:auto">Go to Library →</a>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div>
+      <div class="guide-section-label">Step by step</div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#059669">①</span>
+        <div>
+          Go to <strong>Library → Checklists</strong> tab.
+          Click <strong>"+ New Checklist Template"</strong>.
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#059669">②</span>
+        <div>
+          Give it a <strong>name</strong>, optional <strong>description</strong>, choose <strong>frequency</strong>
+          (Daily / Weekly / Monthly / Ad-hoc) and set <strong>due hour</strong> if daily.
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#059669">③</span>
+        <div>
+          Add <strong>Steps</strong> (checklist items) in order. Each step has a title and optional instruction text.
+          Drag to reorder.
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#059669">④</span>
+        <div>
+          Click <strong>"Deploy to Tenant"</strong>. Select the tenant from the dropdown. Done —
+          it will appear in that tenant's Checklists module.
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#059669">⑤</span>
+        <div>
+          The tenant ADMIN assigns it to employees. They complete it from their dashboard daily.
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="guide-section-label" style="color:#10b981">Example — Acme Morning Safety Inspection</div>
+      <div style="background:#0d1424;border:1px solid rgba(16,185,129,0.18);border-radius:8px;padding:14px">
+        <div style="font-size:12px;color:#6ee7b7;font-weight:600;margin-bottom:2px">Morning Safety Inspection</div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px">Daily · Due by 08:00</div>
+        {% for item in [
+          'PPE check — all workers in designated zones wearing correct PPE',
+          'Fire extinguisher access — paths clear, no obstructions',
+          'Emergency exits — all 4 exits unblocked and signage lit',
+          'Machine guard checks — all moving parts guarded before shift start',
+          'Spill kits — check stock level, replace if any kits used overnight',
+          'Shift supervisor sign-off',
+        ] %}
+        <div style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <div style="width:14px;height:14px;border:1.5px solid #10b981;border-radius:3px;flex-shrink:0;margin-top:1px"></div>
+          <div style="font-size:12px;color:#cbd5e1">{{ item }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:#64748b">
+        Deploy this to <em>acme-mfg</em> → ADMIN assigns to all floor supervisors → appears on their Employee Dashboard each morning.
+      </div>
+    </div>
+  </div>
+
+  <div class="guide-tip" style="border-color:rgba(16,185,129,0.3);background:rgba(16,185,129,0.06)">
+    <strong>Tip:</strong> You can reuse the same library template across multiple tenants. Edit the template in the library and re-deploy to push updates. Each tenant gets its own independent copy after deployment.
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- STEP 3: FLOW BOARD / FMS -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="step3" class="card" style="border-left:3px solid #3b82f6">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <div style="width:32px;height:32px;border-radius:50%;background:#2563eb;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0">3</div>
+    <div>
+      <h2 style="margin:0">Set Up the Flow Board (FMS)</h2>
+      <div style="color:#64748b;font-size:12px">Library → create flow → add stages → attach sub-modules → deploy</div>
+    </div>
+    <a href="/superadmin/library" class="btn btn-sm" style="margin-left:auto;background:#2563eb;border-color:transparent;color:#fff">Go to Library →</a>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div>
+      <div class="guide-section-label">Step by step</div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#2563eb">①</span>
+        <div>
+          Go to <strong>Library → Flows</strong> tab. Click <strong>"+ New Flow"</strong>.
+          Give it a name and description.
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#2563eb">②</span>
+        <div>
+          Add <strong>Stages</strong> in pipeline order. Each stage is a column on the Flow Board kanban.
+          Example: Quote → Design → Production → QC → Dispatch → Closed.
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#2563eb">③</span>
+        <div>
+          For each stage that needs a sub-action, click <strong>"+ Sub-module"</strong> and attach:
+          <ul style="margin:4px 0 0 14px;font-size:12px;color:#94a3b8">
+            <li><strong>MATERIAL_REQ</strong> — triggers a material request to the Store Manager when a ticket enters this stage</li>
+            <li><strong>DISPATCH</strong> — triggers a dispatch form at the Dispatch stage</li>
+            <li><strong>INVOICE</strong> — triggers invoice generation</li>
+          </ul>
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#2563eb">④</span>
+        <div>
+          Click <strong>"Deploy to Tenant"</strong>. Select the tenant. Done — the pipeline appears in their Flow Board.
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#2563eb">⑤</span>
+        <div>
+          The ADMIN or MANAGER creates the first ticket and assigns it. The ticket moves through stages as work progresses. Sub-modules trigger automatically.
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="guide-section-label" style="color:#3b82f6">Example — Acme Production Order Pipeline</div>
+      <!-- Pipeline visual -->
+      <div style="display:flex;gap:0;overflow-x:auto;padding-bottom:4px">
+        {% for stage in [
+          ('Quote','#374151',''),
+          ('Design','#374151',''),
+          ('Production','#1e3a5f','MATERIAL_REQ'),
+          ('QC','#374151',''),
+          ('Dispatch','#1a3320','DISPATCH'),
+          ('Closed','#1a1f2e',''),
+        ] %}
+        <div style="display:flex;align-items:center">
+          <div style="min-width:90px;background:{{ stage[1] }};border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;text-align:center">
+            <div style="font-size:11px;font-weight:600;color:#e2e8f0">{{ stage[0] }}</div>
+            {% if stage[2] %}
+            <div style="font-size:9px;color:#7dd3fc;margin-top:3px;background:rgba(59,130,246,0.15);border-radius:3px;padding:1px 4px">{{ stage[2] }}</div>
+            {% endif %}
+          </div>
+          {% if not loop.last %}<div style="color:#374151;font-size:14px;padding:0 2px">→</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <div style="margin-top:12px;font-size:12px;color:#94a3b8;line-height:1.6">
+        <strong style="color:#e2e8f0">How it works at Acme:</strong><br>
+        1. MANAGER creates "Production Order #PO-001" ticket.<br>
+        2. Ticket moves to <em>Production</em> → MATERIAL_REQ sub-module fires → Store Manager gets a request for raw materials.<br>
+        3. Store Manager approves / fulfils the request → ticket continues.<br>
+        4. Ticket moves to <em>Dispatch</em> → DISPATCH form fires → driver details and vehicle logged.<br>
+        5. Ticket closes → auto-KPI updates on all dashboards.
+      </div>
+
+      <div style="margin-top:10px;padding:10px 12px;background:rgba(245,158,11,0.08);border-radius:7px;border:1px solid rgba(245,158,11,0.2)">
+        <div style="font-size:11px;color:#fcd34d;font-weight:600;margin-bottom:4px">Role coverage for this flow</div>
+        <div style="font-size:11px;color:#94a3b8;line-height:1.7">
+          MANAGER — creates + moves tickets<br>
+          STORE_MANAGER — sees material requests, approves stock<br>
+          EMPLOYEE — assigned to production/QC stages<br>
+          ADMIN — sees all, can reassign
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="guide-tip" style="border-color:rgba(59,130,246,0.3);background:rgba(59,130,246,0.06)">
+    <strong>Sub-module tip:</strong> MATERIAL_REQ on the Production stage means the request is raised <em>as soon as the ticket enters that stage</em>, not when it's manually triggered. The stage name is also recorded on the request so the store can prioritize.
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- STEP 4: INVENTORY -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="step4" class="card" style="border-left:3px solid #f59e0b">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <div style="width:32px;height:32px;border-radius:50%;background:#d97706;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0">4</div>
+    <div>
+      <h2 style="margin:0">Set Up Inventory</h2>
+      <div style="color:#64748b;font-size:12px">Add materials, set reorder thresholds, assign Store Manager</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div>
+      <div class="guide-section-label">Step by step</div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#d97706">①</span>
+        <div>
+          Ensure <strong>Inventory</strong> module was ticked when creating the tenant (or enable it now via tenant Feature Flags).
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#d97706">②</span>
+        <div>
+          Ask the client ADMIN to log in and go to <strong>Inventory → Materials</strong>.
+          They can add materials one-by-one or use <strong>Bulk Import</strong> (CSV upload) for large catalogues.
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#d97706">③</span>
+        <div>
+          For each material, set the <strong>Reorder Level</strong>. When stock drops at or below this number, the ADMIN, MANAGER, and STORE_MANAGER automatically receive a low-stock alert.
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#d97706">④</span>
+        <div>
+          Create a <strong>STORE_MANAGER</strong> employee (see Step 5) and assign them to the store. They will:
+          <ul style="margin:4px 0 0 14px;font-size:12px;color:#94a3b8">
+            <li>Approve / fulfil material requests from the Flow Board</li>
+            <li>Record stock-in (from PO) and stock-out movements</li>
+            <li>Raise Purchase Orders when below threshold</li>
+          </ul>
+        </div>
+      </div>
+      <div class="guide-step">
+        <span class="guide-num" style="background:#d97706">⑤</span>
+        <div>
+          For the bulk import CSV, click <strong>Download Template</strong> on the Materials page to get the correct column headers.
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="guide-section-label" style="color:#f59e0b">Example — Acme starter catalogue (CSV)</div>
+      <div style="background:#0d1424;border:1px solid rgba(245,158,11,0.18);border-radius:8px;padding:0;overflow:hidden;font-family:monospace">
+        <div style="background:rgba(245,158,11,0.1);padding:7px 12px;font-size:10px;color:#fcd34d;font-weight:600;letter-spacing:0.05em">materials_import.csv</div>
+        <div style="overflow-x:auto">
+        <table style="margin:0;font-size:11px">
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
+            <th style="padding:6px 10px;color:#94a3b8">name</th>
+            <th style="padding:6px 10px;color:#94a3b8">unit</th>
+            <th style="padding:6px 10px;color:#94a3b8">current_stock</th>
+            <th style="padding:6px 10px;color:#94a3b8">reorder_level</th>
+          </tr>
+          {% for row in [
+            ('Steel Rods 10mm','pcs','500','50'),
+            ('Aluminium Sheet 2mm','sqft','200','30'),
+            ('Welding Wire ER70','kg','80','15'),
+            ('Safety Gloves (M)','pairs','120','20'),
+            ('Hydraulic Oil 46','litres','60','10'),
+          ] %}
+          <tr>
+            <td style="padding:5px 10px;color:#e2e8f0">{{ row[0] }}</td>
+            <td style="padding:5px 10px;color:#7dd3fc">{{ row[1] }}</td>
+            <td style="padding:5px 10px;color:#6ee7b7">{{ row[2] }}</td>
+            <td style="padding:5px 10px;color:#fca5a5">{{ row[3] }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:#64748b">
+        Upload this on Inventory → Materials → Bulk Import. Failed rows are returned as an error CSV with reasons.
+      </div>
+    </div>
+  </div>
+
+  <div class="guide-tip" style="border-color:rgba(245,158,11,0.3);background:rgba(245,158,11,0.06)">
+    <strong>Flow Board ↔ Inventory link:</strong> when a ticket reaches the Production stage with a MATERIAL_REQ sub-module, it creates a request inside Inventory → Requests automatically. The Store Manager sees it there and can approve/fulfil without leaving their dashboard.
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- STEP 5: EMPLOYEES -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="step5" class="card" style="border-left:3px solid #8b5cf6">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0">5</div>
+    <div>
+      <h2 style="margin:0">Create Employees & Assign Roles</h2>
+      <div style="color:#64748b;font-size:12px">The ADMIN does this — but brief them on what each role sees</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div>
+      <div class="guide-section-label">Role reference</div>
+      {% for role in [
+        ('ADMIN','#7c3aed','Full access. All dashboards, all modules, all settings. Creates employees, assigns roles, deploys checklists.'),
+        ('MANAGER','#2563eb','Creates and manages tickets / flow board tickets. Sees team KPIs. Can raise material requests.'),
+        ('STORE_MANAGER','#d97706','Inventory-focused. Approves material requests, records stock movements, raises purchase orders. Sees the Inventory tab.'),
+        ('EMPLOYEE','#059669','Assigned tickets and checklists. Sees own dashboard: active tickets, my checklists, compliance chart.'),
+      ] %}
+      <div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <span class="badge" style="background:{{ role[1] }}22;color:{{ role[1] }};flex-shrink:0;margin-top:2px">{{ role[0] }}</span>
+        <div style="font-size:12px;color:#94a3b8">{{ role[2] }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div>
+      <div class="guide-section-label" style="color:#8b5cf6">Example — Acme team setup</div>
+      <div style="background:#0d1424;border:1px solid rgba(139,92,246,0.18);border-radius:8px;overflow:hidden">
+        <table style="margin:0;font-size:12px">
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
+            <th style="padding:8px 12px">Name</th>
+            <th style="padding:8px 12px">Role</th>
+          </tr>
+          {% for emp in [
+            ('Rajesh Kumar','ADMIN'),
+            ('Priya Menon','MANAGER'),
+            ('Suresh Nair','STORE_MANAGER'),
+            ('Amit Singh','EMPLOYEE'),
+            ('Kavitha Rao','EMPLOYEE'),
+          ] %}
+          <tr>
+            <td style="padding:7px 12px;color:#e2e8f0">{{ emp[0] }}</td>
+            <td style="padding:7px 12px">
+              <span class="badge {% if emp[1]=='ADMIN' %}badge-purple{% elif emp[1]=='MANAGER' %}badge-blue{% elif emp[1]=='STORE_MANAGER' %}badge-amber{% else %}badge-green{% endif %}">{{ emp[1] }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+
+      <div style="margin-top:14px">
+        <div class="guide-section-label" style="color:#8b5cf6">How the admin adds employees</div>
+        <div style="font-size:12px;color:#94a3b8;line-height:1.8">
+          1. Log in as ADMIN → go to <strong>Employees</strong><br>
+          2. Click <strong>"+ Add Employee"</strong><br>
+          3. Fill name, phone number, role, password<br>
+          4. Employee logs in with: <em>Factory ID</em> + <em>phone</em> + <em>password</em>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="guide-tip" style="border-color:rgba(139,92,246,0.3);background:rgba(139,92,246,0.06)">
+    <strong>Remind the admin:</strong> STORE_MANAGER is a restricted role — they only see the Inventory tab and their assigned tickets. They do <em>not</em> see the full admin or manager dashboard. This is intentional for domain separation.
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- STEP 6: VERIFY & GO LIVE -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="step6" class="card" style="border-left:3px solid #10b981">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <div style="width:32px;height:32px;border-radius:50%;background:#059669;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0">6</div>
+    <div>
+      <h2 style="margin:0">Verify Setup & Go Live</h2>
+      <div style="color:#64748b;font-size:12px">Run through this checklist before handing the tenant to the client</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div>
+      <div class="guide-section-label">SA verification checklist</div>
+      {% for check in [
+        ('Tenant visible on SA Dashboard with correct plan','tenant'),
+        ('Admin can log in (slug + phone + password)','admin'),
+        ('Correct module tabs visible in nav (no extra tabs)','modules'),
+        ('Checklist template deployed and visible in tenant Checklists','checklists'),
+        ('Flow / Pipeline deployed and visible in tenant Flow Board','fms'),
+        ('At least one stage has a sub-module attached','submodule'),
+        ('Inventory materials loaded (or CSV imported)','inventory'),
+        ('At least one employee of each required role created','employees'),
+        ('Low-stock alert threshold set on at least one material','alerts'),
+        ('Test ticket created → moves through stages → material request fires','e2e'),
+      ] %}
+      <div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+        <div style="width:16px;height:16px;border:1.5px solid #059669;border-radius:3px;flex-shrink:0"></div>
+        <div style="font-size:12px;color:#cbd5e1">{{ check[0] }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div>
+      <div class="guide-section-label">Quick links for this session</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <a href="/superadmin/tenants" class="btn btn-outline" style="justify-content:flex-start">
+          🏭 All Tenants list
+        </a>
+        <a href="/superadmin/library" class="btn btn-outline" style="justify-content:flex-start">
+          📚 SA Library (Checklists + Flows)
+        </a>
+        <a href="/superadmin/tenants/new" class="btn btn-purple" style="justify-content:flex-start">
+          + Create New Tenant
+        </a>
+      </div>
+
+      <div style="margin-top:20px">
+        <div class="guide-section-label">What happens after go-live</div>
+        <div style="font-size:12px;color:#94a3b8;line-height:1.8">
+          • SA can edit Feature Flags anytime on the tenant detail page<br>
+          • Library templates can be updated and re-deployed<br>
+          • Tenant ADMIN self-manages: adds employees, assigns checklists, creates tickets<br>
+          • Real-time sync (WebSocket) is active by default — no config needed<br>
+          • SA Dashboard shows live KPIs across all tenants
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- QUICK REFERENCE CARD -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="card" style="background:#0a0f1a;border:1px solid rgba(124,58,237,0.2)">
+  <h2 style="margin-bottom:14px">⚡ Quick Reference</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">
+    <div class="qr-box">
+      <div class="qr-label">Tenant creation order</div>
+      <div style="font-size:12px;color:#94a3b8;line-height:1.8">Create Tenant → Add Modules → Create Admin → Deploy Library items → Add Employees</div>
+    </div>
+    <div class="qr-box">
+      <div class="qr-label">Module gating rules</div>
+      <div style="font-size:12px;color:#94a3b8;line-height:1.8">Tickets = always on. Everything else = SA opts in per tenant. Override plan defaults via Feature Flags on tenant page.</div>
+    </div>
+    <div class="qr-box">
+      <div class="qr-label">Who can see Inventory tab?</div>
+      <div style="font-size:12px;color:#94a3b8;line-height:1.8">ADMIN + STORE_MANAGER. MANAGER and EMPLOYEE do not see the Inventory nav tab (only material request panel in their ticket view).</div>
+    </div>
+    <div class="qr-box">
+      <div class="qr-label">Sub-module trigger timing</div>
+      <div style="font-size:12px;color:#94a3b8;line-height:1.8">Fires when a ticket <em>enters</em> the stage. Creates a pending request automatically. Store Manager sees it immediately via WebSocket push.</div>
+    </div>
+    <div class="qr-box">
+      <div class="qr-label">Low-stock alert recipients</div>
+      <div style="font-size:12px;color:#94a3b8;line-height:1.8">ADMIN, MANAGER, STORE_MANAGER — all three get notified when stock ≤ reorder level after any movement.</div>
+    </div>
+    <div class="qr-box">
+      <div class="qr-label">Changing modules after creation</div>
+      <div style="font-size:12px;color:#94a3b8;line-height:1.8">Tenant detail page → Feature Flags section → toggle any module on or off. Takes effect immediately — no restart needed.</div>
+    </div>
+  </div>
+</div>
+
+<style>
+.guide-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#64748b;margin-bottom:10px}
+.guide-step{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px;color:#cbd5e1;line-height:1.5}
+.guide-num{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#7c3aed;color:#fff;font-size:10px;font-weight:700;flex-shrink:0;margin-top:1px}
+.eg{font-size:11px;color:#64748b;font-style:italic}
+.guide-tip{margin-top:14px;padding:10px 14px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.2);border-radius:8px;font-size:12px;color:#94a3b8;line-height:1.6}
+.module-pill{padding:7px 12px;border-radius:7px;background:#0d1424;border:1px solid rgba(255,255,255,0.08);font-size:12px;color:#cbd5e1}
+.module-pill.always-on{border-color:rgba(16,185,129,0.3);color:#6ee7b7;background:rgba(16,185,129,0.06)}
+.qr-box{padding:12px;background:#111827;border-radius:8px;border:1px solid rgba(255,255,255,0.07)}
+.qr-label{font-size:11px;font-weight:600;color:#c4b5fd;margin-bottom:6px}
+</style>
+
+{% endblock %}

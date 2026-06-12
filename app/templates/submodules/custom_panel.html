@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}{{ submodule_def.name }} – {{ ticket.title }}{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <nav aria-label="breadcrumb"><ol class="breadcrumb mb-1">
+    <li class="breadcrumb-item"><a href="/fms/tickets/{{ ticket.id }}">{{ ticket.title[:40] }}</a></li>
+    <li class="breadcrumb-item active">{{ submodule_def.name }}</li>
+  </ol></nav>
+  <h3 class="mb-0">
+    <i class="bi bi-layout-text-window me-2"></i>{{ submodule_def.name }}
+    {% if is_complete %}<span class="badge bg-success ms-2">Completed</span>{% endif %}
+  </h3>
+  {% if submodule_def.description %}
+  <small class="text-muted">{{ submodule_def.description }}</small>
+  {% endif %}
+</div>
+
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <form method="post" action="/submodules/custom/{{ ticket.id }}/{{ stage.id }}/submit">
+          {% for field in fields %}
+          {% set fid = field.get('id','f'~loop.index) %}
+          {% set val = responses.get(fid, '') %}
+          {% set required = field.get('required', False) %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">
+              {{ field.get('label', 'Field') }}
+              {% if required %}<span class="text-danger">*</span>{% endif %}
+            </label>
+
+            {% set ftype = field.get('type','text') %}
+            {% if ftype == 'text' %}
+            <input type="text" name="field_{{ fid }}" class="form-control"
+                   value="{{ val }}" {{ 'required' if required else '' }}>
+            {% elif ftype == 'longtext' %}
+            <textarea name="field_{{ fid }}" class="form-control" rows="3"
+                      {{ 'required' if required else '' }}>{{ val }}</textarea>
+            {% elif ftype == 'number' %}
+            <input type="number" name="field_{{ fid }}" class="form-control"
+                   value="{{ val }}" {{ 'required' if required else '' }}>
+            {% elif ftype == 'date' %}
+            <input type="date" name="field_{{ fid }}" class="form-control"
+                   value="{{ val }}" {{ 'required' if required else '' }}>
+            {% elif ftype == 'datetime' %}
+            <input type="datetime-local" name="field_{{ fid }}" class="form-control"
+                   value="{{ val }}" {{ 'required' if required else '' }}>
+            {% elif ftype == 'yesno' %}
+            <select name="field_{{ fid }}" class="form-select" {{ 'required' if required else '' }}>
+              <option value="">-- Select --</option>
+              <option value="Yes" {{ 'selected' if val == 'Yes' }}>Yes</option>
+              <option value="No"  {{ 'selected' if val == 'No' }}>No</option>
+            </select>
+            {% elif ftype == 'dropdown' %}
+            <select name="field_{{ fid }}" class="form-select" {{ 'required' if required else '' }}>
+              <option value="">-- Select --</option>
+              {% for opt in field.get('options', []) %}
+              <option value="{{ opt }}" {{ 'selected' if val == opt }}>{{ opt }}</option>
+              {% endfor %}
+            </select>
+            {% elif ftype == 'photo' or ftype == 'file' %}
+            <input type="file" name="field_{{ fid }}" class="form-control"
+                   {{ 'accept=image/*' if ftype == 'photo' else '' }}>
+            {% if val %}
+            <div class="small text-success mt-1"><i class="bi bi-check-circle me-1"></i>File already uploaded</div>
+            {% endif %}
+            {% elif ftype == 'signature' %}
+            <div class="border rounded p-2 text-muted small text-center bg-light">
+              <i class="bi bi-pen me-1"></i>Signature field (text fallback)
+            </div>
+            <input type="text" name="field_{{ fid }}" class="form-control mt-1"
+                   value="{{ val }}" placeholder="Type name as signature">
+            {% else %}
+            <input type="text" name="field_{{ fid }}" class="form-control" value="{{ val }}">
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="text-center text-muted py-4">
+            <i class="bi bi-layout-text-window display-5"></i>
+            <p class="mt-2 small">No fields defined for this sub-module.</p>
+          </div>
+          {% endfor %}
+
+          {% if fields %}
+          <hr>
+          <div class="d-flex gap-2 justify-content-between align-items-center">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="mark_complete"
+                     id="markComplete" value="true" {{ 'checked' if is_complete }}>
+              <label class="form-check-label fw-semibold" for="markComplete">
+                Mark sub-module complete
+              </label>
+            </div>
+            <div class="d-flex gap-2">
+              <a href="/fms/tickets/{{ ticket.id }}" class="btn btn-secondary btn-sm">Cancel</a>
+              <button class="btn btn-primary btn-sm px-4" type="submit">
+                <i class="bi bi-save me-1"></i>Save
+              </button>
+            </div>
+          </div>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

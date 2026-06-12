@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Material Requests – {{ ticket.title }}{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <nav aria-label="breadcrumb"><ol class="breadcrumb mb-1">
+    <li class="breadcrumb-item"><a href="/fms/tickets/{{ ticket.id }}">{{ ticket.title[:40] }}</a></li>
+    <li class="breadcrumb-item active">Material Requests</li>
+  </ol></nav>
+  <h3 class="mb-0"><i class="bi bi-box-seam me-2"></i>Material Requisitions</h3>
+</div>
+
+<div class="row g-3">
+  <!-- New request form -->
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold"><i class="bi bi-plus-circle me-1"></i>New Request</div>
+      <div class="card-body">
+        <form method="post" action="/submodules/materials/{{ ticket.id }}/request">
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Material</label>
+            {% if catalogue %}
+            <select name="material_id" class="form-select form-select-sm" id="matSelect"
+                    onchange="fillUnit(this)">
+              <option value="">-- Select or type below --</option>
+              {% for m in catalogue %}
+              <option value="{{ m.id }}" data-unit="{{ m.unit }}">{{ m.name }} ({{ m.unit }})</option>
+              {% endfor %}
+            </select>
+            <div class="mt-1">
+              <input type="text" name="material_name" class="form-control form-control-sm"
+                     placeholder="Or type custom material name">
+            </div>
+            {% else %}
+            <input type="text" name="material_name" class="form-control form-control-sm" required
+                   placeholder="Material name">
+            <input type="hidden" name="material_id" value="">
+            {% endif %}
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Qty <span class="text-danger">*</span></label>
+            <div class="input-group input-group-sm">
+              <input type="number" name="qty_requested" class="form-control" min="1" required>
+              <input type="text" name="unit" id="unitField" class="form-control" style="max-width:80px" placeholder="unit">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Reason</label>
+            <textarea name="reason" class="form-control form-control-sm" rows="2"
+                      placeholder="Why do you need this material?"></textarea>
+          </div>
+          <button class="btn btn-primary btn-sm w-100" type="submit">
+            <i class="bi bi-send me-1"></i>Submit Request
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Request list -->
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold"><i class="bi bi-list-ul me-1"></i>All Requests</div>
+      <div class="card-body p-0">
+        {% if requests %}
+        <ul class="list-group list-group-flush">
+          {% for req in requests %}
+          {% set sc = {'PENDING':'warning','APPROVED':'success','REJECTED':'danger','FULFILLED':'primary'} %}
+          <li class="list-group-item py-2">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <span class="fw-semibold">{{ req.material_name or req.material.name if req.material else '—' }}</span>
+                <span class="ms-2 text-muted">{{ req.qty_requested }} {{ req.unit or '' }}</span>
+                <span class="badge bg-{{ sc.get(req.status,'secondary') }} ms-2">{{ req.status }}</span>
+                {% if req.stage_name %}
+                <div class="small text-muted mt-0" style="margin-top:2px;">📍 Raised at stage: <strong>{{ req.stage_name }}</strong></div>
+                {% endif %}
+                {% if req.reason %}
+                <div class="small text-muted mt-0">{{ req.reason[:80] }}</div>
+                {% endif %}
+                {% if req.rejection_note %}
+                <div class="small text-danger mt-0"><i class="bi bi-x-circle me-1"></i>{{ req.rejection_note }}</div>
+                {% endif %}
+              </div>
+              <div class="text-end">
+                <div class="small text-muted">{{ req.created_at.strftime('%d %b %H:%M') if req.created_at else '' }}</div>
+                {% if req.status == 'PENDING' and can_approve %}
+                <div class="d-flex gap-1 mt-1">
+                  <form method="post" action="/submodules/materials/req/{{ req.id }}/approve">
+                    <button class="btn btn-xs btn-outline-success btn-sm py-0 px-1">Approve</button>
+                  </form>
+                  <button class="btn btn-xs btn-outline-danger btn-sm py-0 px-1"
+                          data-bs-toggle="collapse" data-bs-target="#rej-{{ req.id }}">Reject</button>
+                </div>
+                <div class="collapse mt-1" id="rej-{{ req.id }}">
+                  <form method="post" action="/submodules/materials/req/{{ req.id }}/reject" class="d-flex gap-1">
+                    <input type="text" name="rejection_note" class="form-control form-control-sm"
+                           placeholder="Reason" style="width:140px">
+                    <button class="btn btn-xs btn-danger btn-sm py-0 px-1">Confirm</button>
+                  </form>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center text-muted py-4 small">No material requests yet.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function fillUnit(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const unit = opt.dataset.unit || '';
+  document.getElementById('unitField').value = unit;
+}
+</script>
+{% endblock %}

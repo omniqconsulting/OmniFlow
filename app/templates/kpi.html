@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<div class="page-header">
+  <h1 class="page-title">📊 My KPIs</h1>
+  {% if can_export %}
+  <a href="/analytics/export?export_type=kpis" class="btn btn-sm btn-outline">⬇ Export CSV</a>
+  {% endif %}
+</div>
+
+<!-- Self KPIs -->
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="label">Avg TaT</div>
+    <div class="value" style="font-size:22px">{{ kpis.avg_tat_hours|round(1) }}h</div>
+    <div class="sub">org avg {{ org_avg_tat|round(1) }}h</div>
+  </div>
+  <div class="kpi-card">
+    <div class="label">On-Time Rate</div>
+    <div class="value" style="color:{% if kpis.on_time_rate >= 80 %}#10b981{% elif kpis.on_time_rate >= 60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ kpis.on_time_rate|round(0)|int }}%</div>
+    <div class="sub">last 30 days</div>
+  </div>
+  <div class="kpi-card">
+    <div class="label">Active Tickets</div>
+    <div class="value">{{ kpis.active_count }}</div>
+    <div class="sub">open right now</div>
+  </div>
+  <div class="kpi-card">
+    <div class="label">Checklist Compliance</div>
+    <div class="value" style="color:{% if kpis.compliance_rate >= 80 %}#10b981{% elif kpis.compliance_rate >= 60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ kpis.compliance_rate|round(0)|int }}%</div>
+    <div class="sub">all time</div>
+  </div>
+  <div class="kpi-card">
+    <div class="label">Avg Ack Time</div>
+    <div class="value" style="font-size:22px">{{ kpis.avg_ack_hours|round(1) }}h</div>
+    <div class="sub">time to acknowledge</div>
+  </div>
+  <div class="kpi-card">
+    <div class="label">Closed (30d)</div>
+    <div class="value">{{ kpis.closed_30d }}</div>
+    <div class="sub">tickets closed</div>
+  </div>
+</div>
+
+<!-- 8-week compliance trend -->
+<div class="card">
+  <h2>Checklist Compliance — 8-Week Trend</h2>
+  <canvas id="complianceChart" height="70"></canvas>
+</div>
+<script>
+new Chart(document.getElementById('complianceChart'), {
+  type: 'line',
+  data: {
+    labels: {{ kpis.weekly_labels | tojson }},
+    datasets: [{
+      label: 'Compliance %',
+      data: {{ kpis.weekly_compliance | tojson }},
+      borderColor: '#3b82f6',
+      backgroundColor: 'rgba(59,130,246,0.08)',
+      tension: 0.4,
+      fill: true,
+      pointRadius: 4,
+      pointBackgroundColor: '#3b82f6',
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      y: { min:0, max:100, ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' } },
+      x: { ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' } }
+    }
+  }
+});
+</script>
+
+<!-- Priority breakdown -->
+{% if kpis.active_by_priority %}
+<div class="card">
+  <h2>Active Tickets by Priority</h2>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    {% for p, cnt in kpis.active_by_priority.items() %}
+    <div style="background:#1e293b;border-radius:8px;padding:10px 18px;min-width:90px;text-align:center">
+      <div style="font-size:20px;font-weight:700">{{ cnt }}</div>
+      <div style="font-size:11px;color:#64748b;margin-top:3px">{{ p }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Admin/Manager: all employee KPIs -->
+{% if admin_kpis %}
+<div class="card" style="margin-top:20px">
+  <h2>All Employees — KPI Rankings</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Dept</th><th>Avg TaT</th><th>On-Time %</th>
+        <th>Compliance %</th><th>Active</th><th>Closed 30d</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for k in admin_kpis | sort(attribute='avg_tat_hours') %}
+    <tr>
+      <td>{{ k.user.name }}</td>
+      <td class="muted">{{ k.user.department.name if k.user.department else '—' }}</td>
+      <td>{{ k.avg_tat_hours|round(1) }}h</td>
+      <td style="color:{% if k.on_time_rate >= 80 %}#10b981{% elif k.on_time_rate >= 60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ k.on_time_rate|round(0)|int }}%</td>
+      <td style="color:{% if k.compliance_rate >= 80 %}#10b981{% elif k.compliance_rate >= 60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ k.compliance_rate|round(0)|int }}%</td>
+      <td>{{ k.active_count }}</td>
+      <td>{{ k.closed_30d }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- TaT scatter for admin -->
+<div class="card">
+  <h2>TaT Distribution by Employee</h2>
+  <canvas id="tatChart" height="80"></canvas>
+</div>
+<script>
+const tatData = [
+  {% for k in admin_kpis %}{ x: "{{ k.user.name }}", y: {{ k.avg_tat_hours|round(1) }} },{% endfor %}
+];
+new Chart(document.getElementById('tatChart'), {
+  type: 'bar',
+  data: {
+    labels: tatData.map(d => d.x),
+    datasets: [{
+      label: 'Avg TaT (h)',
+      data: tatData.map(d => d.y),
+      backgroundColor: tatData.map(d => d.y <= {{ org_avg_tat|round(1) }} ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'),
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend:{ display:false } },
+    scales: {
+      y: { ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' } },
+      x: { ticks:{ color:'#64748b', maxRotation:45 }, grid:{ color:'rgba(255,255,255,0.05)' } }
+    }
+  }
+});
+</script>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,202 @@
+{% extends "inventory/base.html" %}
+{% block title %}{{ L.Materials }} Catalogue{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <h1 class="page-title">📋 {{ L.Materials }} Catalogue</h1>
+    <p class="page-sub">Manage your {{ L.material_p }} — add, edit, and track stock levels.</p>
+  </div>
+</div>
+
+<!-- ── Search + Add ──────────────────────────────────────────── -->
+<div class="card mb-3">
+  <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+    <form method="get" action="/inventory/materials" style="flex:1; min-width:200px;">
+      <div class="form-group" style="margin:0;">
+        <label>Search {{ L.Materials }}</label>
+        <input type="text" name="q" value="{{ q }}" placeholder="Name, category…" autofocus>
+      </div>
+    </form>
+    {% if can_bulk %}
+    <button onclick="document.getElementById('bulk-modal').style.display='flex'" class="btn btn-outline btn-sm">
+      ⬆ Bulk Import
+    </button>
+    {% endif %}
+    <button onclick="document.getElementById('add-modal').style.display='flex'" class="btn btn-primary">
+      + Add {{ L.Material }}
+    </button>
+  </div>
+</div>
+
+{% if msg and msg.startswith('imported_') %}
+<div class="alert alert-success" style="margin-bottom:12px;">
+  ✅ Successfully imported {{ msg.split('_')[1] }} material(s).
+</div>
+{% endif %}
+
+<!-- ── Materials Table ───────────────────────────────────────── -->
+<div class="card">
+  {% if materials %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>{{ L.Material }} Name</th>
+        <th>Unit</th>
+        <th>Current {{ L.stock_in }}</th>
+        <th>Reorder Threshold</th>
+        <th>{{ L.Supplier }}</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in materials %}
+      <tr>
+        <td>
+          <a href="/inventory/materials/{{ m.id }}" style="font-weight:600; color:#1a1a2e;">{{ m.name }}</a>
+          {% if m.description %}<div style="font-size:.75rem; color:#9ca3af;">{{ m.description[:60] }}</div>{% endif %}
+        </td>
+        <td>{{ m.unit }}</td>
+        <td>
+          {% if m.current_stock == 0 %}
+            <span class="stock-zero">0 (empty)</span>
+          {% elif m.reorder_threshold and m.current_stock <= m.reorder_threshold %}
+            <span class="stock-low">⚠ {{ m.current_stock | int }}</span>
+          {% else %}
+            <span class="stock-ok">{{ m.current_stock | int }}</span>
+          {% endif %}
+        </td>
+        <td class="text-muted">{{ m.reorder_threshold | int }} {{ m.unit }}</td>
+        <td class="text-muted">{{ m.supplier or '—' }}</td>
+        <td>
+          {% if m.is_active %}
+            <span class="badge badge-green">Active</span>
+          {% else %}
+            <span class="badge badge-gray">Inactive</span>
+          {% endif %}
+        </td>
+        <td>
+          <div class="flex gap-2">
+            <a href="/inventory/materials/{{ m.id }}" class="btn btn-sm btn-outline">View</a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="icon">📋</div>
+    <h3>No {{ L.material_p }} yet</h3>
+    <p>Add your first {{ L.material_s }} to start tracking {{ L.stock_in }}.</p>
+    <button onclick="document.getElementById('add-modal').style.display='flex'" class="btn btn-primary mt-2">
+      + Add {{ L.Material }}
+    </button>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Bulk Import Modal ──────────────────────────────────────── -->
+{% if can_bulk %}
+<div id="bulk-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
+     z-index:200; align-items:center; justify-content:center; padding:20px;">
+  <div class="card" style="width:100%; max-width:520px;">
+    <div class="card-header">
+      <span class="card-title">⬆ Bulk Import {{ L.Materials }}</span>
+      <button onclick="document.getElementById('bulk-modal').style.display='none'"
+              class="btn btn-sm btn-outline">✕</button>
+    </div>
+    <div style="margin-bottom:16px;">
+      <p style="font-size:.875rem; color:#374151; margin-bottom:10px;">
+        Upload a CSV file to import multiple materials at once. Valid rows are imported even if some rows have errors.
+      </p>
+      <ol style="font-size:.8rem; color:#6b7280; padding-left:18px; line-height:1.8;">
+        <li>Download the template CSV below</li>
+        <li>Fill in your materials (one per row)</li>
+        <li>Upload the completed file</li>
+      </ol>
+      <a href="/inventory/materials/template" class="btn btn-outline btn-sm" style="margin-top:10px; display:inline-block;">
+        ⬇ Download Template CSV
+      </a>
+    </div>
+    <form method="post" action="/inventory/materials/import" enctype="multipart/form-data">
+      <div class="form-group">
+        <label>Select CSV File *</label>
+        <input type="file" name="file" accept=".csv" required>
+      </div>
+      <div style="font-size:.75rem; color:#9ca3af; margin-bottom:12px;">
+        Required columns: <code>name</code>, <code>unit</code>. All other columns optional.
+        Duplicate names (within your catalogue) are skipped with an error report.
+      </div>
+      <div class="flex gap-2">
+        <button type="submit" class="btn btn-primary">Import</button>
+        <button type="button" onclick="document.getElementById('bulk-modal').style.display='none'"
+                class="btn btn-outline">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Add Material Modal ─────────────────────────────────────── -->
+<div id="add-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
+     z-index:200; align-items:center; justify-content:center; padding:20px;">
+  <div class="card" style="width:100%; max-width:580px; max-height:90vh; overflow-y:auto;">
+    <div class="card-header">
+      <span class="card-title">Add {{ L.Material }}</span>
+      <button onclick="document.getElementById('add-modal').style.display='none'"
+              class="btn btn-sm btn-outline">✕</button>
+    </div>
+    <form method="post" action="/inventory/materials/add">
+      <div class="form-row">
+        <div class="form-group">
+          <label>{{ L.Material }} Name *</label>
+          <input type="text" name="name" required placeholder="e.g. Steel Rod 10mm">
+        </div>
+        <div class="form-group">
+          <label>Unit *</label>
+          <input type="text" name="unit" value="pcs" required placeholder="pcs / kg / ltr / m">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea name="description" rows="2" placeholder="Optional description"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Opening {{ L.stock_in }}</label>
+          <input type="number" name="opening_stock" value="0" min="0" step="any">
+        </div>
+        <div class="form-group">
+          <label>Unit Cost (for opening)</label>
+          <input type="number" name="unit_cost" value="0" min="0" step="any" placeholder="0">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Reorder Threshold</label>
+          <input type="number" name="reorder_threshold" value="0" min="0">
+        </div>
+        <div class="form-group">
+          <label>Reorder Qty</label>
+          <input type="number" name="reorder_qty" value="0" min="0">
+        </div>
+        <div class="form-group">
+          <label>Lead Time (days)</label>
+          <input type="number" name="lead_time_days" value="0" min="0">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>{{ L.Supplier }}</label>
+        <input type="text" name="supplier" placeholder="Optional {{ L.supplier_s }} name">
+      </div>
+      <div class="flex gap-2 mt-2">
+        <button type="submit" class="btn btn-primary">Add {{ L.Material }}</button>
+        <button type="button" onclick="document.getElementById('add-modal').style.display='none'"
+                class="btn btn-outline">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

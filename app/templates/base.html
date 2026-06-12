@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FactoryOS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#0b0f1a;color:#e2e8f0;font-size:13px;min-height:100vh}
+a{color:#60a5fa;text-decoration:none}
+a:hover{color:#93c5fd}
+
+/* ── NAV ── */
+.nav{background:#111827;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;padding:0 24px;height:52px;gap:4px;position:sticky;top:0;z-index:50}
+.nav .logo{font-size:16px;font-weight:700;color:#f1f5f9;margin-right:20px;letter-spacing:-0.3px}
+.nav a{color:#94a3b8;padding:6px 11px;border-radius:6px;font-size:13px;font-weight:500;transition:all 0.12s}
+.nav a:hover{background:rgba(255,255,255,0.06);color:#e2e8f0}
+.nav a.active{background:rgba(59,130,246,0.18);color:#60a5fa}
+.nav .spacer{flex:1}
+.nav .user-info{font-size:12px;color:#94a3b8;margin-right:4px}
+.nav .logout{font-size:12px;color:#94a3b8;padding:5px 10px;border:1px solid rgba(255,255,255,0.12);border-radius:6px}
+.nav .logout:hover{color:#e2e8f0;border-color:rgba(255,255,255,0.22);background:rgba(255,255,255,0.05)}
+/* ── AI nav pill ── */
+.nav a.ai-pill{background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);color:#fff;border-radius:20px;padding:5px 13px;font-size:12px;font-weight:700;letter-spacing:0.3px;box-shadow:0 0 12px rgba(99,102,241,0.35)}
+.nav a.ai-pill:hover{box-shadow:0 0 20px rgba(99,102,241,0.55);transform:translateY(-1px);color:#fff}
+.nav a.ai-pill.active{background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);box-shadow:0 0 22px rgba(99,102,241,0.65)}
+
+/* ── WS status dot ── */
+#ws-dot{width:7px;height:7px;border-radius:50%;background:#ef4444;display:none;margin-right:6px;vertical-align:middle;transition:background 0.4s;flex-shrink:0}
+#ws-dot.connected{background:#10b981}
+
+/* ── CONTAINER ── */
+.container{max-width:1200px;margin:0 auto;padding:24px 20px}
+.container.full-width{max-width:100%;padding:0}
+
+/* ── CARDS ── */
+.card{background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:20px;margin-bottom:14px}
+.card h2{font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:14px}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid rgba(255,255,255,0.14);background:#1e293b;color:#cbd5e1;text-decoration:none;transition:all 0.12s;font-family:inherit;white-space:nowrap}
+.btn:hover{background:#273549;color:#f1f5f9;border-color:rgba(255,255,255,0.2)}
+.btn-primary{background:#3b82f6;border-color:transparent;color:#fff}
+.btn-primary:hover{background:#2563eb;color:#fff}
+.btn-sm{padding:4px 10px;font-size:11px;border-radius:6px}
+.btn-green{background:#059669;border-color:transparent;color:#fff}
+.btn-green:hover{background:#047857;color:#fff}
+.btn-red{background:#dc2626;border-color:transparent;color:#fff}
+.btn-red:hover{background:#b91c1c;color:#fff}
+.btn-gray{background:#1e293b;border-color:rgba(255,255,255,0.12);color:#94a3b8}
+.btn-gray:hover{background:#273549;color:#e2e8f0}
+.btn-outline{background:transparent;border:1px solid rgba(255,255,255,0.14);color:#94a3b8}
+.btn-outline:hover{background:rgba(255,255,255,0.06);color:#e2e8f0}
+.btn-purple{background:#7c3aed;border-color:transparent;color:#fff}
+.btn-purple:hover{background:#6d28d9;color:#fff}
+.btn-orange{background:#ea580c;border-color:transparent;color:#fff}
+.btn-orange:hover{background:#c2410c;color:#fff}
+.btn-cyan{background:#0891b2;border-color:transparent;color:#fff}
+.btn-cyan:hover{background:#0e7490;color:#fff}
+.btn-amber{background:#d97706;border-color:transparent;color:#fff}
+.btn-amber:hover{background:#b45309;color:#fff}
+
+/* ── FORMS ── */
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:11px;font-weight:600;margin-bottom:6px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em}
+.form-group input,.form-group select,.form-group textarea{width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:9px 12px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit;transition:border-color 0.12s}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.12)}
+.form-group select{cursor:pointer}
+.form-group textarea{height:80px;resize:none;line-height:1.6}
+.form-group input::placeholder,.form-group textarea::placeholder{color:#4b5568}
+select option{background:#111827;color:#e2e8f0}
+input[type="checkbox"]{width:auto;accent-color:#3b82f6;cursor:pointer}
+input[type="datetime-local"]{color-scheme:dark}
+
+/* ── TABLES ── */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:9px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#64748b;border-bottom:1px solid rgba(255,255,255,0.08)}
+td{padding:11px 12px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-align:middle;color:#cbd5e1}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,0.025)}
+
+/* ── BADGES ── */
+.badge{display:inline-block;padding:3px 9px;border-radius:99px;font-size:10px;font-weight:600;letter-spacing:0.02em}
+.badge-blue{background:rgba(59,130,246,0.18);color:#7dd3fc}
+.badge-green{background:rgba(16,185,129,0.18);color:#6ee7b7}
+.badge-red{background:rgba(239,68,68,0.18);color:#fca5a5}
+.badge-yellow{background:rgba(245,158,11,0.18);color:#fcd34d}
+.badge-purple{background:rgba(139,92,246,0.18);color:#c4b5fd}
+.badge-gray{background:rgba(255,255,255,0.08);color:#94a3b8}
+.badge-amber{background:rgba(217,119,6,0.18);color:#fcd34d}
+
+/* ── ALERTS ── */
+.alert{padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px}
+.alert-red{background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.25)}
+
+/* ── LAYOUT HELPERS ── */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.overdue{color:#f87171!important}
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.page-title{font-size:18px;font-weight:700;color:#f1f5f9}
+.muted{color:#64748b;font-size:12px}
+
+/* ── KPI GRID (for dashboard) ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px}
+.kpi-card{background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:18px}
+.kpi-card .label{font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.06em}
+.kpi-card .value{font-size:28px;font-weight:700;margin-top:8px;color:#f1f5f9}
+.kpi-card .sub{font-size:11px;color:#64748b;margin-top:4px}
+
+/* ── LOAD BARS ── */
+.load-bar{height:5px;border-radius:3px;background:rgba(255,255,255,0.07);overflow:hidden;margin-top:7px}
+.load-fill{height:100%;border-radius:3px;transition:width 0.3s}
+.load-green{background:#10b981}
+.load-amber{background:#f59e0b}
+.load-red{background:#ef4444}
+
+/* ── MODAL OVERLAY ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100}
+.modal-box{background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:480px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6)}
+.modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.modal-title{font-size:15px;font-weight:600;color:#f1f5f9}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1;transition:color 0.12s;padding:0}
+.modal-close:hover{color:#e2e8f0}
+.modal-footer{display:flex;gap:10px;margin-top:20px}
+
+/* ── INLINE FORM PANELS ── */
+.form-panel{background:#0d1424;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px;margin-top:14px}
+
+/* ── TIMELINE ── */
+.timeline-dot{position:absolute;left:-20px;top:5px;width:8px;height:8px;border-radius:50%;background:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,0.3)}
+.timeline-meta{font-size:11px;color:#64748b;line-height:1.5}
+.timeline-meta strong{color:#cbd5e1}
+.timeline-body{font-size:13px;color:#cbd5e1;margin-top:4px;background:#1e293b;border-radius:6px;padding:8px 12px;line-height:1.6}
+.timeline-detail{font-size:12px;color:#64748b;margin-top:3px}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#1e293b;border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:#273549}
+
+/* ── WS TOAST (Phase 1) ── */
+.ws-toast{position:fixed;bottom:24px;right:24px;background:#1e293b;border:1px solid rgba(255,255,255,0.12);border-left:3px solid #3b82f6;border-radius:8px;padding:12px 16px;min-width:260px;max-width:360px;font-size:13px;color:#e2e8f0;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:9999;transform:translateX(120%);transition:transform 0.25s ease;pointer-events:none}
+.ws-toast.show{transform:translateX(0)}
+.ws-toast strong{display:block;margin-bottom:3px;color:#f1f5f9;font-size:13px}
+.ws-toast span{color:#94a3b8;font-size:12px}
+.ws-toast.toast-green{border-left-color:#10b981}
+.ws-toast.toast-amber{border-left-color:#f59e0b}
+.ws-toast.toast-red{border-left-color:#ef4444}
+</style>
+</head>
+<body>
+{% if user %}
+<nav class="nav">
+  <span class="logo">FactoryOS</span>
+  <a href="/dashboard" {% if request.url.path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
+  <a href="/tickets" {% if '/tickets' in request.url.path %}class="active"{% endif %}>{{ L.Tickets if L is defined else 'Tickets' }}</a>
+  {% if has_checklists %}
+  <a href="/checklists" {% if '/checklists' in request.url.path %}class="active"{% endif %}>{{ L.Checklists if L is defined else 'Checklists' }}</a>
+  {% endif %}
+  {% if has_fms %}
+  <a href="/fms/dashboard" {% if '/fms' in request.url.path %}class="active"{% endif %}>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a>
+  {% endif %}
+  {% if user.role in ('ADMIN','MANAGER') %}
+  <a href="/employees" {% if '/employees' in request.url.path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>
+  {% endif %}
+  {% if user.role in ('ADMIN', 'STORE_MANAGER') and has_inventory is defined and has_inventory %}
+  <a href="/inventory" {% if '/inventory' in request.url.path %}class="active"{% endif %}>
+    {{ L.Inventory if L is defined else 'Inventory' }}
+  </a>
+  {% endif %}
+  {% if user.role == 'ADMIN' %}
+  <a href="/setup" {% if '/setup' in request.url.path %}class="active"{% endif %}>Setup</a>
+  <a href="/plan"  {% if '/plan'  in request.url.path %}class="active"{% endif %}>Plan</a>
+  <a href="/help"  {% if '/help'  in request.url.path %}class="active"{% endif %}>Help</a>
+  {% endif %}
+  {% if user.role == 'ADMIN' %}
+  <a href="/ai" class="ai-pill {% if '/ai' in request.url.path %}active{% endif %}">✦ Ask AI</a>
+  {% endif %}
+  <span class="spacer"></span>
+  <!-- Phase 1: WS connection status dot -->
+  <span id="ws-dot" title="Real-time sync: disconnected"></span>
+  <a href="/notifications" style="position:relative;padding:6px 9px" title="Notifications">
+    🔔
+    <span id="notif-badge" style="position:absolute;top:2px;right:2px;background:#ef4444;color:#fff;font-size:9px;font-weight:700;border-radius:99px;padding:1px 5px;min-width:16px;text-align:center;{% if not unread is defined or unread == 0 %}display:none{% endif %}">{{ unread if unread is defined else 0 }}</span>
+  </a>
+  <a href="/profile" style="font-size:12px;color:#94a3b8;margin-right:4px;padding:5px 8px;border-radius:6px;transition:all 0.12s" onmouseover="this.style.color='#e2e8f0'" onmouseout="this.style.color='#94a3b8'">{{ user.name }} · {{ user.role }}</a>
+  <a href="/logout" class="logout">Logout</a>
+</nav>
+{% endif %}
+<div class="container{% block container_class %}{% endblock %}">{% block content %}{% endblock %}</div>
+
+{% if user %}
+<!-- Phase 1: WebSocket client + fallback polling (1-1 / 1-5) -->
+<script>
+(function(){
+  const wsDot  = document.getElementById('ws-dot');
+  const badge  = document.getElementById('notif-badge');
+  let ws       = null;
+  let pollTimer = null;
+  let lastPoll  = new Date().toISOString();
+  let toastQueue = [];
+  let toastVisible = false;
+
+  // ── Badge helper ───────────────────────────────────────────────────────────
+  function setBadge(n){
+    if(!badge) return;
+    if(n > 0){ badge.textContent = n > 99 ? '99+' : n; badge.style.display='inline-block'; }
+    else       { badge.style.display='none'; }
+  }
+
+  // ── Toast helper ──────────────────────────────────────────────────────────
+  const TOAST_COLOURS = {
+    TICKET_ASSIGNED:'toast-blue', TICKET_STATUS_CHANGED:'',
+    TICKET_FLAGGED:'toast-amber', TICKET_HELP_REQUESTED:'toast-red',
+    CHECKLIST_OVERDUE:'toast-red', CHECKLIST_COMPLETED:'toast-green',
+    NOTIFICATION_NEW:'', FMS_STAGE_TRANSITION:'', STORE_ALERT:'toast-amber',
+  };
+  function showToast(title, body, colour){
+    const t = document.createElement('div');
+    t.className = 'ws-toast ' + (colour||'');
+    t.innerHTML = '<strong>' + escHtml(title) + '</strong>'
+                + (body ? '<span>' + escHtml(body) + '</span>' : '');
+    // Stack toasts above each other
+    const existing = document.querySelectorAll('.ws-toast');
+    const offset   = existing.length * 68;
+    t.style.bottom = (24 + offset) + 'px';
+    document.body.appendChild(t);
+    requestAnimationFrame(()=>{ t.classList.add('show'); });
+    setTimeout(()=>{
+      t.classList.remove('show');
+      setTimeout(()=>t.remove(), 300);
+    }, 4500);
+  }
+  function escHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+  // ── Event dispatcher (handles events from both WS and poll) ──────────────
+  function handleEvent(event, data){
+    if(data.unread_count !== undefined) setBadge(data.unread_count);
+    // Skip generic keepalive events
+    if(event === 'CONNECTED' || event === 'PING') return;
+    const title = data.title || data.ticket_title || event.replace(/_/g,' ');
+    const body  = data.body  || data.message || '';
+    const colour = TOAST_COLOURS[event] || '';
+    showToast(title, body, colour);
+  }
+
+  // ── Polling fallback (1-5) ────────────────────────────────────────────────
+  function startPolling(){
+    if(pollTimer) return;
+    pollTimer = setInterval(async ()=>{
+      try{
+        const r   = await fetch('/api/poll?since=' + encodeURIComponent(lastPoll));
+        const obj = await r.json();
+        lastPoll  = obj.ts || lastPoll;
+        setBadge(obj.unread_count || 0);
+        (obj.events||[]).forEach(e => handleEvent(e.event, e.data));
+      } catch(e){}
+    }, 30000);  // 30-second interval per spec
+  }
+  function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+
+  // ── WebSocket client (1-1 / 1-2 / 1-3) ───────────────────────────────────
+  let reconnectDelay = 2000;
+  function connect(){
+    if(!('WebSocket' in window)){ startPolling(); return; }
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    try{ ws = new WebSocket(proto + '//' + location.host + '/ws'); }
+    catch(e){ startPolling(); return; }
+
+    ws.onopen = ()=>{
+      if(wsDot){ wsDot.classList.add('connected'); wsDot.title='Real-time sync: connected'; }
+      stopPolling();
+      reconnectDelay = 2000;
+      // Start heartbeat — send "ping" every 30s to keep the connection alive
+      setInterval(()=>{ if(ws && ws.readyState===1) ws.send('ping'); }, 30000);
+    };
+
+    ws.onmessage = (e)=>{
+      try{
+        const msg = JSON.parse(e.data);
+        if(msg === 'pong') return;   // server pong reply
+        if(msg.event === 'PING'){ if(ws && ws.readyState===1) ws.send('ping'); return; }
+        handleEvent(msg.event, msg.data || {});
+      } catch(ex){}
+    };
+
+    ws.onclose = (ev)=>{
+      if(wsDot){ wsDot.classList.remove('connected'); wsDot.title='Real-time sync: reconnecting…'; }
+      // Code 4001 = auth failure — don't retry
+      if(ev.code === 4001){ startPolling(); return; }
+      // Fallback to polling while reconnecting
+      startPolling();
+      // Exponential back-off reconnect (max 30s)
+      setTimeout(()=>{ reconnectDelay = Math.min(reconnectDelay*1.5, 30000); connect(); }, reconnectDelay);
+    };
+
+    ws.onerror = ()=>{ try{ ws.close(); } catch(e){} };
+  }
+
+  connect();
+})();
+</script>
+{% endif %}
+</body>
+</html>

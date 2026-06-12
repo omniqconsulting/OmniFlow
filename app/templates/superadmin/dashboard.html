@@ -1,0 +1,251 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Platform Overview</h2>
+    <div class="muted">Last updated {{ now.strftime('%d %b %Y, %H:%M') }} UTC</div>
+  </div>
+  <a href="/superadmin/tenants/new" class="btn btn-purple">+ New Tenant</a>
+</div>
+
+<!-- Pending approvals alert -->
+{% if pending %}
+<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.28);border-radius:10px;padding:16px 20px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+  <div style="display:flex;align-items:center;gap:12px">
+    <span style="font-size:22px">⏳</span>
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#fcd34d">
+        {{ pending|length }} registration{{ 's' if pending|length != 1 }} waiting for approval
+      </div>
+      <div style="font-size:12px;color:#92400e;margin-top:2px">
+        {% for t in pending[:3] %}{{ t.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+        {% if pending|length > 3 %} +{{ pending|length - 3 }} more{% endif %}
+      </div>
+    </div>
+  </div>
+  <a href="/superadmin/approvals" class="btn btn-amber btn-sm">Review Now →</a>
+</div>
+{% endif %}
+
+<!-- Plan Upgrade Requests alert -->
+{% if upgrade_requests %}
+<div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.28);border-radius:10px;padding:16px 20px;margin-bottom:18px">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+    <span style="font-size:22px">⬆️</span>
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#7dd3fc">
+        {{ upgrade_requests|length }} plan upgrade request{{ 's' if upgrade_requests|length != 1 }}
+      </div>
+      <div style="font-size:12px;color:#64748b;margin-top:2px">Factories requesting a plan upgrade — review and action below</div>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    {% for req in upgrade_requests %}
+    <div style="background:#0d1424;border-radius:8px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:#f1f5f9">{{ req.tenant.name }}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">
+          <span style="color:#94a3b8">{{ req.from_plan }}</span>
+          <span style="color:#64748b;margin:0 6px">→</span>
+          <span style="color:#7dd3fc;font-weight:600">{{ req.to_plan }}</span>
+          <span style="margin-left:10px">{{ req.created_at.strftime('%d %b, %H:%M') }}</span>
+        </div>
+        {% if req.message %}
+        <div style="font-size:12px;color:#94a3b8;margin-top:4px;font-style:italic">"{{ req.message }}"</div>
+        {% endif %}
+      </div>
+      <div style="display:flex;gap:8px">
+        <form method="post" action="/superadmin/upgrade-requests/{{ req.id }}/action">
+          <input type="hidden" name="action" value="actioned">
+          <button type="submit" class="btn btn-sm btn-primary"
+                  onclick="return confirm('Upgrade {{ req.tenant.name }} to {{ req.to_plan }}?')">
+            ✓ Upgrade Now
+          </button>
+        </form>
+        <form method="post" action="/superadmin/upgrade-requests/{{ req.id }}/action">
+          <input type="hidden" name="action" value="dismissed">
+          <button type="submit" class="btn btn-sm btn-gray">Dismiss</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- KPI tiles — active tenants only -->
+<div class="kpi-grid">
+  <div class="kpi-tile" style="border-color:rgba(167,139,250,0.25)">
+    <div class="label">Active Tenants</div>
+    <div class="value" style="color:#c4b5fd">{{ active_tenants }}</div>
+    <div class="sub">{{ suspended }} suspended · {{ total_tenants }} total</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Active Users</div>
+    <div class="value">{{ active_users }}</div>
+    <div class="sub">{{ total_users }} registered total</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Open Tickets</div>
+    <div class="value" style="color:{% if open_tickets > 0 %}#f87171{% else %}#6ee7b7{% endif %}">{{ open_tickets }}</div>
+    <div class="sub">{{ total_tickets }} total raised</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Starter</div>
+    <div class="value" style="color:#94a3b8">{{ active_plan_counts.STARTER }}</div>
+    <div class="sub">active on free plan</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Professional</div>
+    <div class="value" style="color:#7dd3fc">{{ active_plan_counts.PROFESSIONAL }}</div>
+    <div class="sub">active paid tenants</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Enterprise</div>
+    <div class="value" style="color:#c4b5fd">{{ active_plan_counts.ENTERPRISE }}</div>
+    <div class="sub">active enterprise</div>
+  </div>
+</div>
+
+<!-- Analytics row — 3 charts -->
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:0">
+
+  <!-- Chart 1: Active vs Suspended (horizontal bar) -->
+  <div class="card" style="margin:0">
+    <h2 style="margin-bottom:14px;font-size:13px">Tenant Health</h2>
+    <canvas id="healthChart" height="120"></canvas>
+    <div style="display:flex;gap:12px;margin-top:10px;font-size:11px;color:#64748b;flex-wrap:wrap">
+      <span><span style="color:#10b981">■</span> Active: {{ active_tenants }}</span>
+      <span><span style="color:#f87171">■</span> Suspended: {{ suspended }}</span>
+    </div>
+  </div>
+
+  <!-- Chart 2: Plan distribution (doughnut, active only) -->
+  <div class="card" style="margin:0">
+    <h2 style="margin-bottom:14px;font-size:13px">Plan Mix (Active)</h2>
+    <div style="display:flex;align-items:center;gap:16px">
+      <div style="width:110px;height:110px;flex-shrink:0"><canvas id="planChart"></canvas></div>
+      <div style="display:flex;flex-direction:column;gap:7px;font-size:11px">
+        <div style="display:flex;align-items:center;gap:7px"><div style="width:10px;height:10px;border-radius:2px;background:#4b5563"></div><span style="color:#94a3b8">Starter · {{ active_plan_counts.STARTER }}</span></div>
+        <div style="display:flex;align-items:center;gap:7px"><div style="width:10px;height:10px;border-radius:2px;background:#3b82f6"></div><span style="color:#94a3b8">Pro · {{ active_plan_counts.PROFESSIONAL }}</span></div>
+        <div style="display:flex;align-items:center;gap:7px"><div style="width:10px;height:10px;border-radius:2px;background:#7c3aed"></div><span style="color:#94a3b8">Enterprise · {{ active_plan_counts.ENTERPRISE }}</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart 3: Industry breakdown (horizontal bar) -->
+  <div class="card" style="margin:0">
+    <h2 style="margin-bottom:14px;font-size:13px">Industry Mix</h2>
+    <canvas id="industryChart" height="120"></canvas>
+  </div>
+
+</div>
+
+<script>
+// Chart 1 — Tenant Health (bar)
+new Chart(document.getElementById('healthChart'), {
+  type: 'bar',
+  data: {
+    labels: ['Active', 'Suspended'],
+    datasets: [{
+      data: [{{ active_tenants }}, {{ suspended }}],
+      backgroundColor: ['#10b981','#f87171'],
+      borderRadius: 6,
+      borderWidth: 0,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color:'#64748b', font:{size:10} }, grid: { color:'rgba(255,255,255,0.04)' } },
+      y: { ticks: { color:'#94a3b8', font:{size:11} }, grid: { display:false } },
+    },
+  }
+});
+
+// Chart 2 — Plan Distribution
+new Chart(document.getElementById('planChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Starter', 'Professional', 'Enterprise'],
+    datasets: [{
+      data: [{{ active_plan_counts.STARTER }}, {{ active_plan_counts.PROFESSIONAL }}, {{ active_plan_counts.ENTERPRISE }}],
+      backgroundColor: ['#4b5563', '#3b82f6', '#7c3aed'],
+      borderWidth: 0,
+    }]
+  },
+  options: {
+    cutout: '68%',
+    plugins: { legend: { display: false } },
+  }
+});
+
+// Chart 3 — Industry Mix
+const indLabels = [{% for k,v in industry_counts.items() %}"{{ k }}"{% if not loop.last %},{% endif %}{% endfor %}];
+const indData   = [{% for k,v in industry_counts.items() %}{{ v }}{% if not loop.last %},{% endif %}{% endfor %}];
+const indColors = ['#6366f1','#06b6d4','#8b5cf6','#f59e0b','#10b981','#f87171','#3b82f6','#ec4899'];
+new Chart(document.getElementById('industryChart'), {
+  type: 'bar',
+  data: {
+    labels: indLabels,
+    datasets: [{
+      data: indData,
+      backgroundColor: indColors.slice(0, indLabels.length),
+      borderRadius: 5,
+      borderWidth: 0,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color:'#64748b', font:{size:10}, stepSize:1 }, grid: { color:'rgba(255,255,255,0.04)' } },
+      y: { ticks: { color:'#94a3b8', font:{size:10} }, grid: { display:false } },
+    },
+  }
+});
+</script>
+
+<!-- Recent tenants -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <h2 style="margin:0">Recent Tenants</h2>
+    <a href="/superadmin/tenants" class="btn btn-sm btn-outline">View All →</a>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Factory</th><th>Plan</th><th>Users</th><th>Open Tickets</th>
+        <th>Compliance</th><th>Member Since</th><th>Last Activity</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for tenant, stats in recent_stats %}
+    <tr>
+      <td>
+        <div style="font-weight:600;color:#f1f5f9">{{ tenant.name }}</div>
+        <div style="font-size:11px;color:#64748b">{{ tenant.slug }}</div>
+      </td>
+      <td>
+        {% if tenant.plan == 'ENTERPRISE' %}<span class="badge badge-purple">ENTERPRISE</span>
+        {% elif tenant.plan == 'PROFESSIONAL' %}<span class="badge badge-blue">PRO</span>
+        {% else %}<span class="badge badge-gray">STARTER</span>{% endif %}
+      </td>
+      <td>{{ stats.users }}</td>
+      <td style="color:{% if stats.open_tickets > 0 %}#f87171{% else %}#6ee7b7{% endif %}">{{ stats.open_tickets }}</td>
+      <td style="color:{% if stats.compliance >= 80 %}#6ee7b7{% elif stats.compliance >= 50 %}#fcd34d{% else %}#f87171{% endif %}">{{ stats.compliance }}%</td>
+      <td class="muted">{{ tenant.created_at.strftime('%d %b %Y') if tenant.created_at else '—' }}</td>
+      <td class="muted">{{ stats.last_activity.strftime('%d %b') if stats.last_activity else '—' }}</td>
+      <td><a href="/superadmin/tenants/{{ tenant.id }}" class="btn btn-sm btn-gray">View</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" style="color:#64748b;text-align:center;padding:24px">No tenants yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

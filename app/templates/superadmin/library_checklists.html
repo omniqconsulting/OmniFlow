@@ -1,0 +1,49 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+{% set msg = request.query_params.get('msg','') %}
+{% if msg %}<div class="alert alert-green">✓ {{ {'created':'Checklist created.','saved':'Changes saved.','deployed':'Deployed to tenant — checklist added to their active templates.','bulk_pushed':'Bulk push complete.','duplicated':'Duplicated as draft.'}[msg] or msg }}</div>{% endif %}
+
+{% include "superadmin/library_nav.html" %}
+
+<div class="page-header" style="margin-top:16px">
+  <h2 class="page-title">Checklist Library</h2>
+  <a href="/superadmin/library/checklists/new" class="btn btn-purple">+ New Checklist</a>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Industry</th><th>Frequency</th><th>Role</th>
+          <th style="text-align:center">Version</th>
+          <th style="text-align:center">Status</th><th style="width:200px">Actions</th></tr>
+    </thead>
+    <tbody>
+    {% for item in items %}
+    <tr>
+      <td>
+        <a href="/superadmin/library/checklists/{{ item.id }}" style="color:#e2e8f0;font-weight:500">{{ item.name }}</a>
+        {% if item.is_system %}<span class="badge badge-gray" style="font-size:9px;margin-left:4px">SYSTEM</span>{% endif %}
+      </td>
+      <td class="muted">{{ item.industry or '—' }}</td>
+      <td class="muted">{{ item.frequency }}</td>
+      <td class="muted">{{ item.assigned_to_role }}</td>
+      <td style="text-align:center"><span class="badge badge-blue">v{{ item.version }}</span></td>
+      <td style="text-align:center">
+        <span class="badge badge-{% if item.status=='ACTIVE' %}green{% elif item.status=='DEPRECATED' %}red{% else %}yellow{% endif %}">{{ item.status }}</span>
+      </td>
+      <td>
+        <div style="display:flex;gap:5px">
+          <a href="/superadmin/library/checklists/{{ item.id }}" class="btn btn-sm btn-gray">{% if item.is_system %}View{% else %}Edit{% endif %}</a>
+          <form method="post" action="/superadmin/library/checklists/{{ item.id }}/duplicate" style="display:inline">
+            <button class="btn btn-sm btn-outline">Duplicate</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" style="text-align:center;color:#64748b;padding:24px">No checklist templates. <a href="/superadmin/library/checklists/new">Create one →</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

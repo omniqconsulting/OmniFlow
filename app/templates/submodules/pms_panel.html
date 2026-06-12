@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}PMS – {{ ticket.title }}{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <nav aria-label="breadcrumb"><ol class="breadcrumb mb-1">
+    <li class="breadcrumb-item"><a href="/fms/tickets/{{ ticket.id }}">{{ ticket.title[:40] }}</a></li>
+    <li class="breadcrumb-item active">PMS Log</li>
+  </ol></nav>
+  <h3 class="mb-0"><i class="bi bi-bar-chart-steps me-2"></i>Production Progress</h3>
+</div>
+
+<!-- Progress strip -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center">
+      <div class="card-body py-3">
+        <div class="display-6 fw-bold text-primary">{{ total_done }}</div>
+        <div class="text-muted small">{{ ticket.qty_unit or 'units' }} done</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center">
+      <div class="card-body py-3">
+        <div class="display-6 fw-bold">{{ target }}</div>
+        <div class="text-muted small">target {{ ticket.qty_unit or 'units' }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center">
+      <div class="card-body py-3">
+        {% set pc = [pct, 100]|min %}
+        <div class="display-6 fw-bold text-{{ 'success' if pc >= 100 else 'warning' if pc >= 50 else 'danger' }}">
+          {{ pc }}%
+        </div>
+        <div class="text-muted small">completion</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Progress bar -->
+{% if target %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body py-2">
+    <div class="d-flex justify-content-between small text-muted mb-1">
+      <span>Progress</span><span>{{ total_done }} / {{ target }}</span>
+    </div>
+    <div class="progress" style="height:12px">
+      {% set pc = [pct, 100]|min %}
+      <div class="progress-bar bg-{{ 'success' if pc >= 100 else 'warning' if pc >= 50 else 'primary' }}"
+           style="width:{{ pc }}%" role="progressbar"></div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <!-- Left: Today's log entry -->
+  <div class="col-lg-5">
+    {% if not today_entry %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-pencil-square me-1"></i>Today's Log — {{ today.strftime('%d %b %Y') }}
+      </div>
+      <div class="card-body">
+        <form method="post" action="/submodules/pms/{{ ticket.id }}/log">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Qty Done <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <input type="number" name="qty_done" class="form-control" min="0" required placeholder="0">
+              <span class="input-group-text">{{ ticket.qty_unit or 'units' }}</span>
+            </div>
+          </div>
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="has_blockers" id="blockers" value="true">
+              <label class="form-check-label text-warning" for="blockers">
+                <i class="bi bi-exclamation-triangle me-1"></i>Blockers today
+              </label>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Comment</label>
+            <textarea name="comment" class="form-control" rows="2" placeholder="Optional notes…"></textarea>
+          </div>
+          <button class="btn btn-primary w-100" type="submit">
+            <i class="bi bi-check-circle me-1"></i>Submit Log
+          </button>
+        </form>
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success">
+      <i class="bi bi-check-circle me-1"></i>
+      Today's log submitted: <strong>{{ today_entry.qty_done }} {{ ticket.qty_unit or 'units' }}</strong>
+      {% if today_entry.has_blockers %}
+      <span class="badge bg-warning text-dark ms-2">Blockers reported</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Target revision (manager/admin) -->
+    {% if can_revise_target %}
+    <div class="card border-0 shadow-sm border-warning">
+      <div class="card-header bg-white fw-semibold text-warning">
+        <i class="bi bi-pencil me-1"></i>Revise Target
+      </div>
+      <div class="card-body">
+        <form method="post" action="/submodules/pms/{{ ticket.id }}/revise-target">
+          <div class="row g-2 mb-2">
+            <div class="col">
+              <label class="form-label small text-muted">New Target</label>
+              <input type="number" name="new_target" class="form-control form-control-sm"
+                     value="{{ target }}" min="1" required>
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small text-muted">Reason <span class="text-danger">*</span></label>
+            <input type="text" name="revision_reason" class="form-control form-control-sm" required
+                   placeholder="Why is the target changing?">
+          </div>
+          <button class="btn btn-warning btn-sm w-100" type="submit">Revise Target</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Right: Log history -->
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-clock-history me-1"></i>Log History
+      </div>
+      <div class="card-body p-0">
+        {% if logs %}
+        <ul class="list-group list-group-flush">
+          {% for log in logs %}
+          <li class="list-group-item py-2">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                {% if log.event_type == 'DAILY_LOG' %}
+                <span class="fw-semibold">{{ log.log_date.strftime('%d %b') }}</span>
+                <span class="ms-2 text-primary fw-semibold">{{ log.qty_done }} {{ ticket.qty_unit or 'units' }}</span>
+                {% if log.has_blockers %}
+                <span class="badge bg-warning text-dark ms-1 small">Blockers</span>
+                {% endif %}
+                {% elif log.event_type == 'TARGET_REVISED' %}
+                <span class="fw-semibold text-warning">Target Revised</span>
+                <span class="ms-2 text-muted small">{{ log.old_target }} → {{ log.new_target }}</span>
+                {% elif log.event_type == 'NO_ENTRY' %}
+                <span class="fw-semibold text-danger">No Entry</span>
+                {% endif %}
+                {% if log.comment %}
+                <div class="small text-muted mt-0">{{ log.comment[:80] }}</div>
+                {% endif %}
+                {% if log.revision_reason %}
+                <div class="small text-muted mt-0 fst-italic">{{ log.revision_reason }}</div>
+                {% endif %}
+              </div>
+              <span class="small text-muted">
+                {{ log.created_at.strftime('%d %b %H:%M') if log.created_at else '' }}
+              </span>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center text-muted py-4 small">No logs yet.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

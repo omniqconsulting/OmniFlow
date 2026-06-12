@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+
+# Database
+*.db
+*.sqlite3
+
+# Environment — NEVER commit secrets
+.env
+
+# Uploads
+app/static/uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+uvicorn_out.txt
+uvicorn_err.txt

@@ -1,0 +1,173 @@
+{% extends "inventory/base.html" %}
+{% block title %}{{ L.Inventory }} Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <h1 class="page-title">📦 {{ L.Inventory }} Dashboard</h1>
+    <p class="page-sub">Welcome back, {{ user.name.split()[0] }}. Here's your inventory overview.</p>
+  </div>
+  <div class="flex gap-2">
+    <a href="/inventory/movements/add" class="btn btn-outline">+ Record Movement</a>
+    <a href="/inventory/purchase-orders/new" class="btn btn-primary">🛒 New {{ L.PurchaseOrder }}</a>
+  </div>
+</div>
+
+<!-- ── KPI Strip ─────────────────────────────────────────────────── -->
+<div class="kpi-strip">
+  <div class="kpi-card">
+    <div class="kpi-label">Total {{ L.Materials }}</div>
+    <div class="kpi-value">{{ total_materials }}</div>
+    <div class="kpi-sub">Active in catalogue</div>
+  </div>
+  <div class="kpi-card {% if low_stock > 0 %}kpi-alert{% endif %}">
+    <div class="kpi-label">⚠ Low {{ L.stock_in }}</div>
+    <div class="kpi-value">{{ low_stock }}</div>
+    <div class="kpi-sub">Below reorder threshold</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Open {{ L.PurchaseOrders }}</div>
+    <div class="kpi-value">{{ open_pos }}</div>
+    <div class="kpi-sub">Pending / approved / partial</div>
+  </div>
+  <div class="kpi-card {% if pending_requests > 0 %}kpi-alert{% endif %}">
+    <div class="kpi-label">Pending Requests</div>
+    <div class="kpi-value">{{ pending_requests }}</div>
+    <div class="kpi-sub">From FMS tickets</div>
+  </div>
+</div>
+
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+
+  <!-- ── Low stock alert list ──────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">⚠ Low {{ L.stock_in }} Items</span>
+      <a href="/inventory/materials" class="btn btn-outline btn-sm">View All</a>
+    </div>
+    {% if low_stock_items %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>{{ L.Material }}</th>
+          <th>Current</th>
+          <th>Reorder At</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in low_stock_items %}
+        <tr>
+          <td><strong>{{ m.name }}</strong></td>
+          <td class="stock-{% if m.current_stock == 0 %}zero{% else %}low{% endif %}">
+            {{ m.current_stock | int }} {{ m.unit }}
+          </td>
+          <td class="text-muted">{{ m.reorder_threshold | int }} {{ m.unit }}</td>
+          <td>
+            <a href="/inventory/materials/{{ m.id }}" class="btn btn-sm btn-outline">View</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="icon">✅</div>
+      <h3>All stock levels healthy</h3>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Open POs ──────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">🛒 Open {{ L.PurchaseOrders }}</span>
+      <a href="/inventory/purchase-orders" class="btn btn-outline btn-sm">View All</a>
+    </div>
+    {% if open_po_list %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>PO #</th>
+          <th>{{ L.Supplier }}</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for po in open_po_list %}
+        {% set st_badge = {
+          'DRAFT': 'badge-gray',
+          'SUBMITTED': 'badge-blue',
+          'APPROVED': 'badge-green',
+          'PARTIALLY_RECEIVED': 'badge-amber',
+        } %}
+        <tr>
+          <td><strong>{{ po.po_number }}</strong></td>
+          <td>{{ po.supplier or '—' }}</td>
+          <td><span class="badge {{ st_badge.get(po.status, 'badge-gray') }}">{{ po.status }}</span></td>
+          <td><a href="/inventory/purchase-orders/{{ po.id }}" class="btn btn-sm btn-outline">View</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="icon">🛒</div>
+      <h3>No open orders</h3>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- ── Recent Movements ───────────────────────────────────────── -->
+<div class="card mt-3">
+  <div class="card-header">
+    <span class="card-title">📈 Recent Stock Movements</span>
+    <a href="/inventory/movements" class="btn btn-outline btn-sm">Full Ledger</a>
+  </div>
+  {% if recent_movements %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>{{ L.Material }}</th>
+        <th>Type</th>
+        <th>Qty</th>
+        <th>Before → After</th>
+        <th>Reference</th>
+        <th>By</th>
+        <th>When</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set type_badge = {
+        'STOCK_IN':   'badge-green',
+        'STOCK_OUT':  'badge-red',
+        'ADJUSTMENT': 'badge-amber',
+        'PO_RECEIPT': 'badge-blue',
+        'OPENING':    'badge-indigo',
+        'RETURN':     'badge-purple',
+      } %}
+      {% for mv in recent_movements %}
+      <tr>
+        <td><a href="/inventory/materials/{{ mv.material_id }}">{{ mv.material.name if mv.material else '—' }}</a></td>
+        <td><span class="badge {{ type_badge.get(mv.movement_type, 'badge-gray') }}">{{ mv.movement_type.replace('_',' ') }}</span></td>
+        <td><strong>{{ mv.qty | int }}</strong> {{ mv.unit or '' }}</td>
+        <td class="text-muted">{{ mv.qty_before | int }} → {{ mv.qty_after | int }}</td>
+        <td class="text-muted">{{ mv.reference or '—' }}</td>
+        <td class="text-muted">{{ mv.actor.name if mv.actor else '—' }}</td>
+        <td class="text-muted" style="font-size:.78rem;">{{ mv.created_at.strftime('%d %b, %H:%M') if mv.created_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="icon">📈</div>
+    <h3>No movements yet</h3>
+    <p>Add opening stock or record your first movement to start tracking.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

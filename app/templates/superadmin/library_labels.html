@@ -1,0 +1,64 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+{% set msg = request.query_params.get('msg','') %}
+{% if msg %}<div class="alert alert-green">✓ {{ {'created':'Bundle created.','saved':'Changes saved.','deployed':'Label bundle applied to tenant.','bulk_pushed':'Bulk push complete.'}[msg] or msg }}</div>{% endif %}
+
+{% include "superadmin/library_nav.html" %}
+
+<div class="page-header" style="margin-top:16px">
+  <div>
+    <h2 class="page-title">Label Bundles</h2>
+    <p class="muted">Apply a bundle to rename core concepts for a specific tenant's industry.</p>
+  </div>
+  <a href="/superadmin/library/labels/new" class="btn btn-purple">+ New Bundle</a>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;margin-bottom:24px">
+{% for b in bundles %}
+<div class="card" style="margin:0">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+    <div>
+      <div style="font-weight:600;color:#f1f5f9">{{ b.name }}</div>
+      <div class="muted" style="margin-top:2px">{{ b.industry or '—' }}</div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <span class="badge badge-blue">v{{ b.version }}</span>
+      {% if b.is_system %}<span class="badge badge-gray" style="font-size:9px">SYSTEM</span>{% endif %}
+    </div>
+  </div>
+  {% if b.description %}<p style="font-size:12px;color:#64748b;margin-bottom:10px">{{ b.description }}</p>{% endif %}
+  <!-- Label preview chips -->
+  <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">
+    {% for pair in [(b.ticket_s,'Ticket'),(b.checklist_s,'Checklist'),(b.branch_s,'Branch'),(b.department_s,'Department'),(b.employee_s,'Employee')] %}
+    {% if pair[0] and pair[0] != pair[1] %}
+    <span style="background:rgba(99,102,241,0.15);color:#a5b4fc;border-radius:99px;padding:2px 8px;font-size:11px">
+      {{ pair[1] }} → <strong>{{ pair[0] }}</strong>
+    </span>
+    {% endif %}
+    {% endfor %}
+    {% if not (b.ticket_s or b.checklist_s or b.branch_s or b.department_s or b.employee_s) %}
+    <span style="color:#64748b;font-size:11px">Default vocabulary (no overrides)</span>
+    {% endif %}
+  </div>
+  <!-- Actions -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+    {% if not b.is_system %}
+    <a href="/superadmin/library/labels/{{ b.id }}/edit" class="btn btn-sm btn-gray">Edit</a>
+    {% endif %}
+    <!-- Quick-deploy form -->
+    <form method="post" action="/superadmin/library/labels/{{ b.id }}/deploy"
+          style="display:flex;gap:6px;align-items:flex-end;flex:1;min-width:180px">
+      <select name="tenant_id" style="flex:1;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:12px">
+        {% for t in tenants %}
+        <option value="{{ t.id }}">{{ t.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-sm btn-green">Apply</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="card">No label bundles found.</div>
+{% endfor %}
+</div>
+{% endblock %}

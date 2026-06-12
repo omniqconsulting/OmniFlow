@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Invoices – {{ ticket.title }}{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <nav aria-label="breadcrumb"><ol class="breadcrumb mb-1">
+    <li class="breadcrumb-item"><a href="/fms/tickets/{{ ticket.id }}">{{ ticket.title[:40] }}</a></li>
+    <li class="breadcrumb-item active">Invoices</li>
+  </ol></nav>
+  <h3 class="mb-0"><i class="bi bi-receipt me-2"></i>Invoice Records</h3>
+</div>
+
+<!-- Outstanding strip -->
+<div class="row g-3 mb-4">
+  {% set strip = [
+    ('Total Invoiced', '%.2f'|format(total_invoiced), 'bi-file-text', 'primary'),
+    ('Received', '%.2f'|format(total_received), 'bi-cash-coin', 'success'),
+    ('Outstanding', '%.2f'|format(outstanding), 'bi-hourglass-split',
+      'danger' if outstanding > 0 else 'success'),
+  ] %}
+  {% for label, val, icon, color in strip %}
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center">
+      <div class="card-body py-3">
+        <i class="bi {{ icon }} text-{{ color }} fs-3"></i>
+        <div class="fw-bold fs-5 mt-1">{{ val }}</div>
+        <div class="text-muted small">{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if overdue_count %}
+<div class="alert alert-danger">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  <strong>{{ overdue_count }}</strong> overdue invoice{{ 's' if overdue_count != 1 }}.
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <!-- Add invoice form (manager/admin) -->
+  {% if user.role in ('ADMIN','MANAGER') %}
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold"><i class="bi bi-plus-circle me-1"></i>Add Invoice</div>
+      <div class="card-body">
+        <form method="post" action="/submodules/invoice/{{ ticket.id }}/add">
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Invoice # <span class="text-danger">*</span></label>
+            <input type="text" name="invoice_number" class="form-control form-control-sm" required
+                   placeholder="INV-2024-001">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Amount <span class="text-danger">*</span></label>
+            <div class="input-group input-group-sm">
+              <select name="currency" class="form-select" style="max-width:80px">
+                <option>INR</option><option>USD</option><option>EUR</option><option>GBP</option>
+              </select>
+              <input type="number" name="amount" class="form-control" min="0" step="0.01" required>
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Invoice Date</label>
+            <input type="date" name="invoice_date" class="form-control form-control-sm"
+                   value="{{ today.isoformat() }}">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Due Date</label>
+            <input type="date" name="due_date" class="form-control form-control-sm">
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Payment Terms</label>
+            <input type="text" name="payment_terms" class="form-control form-control-sm"
+                   placeholder="e.g. Net 30">
+          </div>
+          <button class="btn btn-primary btn-sm w-100" type="submit">
+            <i class="bi bi-receipt me-1"></i>Add Invoice
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Invoice list -->
+  <div class="col-lg-{% if user.role in ('ADMIN','MANAGER') %}8{% else %}12{% endif %}">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold"><i class="bi bi-list-ul me-1"></i>All Invoices</div>
+      <div class="card-body p-0">
+        {% if invoices %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Invoice #</th><th>Amount</th><th>Date</th>
+                <th>Due</th><th>Status</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for inv in invoices %}
+              <tr class="{{ 'table-danger' if not inv.is_paid and inv.due_date and inv.due_date < today else '' }}">
+                <td class="fw-semibold">{{ inv.invoice_number }}</td>
+                <td>{{ inv.currency }} {{ '%.2f'|format(inv.amount) }}</td>
+                <td class="small">{{ inv.invoice_date.strftime('%d %b %Y') if inv.invoice_date else '—' }}</td>
+                <td class="small {{ 'text-danger fw-semibold' if not inv.is_paid and inv.due_date and inv.due_date < today else '' }}">
+                  {{ inv.due_date.strftime('%d %b %Y') if inv.due_date else '—' }}
+                </td>
+                <td>
+                  {% if inv.is_paid %}
+                  <span class="badge bg-success">Paid</span>
+                  {% else %}
+                  <span class="badge bg-warning text-dark">Unpaid</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if not inv.is_paid and user.role in ('ADMIN','MANAGER') %}
+                  <button class="btn btn-xs btn-outline-success btn-sm py-0 px-1"
+                          data-bs-toggle="collapse" data-bs-target="#pay-{{ inv.id }}">
+                    Mark Paid
+                  </button>
+                  <div class="collapse mt-1" id="pay-{{ inv.id }}">
+                    <form method="post" action="/submodules/invoice/{{ inv.id }}/mark-paid" class="d-flex gap-1">
+                      <input type="text" name="payment_ref" class="form-control form-control-sm"
+                             placeholder="Payment ref" style="width:120px">
+                      <button class="btn btn-xs btn-success btn-sm py-0">✓</button>
+                    </form>
+                  </div>
+                  {% elif inv.is_paid and inv.payment_ref %}
+                  <small class="text-muted">Ref: {{ inv.payment_ref }}</small>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4 small">No invoices yet.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

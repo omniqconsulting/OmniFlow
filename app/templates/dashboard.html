@@ -1,0 +1,611 @@
+{% extends "base.html" %}
+{% block container_class %} full-width{% endblock %}
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.db-wrap{display:flex;min-height:calc(100vh - 52px)}
+.db-sidebar{width:196px;flex-shrink:0;background:#0d1220;border-right:1px solid rgba(255,255,255,0.06);padding:14px 10px;display:flex;flex-direction:column;gap:2px;position:sticky;top:52px;height:calc(100vh - 52px);overflow-y:auto}
+.db-content{flex:1;padding:20px 24px;min-width:0;overflow-y:auto}
+.sb-section{font-size:10px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.09em;padding:10px 8px 4px;margin-top:4px}
+.sb-link{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;cursor:pointer;color:#64748b;font-size:12px;text-decoration:none;transition:all 0.1s}
+.sb-link:hover{background:rgba(255,255,255,0.05);color:#cbd5e1}
+.sb-link.active{background:rgba(59,130,246,0.14);color:#60a5fa}
+.sb-link i{font-size:15px;flex-shrink:0}
+.sb-divider{height:1px;background:rgba(255,255,255,0.05);margin:8px 4px}
+.section-hdr{display:flex;align-items:center;gap:8px;margin:0 0 12px}
+.section-hdr-line{flex:1;height:1px;background:rgba(255,255,255,0.06)}
+.section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.09em;display:flex;align-items:center;gap:6px}
+.sc-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.sc{background:#111827;border:1px solid rgba(255,255,255,0.07);border-radius:9px;padding:14px 16px;position:relative}
+.sc.b-blue{border-left:3px solid #3b82f6;padding-left:14px;border-radius:0 9px 9px 0}
+.sc.b-green{border-left:3px solid #10b981;padding-left:14px;border-radius:0 9px 9px 0}
+.sc.b-purple{border-left:3px solid #8b5cf6;padding-left:14px;border-radius:0 9px 9px 0}
+.sc-label{font-size:10px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px}
+.sc-val{font-size:26px;font-weight:600;color:#f1f5f9;line-height:1}
+.sc-val.red{color:#f87171}.sc-val.green{color:#10b981}.sc-val.amber{color:#fcd34d}
+.sc-sub{font-size:11px;color:#4b5568;margin-top:5px;line-height:1.4}
+.sc-sub .better{color:#10b981}.sc-sub .worse{color:#f87171}
+.sc-click{position:absolute;top:10px;right:10px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.25);border-radius:99px;font-size:9px;color:#fcd34d;padding:2px 8px;cursor:pointer;display:flex;align-items:center;gap:3px}
+.sc-click:hover{background:rgba(245,158,11,0.28)}
+.card{background:#111827;border:1px solid rgba(255,255,255,0.07);border-radius:9px;padding:16px 18px;margin-bottom:10px}
+.card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.card-title{font-size:13px;font-weight:500;color:#f1f5f9}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.dt{width:100%;border-collapse:collapse;font-size:12px}
+.dt th{text-align:left;padding:7px 10px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#374151;border-bottom:1px solid rgba(255,255,255,0.06)}
+.dt td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,0.04);color:#94a3b8;vertical-align:middle}
+.dt tr:last-child td{border-bottom:none}
+.dt tr:hover td{background:rgba(255,255,255,0.02)}
+.dt .name{color:#e2e8f0;font-weight:500}
+.badge{display:inline-block;padding:2px 7px;border-radius:99px;font-size:9px;font-weight:600}
+.b-blue{background:rgba(59,130,246,0.15);color:#7dd3fc}
+.b-green{background:rgba(16,185,129,0.15);color:#6ee7b7}
+.b-red{background:rgba(239,68,68,0.15);color:#fca5a5}
+.b-amber{background:rgba(245,158,11,0.15);color:#fcd34d}
+.b-purple{background:rgba(139,92,246,0.15);color:#c4b5fd}
+.b-gray{background:rgba(255,255,255,0.07);color:#64748b}
+.btn-xs{background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:3px 9px;font-size:10px;color:#94a3b8;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-block;transition:all 0.1s}
+.btn-xs:hover{background:#273549;color:#e2e8f0}
+.btn-xs.on{background:rgba(59,130,246,0.18);border-color:rgba(59,130,246,0.3);color:#60a5fa}
+.prog{height:4px;border-radius:2px;background:rgba(255,255,255,0.06);overflow:hidden}
+.prog-fill{height:100%;border-radius:2px}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:200}
+.modal-bg.open{display:flex}
+.modal-box{background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:24px;width:580px;max-width:96vw;max-height:80vh;overflow-y:auto;box-shadow:0 24px 48px rgba(0,0,0,0.6)}
+.modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.modal-title{font-size:14px;font-weight:600;color:#f1f5f9}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1}
+.modal-close:hover{color:#e2e8f0}
+.flow-expand{background:#0d1829;border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:14px 16px;margin-top:4px}
+.stage-pill{background:#0d1424;border:1px solid rgba(255,255,255,0.08);border-radius:5px;padding:3px 9px;font-size:10px;color:#64748b;white-space:nowrap}
+.stage-pill.breach{border-color:rgba(239,68,68,0.3);color:#f87171}
+.stage-pill.ok{border-color:rgba(16,185,129,0.3);color:#6ee7b7}
+.module-divider{height:1px;background:rgba(255,255,255,0.05);margin:20px 0}
+.chart-wrap{position:relative;height:160px}
+.legend-row{display:flex;gap:12px;font-size:10px;color:#64748b}
+.legend-dot{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:3px}
+</style>
+
+<div class="db-wrap">
+
+<!-- ── SIDEBAR ────────────────────────────────────────────────────────────── -->
+<aside class="db-sidebar">
+  <div class="sb-section">Overview</div>
+  <a class="sb-link active" href="#" onclick="window.scrollTo(0,0);return false">
+    <i class="ti ti-layout-dashboard"></i> Summary
+  </a>
+  <div class="sb-divider"></div>
+  <div class="sb-section">Modules</div>
+  <a class="sb-link" href="#delegation" onclick="jumpTo('delegation');return false">
+    <i class="ti ti-ticket"></i> Delegation
+  </a>
+  <a class="sb-link" href="#checklists" onclick="jumpTo('checklists');return false">
+    <i class="ti ti-checkbox"></i> Checklists
+  </a>
+  {% if has_fms %}
+  <a class="sb-link" href="#fms" onclick="jumpTo('fms');return false">
+    <i class="ti ti-git-branch"></i> FMS Flows
+  </a>
+  {% endif %}
+  <div class="sb-divider"></div>
+  <div class="sb-section">Filters</div>
+  <div style="padding:2px 8px 4px;font-size:10px;color:#4b5568">Date range</div>
+  <form method="get" action="/dashboard" style="padding:4px 8px 8px">
+    {% if dept_id %}<input type="hidden" name="dept_id" value="{{ dept_id }}">{% endif %}
+    {% if manager_id and user.role=='ADMIN' %}<input type="hidden" name="manager_id" value="{{ manager_id }}">{% endif %}
+    <div style="margin-bottom:6px">
+      <label style="font-size:9px;color:#4b5568;display:block;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.07em">From</label>
+      <input type="date" name="date_from" value="{{ date_from }}"
+             style="width:100%;background:#111827;border:1px solid rgba(255,255,255,0.12);border-radius:5px;padding:5px 7px;font-size:11px;color:#e2e8f0;outline:none;font-family:inherit;color-scheme:dark">
+    </div>
+    <div style="margin-bottom:8px">
+      <label style="font-size:9px;color:#4b5568;display:block;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.07em">To</label>
+      <input type="date" name="date_to" value="{{ date_to }}"
+             style="width:100%;background:#111827;border:1px solid rgba(255,255,255,0.12);border-radius:5px;padding:5px 7px;font-size:11px;color:#e2e8f0;outline:none;font-family:inherit;color-scheme:dark">
+    </div>
+    <button type="submit"
+            style="width:100%;background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">
+      Apply
+    </button>
+    <div style="display:flex;gap:4px;margin-top:6px">
+      <a href="?date_from={{ (now - timedelta(days=7)).strftime('%Y-%m-%d') }}&date_to={{ now.strftime('%Y-%m-%d') }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
+         style="flex:1;text-align:center;background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:3px 0;font-size:9px;color:#64748b;text-decoration:none">7d</a>
+      <a href="?date_from={{ (now - timedelta(days=30)).strftime('%Y-%m-%d') }}&date_to={{ now.strftime('%Y-%m-%d') }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
+         style="flex:1;text-align:center;background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:3px 0;font-size:9px;color:#64748b;text-decoration:none">30d</a>
+      <a href="?date_from={{ now.strftime('%Y-%m-01') }}&date_to={{ now.strftime('%Y-%m-%d') }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
+         style="flex:1;text-align:center;background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:3px 0;font-size:9px;color:#64748b;text-decoration:none">MTD</a>
+    </div>
+  </form>
+  {% if departments %}
+  <div style="padding:8px 8px 4px;font-size:10px;color:#4b5568">Department</div>
+  <a class="sb-link {% if not dept_id %}active{% endif %}"
+     href="?date_from={{ date_from }}&date_to={{ date_to }}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}">
+    <i class="ti ti-building"></i> All
+  </a>
+  {% for d in departments %}
+  <a class="sb-link {% if dept_id==d.id %}active{% endif %}"
+     href="?date_from={{ date_from }}&date_to={{ date_to }}&dept_id={{ d.id }}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
+     style="padding-left:22px;font-size:11px">{{ d.name[:22] }}</a>
+  {% endfor %}
+  {% endif %}
+  {% if user.role=='ADMIN' and managers %}
+  <div style="padding:8px 8px 4px;font-size:10px;color:#4b5568">Manager</div>
+  <a class="sb-link {% if not manager_id %}active{% endif %}"
+     href="?date_from={{ date_from }}&date_to={{ date_to }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}">
+    <i class="ti ti-users"></i> All
+  </a>
+  {% for m in managers %}
+  <a class="sb-link {% if manager_id==m.id %}active{% endif %}"
+     href="?date_from={{ date_from }}&date_to={{ date_to }}&manager_id={{ m.id }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}"
+     style="padding-left:22px;font-size:11px">{{ m.name[:22] }}</a>
+  {% endfor %}
+  {% endif %}
+  <div class="sb-divider"></div>
+  {% if can_export %}
+  <a class="sb-link" href="/analytics/export?export_type=tickets">
+    <i class="ti ti-download"></i> Export CSV
+  </a>
+  {% endif %}
+  <a class="sb-link" href="/setup/wizard">
+    <i class="ti ti-wand"></i> Setup Wizard
+  </a>
+</aside>
+
+<!-- ── CONTENT ────────────────────────────────────────────────────────────── -->
+<main class="db-content">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+    <div style="font-size:16px;font-weight:600;color:#f1f5f9">Dashboard</div>
+    <div style="font-size:11px;color:#374151">
+      {{ date_from }} → {{ date_to }}
+      {% if dept_id %}· {{ departments|selectattr('id','equalto',dept_id)|map(attribute='name')|first|default('') }}{% endif %}
+    </div>
+  </div>
+
+  {# ── DELEGATION ─────────────────────────────────────────────────────────── #}
+  <div id="delegation">
+    <div class="section-hdr">
+      <div class="section-title" style="color:#3b82f6"><i class="ti ti-ticket"></i> Delegation</div>
+      <div class="section-hdr-line"></div>
+    </div>
+    <div class="sc-row">
+      <div class="sc b-blue">
+        <div class="sc-label">Open tickets</div>
+        <div class="sc-val {% if deleg_sc.open > 0 %}amber{% else %}green{% endif %}">{{ deleg_sc.open }}</div>
+        <div class="sc-sub">currently open &amp; assigned</div>
+      </div>
+      <div class="sc b-blue">
+        <div class="sc-label">Tickets closed</div>
+        <div class="sc-val green">{{ deleg_sc.closed }}</div>
+        <div class="sc-sub">in selected period</div>
+      </div>
+      <div class="sc b-blue">
+        <div class="sc-label">Avg TaT</div>
+        <div class="sc-val">{{ deleg_sc.avg_tat }}h</div>
+        <div class="sc-sub">
+          org avg {{ deleg_sc.org_avg_tat }}h
+          {% if deleg_sc.avg_tat > 0 and deleg_sc.avg_tat < deleg_sc.org_avg_tat %}<span class="better">↑ better</span>
+          {% elif deleg_sc.avg_tat > deleg_sc.org_avg_tat %}<span class="worse">↓ slower</span>{% endif %}
+        </div>
+      </div>
+      <div class="sc b-blue" style="cursor:pointer" onclick="openModal('deleg-due')">
+        <div class="sc-label">Due in 24h</div>
+        <div class="sc-val {% if deleg_sc.due_24h_count > 0 %}amber{% else %}green{% endif %}">{{ deleg_sc.due_24h_count }}</div>
+        <div class="sc-sub">click to view list</div>
+        <div class="sc-click"><i class="ti ti-clock"></i> View</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-title">Open vs closed — 8 weeks</span>
+          <div class="legend-row">
+            <span><span class="legend-dot" style="background:rgba(59,130,246,0.7)"></span>Created</span>
+            <span><span class="legend-dot" style="background:rgba(16,185,129,0.7)"></span>Closed</span>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="delegWkChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-hdr"><span class="card-title">Avg TaT by employee</span></div>
+        {% if emp_tat %}
+        <table class="dt">
+          <thead><tr><th>Employee</th><th>Dept</th><th>Closed</th><th>Avg TaT</th><th>vs org</th></tr></thead>
+          <tbody>{% for r in emp_tat %}
+          <tr>
+            <td class="name">{{ r.name }}</td><td>{{ r.dept }}</td><td>{{ r.closed }}</td>
+            <td>{% if r.avg_tat is not none %}{{ r.avg_tat }}h{% else %}<span style="color:#374151">—</span>{% endif %}</td>
+            <td>{% if r.vs_org=='better' %}<span style="color:#10b981">↑ better</span>
+                {% elif r.vs_org=='slower' %}<span style="color:#f87171">↓ slower</span>
+                {% else %}<span style="color:#64748b">~ avg</span>{% endif %}</td>
+          </tr>{% endfor %}
+          </tbody>
+        </table>
+        {% else %}<p style="color:#374151;font-size:12px">No data yet.</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="grid{% if user.role=='ADMIN' and deleg_mgr %}3{% else %}2{% endif %}">
+      <div class="card">
+        <div class="card-hdr"><span class="card-title">By department</span></div>
+        {% if deleg_dept %}
+        <table class="dt">
+          <thead><tr><th>Dept</th><th>Open</th><th>Closed</th><th>Overdue</th></tr></thead>
+          <tbody>{% for r in deleg_dept %}
+          <tr><td class="name">{{ r.dept }}</td><td>{{ r.open }}</td>
+            <td style="color:#10b981">{{ r.closed }}</td>
+            <td style="color:{% if r.overdue > 0 %}#f87171{% else %}#64748b{% endif %}">{{ r.overdue }}</td>
+          </tr>{% endfor %}
+          </tbody>
+        </table>
+        {% else %}<p style="color:#374151;font-size:12px">No departments yet.</p>{% endif %}
+      </div>
+      <div class="card">
+        <div class="card-hdr"><span class="card-title">Open by priority</span></div>
+        {% set total_pri = deleg_pri.values()|sum %}
+        {% set pcolors = {'CRITICAL':'#ef4444','HIGH':'#f59e0b','MEDIUM':'#3b82f6','LOW':'#4b5563'} %}
+        <div style="display:flex;flex-direction:column;gap:9px;margin-top:4px">
+        {% for pri, cnt in deleg_pri.items() %}
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
+              <span style="color:{{ pcolors.get(pri,'#94a3b8') }}">{{ pri }}</span>
+              <span style="color:#e2e8f0">{{ cnt }}</span>
+            </div>
+            <div class="prog"><div class="prog-fill" style="width:{{ ((cnt/total_pri*100)|int) if total_pri else 0 }}%;background:{{ pcolors.get(pri,'#4b5563') }}"></div></div>
+          </div>
+        {% endfor %}
+        </div>
+      </div>
+      {% if user.role=='ADMIN' and deleg_mgr %}
+      <div class="card">
+        <div class="card-hdr"><span class="card-title">By manager</span></div>
+        <table class="dt">
+          <thead><tr><th>Manager</th><th>Team open</th><th>Team closed</th></tr></thead>
+          <tbody>{% for r in deleg_mgr %}
+          <tr><td class="name">{{ r.manager }}</td><td>{{ r.open }}</td><td style="color:#10b981">{{ r.closed }}</td></tr>
+          {% endfor %}</tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if flagged %}
+    <div class="card" style="border-color:rgba(239,68,68,0.2)">
+      <div class="card-hdr"><span class="card-title" style="color:#f87171">🚩 Flagged tickets</span></div>
+      <table class="dt">
+        <thead><tr><th>Title</th><th>Reason</th><th>Assignee</th><th>Due</th><th></th></tr></thead>
+        <tbody>{% for t in flagged %}
+        <tr>
+          <td><a href="/tickets/{{ t.id }}" style="color:#e2e8f0;font-weight:500">{{ t.title }}</a></td>
+          <td>{{ t.flagged_reason or '—' }}</td>
+          <td>{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
+          <td style="{% if t.due_at and t.due_at < now %}color:#f87171{% endif %}">{{ t.due_at.strftime('%d %b') if t.due_at else '—' }}</td>
+          <td>
+            <form method="post" action="/tickets/{{ t.id }}/action" style="display:inline">
+              <input type="hidden" name="action" value="unflag">
+              <button type="submit" class="btn-xs">Unflag</button>
+            </form>
+          </td>
+        </tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="module-divider"></div>
+
+  {# ── CHECKLISTS ──────────────────────────────────────────────────────────── #}
+  <div id="checklists">
+    <div class="section-hdr">
+      <div class="section-title" style="color:#10b981"><i class="ti ti-checkbox"></i> Checklists</div>
+      <div class="section-hdr-line"></div>
+    </div>
+    <div class="sc-row">
+      <div class="sc b-green">
+        <div class="sc-label">Distinct checklists</div>
+        <div class="sc-val">{{ cl_sc.distinct_templates }}</div>
+        <div class="sc-sub">unique templates active</div>
+      </div>
+      <div class="sc b-green">
+        <div class="sc-label">Compliance rate</div>
+        <div class="sc-val {% if cl_sc.compliance >= 80 %}green{% elif cl_sc.compliance >= 50 %}amber{% else %}red{% endif %}">{{ cl_sc.compliance }}%</div>
+        <div class="sc-sub">in selected period</div>
+      </div>
+      <div class="sc b-green">
+        <div class="sc-label">Avg TaT</div>
+        <div class="sc-val">{{ cl_sc.avg_tat }}h</div>
+        <div class="sc-sub">
+          org avg {{ cl_sc.org_avg_tat }}h
+          {% if cl_sc.avg_tat > 0 and cl_sc.avg_tat < cl_sc.org_avg_tat %}<span class="better">↑ better</span>
+          {% elif cl_sc.avg_tat > cl_sc.org_avg_tat %}<span class="worse">↓ slower</span>{% endif %}
+        </div>
+      </div>
+      <div class="sc b-green" style="cursor:pointer" onclick="openModal('cl-due')">
+        <div class="sc-label">Due in 24h</div>
+        <div class="sc-val {% if cl_sc.due_24h_count > 0 %}amber{% else %}green{% endif %}">{{ cl_sc.due_24h_count }}</div>
+        <div class="sc-sub">click to view list</div>
+        <div class="sc-click" style="background:rgba(16,185,129,0.15);border-color:rgba(16,185,129,0.3);color:#6ee7b7"><i class="ti ti-clock"></i> View</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-title">Compliance rate — 8 weeks</span>
+          <div class="legend-row"><span><span class="legend-dot" style="background:rgba(16,185,129,0.7)"></span>Compliance %</span></div>
+        </div>
+        <div class="chart-wrap"><canvas id="clWkChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-hdr"><span class="card-title">By template</span></div>
+        {% if cl_tmpl %}
+        <table class="dt">
+          <thead><tr><th>Checklist</th><th>Freq</th><th>Assigned</th><th>Done</th><th>Rate</th></tr></thead>
+          <tbody>{% for r in cl_tmpl %}
+          <tr>
+            <td class="name">{{ r.title[:26] }}{% if r.title|length>26 %}…{% endif %}</td>
+            <td><span class="badge {% if r.frequency=='DAILY' %}b-blue{% elif r.frequency=='WEEKLY' %}b-amber{% else %}b-purple{% endif %}">{{ (r.frequency or 'N/A')|capitalize }}</span></td>
+            <td>{{ r.assigned }}</td><td>{{ r.done }}</td>
+            <td style="color:{% if r.rate>=80 %}#10b981{% elif r.rate>=50 %}#fcd34d{% else %}#f87171{% endif %}">{{ r.rate }}%</td>
+          </tr>{% endfor %}
+          </tbody>
+        </table>
+        {% else %}<p style="color:#374151;font-size:12px">No checklist templates yet.</p>{% endif %}
+      </div>
+    </div>
+
+    {% if cl_dept %}
+    <div class="card">
+      <div class="card-hdr"><span class="card-title">Compliance by department</span></div>
+      <table class="dt">
+        <thead><tr><th>Department</th><th>Assigned</th><th>Done</th><th style="min-width:180px">Rate</th></tr></thead>
+        <tbody>{% for r in cl_dept %}
+        <tr>
+          <td class="name">{{ r.dept }}</td><td>{{ r.total }}</td><td>{{ r.done }}</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="prog" style="flex:1"><div class="prog-fill" style="width:{{ r.rate }}%;background:{% if r.rate>=80 %}#10b981{% elif r.rate>=50 %}#f59e0b{% else %}#ef4444{% endif %}"></div></div>
+              <span style="font-size:11px;min-width:32px;color:{% if r.rate>=80 %}#10b981{% elif r.rate>=50 %}#fcd34d{% else %}#f87171{% endif %}">{{ r.rate }}%</span>
+            </div>
+          </td>
+        </tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── FMS ─────────────────────────────────────────────────────────────────── #}
+  {% if has_fms and fms_sc %}
+  <div class="module-divider"></div>
+  <div id="fms">
+    <div class="section-hdr">
+      <div class="section-title" style="color:#8b5cf6"><i class="ti ti-git-branch"></i> Flow Management (FMS)</div>
+      <div class="section-hdr-line"></div>
+    </div>
+    <div class="sc-row">
+      <div class="sc b-purple">
+        <div class="sc-label">Distinct flows</div>
+        <div class="sc-val">{{ fms_sc.distinct_flows }}</div>
+        <div class="sc-sub">active flows configured</div>
+      </div>
+      <div class="sc b-purple">
+        <div class="sc-label">Total FMS tickets</div>
+        <div class="sc-val">{{ fms_sc.total_active }}</div>
+        <div class="sc-sub">active in pipeline</div>
+      </div>
+      <div class="sc b-purple">
+        <div class="sc-label">Avg stage TaT</div>
+        <div class="sc-val">{{ fms_sc.avg_stage_tat }}h</div>
+        <div class="sc-sub">
+          org avg {{ fms_sc.org_avg_stage_tat }}h
+          {% if fms_sc.avg_stage_tat > 0 and fms_sc.avg_stage_tat < fms_sc.org_avg_stage_tat %}<span class="better">↑ better</span>
+          {% elif fms_sc.avg_stage_tat > fms_sc.org_avg_stage_tat %}<span class="worse">↓ slower</span>{% endif %}
+        </div>
+      </div>
+      <div class="sc b-purple" style="cursor:pointer" onclick="openModal('fms-due')">
+        <div class="sc-label">Due in 24h</div>
+        <div class="sc-val {% if fms_sc.due_24h_count > 0 %}red{% else %}green{% endif %}">{{ fms_sc.due_24h_count }}</div>
+        <div class="sc-sub">click to view list</div>
+        <div class="sc-click" style="background:rgba(139,92,246,0.15);border-color:rgba(139,92,246,0.3);color:#c4b5fd"><i class="ti ti-clock"></i> View</div>
+      </div>
+    </div>
+
+    {% if fms_wk %}
+    <div class="card">
+      <div class="card-hdr">
+        <span class="card-title">FMS tickets — 8-week trend</span>
+        <div class="legend-row">
+          <span><span class="legend-dot" style="background:rgba(139,92,246,0.7)"></span>Created</span>
+          <span><span class="legend-dot" style="background:rgba(16,185,129,0.7)"></span>Completed</span>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="fmsWkChart"></canvas></div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-hdr"><span class="card-title">Flow-level summary</span></div>
+      {% if fms_flows %}
+      <table class="dt">
+        <thead><tr><th>Flow</th><th>Active</th><th>Completed</th><th>Flagged</th><th>Avg stage TaT</th><th>Breaches</th><th></th></tr></thead>
+        <tbody>
+        {% for flow in fms_flows %}
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:7px">
+              <div style="width:8px;height:8px;border-radius:50%;background:{{ flow.color }};flex-shrink:0"></div>
+              <span class="name">{{ flow.name }}</span>
+            </div>
+          </td>
+          <td>{{ flow.active }}</td>
+          <td>{{ flow.completed }}</td>
+          <td>{% if flow.flagged > 0 %}<span class="badge b-amber">{{ flow.flagged }}</span>{% else %}<span style="color:#374151">0</span>{% endif %}</td>
+          <td>{{ flow.avg_stage_tat }}h</td>
+          <td style="color:{% if flow.breaches > 0 %}#f87171{% else %}#10b981{% endif %}">{{ flow.breaches }}</td>
+          <td>
+            <a href="?date_from={{ date_from }}&date_to={{ date_to }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}&expand_flow={% if expand_flow==flow.id %}{% else %}{{ flow.id }}{% endif %}#fms"
+               class="btn-xs {% if expand_flow==flow.id %}on{% endif %}">
+              {% if expand_flow==flow.id %}Collapse ↑{% else %}Expand ↓{% endif %}
+            </a>
+          </td>
+        </tr>
+        {% if expand_flow==flow.id and fms_stage_bd %}
+        <tr>
+          <td colspan="7" style="padding:0 0 10px">
+            <div class="flow-expand">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                <div style="width:10px;height:10px;border-radius:50%;background:{{ flow.color }}"></div>
+                <span style="font-size:12px;font-weight:500;color:#f1f5f9">{{ flow.name }} — stage breakdown</span>
+                <span class="badge b-blue">{{ flow.active }} active tickets</span>
+              </div>
+              <table class="dt">
+                <thead><tr><th>Stage</th><th>Tickets here</th><th>Avg time at stage</th><th>TaT target</th><th>Breaches</th><th>Oldest ticket</th></tr></thead>
+                <tbody>{% for s in fms_stage_bd %}
+                <tr>
+                  <td><span class="stage-pill {% if s.breaches > 0 %}breach{% elif s.avg_time_hrs is not none %}ok{% endif %}">{{ s.name }}</span></td>
+                  <td>{{ s.ticket_count }}</td>
+                  <td>{% if s.avg_time_hrs is not none %}{{ s.avg_time_hrs }}h{% else %}<span style="color:#374151">—</span>{% endif %}</td>
+                  <td>{% if s.target_tat %}{{ s.target_tat }}h{% else %}<span style="color:#374151">—</span>{% endif %}</td>
+                  <td style="color:{% if s.breaches > 0 %}#f87171{% else %}#10b981{% endif %}">{{ s.breaches }}</td>
+                  <td>{% if s.oldest_hrs is not none %}<span style="color:{% if s.target_tat and s.oldest_hrs > s.target_tat %}#f87171{% else %}#94a3b8{% endif %}">{{ s.oldest_hrs }}h ago</span>{% else %}<span style="color:#374151">—</span>{% endif %}</td>
+                </tr>{% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="color:#374151;font-size:12px">No active FMS flows. <a href="/fms/flows/new" style="color:#60a5fa">Create a flow →</a></p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+</main>
+</div>
+
+{# ── MODALS ──────────────────────────────────────────────────────────────── #}
+<div class="modal-bg" id="modal-deleg-due" onclick="if(event.target===this)closeModal('deleg-due')">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <div class="modal-title">⏰ Delegation — due in next 24 hours</div>
+      <button class="modal-close" onclick="closeModal('deleg-due')">×</button>
+    </div>
+    {% if deleg_sc.due_24h_tickets %}
+    <table class="dt">
+      <thead><tr><th>Title</th><th>Assignee</th><th>Due</th><th>Priority</th><th></th></tr></thead>
+      <tbody>{% for t in deleg_sc.due_24h_tickets %}
+      <tr>
+        <td class="name">{{ t.title[:42] }}{% if t.title|length>42 %}…{% endif %}</td>
+        <td>{{ t.assignee }}</td>
+        <td style="color:#fcd34d">{{ t.due_at }}</td>
+        <td>{% set pc={'CRITICAL':'b-red','HIGH':'b-amber','MEDIUM':'b-blue','LOW':'b-gray'} %}<span class="badge {{ pc.get(t.priority,'b-gray') }}">{{ t.priority }}</span></td>
+        <td><a href="/tickets/{{ t.id }}" class="btn-xs">View</a></td>
+      </tr>{% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p style="color:#64748b;font-size:13px;text-align:center;padding:20px">No tickets due in the next 24 hours.</p>{% endif %}
+  </div>
+</div>
+
+<div class="modal-bg" id="modal-cl-due" onclick="if(event.target===this)closeModal('cl-due')">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <div class="modal-title">⏰ Checklists — due in next 24 hours</div>
+      <button class="modal-close" onclick="closeModal('cl-due')">×</button>
+    </div>
+    {% if cl_sc.due_24h_items %}
+    <table class="dt">
+      <thead><tr><th>Checklist</th><th>Assignee</th><th>Due</th></tr></thead>
+      <tbody>{% for item in cl_sc.due_24h_items %}
+      <tr>
+        <td class="name">{{ item.title[:42] }}{% if item.title|length>42 %}…{% endif %}</td>
+        <td>{{ item.assignee }}</td>
+        <td style="color:#fcd34d">{{ item.due_at }}</td>
+      </tr>{% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p style="color:#64748b;font-size:13px;text-align:center;padding:20px">No checklists due in the next 24 hours.</p>{% endif %}
+  </div>
+</div>
+
+{% if has_fms and fms_sc %}
+<div class="modal-bg" id="modal-fms-due" onclick="if(event.target===this)closeModal('fms-due')">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <div class="modal-title">⏰ FMS — due in next 24 hours</div>
+      <button class="modal-close" onclick="closeModal('fms-due')">×</button>
+    </div>
+    {% if fms_sc.due_24h_tickets %}
+    <table class="dt">
+      <thead><tr><th>Title</th><th>Flow</th><th>Stage</th><th>Assignee</th><th>Due</th><th></th></tr></thead>
+      <tbody>{% for t in fms_sc.due_24h_tickets %}
+      <tr>
+        <td class="name">{{ t.title[:30] }}{% if t.title|length>30 %}…{% endif %}</td>
+        <td>{{ t.flow }}</td>
+        <td><span class="stage-pill">{{ t.stage }}</span></td>
+        <td>{{ t.assignee }}</td>
+        <td style="color:#fcd34d">{{ t.due_at }}</td>
+        <td><a href="/fms/tickets/{{ t.id }}" class="btn-xs">View</a></td>
+      </tr>{% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p style="color:#64748b;font-size:13px;text-align:center;padding:20px">No FMS tickets due in the next 24 hours.</p>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ── CHARTS & JS ─────────────────────────────────────────────────────────── #}
+<script>
+function openModal(id){ document.getElementById('modal-'+id).classList.add('open'); }
+function closeModal(id){ document.getElementById('modal-'+id).classList.remove('open'); }
+function jumpTo(id){
+  const el = document.getElementById(id);
+  if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+}
+document.addEventListener('keydown', e => {
+  if(e.key==='Escape') document.querySelectorAll('.modal-bg.open').forEach(m=>m.classList.remove('open'));
+});
+
+const CO = {
+  responsive:true, maintainAspectRatio:false,
+  plugins:{legend:{display:false}},
+  scales:{
+    y:{ticks:{color:'#64748b',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}},
+    x:{ticks:{color:'#64748b',font:{size:10},maxRotation:30},grid:{color:'rgba(255,255,255,0.04)'}}
+  }
+};
+
+new Chart(document.getElementById('delegWkChart'),{type:'bar',
+  data:{labels:{{ deleg_wk.labels|tojson }},datasets:[
+    {label:'Created',data:{{ deleg_wk.created|tojson }},backgroundColor:'rgba(59,130,246,0.6)',borderRadius:3},
+    {label:'Closed', data:{{ deleg_wk.closed|tojson }}, backgroundColor:'rgba(16,185,129,0.6)',borderRadius:3}
+  ]},options:CO});
+
+new Chart(document.getElementById('clWkChart'),{type:'line',
+  data:{labels:{{ cl_wk.labels|tojson }},datasets:[{
+    label:'Compliance %',data:{{ cl_wk.rates|tojson }},
+    borderColor:'#10b981',backgroundColor:'rgba(16,185,129,0.08)',
+    tension:0.4,fill:true,pointRadius:4,pointBackgroundColor:'#10b981'
+  }]},
+  options:{...CO,scales:{
+    y:{min:0,max:100,ticks:{color:'#64748b',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}},
+    x:{ticks:{color:'#64748b',font:{size:10},maxRotation:30},grid:{color:'rgba(255,255,255,0.04)'}}
+  }}});
+
+{% if has_fms and fms_wk %}
+new Chart(document.getElementById('fmsWkChart'),{type:'bar',
+  data:{labels:{{ fms_wk.labels|tojson }},datasets:[
+    {label:'Created',  data:{{ fms_wk.created|tojson }},   backgroundColor:'rgba(139,92,246,0.6)',borderRadius:3},
+    {label:'Completed',data:{{ fms_wk.completed|tojson }},backgroundColor:'rgba(16,185,129,0.6)',borderRadius:3}
+  ]},options:CO});
+{% endif %}
+</script>
+{% endblock %}

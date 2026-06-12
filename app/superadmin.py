@@ -1,0 +1,924 @@
+"""
+Super Admin Portal — Phase 0-H
+All routes are prefixed /superadmin and use the sa_token cookie.
+"""
+from fastapi import APIRouter, Request, Depends, Form, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
+from datetime import datetime
+import os
+
+from .database import (
+    get_db, new_id,
+    SuperAdmin, Tenant, User,
+    Ticket, ChecklistTemplate, ChecklistAssignment,
+    TenantFeatureOverride, TenantLabelConfig, PlanUpgradeRequest,
+    FMSFlow, FMSStage, FMSTicket, LibraryFlowTemplate, TenantDeployedItem,
+    TenantAIUsage,
+)
+from .labels import INDUSTRY_NAMES, INDUSTRY_PRESETS as _PRESETS
+from .constants import (
+    FEATURE_CATALOG, PLAN_LIMITS, PLAN_LABELS, PLAN_ORDER,
+    LIMIT_LABELS, has_feature, get_plan_features,
+)
+from .superadmin_auth import (
+    sa_hash, sa_verify, sa_create_token, get_current_sa,
+    COOKIE,
+)
+from .auth import hash_password
+
+router = APIRouter(prefix="/superadmin")
+
+BASE_DIR  = os.path.dirname(__file__)
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+
+
+def _redirect(path: str):
+    return RedirectResponse(path, status_code=302)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _pending_tenants(db: Session):
+    """Return all self-registered tenants awaiting approval."""
+    return db.query(Tenant).filter(
+        Tenant.is_approved == False,
+        Tenant.is_suspended == False,
+    ).order_by(Tenant.trial_started_at).all()
+
+
+def _tenant_stats(db: Session, tenant_id: str) -> dict:
+    """Return quick stats for one tenant."""
+    users   = db.query(User).filter(User.tenant_id == tenant_id,
+                                    User.is_deleted == False).count()
+    tickets = db.query(Ticket).filter(Ticket.tenant_id == tenant_id,
+                                      Ticket.is_deleted == False).count()
+    open_t  = db.query(Ticket).filter(Ticket.tenant_id == tenant_id,
+                                      Ticket.is_deleted == False,
+                                      Ticket.status.notin_(["CLOSED","DONE"])).count()
+    cls_tot = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.tenant_id == tenant_id).count()
+    cls_done= db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.tenant_id == tenant_id,
+        ChecklistAssignment.status == "DONE").count()
+    compliance = round(cls_done / cls_tot * 100) if cls_tot else 100
+    last_ticket = db.query(Ticket).filter(
+        Ticket.tenant_id == tenant_id,
+        Ticket.is_deleted == False,
+    ).order_by(Ticket.created_at.desc()).first()
+    last_activity = last_ticket.created_at if last_ticket else None
+    return {
+        "users": users, "tickets": tickets, "open_tickets": open_t,
+        "compliance": compliance, "last_activity": last_activity,
+    }
+
+
+# ── Setup (first-run wizard) ──────────────────────────────────────────────────
+
+@router.get("/setup", response_class=HTMLResponse)
+def sa_setup_page(request: Request, db: Session = Depends(get_db)):
+    # Always accessible — never disappears. Keep this URL private.
+    existing_count = db.query(SuperAdmin).count()
+    return templates.TemplateResponse(request, "superadmin/setup.html",
+                                      {"error": None, "existing_count": existing_count})
+
+
+@router.post("/setup")
+def sa_setup(request: Request, name: str = Form(...), email: str = Form(...),
+             password: str = Form(...), confirm: str = Form(...),
+             db: Session = Depends(get_db)):
+    existing_count = db.query(SuperAdmin).count()
+    if password != confirm:
+        return templates.TemplateResponse(request, "superadmin/setup.html",
+                                          {"error": "Passwords do not match",
+                                           "existing_count": existing_count})
+    if db.query(SuperAdmin).filter(SuperAdmin.email == email).first():
+        return templates.TemplateResponse(request, "superadmin/setup.html",
+                                          {"error": "An account with that email already exists.",
+                                           "existing_count": existing_count})
+    sa = SuperAdmin(name=name, email=email, password_hash=sa_hash(password))
+    db.add(sa)
+    db.commit()
+    token = sa_create_token(sa.id)
+    resp  = _redirect("/superadmin/dashboard")
+    resp.set_cookie(COOKIE, token, httponly=True, max_age=28800)
+    return resp
+
+
+# ── Login / Logout ────────────────────────────────────────────────────────────
+
+@router.get("/login", response_class=HTMLResponse)
+def sa_login_page(request: Request, db: Session = Depends(get_db)):
+    no_accounts = db.query(SuperAdmin).count() == 0
+    return templates.TemplateResponse(request, "superadmin/login.html",
+                                      {"error": None, "no_accounts": no_accounts})
+
+
+@router.post("/login")
+def sa_login(request: Request, email: str = Form(...), password: str = Form(...),
+             db: Session = Depends(get_db)):
+    sa = db.query(SuperAdmin).filter(SuperAdmin.email == email,
+                                     SuperAdmin.is_active == True).first()
+    if not sa or not sa_verify(password, sa.password_hash):
+        return templates.TemplateResponse(request, "superadmin/login.html",
+                                          {"error": "Invalid credentials"})
+    sa.last_login = datetime.utcnow()
+    db.commit()
+    token = sa_create_token(sa.id)
+    resp  = _redirect("/superadmin/dashboard")
+    resp.set_cookie(COOKIE, token, httponly=True, max_age=28800)
+    return resp
+
+
+@router.get("/logout")
+def sa_logout():
+    resp = _redirect("/superadmin/login")
+    resp.delete_cookie(COOKIE)
+    return resp
+
+
+# ── Platform Dashboard ────────────────────────────────────────────────────────
+
+@router.get("/onboarding-guide", response_class=HTMLResponse)
+def sa_onboarding_guide(request: Request, sa: SuperAdmin = Depends(get_current_sa)):
+    return templates.TemplateResponse(request, "superadmin/onboarding_guide.html",
+                                      {"sa": sa})
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+def sa_dashboard(request: Request, sa: SuperAdmin = Depends(get_current_sa),
+                 db: Session = Depends(get_db)):
+    tenants      = db.query(Tenant).order_by(Tenant.created_at.desc()).all()
+    total_users  = db.query(User).filter(User.is_deleted == False).count()
+    total_tickets= db.query(Ticket).filter(Ticket.is_deleted == False).count()
+    open_tickets = db.query(Ticket).filter(Ticket.is_deleted == False,
+                                           Ticket.status.notin_(["CLOSED","DONE"])).count()
+    plan_counts  = {"STARTER": 0, "PROFESSIONAL": 0, "ENTERPRISE": 0}
+    active_plan_counts = {"STARTER": 0, "PROFESSIONAL": 0, "ENTERPRISE": 0}
+    suspended    = 0
+    active_count = 0
+    industry_counts: dict = {}
+    for t in tenants:
+        plan_counts[t.plan or "STARTER"] = plan_counts.get(t.plan or "STARTER", 0) + 1
+        if t.is_suspended:
+            suspended += 1
+        else:
+            active_count += 1
+            key = t.plan or "STARTER"
+            active_plan_counts[key] = active_plan_counts.get(key, 0) + 1
+            ind = t.industry or "Other"
+            industry_counts[ind] = industry_counts.get(ind, 0) + 1
+
+    active_users  = db.query(User).filter(User.is_deleted == False, User.is_active == True).count()
+
+    # Recent tenants (last 5)
+    recent = tenants[:5]
+    recent_stats = [(t, _tenant_stats(db, t.id)) for t in recent]
+
+    pending = _pending_tenants(db)
+
+    upgrade_requests = db.query(PlanUpgradeRequest).filter(
+        PlanUpgradeRequest.status == "PENDING"
+    ).order_by(PlanUpgradeRequest.created_at.desc()).all()
+
+    return templates.TemplateResponse(request, "superadmin/dashboard.html", {
+        "sa": sa,
+        "total_tenants": len(tenants),
+        "active_tenants": active_count,
+        "total_users": total_users,
+        "active_users": active_users,
+        "total_tickets": total_tickets,
+        "open_tickets": open_tickets,
+        "plan_counts": plan_counts,
+        "active_plan_counts": active_plan_counts,
+        "suspended": suspended,
+        "industry_counts": industry_counts,
+        "recent_stats": recent_stats,
+        "pending": pending,
+        "pending_count": len(pending),
+        "upgrade_requests": upgrade_requests,
+        "now": datetime.utcnow(),
+    })
+
+
+# ── Tenant List ───────────────────────────────────────────────────────────────
+
+@router.get("/tenants", response_class=HTMLResponse)
+def sa_tenant_list(request: Request, sa: SuperAdmin = Depends(get_current_sa),
+                   db: Session = Depends(get_db),
+                   q: str = "", plan: str = "", status: str = ""):
+    query = db.query(Tenant)
+    if q:
+        query = query.filter(
+            Tenant.name.ilike(f"%{q}%") | Tenant.slug.ilike(f"%{q}%")
+        )
+    if plan:
+        query = query.filter(Tenant.plan == plan)
+    if status == "suspended":
+        query = query.filter(Tenant.is_suspended == True)
+    elif status == "active":
+        query = query.filter(Tenant.is_suspended == False)
+
+    tenants = query.order_by(Tenant.created_at.desc()).all()
+    rows = [(t, _tenant_stats(db, t.id)) for t in tenants]
+
+    pending = _pending_tenants(db)
+    return templates.TemplateResponse(request, "superadmin/tenants.html", {
+        "sa": sa, "rows": rows,
+        "q": q, "plan_filter": plan, "status_filter": status,
+        "pending_count": len(pending),
+        "now": datetime.utcnow(),
+    })
+
+
+# ── Create Tenant ─────────────────────────────────────────────────────────────
+
+@router.get("/tenants/check-slug")
+def sa_check_slug(slug: str, db: Session = Depends(get_db),
+                  sa: SuperAdmin = Depends(get_current_sa)):
+    """Real-time slug availability check — called by the tenant creation form."""
+    from fastapi.responses import JSONResponse as _JSON
+    exists = db.query(Tenant).filter(Tenant.slug == slug).first()
+    return _JSON({"available": exists is None})
+
+
+@router.get("/tenants/new", response_class=HTMLResponse)
+def sa_new_tenant_page(request: Request, sa: SuperAdmin = Depends(get_current_sa)):
+    return templates.TemplateResponse(request, "superadmin/tenant_new.html",
+                                      {"sa": sa, "error": None,
+                                       "industry_names": INDUSTRY_NAMES})
+
+
+@router.post("/tenants/new")
+def sa_new_tenant(request: Request,
+                  factory_name: str = Form(...), slug: str = Form(...),
+                  industry: str = Form(""), plan: str = Form("STARTER"),
+                  contact_name: str = Form(""), contact_email: str = Form(""),
+                  admin_name: str = Form(...), admin_phone: str = Form(...),
+                  admin_password: str = Form(...),
+                  # Module selection — each checkbox sends "on" if checked
+                  mod_checklists: str = Form(""), mod_fms: str = Form(""),
+                  mod_inventory: str = Form(""), mod_ai: str = Form(""),
+                  sa: SuperAdmin = Depends(get_current_sa),
+                  db: Session = Depends(get_db)):
+    if db.query(Tenant).filter(Tenant.slug == slug).first():
+        return templates.TemplateResponse(request, "superadmin/tenant_new.html",
+                                          {"sa": sa, "error": "Slug already taken",
+                                           "industry_names": INDUSTRY_NAMES})
+    tenant = Tenant(
+        name=factory_name, slug=slug, industry=industry or None,
+        plan=plan, contact_name=contact_name or None,
+        contact_email=contact_email or None,
+        is_approved=True,
+    )
+    db.add(tenant)
+    db.flush()
+    admin = User(
+        tenant_id=tenant.id, name=admin_name, phone=admin_phone,
+        password_hash=hash_password(admin_password), role="ADMIN",
+    )
+    db.add(admin)
+    # Auto-apply label preset
+    if industry and industry in _PRESETS:
+        overrides = _PRESETS[industry]
+        def _get(c, i):
+            e = overrides.get(c); return e[i] if e else None
+        db.add(TenantLabelConfig(
+            tenant_id=tenant.id, industry=industry,
+            ticket_s=_get("ticket",0),      ticket_p=_get("ticket",1),
+            checklist_s=_get("checklist",0),checklist_p=_get("checklist",1),
+            branch_s=_get("branch",0),      branch_p=_get("branch",1),
+            department_s=_get("department",0),department_p=_get("department",1),
+            employee_s=_get("employee",0),  employee_p=_get("employee",1),
+        ))
+    # Write explicit module overrides — SA must opt-in each module at creation time.
+    # Tickets are always on (core). All others are set explicitly so plan defaults
+    # don't silently enable modules the client doesn't need.
+    _module_flags = {
+        "CHECKLISTS": bool(mod_checklists),
+        "FMS":        bool(mod_fms),
+        "INVENTORY":  bool(mod_inventory),
+        "ASK_AI":     bool(mod_ai),
+    }
+    for feature, enabled in _module_flags.items():
+        db.add(TenantFeatureOverride(
+            tenant_id=tenant.id, feature=feature, enabled=enabled,
+            note="Set at tenant creation by SA",
+        ))
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant.id}?msg=created")
+
+
+# ── Tenant Detail ─────────────────────────────────────────────────────────────
+
+@router.get("/tenants/{tenant_id}", response_class=HTMLResponse)
+def sa_tenant_detail(request: Request, tenant_id: str,
+                     sa: SuperAdmin = Depends(get_current_sa),
+                     db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant not found")
+    stats  = _tenant_stats(db, tenant_id)
+    users  = db.query(User).filter(User.tenant_id == tenant_id,
+                                   User.is_deleted == False).order_by(User.created_at).all()
+    recent_tickets = db.query(Ticket).filter(
+        Ticket.tenant_id == tenant_id, Ticket.is_deleted == False,
+    ).order_by(Ticket.created_at.desc()).limit(10).all()
+
+    label_row = db.query(TenantLabelConfig).filter(
+        TenantLabelConfig.tenant_id == tenant_id).first()
+    # Phase 0-K-8: deployed items with update-available flags
+    from .superadmin_library import get_deployed_items_for_tenant
+    deployed_items = get_deployed_items_for_tenant(db, tenant_id)
+    updates_available = [d for d in deployed_items if d["update_available"]]
+
+    # FMS flows for this tenant
+    fms_flows = db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == tenant_id,
+        FMSFlow.is_deleted == False,
+    ).order_by(FMSFlow.created_at).all()
+    # Annotate with active ticket count
+    for f in fms_flows:
+        f.active_ticket_count = db.query(FMSTicket).filter(
+            FMSTicket.flow_id == f.id,
+            FMSTicket.is_deleted == False,
+            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+        ).count()
+
+    # Plan flow limit check
+    plan = tenant.plan or "STARTER"
+    fms_flow_limit = PLAN_LIMITS.get(plan, {}).get("max_fms_flows")
+    fms_flow_count = len(fms_flows)
+
+    # Library flows available to deploy
+    lib_flows = db.query(LibraryFlowTemplate).filter(
+        LibraryFlowTemplate.status == "ACTIVE"
+    ).all() if hasattr(LibraryFlowTemplate, "status") else db.query(LibraryFlowTemplate).all()
+
+    # Checklists for this tenant
+    checklist_templates = db.query(ChecklistTemplate).filter(
+        ChecklistTemplate.tenant_id == tenant_id,
+        ChecklistTemplate.is_deleted == False,
+    ).order_by(ChecklistTemplate.created_at.desc()).all()
+    for ct in checklist_templates:
+        ct.total_assignments = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.template_id == ct.id).count()
+        ct.done_assignments = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.template_id == ct.id,
+            ChecklistAssignment.status == "DONE").count()
+
+    # FMS tickets for this tenant
+    fms_tickets = db.query(FMSTicket).filter(
+        FMSTicket.tenant_id == tenant_id,
+        FMSTicket.is_deleted == False,
+    ).order_by(FMSTicket.created_at.desc()).limit(20).all()
+
+    # AI usage for this tenant
+    from datetime import date as _date
+    today_str = _date.today().isoformat()
+    month_str = today_str[:7]  # "YYYY-MM"
+    ai_today_row = db.query(TenantAIUsage).filter(
+        TenantAIUsage.tenant_id == tenant_id,
+        TenantAIUsage.date == today_str,
+    ).first()
+    ai_usage_today = ai_today_row.call_count if ai_today_row else 0
+    ai_month_rows = db.query(TenantAIUsage).filter(
+        TenantAIUsage.tenant_id == tenant_id,
+        TenantAIUsage.date.like(f"{month_str}%"),
+    ).all()
+    ai_usage_month = sum(r.call_count for r in ai_month_rows)
+
+    return templates.TemplateResponse(request, "superadmin/tenant_detail.html", {
+        "sa": sa, "tenant": tenant, "stats": stats,
+        "users": users, "recent_tickets": recent_tickets,
+        "plans": ["STARTER", "PROFESSIONAL", "ENTERPRISE"],
+        "pending_count": len(_pending_tenants(db)),
+        "industry_names": INDUSTRY_NAMES,
+        "label_row": label_row,
+        "deployed_items": deployed_items,
+        "updates_available": updates_available,
+        "fms_flows": fms_flows,
+        "fms_flow_limit": fms_flow_limit,
+        "fms_flow_count": fms_flow_count,
+        "lib_flows": lib_flows,
+        "checklist_templates": checklist_templates,
+        "fms_tickets": fms_tickets,
+        "ai_usage_today": ai_usage_today,
+        "ai_usage_month": ai_usage_month,
+        "now": datetime.utcnow(),
+    })
+
+
+# ── Change Plan ───────────────────────────────────────────────────────────────
+
+@router.post("/tenants/{tenant_id}/plan")
+def sa_change_plan(tenant_id: str, plan: str = Form(...),
+                   sa: SuperAdmin = Depends(get_current_sa),
+                   db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    if plan not in ("STARTER", "PROFESSIONAL", "ENTERPRISE"):
+        raise HTTPException(400, "Invalid plan")
+    tenant.plan = plan
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=plan_updated")
+
+
+# ── Set AI Limit per Tenant ───────────────────────────────────────────────────
+
+@router.get("/tenants/{tenant_id}/set-ai-limit")
+def sa_reset_ai_limit(tenant_id: str, reset: str = None,
+                      sa: SuperAdmin = Depends(get_current_sa),
+                      db: Session = Depends(get_db)):
+    """GET with ?reset=1 clears the SA override, restoring plan default."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    if reset == "1":
+        tenant.ai_custom_limit = None
+        db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=ai_limit_updated")
+
+
+@router.post("/tenants/{tenant_id}/set-ai-limit")
+def sa_set_ai_limit(tenant_id: str,
+                    ai_limit: str = Form(""),
+                    sa: SuperAdmin = Depends(get_current_sa),
+                    db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    val = ai_limit.strip()
+    tenant.ai_custom_limit = int(val) if val else None
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=ai_limit_updated")
+
+
+# ── Edit Tenant Info ──────────────────────────────────────────────────────────
+
+@router.post("/tenants/{tenant_id}/edit")
+def sa_edit_tenant(tenant_id: str,
+                   factory_name: str = Form(...), industry: str = Form(""),
+                   contact_name: str = Form(""), contact_email: str = Form(""),
+                   sa: SuperAdmin = Depends(get_current_sa),
+                   db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    tenant.name          = factory_name
+    tenant.industry      = industry or None
+    tenant.contact_name  = contact_name or None
+    tenant.contact_email = contact_email or None
+    # Apply / update label preset when industry matches a known preset
+    if industry and industry in _PRESETS:
+        overrides = _PRESETS[industry]
+        def _get(c, i): e = overrides.get(c); return e[i] if e else None
+        row = db.query(TenantLabelConfig).filter(
+            TenantLabelConfig.tenant_id == tenant_id).first()
+        if row is None:
+            row = TenantLabelConfig(tenant_id=tenant_id)
+            db.add(row)
+        row.ticket_s=_get("ticket",0);       row.ticket_p=_get("ticket",1)
+        row.checklist_s=_get("checklist",0); row.checklist_p=_get("checklist",1)
+        row.branch_s=_get("branch",0);       row.branch_p=_get("branch",1)
+        row.department_s=_get("department",0);row.department_p=_get("department",1)
+        row.employee_s=_get("employee",0);   row.employee_p=_get("employee",1)
+        row.industry=industry
+        from datetime import datetime as _dt; row.updated_at=_dt.utcnow()
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=updated")
+
+
+# ── Suspend / Unsuspend ───────────────────────────────────────────────────────
+
+@router.post("/tenants/{tenant_id}/suspend")
+def sa_suspend(tenant_id: str, sa: SuperAdmin = Depends(get_current_sa),
+               db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    tenant.is_suspended = True
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=suspended")
+
+
+@router.post("/tenants/{tenant_id}/unsuspend")
+def sa_unsuspend(tenant_id: str, sa: SuperAdmin = Depends(get_current_sa),
+                 db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    tenant.is_suspended = False
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=unsuspended")
+
+
+# ── Delete Tenant (soft) ──────────────────────────────────────────────────────
+
+@router.post("/tenants/{tenant_id}/delete")
+def sa_delete_tenant(tenant_id: str, confirm: str = Form(""),
+                     sa: SuperAdmin = Depends(get_current_sa),
+                     db: Session = Depends(get_db)):
+    if confirm != "DELETE":
+        return _redirect(f"/superadmin/tenants/{tenant_id}?err=type_DELETE_to_confirm")
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    # Soft-delete all users, then suspend tenant
+    db.query(User).filter(User.tenant_id == tenant_id).update({"is_deleted": True})
+    db.query(Ticket).filter(Ticket.tenant_id == tenant_id).update({"is_deleted": True})
+    tenant.is_suspended = True
+    tenant.name = f"[DELETED] {tenant.name}"
+    db.commit()
+    return _redirect("/superadmin/tenants?msg=deleted")
+
+
+# ── Reset Admin Password ──────────────────────────────────────────────────────
+
+@router.get("/approvals", response_class=HTMLResponse)
+def sa_approvals(request: Request, sa: SuperAdmin = Depends(get_current_sa),
+                 db: Session = Depends(get_db)):
+    pending = _pending_tenants(db)
+    rows = [(t, _tenant_stats(db, t.id)) for t in pending]
+    return templates.TemplateResponse(request, "superadmin/approvals.html",
+                                      {"sa": sa, "rows": rows,
+                                       "pending_count": len(pending),
+                                       "now": datetime.utcnow()})
+
+
+@router.post("/tenants/{tenant_id}/approve")
+def sa_approve(tenant_id: str, plan: str = Form("STARTER"),
+               sa: SuperAdmin = Depends(get_current_sa),
+               db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    if plan not in ("STARTER", "PROFESSIONAL", "ENTERPRISE"):
+        plan = "STARTER"
+    tenant.is_approved = True
+    tenant.plan = plan
+    db.commit()
+    return _redirect(f"/superadmin/approvals?msg=approved&name={tenant.name}")
+
+
+@router.post("/tenants/{tenant_id}/reject")
+def sa_reject(tenant_id: str, reason: str = Form(""),
+              sa: SuperAdmin = Depends(get_current_sa),
+              db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    # Suspend and mark name so it's clearly rejected
+    tenant.is_suspended = True
+    tenant.name = f"[REJECTED] {tenant.name}"
+    db.commit()
+    return _redirect("/superadmin/approvals?msg=rejected")
+
+
+@router.post("/tenants/{tenant_id}/reset-password")
+def sa_reset_password(tenant_id: str, user_id: str = Form(...),
+                      new_password: str = Form(...),
+                      sa: SuperAdmin = Depends(get_current_sa),
+                      db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id,
+                                 User.tenant_id == tenant_id).first()
+    if not user:
+        raise HTTPException(404)
+    user.password_hash = hash_password(new_password)
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=password_reset")
+
+
+# ── SA Account Management ─────────────────────────────────────────────────────
+
+@router.get("/admins", response_class=HTMLResponse)
+def sa_admin_list(request: Request, sa: SuperAdmin = Depends(get_current_sa),
+                  db: Session = Depends(get_db)):
+    all_admins = db.query(SuperAdmin).order_by(SuperAdmin.created_at).all()
+    pending_count = len(_pending_tenants(db))
+    return templates.TemplateResponse(request, "superadmin/admins.html", {
+        "sa": sa, "all_admins": all_admins,
+        "pending_count": pending_count,
+        "now": datetime.utcnow(),
+    })
+
+
+@router.post("/admins/new")
+def sa_add_admin(name: str = Form(...), email: str = Form(...),
+                 password: str = Form(...),
+                 sa: SuperAdmin = Depends(get_current_sa),
+                 db: Session = Depends(get_db)):
+    if db.query(SuperAdmin).filter(SuperAdmin.email == email).first():
+        return _redirect("/superadmin/admins?err=email_taken")
+    new_sa = SuperAdmin(name=name, email=email, password_hash=sa_hash(password))
+    db.add(new_sa)
+    db.commit()
+    return _redirect("/superadmin/admins?msg=created")
+
+
+@router.post("/admins/{sa_id}/deactivate")
+def sa_deactivate_admin(sa_id: str, sa: SuperAdmin = Depends(get_current_sa),
+                        db: Session = Depends(get_db)):
+    if sa_id == sa.id:
+        return _redirect("/superadmin/admins?err=cannot_deactivate_self")
+    target = db.query(SuperAdmin).filter(SuperAdmin.id == sa_id).first()
+    if not target:
+        raise HTTPException(404)
+    target.is_active = False
+    db.commit()
+    return _redirect("/superadmin/admins?msg=deactivated")
+
+
+@router.post("/admins/{sa_id}/activate")
+def sa_activate_admin(sa_id: str, sa: SuperAdmin = Depends(get_current_sa),
+                      db: Session = Depends(get_db)):
+    target = db.query(SuperAdmin).filter(SuperAdmin.id == sa_id).first()
+    if not target:
+        raise HTTPException(404)
+    target.is_active = True
+    db.commit()
+    return _redirect("/superadmin/admins?msg=activated")
+
+
+# ── SA Profile (change own name / password) ───────────────────────────────────
+
+@router.get("/profile", response_class=HTMLResponse)
+def sa_profile_page(request: Request, sa: SuperAdmin = Depends(get_current_sa),
+                    db: Session = Depends(get_db)):
+    pending_count = len(_pending_tenants(db))
+    return templates.TemplateResponse(request, "superadmin/profile.html", {
+        "sa": sa, "pending_count": pending_count,
+        "now": datetime.utcnow(),
+    })
+
+
+@router.post("/profile/name")
+def sa_update_name(name: str = Form(...),
+                   sa: SuperAdmin = Depends(get_current_sa),
+                   db: Session = Depends(get_db)):
+    sa.name = name
+    db.commit()
+    return _redirect("/superadmin/profile?msg=name_updated")
+
+
+@router.post("/profile/password")
+def sa_update_password(current_password: str = Form(...),
+                       new_password: str = Form(...),
+                       confirm_password: str = Form(...),
+                       sa: SuperAdmin = Depends(get_current_sa),
+                       db: Session = Depends(get_db)):
+    if not sa_verify(current_password, sa.password_hash):
+        return _redirect("/superadmin/profile?err=wrong_current")
+    if new_password != confirm_password:
+        return _redirect("/superadmin/profile?err=mismatch")
+    if len(new_password) < 6:
+        return _redirect("/superadmin/profile?err=too_short")
+    sa.password_hash = sa_hash(new_password)
+    db.commit()
+    # Force re-login with new password
+    resp = _redirect("/superadmin/login?msg=password_changed")
+    resp.delete_cookie(COOKIE)
+    return resp
+
+
+# ── Feature Flag Overrides — Phase 0-I ───────────────────────────────────────
+
+@router.get("/tenants/{tenant_id}/features", response_class=HTMLResponse)
+def sa_tenant_features(request: Request, tenant_id: str,
+                       sa: SuperAdmin = Depends(get_current_sa),
+                       db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+
+    overrides = {
+        o.feature: o
+        for o in db.query(TenantFeatureOverride).filter(
+            TenantFeatureOverride.tenant_id == tenant_id).all()
+    }
+
+    # Build feature rows grouped by category
+    from collections import defaultdict
+    by_category = defaultdict(list)
+    for fname, (label, category, min_plan) in FEATURE_CATALOG.items():
+        plan_allows = get_plan_features(tenant.plan or "STARTER").get(fname, False)
+        override    = overrides.get(fname)
+        effective   = override.enabled if override else plan_allows
+        by_category[category].append({
+            "name": fname, "label": label, "min_plan": min_plan,
+            "plan_allows": plan_allows, "override": override,
+            "effective": effective,
+        })
+
+    pending_count = len(_pending_tenants(db))
+    return templates.TemplateResponse(request, "superadmin/tenant_features.html", {
+        "sa": sa, "tenant": tenant,
+        "by_category": dict(by_category),
+        "plan_labels": PLAN_LABELS,
+        "pending_count": pending_count,
+        "now": datetime.utcnow(),
+    })
+
+
+@router.post("/tenants/{tenant_id}/features/override")
+def sa_set_override(tenant_id: str,
+                    feature: str = Form(...),
+                    action: str = Form(...),   # "enable", "disable", "clear"
+                    note: str = Form(""),
+                    sa: SuperAdmin = Depends(get_current_sa),
+                    db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    if feature not in FEATURE_CATALOG:
+        raise HTTPException(400, "Unknown feature")
+
+    existing = db.query(TenantFeatureOverride).filter(
+        TenantFeatureOverride.tenant_id == tenant_id,
+        TenantFeatureOverride.feature   == feature,
+    ).first()
+
+    if action == "clear":
+        if existing:
+            db.delete(existing)
+    else:
+        enabled = (action == "enable")
+        if existing:
+            existing.enabled = enabled
+            existing.note    = note or None
+        else:
+            db.add(TenantFeatureOverride(
+                tenant_id=tenant_id, feature=feature,
+                enabled=enabled, note=note or None,
+            ))
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}/features?msg=saved")
+
+
+@router.post("/tenants/{tenant_id}/features/clear-all")
+def sa_clear_all_overrides(tenant_id: str,
+                            sa: SuperAdmin = Depends(get_current_sa),
+                            db: Session = Depends(get_db)):
+    db.query(TenantFeatureOverride).filter(
+        TenantFeatureOverride.tenant_id == tenant_id
+    ).delete()
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}/features?msg=cleared")
+
+
+# ── Plan Upgrade Requests ──────────────────────────────────────────────────────
+
+@router.post("/upgrade-requests/{req_id}/action")
+def sa_action_upgrade_request(
+    req_id: str,
+    action: str = Form(...),   # "actioned" or "dismissed"
+    sa: SuperAdmin = Depends(get_current_sa),
+    db: Session = Depends(get_db),
+):
+    req = db.query(PlanUpgradeRequest).filter(PlanUpgradeRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(404, "Request not found")
+    req.status = "ACTIONED" if action == "actioned" else "DISMISSED"
+    req.actioned_at = datetime.utcnow()
+    req.actioned_by = sa.id
+    # If actioning: upgrade the tenant's plan
+    if action == "actioned":
+        tenant = db.query(Tenant).get(req.tenant_id)
+        if tenant:
+            tenant.plan = req.to_plan
+    db.commit()
+    return _redirect("/superadmin/dashboard?msg=upgrade_actioned")
+
+
+# ── Deploy FMS Flow to Tenant ─────────────────────────────────────────────────
+
+@router.post("/tenants/{tenant_id}/deploy-flow")
+def sa_deploy_flow(
+    tenant_id: str,
+    library_flow_id: str = Form(...),
+    notes: str = Form(""),
+    sa: SuperAdmin = Depends(get_current_sa),
+    db: Session = Depends(get_db),
+):
+    """SA deploys a library flow template to a specific tenant.
+    Enforces plan flow limit before deploying."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant not found")
+
+    # Plan limit check
+    plan = tenant.plan or "STARTER"
+    max_flows = PLAN_LIMITS.get(plan, {}).get("max_fms_flows")
+    current_count = db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == tenant_id,
+        FMSFlow.is_deleted == False,
+    ).count()
+    if max_flows is not None and current_count >= max_flows:
+        return _redirect(
+            f"/superadmin/tenants/{tenant_id}"
+            f"?err=Flow+limit+reached+for+{plan}+plan+({max_flows}+flows).+Upgrade+their+plan+first."
+        )
+
+    lib_flow = db.query(LibraryFlowTemplate).get(library_flow_id)
+    if not lib_flow:
+        raise HTTPException(404, "Library flow not found")
+
+    # Create tenant FMS flow from library template
+    from .database import FMSStage as _Stage
+    flow = FMSFlow(
+        tenant_id=tenant_id,
+        name=lib_flow.name,
+        description=lib_flow.description,
+        color=getattr(lib_flow, "color", "#3b82f6"),
+        is_active=True,
+        library_flow_id=library_flow_id,
+        library_version_at_deploy=lib_flow.version,
+        created_by_id=None,
+    )
+    db.add(flow)
+    db.flush()
+
+    for lib_stage in (lib_flow.stages or []):
+        db.add(_Stage(
+            flow_id=flow.id,
+            tenant_id=tenant_id,
+            name=lib_stage.name,
+            order=lib_stage.order or 0,
+            color=getattr(lib_stage, "color", "#3b82f6"),
+            is_terminal=getattr(lib_stage, "is_terminal", False),
+            target_tat_hours=getattr(lib_stage, "target_tat_hours", None),
+            is_mandatory=getattr(lib_stage, "is_mandatory", True),
+        ))
+
+    # Record deployment in tenant_deployed_items
+    db.add(TenantDeployedItem(
+        tenant_id=tenant_id,
+        item_type="flow",
+        library_item_id=library_flow_id,
+        item_name=lib_flow.name,
+        deployed_version=lib_flow.version,
+        deployed_by=sa.id,
+        notes=notes or None,
+    ))
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=flow_deployed")
+
+
+# ── Undeploy a library item (label bundle or flow) ────────────────────────────
+
+@router.post("/tenants/{tenant_id}/undeploy-item/{item_id}")
+def sa_undeploy_item(
+    tenant_id: str, item_id: str,
+    sa: SuperAdmin = Depends(get_current_sa),
+    db: Session = Depends(get_db),
+):
+    record = db.query(TenantDeployedItem).filter(
+        TenantDeployedItem.id == item_id,
+        TenantDeployedItem.tenant_id == tenant_id,
+    ).first()
+    if not record:
+        raise HTTPException(404, "Deployed item not found")
+
+    # If it was a flow deployment, also soft-delete the FMSFlow
+    if record.item_type == "flow":
+        flow = db.query(FMSFlow).filter(
+            FMSFlow.tenant_id == tenant_id,
+            FMSFlow.library_flow_id == record.library_item_id,
+            FMSFlow.is_deleted == False,
+        ).first()
+        if flow:
+            flow.is_deleted = True
+
+    db.delete(record)
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=item_undeployed")
+
+
+# ── Delete (soft) an FMS flow from a tenant ───────────────────────────────────
+
+@router.post("/tenants/{tenant_id}/delete-flow/{flow_id}")
+def sa_delete_flow(
+    tenant_id: str, flow_id: str,
+    sa: SuperAdmin = Depends(get_current_sa),
+    db: Session = Depends(get_db),
+):
+    flow = db.query(FMSFlow).filter(
+        FMSFlow.id == flow_id,
+        FMSFlow.tenant_id == tenant_id,
+        FMSFlow.is_deleted == False,
+    ).first()
+    if not flow:
+        raise HTTPException(404, "Flow not found")
+    flow.is_deleted = True
+    # Also remove tracking record if exists
+    tracking = db.query(TenantDeployedItem).filter(
+        TenantDeployedItem.tenant_id == tenant_id,
+        TenantDeployedItem.item_type == "flow",
+        TenantDeployedItem.library_item_id == flow.library_flow_id,
+    ).first()
+    if tracking:
+        db.delete(tracking)
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=flow_deleted")

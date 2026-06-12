@@ -1,0 +1,123 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+
+{% set msg = request.query_params.get('msg','') %}
+{% if msg == 'saved'   %}<div class="alert alert-green">Override saved.</div>{% endif %}
+{% if msg == 'cleared' %}<div class="alert alert-purple">All overrides cleared — plan defaults restored.</div>{% endif %}
+
+<div class="page-header">
+  <div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+      <h2 class="page-title">Feature Flags</h2>
+      <span class="badge badge-{% if tenant.plan=='ENTERPRISE' %}purple{% elif tenant.plan=='PROFESSIONAL' %}blue{% else %}gray{% endif %}">
+        {{ plan_labels[tenant.plan or 'STARTER'] }}
+      </span>
+    </div>
+    <div class="muted">{{ tenant.name }} — override individual features regardless of plan</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <form method="post" action="/superadmin/tenants/{{ tenant.id }}/features/clear-all"
+          onsubmit="return confirm('Clear all overrides for this tenant?')">
+      <button type="submit" class="btn btn-gray btn-sm">Clear All Overrides</button>
+    </form>
+    <a href="/superadmin/tenants/{{ tenant.id }}" class="btn btn-gray btn-sm">← Tenant Detail</a>
+  </div>
+</div>
+
+<!-- Legend -->
+<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;font-size:12px;color:#64748b">
+  <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:#10b981"></div>Plan includes</div>
+  <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:#4b5563"></div>Plan excludes</div>
+  <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:2px;background:#a78bfa"></div>SA override active</div>
+</div>
+
+{% for category, features in by_category.items() %}
+<div class="card">
+  <h2>{{ category }}</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Feature</th>
+        <th>Min Plan</th>
+        <th style="text-align:center">Plan Status</th>
+        <th style="text-align:center">Effective</th>
+        <th style="text-align:center">Override</th>
+        <th>Note</th>
+        <th style="width:220px">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for f in features %}
+    <tr style="{% if f.override %}background:rgba(167,139,250,0.05){% endif %}">
+      <td style="font-weight:500;color:#e2e8f0">{{ f.label }}</td>
+      <td><span class="badge badge-{% if f.min_plan=='ENTERPRISE' %}purple{% elif f.min_plan=='PROFESSIONAL' %}blue{% else %}gray{% endif %}" style="font-size:9px">{{ plan_labels[f.min_plan] }}</span></td>
+      <td style="text-align:center">
+        {% if f.plan_allows %}
+        <span style="color:#10b981;font-size:13px">✓</span>
+        {% else %}
+        <span style="color:#4b5563;font-size:13px">✗</span>
+        {% endif %}
+      </td>
+      <td style="text-align:center">
+        {% if f.effective %}
+        <span class="badge badge-green" style="font-size:9px">ON</span>
+        {% else %}
+        <span class="badge badge-red" style="font-size:9px">OFF</span>
+        {% endif %}
+        {% if f.override %}
+        <span class="badge badge-purple" style="font-size:8px;margin-left:3px">SA</span>
+        {% endif %}
+      </td>
+      <td style="text-align:center;font-size:12px;color:#64748b">
+        {% if f.override %}
+          {% if f.override.enabled %}Force ON{% else %}Force OFF{% endif %}
+        {% else %}
+          <span style="color:#374151">—</span>
+        {% endif %}
+      </td>
+      <td style="font-size:11px;color:#64748b;max-width:140px">
+        {{ f.override.note if f.override and f.override.note else '—' }}
+      </td>
+      <td>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <!-- Enable -->
+          <form method="post" action="/superadmin/tenants/{{ tenant.id }}/features/override"
+                style="display:inline">
+            <input type="hidden" name="feature" value="{{ f.name }}">
+            <input type="hidden" name="action"  value="enable">
+            <input type="hidden" name="note"    value="">
+            <button type="submit" class="btn btn-sm btn-green"
+                    {% if f.override and f.override.enabled %}style="opacity:0.4;cursor:default"{% endif %}>
+              Force ON
+            </button>
+          </form>
+          <!-- Disable -->
+          <form method="post" action="/superadmin/tenants/{{ tenant.id }}/features/override"
+                style="display:inline">
+            <input type="hidden" name="feature" value="{{ f.name }}">
+            <input type="hidden" name="action"  value="disable">
+            <input type="hidden" name="note"    value="">
+            <button type="submit" class="btn btn-sm btn-red"
+                    {% if f.override and not f.override.enabled %}style="opacity:0.4;cursor:default"{% endif %}>
+              Force OFF
+            </button>
+          </form>
+          <!-- Clear override -->
+          {% if f.override %}
+          <form method="post" action="/superadmin/tenants/{{ tenant.id }}/features/override"
+                style="display:inline">
+            <input type="hidden" name="feature" value="{{ f.name }}">
+            <input type="hidden" name="action"  value="clear">
+            <button type="submit" class="btn btn-sm btn-gray">Clear</button>
+          </form>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+
+{% endblock %}

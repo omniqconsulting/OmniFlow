@@ -1,0 +1,605 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+
+{% set msg = request.query_params.get('msg','') %}
+{% set err = request.query_params.get('err','') %}
+{% if msg == 'plan_updated'    %}<div class="alert alert-green">✓ Plan updated successfully.</div>{% endif %}
+{% if msg == 'updated'         %}<div class="alert alert-green">✓ Tenant details updated.</div>{% endif %}
+{% if msg == 'suspended'       %}<div class="alert alert-red">Tenant has been suspended.</div>{% endif %}
+{% if msg == 'unsuspended'     %}<div class="alert alert-green">✓ Tenant is now active.</div>{% endif %}
+{% if msg == 'password_reset'  %}<div class="alert alert-green">✓ Password reset successfully.</div>{% endif %}
+{% if msg == 'flow_deployed'   %}<div class="alert alert-green">✓ Flow deployed successfully.</div>{% endif %}
+{% if msg == 'flow_deleted'    %}<div class="alert alert-green">✓ Flow removed from tenant.</div>{% endif %}
+{% if msg == 'item_undeployed' %}<div class="alert alert-green">✓ Item undeployed from tenant.</div>{% endif %}
+{% if msg == 'ai_limit_updated' %}<div class="alert alert-green">✓ AI call limit updated.</div>{% endif %}
+{% if err %}<div class="alert alert-red">{{ err }}</div>{% endif %}
+
+<div class="page-header">
+  <div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+      <h2 class="page-title">{{ tenant.name }}</h2>
+      {% if tenant.is_suspended %}
+      <span class="badge badge-red">SUSPENDED</span>
+      {% else %}
+      <span class="badge badge-green">ACTIVE</span>
+      {% endif %}
+      {% if tenant.plan == 'ENTERPRISE' %}<span class="badge badge-purple">ENTERPRISE</span>
+      {% elif tenant.plan == 'PROFESSIONAL' %}<span class="badge badge-blue">PROFESSIONAL</span>
+      {% else %}<span class="badge badge-gray">STARTER</span>{% endif %}
+    </div>
+    <div class="muted">Slug: <strong style="color:#94a3b8">{{ tenant.slug }}</strong> · Created {{ tenant.created_at.strftime('%d %b %Y') }}</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/superadmin/tenants/{{ tenant.id }}/features" class="btn btn-purple btn-sm">🚩 Feature Flags</a>
+    <a href="/superadmin/tenants" class="btn btn-gray">← All Tenants</a>
+  </div>
+</div>
+
+<!-- Stats row -->
+<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
+  <div class="kpi-tile">
+    <div class="label">Users</div>
+    <div class="value">{{ stats.users }}</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Total Tickets</div>
+    <div class="value">{{ stats.tickets }}</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Open Tickets</div>
+    <div class="value" style="color:{% if stats.open_tickets > 0 %}#f87171{% else %}#6ee7b7{% endif %}">{{ stats.open_tickets }}</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Compliance</div>
+    <div class="value" style="color:{% if stats.compliance >= 80 %}#6ee7b7{% elif stats.compliance >= 50 %}#fcd34d{% else %}#f87171{% endif %}">{{ stats.compliance }}%</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="label">Last Activity</div>
+    <div class="value" style="font-size:16px;margin-top:10px">
+      {{ stats.last_activity.strftime('%d %b') if stats.last_activity else '—' }}
+    </div>
+  </div>
+</div>
+
+<div class="grid2">
+  <!-- Edit tenant info -->
+  <div class="card">
+    <h2>Factory Details</h2>
+    <form method="post" action="/superadmin/tenants/{{ tenant.id }}/edit">
+      <div class="form-group">
+        <label>Factory Name</label>
+        <input type="text" name="factory_name" value="{{ tenant.name }}" required>
+      </div>
+      <div class="form-group">
+        <label>Industry Preset</label>
+        <select name="industry">
+          <option value="">— None / Custom —</option>
+          {% for n in industry_names %}
+          <option value="{{ n }}" {% if tenant.industry == n %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">
+          Saving applies label vocabulary for the tenant.
+          {% if label_row and label_row.industry %}
+          Currently: <strong style="color:#93c5fd">{{ label_row.industry }}</strong>
+          {% endif %}
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Contact Name</label>
+        <input type="text" name="contact_name" value="{{ tenant.contact_name or '' }}">
+      </div>
+      <div class="form-group">
+        <label>Contact Email</label>
+        <input type="email" name="contact_email" value="{{ tenant.contact_email or '' }}">
+      </div>
+      <button type="submit" class="btn btn-purple">Save Changes</button>
+    </form>
+  </div>
+
+  <!-- Plan & Status -->
+  <div>
+    {% if not tenant.is_approved %}
+    <div class="card" style="border-color:rgba(245,158,11,0.3)">
+      <h2 style="color:#fcd34d">Pending Approval</h2>
+      <p style="color:#94a3b8;font-size:12px;margin-bottom:14px">
+        This factory self-registered and is waiting for your review.
+        Approving will activate the account on the selected plan.
+      </p>
+      <form method="post" action="/superadmin/tenants/{{ tenant.id }}/approve" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="margin:0;flex:1;min-width:140px">
+          <label>Activate on Plan</label>
+          <select name="plan">
+            {% for p in plans %}
+            <option value="{{ p }}">{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-green">✓ Approve &amp; Activate</button>
+      </form>
+      <form method="post" action="/superadmin/tenants/{{ tenant.id }}/reject" style="margin-top:10px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="form-group" style="margin:0;flex:1">
+          <label>Reject — Reason (optional)</label>
+          <input type="text" name="reason" placeholder="e.g. Duplicate, spam">
+        </div>
+        <button type="submit" class="btn btn-red" onclick="return confirm('Reject this registration?')">Reject</button>
+      </form>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <h2>Plan Management</h2>
+      <form method="post" action="/superadmin/tenants/{{ tenant.id }}/plan" style="display:flex;gap:10px;align-items:flex-end">
+        <div class="form-group" style="flex:1;margin:0">
+          <label>Current Plan</label>
+          <select name="plan">
+            {% for p in plans %}
+            <option value="{{ p }}" {% if tenant.plan == p %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-purple">Update Plan</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Tenant Status</h2>
+      {% if tenant.is_suspended %}
+      <p style="color:#94a3b8;font-size:12px;margin-bottom:12px">
+        This tenant is currently suspended. Users cannot log in.
+      </p>
+      <form method="post" action="/superadmin/tenants/{{ tenant.id }}/unsuspend">
+        <button type="submit" class="btn btn-green">✓ Unsuspend Tenant</button>
+      </form>
+      {% else %}
+      <p style="color:#94a3b8;font-size:12px;margin-bottom:12px">
+        Suspending will block all logins for this factory immediately.
+      </p>
+      <form method="post" action="/superadmin/tenants/{{ tenant.id }}/suspend">
+        <button type="submit" class="btn btn-amber" onclick="return confirm('Suspend this tenant?')">
+          ⚠ Suspend Tenant
+        </button>
+      </form>
+      {% endif %}
+    </div>
+
+    <!-- Danger zone -->
+    <div class="card" style="border-color:rgba(239,68,68,0.25)">
+      <h2 style="color:#f87171">Danger Zone</h2>
+      <p style="color:#94a3b8;font-size:12px;margin-bottom:12px">
+        Deletes all users and tickets (soft-delete). This cannot be undone.
+      </p>
+      <button class="btn btn-red" onclick="document.getElementById('deleteModal').style.display='flex'">
+        🗑 Delete Tenant
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Users table -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <h2 style="margin:0">Users ({{ users|length }})</h2>
+  </div>
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Phone</th><th>Role</th><th>Dept</th><th>Status</th><th>Joined</th><th>Reset Password</th></tr>
+    </thead>
+    <tbody>
+    {% for u in users %}
+    <tr>
+      <td style="font-weight:500;color:#f1f5f9">{{ u.name }}</td>
+      <td class="muted">{{ u.phone }}</td>
+      <td><span class="badge badge-{% if u.role=='ADMIN' %}purple{% elif u.role=='MANAGER' %}blue{% else %}gray{% endif %}">{{ u.role }}</span></td>
+      <td class="muted">{{ u.department.name if u.department else '—' }}</td>
+      <td>
+        {% if u.is_active %}<span class="badge badge-green">Active</span>
+        {% else %}<span class="badge badge-red">Inactive</span>{% endif %}
+      </td>
+      <td class="muted">{{ u.created_at.strftime('%d %b %Y') }}</td>
+      <td>
+        <button class="btn btn-sm btn-gray"
+                onclick="openResetModal('{{ u.id }}','{{ u.name|replace("'","\\'")|e }}')">
+          Reset
+        </button>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" style="color:#64748b;text-align:center;padding:20px">No users yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Recent Tickets -->
+{% if recent_tickets %}
+<div class="card">
+  <h2>Recent Tickets</h2>
+  <table>
+    <thead><tr><th>Title</th><th>Priority</th><th>Status</th><th>Assignee</th><th>Created</th></tr></thead>
+    <tbody>
+    {% for t in recent_tickets %}
+    <tr>
+      <td style="color:#e2e8f0">{{ t.title }}</td>
+      <td>
+        <span class="badge badge-{% if t.priority=='CRITICAL' %}red{% elif t.priority=='HIGH' %}amber{% elif t.priority=='MEDIUM' %}blue{% else %}gray{% endif %}">
+          {{ t.priority }}
+        </span>
+      </td>
+      <td><span class="badge badge-gray">{{ t.status }}</span></td>
+      <td class="muted">{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
+      <td class="muted">{{ t.created_at.strftime('%d %b %Y') }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Phase 0-K-8: Deployed Library Items & Update Indicators -->
+{% if deployed_items %}
+<div class="card">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <h2 style="margin:0">Deployed Library Items</h2>
+    {% if updates_available %}
+    <span class="badge badge-yellow">{{ updates_available|length }} update(s) available</span>
+    {% else %}
+    <span class="badge badge-green">All up to date</span>
+    {% endif %}
+  </div>
+  <table>
+    <thead><tr><th>Type</th><th>Item</th><th style="text-align:center">Deployed v</th><th style="text-align:center">Library v</th><th>Deployed</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for d in deployed_items %}
+    {% set r = d.record %}
+    <tr>
+      <td><span class="badge badge-gray" style="font-size:10px">{{ r.item_type|replace('_',' ')|upper }}</span></td>
+      <td style="color:#e2e8f0">{{ r.item_name or r.library_item_id[:8] }}</td>
+      <td style="text-align:center"><span class="badge badge-blue">v{{ r.deployed_version }}</span></td>
+      <td style="text-align:center">
+        {% if d.current_library_version %}
+        <span class="badge badge-{% if d.update_available %}yellow{% else %}green{% endif %}">v{{ d.current_library_version }}</span>
+        {% else %}<span class="muted">—</span>{% endif %}
+      </td>
+      <td class="muted">{{ r.deployed_at.strftime('%d %b %Y') if r.deployed_at else '—' }}</td>
+      <td>
+        {% if d.update_available %}
+        {% if r.item_type == 'flow' %}
+        <a href="/superadmin/library/flows/{{ r.library_item_id }}/diff/{{ tenant.id }}"
+           class="btn btn-sm btn-amber">View Diff</a>
+        {% else %}
+        <span class="badge badge-yellow" style="font-size:10px">Update Available</span>
+        {% endif %}
+        {% else %}
+        <span class="badge badge-green" style="font-size:10px">Current</span>
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" action="/superadmin/tenants/{{ tenant.id }}/undeploy-item/{{ r.id }}"
+              onsubmit="return confirm('Undeploy {{ r.item_name or r.item_type }} from {{ tenant.name }}? This will also remove any associated FMS flow.')">
+          <button type="submit" class="btn btn-sm btn-red" style="font-size:10px;padding:3px 8px">Undeploy</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- FMS Flow Deployment Section -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <div>
+      <h2 style="margin:0">FMS Flows</h2>
+      <div class="muted" style="margin-top:3px">Flows deployed to this client · Only SA can deploy or modify flows</div>
+    </div>
+    <!-- Plan limit indicator -->
+    {% set plan = tenant.plan or 'STARTER' %}
+    {% set max_flows = fms_flow_limit %}
+    {% set cur_flows = fms_flow_count %}
+    {% if max_flows is none %}
+    <span class="badge badge-green">{{ cur_flows }} flows · Unlimited ({{ plan }})</span>
+    {% elif cur_flows >= max_flows %}
+    <span class="badge badge-red">{{ cur_flows }}/{{ max_flows }} · Limit reached</span>
+    {% else %}
+    <span class="badge badge-blue">{{ cur_flows }}/{{ max_flows }} flows used</span>
+    {% endif %}
+  </div>
+
+  {% if max_flows is not none and cur_flows >= max_flows %}
+  <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#f87171">
+    ⛔ This client has reached their flow limit for the <strong>{{ plan }}</strong> plan ({{ max_flows }} flows).
+    Upgrade their plan before deploying another flow.
+    <a href="#" onclick="document.querySelector('[name=plan]').focus();return false" style="color:#fca5a5;margin-left:8px">Upgrade plan →</a>
+  </div>
+  {% endif %}
+
+  <!-- Current deployed flows -->
+  {% if fms_flows %}
+  <table style="margin-bottom:14px">
+    <thead><tr><th>Flow Name</th><th>Stages</th><th>Active Tickets</th><th>Status</th><th>Deployed</th><th></th></tr></thead>
+    <tbody>
+    {% for f in fms_flows %}
+    <tr>
+      <td>
+        <div style="display:flex;align-items:center;gap:7px">
+          <div style="width:8px;height:8px;border-radius:50%;background:{{ f.color or '#3b82f6' }};flex-shrink:0"></div>
+          <span style="color:#f1f5f9;font-weight:500">{{ f.name }}</span>
+          {% if f.library_flow_id %}<span class="badge badge-blue" style="font-size:9px">Library</span>{% endif %}
+        </div>
+        <!-- Stage pills -->
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px">
+          {% for stage in f.stages if not stage.is_deleted %}
+          <span style="background:{{ stage.color or f.color or '#3b82f6' }}22;border:1px solid {{ stage.color or f.color or '#3b82f6' }}44;border-radius:99px;padding:1px 7px;font-size:9px;color:#94a3b8">
+            {{ stage.name }}{% if stage.sub_module_tag %} · {{ stage.sub_module_tag }}{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+      </td>
+      <td>{{ f.stages|selectattr('is_deleted','equalto',False)|list|length }}</td>
+      <td>{{ f.active_ticket_count or 0 }}</td>
+      <td>
+        {% if f.is_active %}<span class="badge badge-green">Active</span>
+        {% else %}<span class="badge badge-gray">Inactive</span>{% endif %}
+      </td>
+      <td class="muted">{{ f.created_at.strftime('%d %b %Y') if f.created_at else '—' }}</td>
+      <td>
+        {% if f.active_ticket_count and f.active_ticket_count > 0 %}
+        <span class="muted" style="font-size:10px" title="Cannot delete — has active tickets">{{ f.active_ticket_count }} active</span>
+        {% else %}
+        <form method="post" action="/superadmin/tenants/{{ tenant.id }}/delete-flow/{{ f.id }}"
+              onsubmit="return confirm('Delete flow \'{{ f.name }}\' from {{ tenant.name }}? This cannot be undone.')">
+          <button type="submit" class="btn btn-sm btn-red" style="font-size:10px;padding:3px 8px">Delete</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color:#374151;font-size:12px;padding:12px 0;margin-bottom:14px">No flows deployed yet.</div>
+  {% endif %}
+
+  <!-- Deploy new flow from library -->
+  {% if max_flows is none or cur_flows < max_flows %}
+  {% if lib_flows %}
+  <details>
+    <summary style="font-size:12px;color:#60a5fa;cursor:pointer;user-select:none;margin-bottom:8px">
+      + Deploy a flow from library
+    </summary>
+    <div style="background:#0d1424;border-radius:8px;padding:14px;margin-top:8px">
+      <form method="post" action="/superadmin/tenants/{{ tenant.id }}/deploy-flow">
+        <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end">
+          <div class="form-group" style="margin:0">
+            <label>Library Flow Template</label>
+            <select name="library_flow_id" required id="libFlowSelect" onchange="showFlowPreview(this)">
+              <option value="">— Select a flow to deploy —</option>
+              {% for lf in lib_flows %}
+              <option value="{{ lf.id }}"
+                      data-stages="{{ lf.stages|map(attribute='name')|join(', ') if lf.stages else 'No stages' }}"
+                      data-desc="{{ lf.description or '' }}"
+                      data-version="v{{ lf.version }}">
+                {{ lf.name }} (v{{ lf.version }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-purple"
+                  onclick="return confirm('Deploy this flow to {{ tenant.name }}?')">
+            Deploy →
+          </button>
+        </div>
+        <!-- Flow preview on select -->
+        <div id="flowPreview" style="display:none;margin-top:10px;padding:10px;background:#111827;border-radius:7px;font-size:11px">
+          <div style="color:#94a3b8" id="flowPreviewDesc"></div>
+          <div style="color:#64748b;margin-top:4px">Stages: <span id="flowPreviewStages" style="color:#e2e8f0"></span></div>
+        </div>
+        <div class="form-group" style="margin-top:10px;margin-bottom:0">
+          <label>Deploy notes (optional)</label>
+          <input type="text" name="notes" placeholder="e.g. Deployed for Order Processing workflow">
+        </div>
+      </form>
+    </div>
+  </details>
+  {% else %}
+  <div style="font-size:11px;color:#374151">
+    No flow templates in the library yet.
+    <a href="/superadmin/library/flows/new" style="color:#60a5fa">Create a library flow →</a>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+
+<!-- Checklists -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div>
+      <h2 style="margin:0">Checklists</h2>
+      <div class="muted" style="margin-top:3px">Recurring inspection templates created by this tenant</div>
+    </div>
+    <span class="badge badge-gray">{{ checklist_templates|length }} template{{ 's' if checklist_templates|length != 1 }}</span>
+  </div>
+  {% if checklist_templates %}
+  <table>
+    <thead><tr><th>Title</th><th>Frequency</th><th>Assigned To</th><th>Completions</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for ct in checklist_templates %}
+    <tr>
+      <td style="color:#f1f5f9;font-weight:500">{{ ct.title }}</td>
+      <td><span class="badge badge-gray" style="font-size:10px">{{ ct.frequency }}</span></td>
+      <td class="muted" style="font-size:11px">{{ ct.assigned_to_role or '—' }}</td>
+      <td>
+        <span style="font-size:12px;color:#e2e8f0">{{ ct.done_assignments }}/{{ ct.total_assignments }}</span>
+        {% if ct.total_assignments > 0 %}
+        <span class="muted" style="font-size:10px">({{ (ct.done_assignments / ct.total_assignments * 100)|round|int }}%)</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if ct.is_active %}<span class="badge badge-green" style="font-size:10px">Active</span>
+        {% else %}<span class="badge badge-gray" style="font-size:10px">Inactive</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted" style="font-size:12px;padding:8px 0">No checklists created yet.</div>
+  {% endif %}
+</div>
+
+<!-- FMS Tickets -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div>
+      <h2 style="margin:0">FMS Tickets</h2>
+      <div class="muted" style="margin-top:3px">Recent work orders across all flows · last 20</div>
+    </div>
+  </div>
+  {% if fms_tickets %}
+  <table>
+    <thead><tr><th>Title</th><th>Flow</th><th>Stage</th><th>Priority</th><th>Status</th><th>Created</th></tr></thead>
+    <tbody>
+    {% for t in fms_tickets %}
+    <tr>
+      <td style="color:#f1f5f9;font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.title }}</td>
+      <td class="muted" style="font-size:11px">{{ t.flow.name if t.flow else '—' }}</td>
+      <td class="muted" style="font-size:11px">{{ t.current_stage.name if t.current_stage else '—' }}</td>
+      <td>
+        {% if t.priority == 'HIGH' %}<span class="badge badge-red" style="font-size:9px">HIGH</span>
+        {% elif t.priority == 'MEDIUM' %}<span class="badge badge-yellow" style="font-size:9px">MEDIUM</span>
+        {% else %}<span class="badge badge-gray" style="font-size:9px">{{ t.priority or 'LOW' }}</span>{% endif %}
+      </td>
+      <td><span class="badge badge-{% if t.status in ('COMPLETED','CLOSED') %}green{% elif t.status == 'IN_PROGRESS' %}blue{% else %}gray{% endif %}" style="font-size:9px">{{ t.status }}</span></td>
+      <td class="muted" style="font-size:11px">{{ t.created_at.strftime('%d %b %Y') if t.created_at else '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted" style="font-size:12px;padding:8px 0">No FMS tickets yet.</div>
+  {% endif %}
+</div>
+
+<!-- Ask AI Control -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <div>
+      <h2 style="margin:0">Ask AI — Usage & Limits</h2>
+      <div class="muted" style="margin-top:3px">Set custom daily call limit for this tenant · overrides plan default</div>
+    </div>
+    {% set plan_ai_limit = {'TRIAL':5,'STARTER':20,'PROFESSIONAL':100,'ENTERPRISE':None}.get(tenant.plan, 20) %}
+    <span class="badge badge-{% if tenant.ai_custom_limit == 0 %}red{% elif tenant.ai_custom_limit %}yellow{% else %}gray{% endif %}" style="font-size:10px">
+      {% if tenant.ai_custom_limit == 0 %}Disabled by SA
+      {% elif tenant.ai_custom_limit %}Custom: {{ tenant.ai_custom_limit }}/day
+      {% else %}Plan default: {{ plan_ai_limit or 'Unlimited' }}/day{% endif %}
+    </span>
+  </div>
+
+  <!-- Today's usage -->
+  {% if ai_usage_today is defined %}
+  <div style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap">
+    <div style="background:#0d1424;border-radius:8px;padding:10px 16px;flex:1;min-width:120px">
+      <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Today's Calls</div>
+      <div style="font-size:20px;font-weight:700;color:#f1f5f9;margin-top:2px">{{ ai_usage_today }}</div>
+    </div>
+    <div style="background:#0d1424;border-radius:8px;padding:10px 16px;flex:1;min-width:120px">
+      <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">This Month</div>
+      <div style="font-size:20px;font-weight:700;color:#f1f5f9;margin-top:2px">{{ ai_usage_month }}</div>
+    </div>
+    <div style="background:#0d1424;border-radius:8px;padding:10px 16px;flex:1;min-width:120px">
+      <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Effective Limit</div>
+      <div style="font-size:20px;font-weight:700;color:{% if tenant.ai_custom_limit == 0 %}#f87171{% elif tenant.ai_custom_limit %}#fbbf24{% else %}#6ee7b7{% endif %};margin-top:2px">
+        {% if tenant.ai_custom_limit == 0 %}Blocked
+        {% elif tenant.ai_custom_limit %}{{ tenant.ai_custom_limit }}/day
+        {% else %}{{ plan_ai_limit or '∞' }}/day{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/superadmin/tenants/{{ tenant.id }}/set-ai-limit" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <label style="font-size:11px;color:#64748b;display:block;margin-bottom:4px">Custom Daily Limit (leave blank = plan default, enter 0 = disable AI)</label>
+      <input type="number" name="ai_limit" min="0" max="10000"
+             value="{% if tenant.ai_custom_limit is not none %}{{ tenant.ai_custom_limit }}{% endif %}"
+             placeholder="e.g. 50  (blank = plan default)"
+             style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 12px;font-size:13px;color:#e2e8f0;outline:none">
+    </div>
+    <button type="submit" class="btn btn-primary btn-sm">Save Limit</button>
+    {% if tenant.ai_custom_limit is not none %}
+    <a href="/superadmin/tenants/{{ tenant.id }}/set-ai-limit?reset=1" class="btn btn-gray btn-sm"
+       onclick="return confirm('Reset to plan default?')">Reset to Default</a>
+    {% endif %}
+  </form>
+</div>
+
+<!-- Delete Modal -->
+<div class="modal-overlay" id="deleteModal" style="display:none;align-items:center;justify-content:center">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <span class="modal-title" style="color:#f87171">Delete Tenant</span>
+      <button class="modal-close" onclick="document.getElementById('deleteModal').style.display='none'">×</button>
+    </div>
+    <p style="color:#94a3b8;font-size:13px;margin-bottom:16px">
+      This will soft-delete all users and tickets for <strong style="color:#f1f5f9">{{ tenant.name }}</strong>.
+      Type <code style="color:#f87171">DELETE</code> to confirm.
+    </p>
+    <form method="post" action="/superadmin/tenants/{{ tenant.id }}/delete">
+      <div class="form-group">
+        <input type="text" name="confirm" placeholder="Type DELETE to confirm" autocomplete="off">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button type="button" class="btn btn-gray" onclick="document.getElementById('deleteModal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-red">Permanently Delete</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal-overlay" id="resetModal" style="display:none;align-items:center;justify-content:center">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <span class="modal-title">Reset Password</span>
+      <button class="modal-close" onclick="document.getElementById('resetModal').style.display='none'">×</button>
+    </div>
+    <p id="resetModalSubtitle" style="color:#94a3b8;font-size:13px;margin-bottom:16px"></p>
+    <form method="post" action="/superadmin/tenants/{{ tenant.id }}/reset-password" id="resetForm">
+      <input type="hidden" name="user_id" id="resetUserId">
+      <div class="form-group">
+        <label>New Password</label>
+        <input type="password" name="new_password" placeholder="New password (min 6 chars)" minlength="6" required>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button type="button" class="btn btn-gray" onclick="document.getElementById('resetModal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-purple">Reset Password</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openResetModal(uid, uname) {
+  document.getElementById('resetUserId').value = uid;
+  document.getElementById('resetModalSubtitle').textContent = 'Resetting password for: ' + uname;
+  document.getElementById('resetModal').style.display = 'flex';
+}
+// Close modals on overlay click
+['deleteModal','resetModal'].forEach(function(id){
+  document.getElementById(id).addEventListener('click', function(e){
+    if(e.target === this) this.style.display = 'none';
+  });
+});
+
+function showFlowPreview(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const preview = document.getElementById('flowPreview');
+  if (!sel.value) { preview.style.display='none'; return; }
+  document.getElementById('flowPreviewDesc').textContent = opt.dataset.desc || '';
+  document.getElementById('flowPreviewStages').textContent = opt.dataset.stages || '—';
+  preview.style.display = 'block';
+}
+</script>
+{% endblock %}

@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}New FMS Ticket{% endblock %}
+{% block content %}
+<div class="page-header mb-4">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-1">
+      <li class="breadcrumb-item"><a href="/fms/dashboard">FMS Dashboard</a></li>
+      <li class="breadcrumb-item active">New Ticket</li>
+    </ol>
+  </nav>
+  <h2 class="mb-0"><i class="bi bi-ticket-perforated me-2"></i>Create FMS Ticket</h2>
+</div>
+
+<div class="row g-4 justify-content-center">
+  <div class="col-lg-8">
+    <form method="post" action="/fms/tickets/new" id="ticketForm">
+      <div class="card shadow-sm border-0">
+        <div class="card-body">
+
+          <!-- Flow selector -->
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Workflow (Flow) <span class="text-danger">*</span></label>
+            <select name="flow_id" id="flowSelect" class="form-select" required onchange="loadStages()">
+              <option value="">-- Select a flow --</option>
+              {% for f in flows %}
+              <option value="{{ f.id }}" data-stages="{{ f.stages | tojson | e }}"
+                      {{ 'selected' if selected_flow and selected_flow.id == f.id else '' }}>
+                {{ f.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Starting stage -->
+          <div class="mb-4" id="stageRow" style="{{ '' if selected_flow else 'display:none' }}">
+            <label class="form-label fw-semibold">Starting Stage <span class="text-danger">*</span></label>
+            <div id="stageCards" class="d-flex flex-wrap gap-2"></div>
+            <input type="hidden" name="starting_stage_id" id="stageIdField" required>
+          </div>
+
+          <hr class="my-3">
+
+          <!-- Title & description -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Ticket Title <span class="text-danger">*</span></label>
+            <input type="text" name="title" class="form-control" required placeholder="e.g. PO-2024-001 – Steel Frame">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Description</label>
+            <textarea name="description" class="form-control" rows="3" placeholder="Optional details…"></textarea>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">WO / PO Number</label>
+              <input type="text" name="wo_number" class="form-control" placeholder="e.g. WO-4521">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Priority</label>
+              <select name="priority" class="form-select">
+                {% for p in priorities %}
+                <option value="{{ p }}" {{ 'selected' if p == 'MEDIUM' }}>{{ p }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Target Qty</label>
+              <input type="number" name="target_qty" class="form-control" min="0" step="1" placeholder="100">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Unit</label>
+              <input type="text" name="qty_unit" class="form-control" placeholder="pcs / kg / m">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Due Date</label>
+              <input type="datetime-local" name="due_at" class="form-control">
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Assignee <span class="text-danger">*</span></label>
+            <select name="assignee_id" class="form-select" required>
+              <option value="">-- Select employee --</option>
+              {% for emp in employees %}
+              <option value="{{ emp.id }}">{{ emp.name }} ({{ emp.role }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+        </div>
+        <div class="card-footer bg-white d-flex gap-2 justify-content-end">
+          <a href="/fms/dashboard" class="btn btn-secondary">Cancel</a>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-plus-circle me-1"></i>Create Ticket
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const allFlowStages = {};
+{% for f in flows %}
+allFlowStages["{{ f.id }}"] = {{ f.stages | tojson | safe }};
+{% endfor %}
+
+let selectedStageId = null;
+
+function loadStages() {
+  const fid = document.getElementById('flowSelect').value;
+  const row = document.getElementById('stageRow');
+  const cards = document.getElementById('stageCards');
+  selectedStageId = null;
+  document.getElementById('stageIdField').value = '';
+  cards.innerHTML = '';
+  if (!fid) { row.style.display='none'; return; }
+  row.style.display='';
+  const stages = (allFlowStages[fid]||[]).filter(s=>!s.is_deleted).sort((a,b)=>a.order-b.order);
+  stages.forEach(s => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm btn-outline-secondary';
+    btn.style = `border-color:${s.color}; color:${s.color}`;
+    btn.textContent = `${s.order+1}. ${s.name}`;
+    btn.onclick = () => selectStage(s.id, btn, s.color);
+    cards.appendChild(btn);
+  });
+  // Auto-select first stage
+  if (stages.length) cards.children[0].click();
+}
+
+function selectStage(id, btn, color) {
+  document.querySelectorAll('#stageCards button').forEach(b => {
+    b.classList.remove('btn-primary');
+    b.classList.add('btn-outline-secondary');
+    b.style.background='';
+  });
+  btn.classList.remove('btn-outline-secondary');
+  btn.classList.add('btn-primary');
+  btn.style.background = color;
+  btn.style.color = '#fff';
+  btn.style.borderColor = color;
+  selectedStageId = id;
+  document.getElementById('stageIdField').value = id;
+}
+
+// Pre-select flow if URL has flow_id
+{% if selected_flow %}
+window.addEventListener('DOMContentLoaded', () => loadStages());
+{% endif %}
+</script>
+{% endblock %}

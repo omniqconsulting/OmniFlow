@@ -1,0 +1,682 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+/* ════════════════════════════════════════════════════════════════
+   AI Assistant — Ask AI page styles
+   Design language: dark-glass, gradient-accented, premium feel
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── Page chrome ─────────────────────────────────────────────── */
+.ai-page { display: flex; flex-direction: column; gap: 28px; }
+
+/* ── Hero header ─────────────────────────────────────────────── */
+.ai-hero {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+  padding: 40px 40px 36px;
+  background: linear-gradient(135deg, #0f0c29 0%, #1a0533 40%, #0d1b4b 100%);
+  border: 1px solid rgba(139,92,246,0.25);
+  box-shadow: 0 0 60px rgba(99,102,241,0.12), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+/* animated grid overlay */
+.ai-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(99,102,241,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,102,241,0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+/* radial glow */
+.ai-hero::after {
+  content: '';
+  position: absolute;
+  top: -60px; right: -60px;
+  width: 300px; height: 300px;
+  background: radial-gradient(circle, rgba(139,92,246,0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+.ai-hero-content { position: relative; z-index: 1; }
+
+.ai-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(99,102,241,0.18);
+  border: 1px solid rgba(139,92,246,0.4);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #a5b4fc;
+  margin-bottom: 18px;
+}
+.ai-badge-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #818cf8;
+  box-shadow: 0 0 6px #818cf8;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px #818cf8; }
+  50%       { opacity: 0.5; box-shadow: 0 0 12px #6366f1; }
+}
+
+.ai-hero h1 {
+  font-size: 32px;
+  font-weight: 800;
+  color: #f1f5f9;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
+  margin-bottom: 12px;
+}
+.ai-hero h1 span {
+  background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.ai-hero p {
+  font-size: 14px;
+  color: #94a3b8;
+  max-width: 560px;
+  line-height: 1.65;
+  margin-bottom: 24px;
+}
+
+/* capability chips under the hero description */
+.capability-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 5px 11px;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+.chip-icon { font-size: 13px; }
+
+/* ── Input card ──────────────────────────────────────────────── */
+.ask-card {
+  background: rgba(17,24,39,0.7);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 16px;
+  padding: 28px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+}
+.ask-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #6366f1;
+  margin-bottom: 10px;
+}
+.ask-input-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.ask-textarea {
+  flex: 1;
+  background: rgba(255,255,255,0.04);
+  border: 1.5px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  color: #e2e8f0;
+  font-size: 14px;
+  font-family: inherit;
+  padding: 14px 16px;
+  resize: none;
+  line-height: 1.5;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  min-height: 56px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.ask-textarea:focus {
+  outline: none;
+  border-color: rgba(99,102,241,0.6);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+}
+.ask-textarea::placeholder { color: #4b5563; }
+
+.ask-btn {
+  flex-shrink: 0;
+  height: 56px;
+  padding: 0 24px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(99,102,241,0.35);
+}
+.ask-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(99,102,241,0.5);
+}
+.ask-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+.ask-btn-icon { font-size: 16px; }
+
+/* ── Example prompts ──────────────────────────────────────────── */
+.prompts-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.prompt-chip {
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 20px;
+  padding: 5px 13px;
+  font-size: 12px;
+  color: #818cf8;
+  cursor: pointer;
+  transition: all 0.12s;
+  white-space: nowrap;
+}
+.prompt-chip:hover {
+  background: rgba(99,102,241,0.18);
+  border-color: rgba(99,102,241,0.4);
+  color: #a5b4fc;
+}
+
+/* ── Answer panel ────────────────────────────────────────────── */
+.answer-panel {
+  background: rgba(17,24,39,0.6);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  overflow: hidden;
+  display: none;   /* shown by JS when stream starts */
+}
+.answer-panel.visible { display: block; }
+
+.answer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  background: rgba(99,102,241,0.08);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.answer-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #a5b4fc;
+}
+.answer-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg,#6366f1,#8b5cf6);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+}
+.answer-meta {
+  font-size: 11px;
+  color: #4b5563;
+}
+.answer-body {
+  padding: 24px 26px;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: #cbd5e1;
+  min-height: 60px;
+}
+
+/* Markdown rendering inside answer */
+.answer-body strong { color: #f1f5f9; font-weight: 700; }
+.answer-body em     { color: #a5b4fc; }
+.answer-body code   { background: rgba(99,102,241,0.15); color:#a5b4fc; border-radius:4px; padding:1px 5px; font-size:12px; }
+.answer-body ul, .answer-body ol { margin: 10px 0 10px 20px; }
+.answer-body li { margin-bottom: 5px; }
+.answer-body h2, .answer-body h3 { color:#e2e8f0; font-weight:700; margin:14px 0 6px; font-size:14px; }
+.answer-body table { width:100%; border-collapse:collapse; margin:12px 0; }
+.answer-body th { text-align:left; padding:7px 12px; background:rgba(255,255,255,0.05); font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; border-bottom:1px solid rgba(255,255,255,0.08); }
+.answer-body td { padding:7px 12px; border-bottom:1px solid rgba(255,255,255,0.04); }
+.answer-body p  { margin-bottom:10px; }
+
+/* typing cursor */
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: #6366f1;
+  border-radius: 2px;
+  margin-left: 2px;
+  vertical-align: middle;
+  animation: blink 0.9s step-end infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+/* ── Error state ──────────────────────────────────────────────── */
+.answer-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 22px;
+  background: rgba(239,68,68,0.08);
+  border-top: 1px solid rgba(239,68,68,0.2);
+  color: #fca5a5;
+  font-size: 13px;
+}
+
+/* ── Context badge (bottom-right of answer) ────────────────────── */
+.answer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 22px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  background: rgba(0,0,0,0.15);
+}
+.context-note {
+  font-size: 11px;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.copy-btn {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  color: #4b5563;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.copy-btn:hover { border-color: rgba(255,255,255,0.2); color: #94a3b8; }
+
+/* ── No-API warning ──────────────────────────────────────────── */
+.api-warning {
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.25);
+  border-radius: 12px;
+  padding: 18px 22px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  font-size: 13px;
+  color: #fcd34d;
+  line-height: 1.6;
+}
+.api-warning-icon { font-size: 22px; flex-shrink: 0; }
+.api-warning strong { display: block; margin-bottom: 4px; font-size: 14px; }
+.api-warning code  { background: rgba(245,158,11,0.15); border-radius: 4px; padding: 1px 6px; font-size: 12px; color: #fbbf24; }
+
+/* ── Stats strip ─────────────────────────────────────────────── */
+.stats-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.stat-cell {
+  background: rgba(17,24,39,0.8);
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: #4b5563; font-weight: 600; }
+.stat-value { font-size: 22px; font-weight: 800; color: #e2e8f0; line-height: 1; }
+.stat-sub   { font-size: 11px; color: #374151; }
+</style>
+
+<div class="ai-page">
+
+  <!-- ═══════════════════════════════════════════════════════════
+       HERO
+  ════════════════════════════════════════════════════════════ -->
+  <div class="ai-hero">
+    <div class="ai-hero-content">
+      <div class="ai-badge">
+        <span class="ai-badge-dot"></span>
+        Powered by Claude · Anthropic
+      </div>
+      <h1>Your operations,<br><span>understood by AI.</span></h1>
+      <p>
+        Ask anything about your team's performance, open tickets, compliance rates,
+        or workload — in plain English. The AI reads your live data and answers
+        with facts, not guesses.
+      </p>
+      <div class="capability-chips">
+        <span class="chip"><span class="chip-icon">📊</span> Live dashboard data</span>
+        <span class="chip"><span class="chip-icon">👥</span> Per-employee KPIs</span>
+        <span class="chip"><span class="chip-icon">⚡</span> Streaming responses</span>
+        <span class="chip"><span class="chip-icon">🔒</span> Your data stays yours</span>
+        <span class="chip"><span class="chip-icon">🌐</span> Domain-agnostic</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── AI Usage Tracker ─────────────────────────────────────── -->
+  {% set limit_pct = ((ai_calls_today / ai_daily_limit * 100) | int) if ai_daily_limit else 0 %}
+  {% set limit_color = '#f87171' if limit_pct >= 90 else ('#fbbf24' if limit_pct >= 70 else '#6ee7b7') %}
+  <div style="background:#0d1220;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+    <div style="flex:1;min-width:180px">
+      <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Daily AI Calls Used</div>
+      {% if ai_daily_limit %}
+      <div style="background:rgba(255,255,255,0.07);border-radius:99px;height:6px;overflow:hidden;margin-bottom:5px">
+        <div style="height:100%;border-radius:99px;background:{{ limit_color }};width:{{ [limit_pct, 100]|min }}%;transition:width .3s"></div>
+      </div>
+      <div style="font-size:12px;color:{{ limit_color }};font-weight:600">
+        {{ ai_calls_today }} / {{ ai_daily_limit }} calls today
+        {% if limit_pct >= 90 %}<span style="color:#f87171;margin-left:8px">⚠ Limit nearly reached</span>{% endif %}
+      </div>
+      {% else %}
+      <div style="font-size:13px;color:#6ee7b7;font-weight:600">{{ ai_calls_today }} calls today &nbsp;·&nbsp; <span style="color:#64748b">Unlimited</span></div>
+      {% endif %}
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <div style="font-size:10px;color:#475569">Plan limit resets daily at midnight UTC</div>
+      {% if ai_daily_limit and ai_calls_today >= ai_daily_limit %}
+      <div style="font-size:11px;color:#f87171;margin-top:3px;font-weight:600">Limit reached — contact SA or upgrade plan</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if not api_configured %}
+  <!-- ── API not configured warning ───────────────────────────── -->
+  <div class="api-warning">
+    <div class="api-warning-icon">⚠</div>
+    <div>
+      <strong>AI service not configured</strong>
+      Set the <code>ANTHROPIC_API_KEY</code> environment variable on your server to
+      enable the AI assistant. Once set, restart the application — no other changes needed.
+      <br><br>
+      <span style="color:#92400e; font-size:12px;">
+        Get your key at <strong>console.anthropic.com</strong>
+      </span>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ASK INPUT
+  ════════════════════════════════════════════════════════════ -->
+  <div class="ask-card">
+    <div class="ask-label">✦ Ask a question</div>
+    <div class="ask-input-row">
+      <textarea
+        id="question-input"
+        class="ask-textarea"
+        rows="2"
+        placeholder="e.g. Who has the most overdue tickets? What's our on-time rate this month?"
+        {% if not api_configured %}disabled{% endif %}
+        maxlength="1000"
+      ></textarea>
+      <button class="ask-btn" id="ask-btn" onclick="submitQuestion()"
+              {% if not api_configured %}disabled{% endif %}>
+        <span class="ask-btn-icon">✦</span>
+        Ask AI
+      </button>
+    </div>
+
+    <!-- Example prompts -->
+    <div class="prompts-row" id="prompts-row">
+      <span class="prompt-chip" onclick="setPrompt(this)">Who has the most overdue tickets?</span>
+      <span class="prompt-chip" onclick="setPrompt(this)">What's our on-time closure rate this month?</span>
+      <span class="prompt-chip" onclick="setPrompt(this)">Which team member has the lowest compliance rate?</span>
+      <span class="prompt-chip" onclick="setPrompt(this)">Summarise today's ticket backlog</span>
+      <span class="prompt-chip" onclick="setPrompt(this)">Who needs the most support right now?</span>
+      <span class="prompt-chip" onclick="setPrompt(this)">What are the top risks I should act on today?</span>
+      <span class="prompt-chip" onclick="setPrompt(this)">Compare team workload across all employees</span>
+      <span class="prompt-chip" onclick="setPrompt(this)">What's the average resolution time?</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ANSWER PANEL
+  ════════════════════════════════════════════════════════════ -->
+  <div class="answer-panel" id="answer-panel">
+    <div class="answer-header">
+      <div class="answer-who">
+        <div class="answer-avatar">✦</div>
+        AI Assistant
+      </div>
+      <div class="answer-meta" id="answer-meta"></div>
+    </div>
+    <div class="answer-body" id="answer-body"></div>
+    <div class="answer-footer">
+      <div class="context-note">
+        <span>🔒</span>
+        Answers are grounded in your live data — no hallucination, no external sources
+      </div>
+      <button class="copy-btn" onclick="copyAnswer()">Copy</button>
+    </div>
+  </div>
+
+</div><!-- /.ai-page -->
+
+
+<!-- ════════════════════════════════════════════════════════════
+     JavaScript — SSE streaming, markdown rendering
+════════════════════════════════════════════════════════════ -->
+<script>
+// ── Very-light Markdown → HTML renderer ──────────────────────────────────────
+// Handles: bold, italic, inline-code, h2/h3, ul/ol, table, paragraphs
+function renderMarkdown(raw) {
+  let s = raw
+    // code blocks (``` ... ```)
+    .replace(/```[\s\S]*?```/g, m => `<pre><code>${esc(m.slice(3,-3).trim())}</code></pre>`)
+    // inline code
+    .replace(/`([^`]+)`/g, (_, c) => `<code>${esc(c)}</code>`)
+    // h3
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    // h2
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    // bold
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // italic
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // ⚠ warning lines — red tint
+    .replace(/^(⚠[^\n]+)$/gm, '<span style="color:#f87171">$1</span>')
+    // ✓ positive lines — green tint
+    .replace(/^(✓[^\n]+)$/gm, '<span style="color:#34d399">$1</span>')
+    // unordered list
+    .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
+    // ordered list
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    // wrap consecutive <li> in <ul>
+    .replace(/(<li>[\s\S]+?<\/li>)(?=\n<li>|$)/g, m => '<ul>' + m + '</ul>')
+    // tables: simplistic header + rows
+    .replace(/\|(.+)\|\n\|[-| ]+\|\n((?:\|.+\|\n?)+)/g, buildTable)
+    // double newlines → paragraphs
+    .split(/\n{2,}/).map(block => {
+      if (/^<(h[23]|ul|ol|li|pre|table)/.test(block.trim())) return block;
+      if (!block.trim()) return '';
+      return `<p>${block.replace(/\n/g,' ')}</p>`;
+    }).join('\n');
+  return s;
+}
+
+function esc(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function buildTable(_, header, body) {
+  const heads = header.split('|').map(c=>c.trim()).filter(Boolean);
+  const rows = body.trim().split('\n').map(r =>
+    r.split('|').map(c=>c.trim()).filter(Boolean)
+  );
+  const thead = '<tr>' + heads.map(h=>`<th>${h}</th>`).join('') + '</tr>';
+  const tbody = rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
+  return `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let rawAnswer = '';
+let streaming  = false;
+
+// ── Prompt chips ──────────────────────────────────────────────────────────────
+function setPrompt(el) {
+  const ta = document.getElementById('question-input');
+  ta.value = el.textContent;
+  ta.focus();
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+}
+
+// Auto-resize textarea
+document.getElementById('question-input').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+});
+
+// Submit on Ctrl+Enter / Cmd+Enter
+document.getElementById('question-input').addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    submitQuestion();
+  }
+});
+
+// ── Main streaming function ───────────────────────────────────────────────────
+async function submitQuestion() {
+  const input = document.getElementById('question-input');
+  const question = input.value.trim();
+  if (!question || streaming) return;
+
+  streaming  = true;
+  rawAnswer  = '';
+
+  // UI state
+  const btn = document.getElementById('ask-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="ask-btn-icon" style="animation:spin 1s linear infinite;display:inline-block">◌</span> Thinking…';
+
+  // Show answer panel
+  const panel = document.getElementById('answer-panel');
+  panel.classList.add('visible');
+  const body = document.getElementById('answer-body');
+  body.innerHTML = '<span class="cursor"></span>';
+
+  // Remove any previous error
+  const prevErr = panel.querySelector('.answer-error');
+  if (prevErr) prevErr.remove();
+
+  // Timestamp
+  const meta = document.getElementById('answer-meta');
+  meta.textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+  // Scroll to panel
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Build form data
+  const fd = new FormData();
+  fd.append('question', question);
+
+  try {
+    const resp = await fetch('/ai/ask', { method: 'POST', body: fd });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({detail: resp.statusText}));
+      showError(err.detail || 'Request failed');
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      // Process all complete SSE events in buffer
+      const lines = buf.split('\n\n');
+      buf = lines.pop(); // keep incomplete chunk
+
+      for (const block of lines) {
+        const dataLine = block.split('\n').find(l => l.startsWith('data:'));
+        if (!dataLine) continue;
+        const json = dataLine.slice(5).trim();
+        let event;
+        try { event = JSON.parse(json); } catch { continue; }
+
+        if (event.type === 'text') {
+          rawAnswer += event.text;
+          body.innerHTML = renderMarkdown(rawAnswer) + '<span class="cursor"></span>';
+        } else if (event.type === 'done') {
+          body.innerHTML = renderMarkdown(rawAnswer);
+        } else if (event.type === 'error') {
+          showError(event.text);
+        }
+      }
+    }
+
+    // Final render — remove cursor
+    body.innerHTML = renderMarkdown(rawAnswer);
+
+  } catch (err) {
+    showError('Network error — please check your connection and try again.');
+  } finally {
+    streaming = false;
+    btn.disabled = false;
+    btn.innerHTML = '<span class="ask-btn-icon">✦</span> Ask AI';
+  }
+}
+
+function showError(msg) {
+  const panel = document.getElementById('answer-panel');
+  panel.classList.add('visible');
+  // Remove existing errors
+  const prev = panel.querySelector('.answer-error');
+  if (prev) prev.remove();
+  const div = document.createElement('div');
+  div.className = 'answer-error';
+  div.innerHTML = `<span>⚠</span><span>${msg}</span>`;
+  panel.querySelector('.answer-footer').before(div);
+  const body = document.getElementById('answer-body');
+  if (body.innerHTML.includes('cursor')) body.innerHTML = '';
+}
+
+function copyAnswer() {
+  navigator.clipboard.writeText(rawAnswer).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  });
+}
+
+// Spin animation for loading icon
+const styleEl = document.createElement('style');
+styleEl.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+document.head.appendChild(styleEl);
+</script>
+{% endblock %}

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FactoryOS — Sign In</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#0b0f1a;display:flex;align-items:center;justify-content:center;min-height:100vh;color:#e2e8f0}
+.wrap{width:360px}
+.logo-row{text-align:center;margin-bottom:32px}
+.logo{font-size:22px;font-weight:700;color:#e2e8f0;letter-spacing:-0.4px}
+.logo-sub{font-size:13px;color:#64748b;margin-top:4px}
+.card{background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:32px}
+.card-title{font-size:16px;font-weight:600;color:#e2e8f0;margin-bottom:4px}
+.card-sub{font-size:12px;color:#64748b;margin-bottom:24px}
+.form-group{margin-bottom:14px}
+label{display:block;font-size:11px;font-weight:600;margin-bottom:5px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em}
+input{width:100%;background:#0b0f1a;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 12px;font-size:14px;color:#e2e8f0;outline:none;font-family:inherit;transition:border-color 0.12s}
+input:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,0.15)}
+input::placeholder{color:#4b5568}
+.btn{width:100%;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;font-family:inherit;transition:background 0.12s}
+.btn:hover{background:#2563eb}
+.error{background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:16px}
+.footer{text-align:center;font-size:12px;color:#64748b;margin-top:20px}
+.footer a{color:#60a5fa}
+.footer a:hover{color:#93c5fd}
+.divider{border:none;border-top:1px solid rgba(255,255,255,0.06);margin:20px 0}
+/* Forgot password modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;z-index:100}
+.modal-overlay.open{display:flex}
+.modal-box{background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:400px;max-width:95vw}
+.modal-title{font-size:15px;font-weight:600;color:#f1f5f9;margin-bottom:8px}
+.modal-body{font-size:13px;color:#94a3b8;line-height:1.7;margin-bottom:20px}
+.modal-body strong{color:#e2e8f0}
+.modal-step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06)}
+.modal-step:last-child{border-bottom:none}
+.step-num{width:22px;height:22px;border-radius:50%;background:#1e3a5f;color:#60a5fa;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.step-text{font-size:12px;color:#94a3b8;line-height:1.6}
+.step-text strong{color:#e2e8f0;display:block;margin-bottom:2px}
+.modal-close-btn{width:100%;background:#1e293b;color:#94a3b8;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;margin-top:20px}
+.modal-close-btn:hover{background:#273549;color:#e2e8f0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo-row">
+    <div class="logo">FactoryOS</div>
+    <div class="logo-sub">Workforce accountability platform</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Sign in</div>
+    <div class="card-sub">Enter your factory ID and credentials</div>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post" action="/login">
+      <div class="form-group">
+        <label>Factory ID</label>
+        <input name="slug" placeholder="your-factory-id" required autocomplete="organization">
+      </div>
+      <div class="form-group">
+        <label>Phone</label>
+        <input name="phone" placeholder="+91XXXXXXXXXX" required autocomplete="tel">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" required autocomplete="current-password">
+      </div>
+      <button class="btn" type="submit">Sign in →</button>
+    </form>
+    <hr class="divider">
+    <div class="footer">
+      <a href="#" onclick="document.getElementById('forgotModal').classList.add('open');return false;">Forgot password?</a>
+      <span style="margin:0 8px;color:#1e293b">·</span>
+      <a href="/register">Create new account</a>
+    </div>
+  </div>
+</div>
+
+<!-- Forgot Password Modal -->
+<div class="modal-overlay" id="forgotModal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal-box">
+    <div class="modal-title">🔐 Reset Your Password</div>
+    <div class="modal-body">
+      Passwords can't be reset by yourself for security reasons. Your factory admin or platform support can generate a temporary password for you.
+    </div>
+    <div class="modal-step">
+      <div class="step-num">1</div>
+      <div class="step-text">
+        <strong>Contact your factory admin</strong>
+        Ask them to go to the Employees page and generate a temporary password for your account.
+      </div>
+    </div>
+    <div class="modal-step">
+      <div class="step-num">2</div>
+      <div class="step-text">
+        <strong>Sign in with the temporary password</strong>
+        Use the temp password you receive to sign in, then change it from your profile immediately.
+      </div>
+    </div>
+    <div class="modal-step">
+      <div class="step-num">3</div>
+      <div class="step-text">
+        <strong>No admin access? Contact platform support</strong>
+        If you are the admin and are locked out, reach out to your FactoryOS account manager directly via WhatsApp.
+      </div>
+    </div>
+    <button class="modal-close-btn" onclick="document.getElementById('forgotModal').classList.remove('open')">Close</button>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,271 @@
+{% extends "inventory/base.html" %}
+{% block title %}{{ material.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <div style="font-size:.8rem; color:#9ca3af; margin-bottom:6px;">
+      <a href="/inventory/materials" style="color:#6b7280;">{{ L.Materials }}</a> › {{ material.name }}
+    </div>
+    <h1 class="page-title">{{ material.name }}</h1>
+    <p class="page-sub">{{ material.description or 'No description' }}</p>
+  </div>
+  <div class="flex gap-2">
+    <button onclick="document.getElementById('movement-modal').style.display='flex'" class="btn btn-success">
+      + Record Movement
+    </button>
+    <button onclick="document.getElementById('edit-modal').style.display='flex'" class="btn btn-outline">
+      ✏ Edit
+    </button>
+    {% if user.role == 'ADMIN' %}
+    <form method="post" action="/inventory/materials/{{ material.id }}/delete"
+          onsubmit="return confirm('Delete {{ material.name }}? This cannot be undone.')">
+      <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Info cards ─────────────────────────────────────────────── -->
+<div class="kpi-strip" style="grid-template-columns: repeat(auto-fit, minmax(160px,1fr));">
+  <div class="kpi-card {% if material.reorder_threshold and material.current_stock <= material.reorder_threshold %}kpi-alert{% endif %}">
+    <div class="kpi-label">Current {{ L.stock_in }}</div>
+    <div class="kpi-value">{{ material.current_stock | int }}</div>
+    <div class="kpi-sub">{{ material.unit }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Opening Stock</div>
+    <div class="kpi-value">{{ material.opening_stock | int }}</div>
+    <div class="kpi-sub">{{ material.unit }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Reorder Threshold</div>
+    <div class="kpi-value">{{ material.reorder_threshold | int }}</div>
+    <div class="kpi-sub">{{ material.unit }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Reorder Qty</div>
+    <div class="kpi-value">{{ material.reorder_qty | int }}</div>
+    <div class="kpi-sub">{{ material.unit }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Lead Time</div>
+    <div class="kpi-value">{{ material.lead_time_days }}</div>
+    <div class="kpi-sub">days</div>
+  </div>
+</div>
+
+<div style="display:grid; grid-template-columns:280px 1fr; gap:20px; align-items:start;">
+
+  <!-- ── Meta card ──────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title mb-2">Details</div>
+    <table style="font-size:.875rem; width:100%; border-collapse:collapse;">
+      <tr>
+        <td style="padding:8px 0; color:#6b7280; width:45%;">{{ L.Supplier }}</td>
+        <td style="padding:8px 0; font-weight:600;">{{ material.supplier or '—' }}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 0; color:#6b7280;">Status</td>
+        <td style="padding:8px 0;">
+          {% if material.is_active %}
+            <span class="badge badge-green">Active</span>
+          {% else %}
+            <span class="badge badge-gray">Inactive</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:8px 0; color:#6b7280;">Added</td>
+        <td style="padding:8px 0; color:#9ca3af; font-size:.78rem;">
+          {{ material.created_at.strftime('%d %b %Y') if material.created_at else '—' }}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:8px 0; color:#6b7280;">Updated</td>
+        <td style="padding:8px 0; color:#9ca3af; font-size:.78rem;">
+          {{ material.updated_at.strftime('%d %b %Y') if material.updated_at else '—' }}
+        </td>
+      </tr>
+    </table>
+
+    {% if material.reorder_threshold and material.current_stock <= material.reorder_threshold %}
+    <div class="flash flash-warning mt-2" style="font-size:.8rem;">
+      ⚠ Stock is at or below reorder threshold. Consider raising a {{ L.PurchaseOrder }}.
+    </div>
+    <a href="/inventory/purchase-orders/new" class="btn btn-warning btn-sm mt-1">
+      Create {{ L.PurchaseOrder }}
+    </a>
+    {% endif %}
+  </div>
+
+  <!-- ── Movement history ───────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">📈 Movement History</span>
+      <span style="font-size:.8rem; color:#9ca3af;">{{ movements | length }} records</span>
+    </div>
+    {% if movements %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Qty</th>
+          <th>Before → After</th>
+          <th>Unit Cost</th>
+          <th>Reference</th>
+          <th>Notes</th>
+          <th>By</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set type_badge = {
+          'STOCK_IN':   'badge-green',
+          'STOCK_OUT':  'badge-red',
+          'ADJUSTMENT': 'badge-amber',
+          'PO_RECEIPT': 'badge-blue',
+          'OPENING':    'badge-indigo',
+          'RETURN':     'badge-purple',
+        } %}
+        {% for mv in movements %}
+        <tr>
+          <td><span class="badge {{ type_badge.get(mv.movement_type, 'badge-gray') }}">{{ mv.movement_type.replace('_',' ') }}</span></td>
+          <td><strong>{{ mv.qty | int }}</strong> {{ mv.unit or '' }}</td>
+          <td class="text-muted">{{ mv.qty_before | int }} → {{ mv.qty_after | int }}</td>
+          <td class="text-muted">{{ '%.2f' | format(mv.unit_cost) if mv.unit_cost else '—' }}</td>
+          <td class="text-muted">{{ mv.reference or '—' }}</td>
+          <td class="text-muted" style="font-size:.78rem; max-width:160px;">{{ mv.notes or '—' }}</td>
+          <td class="text-muted">{{ mv.actor.name if mv.actor else '—' }}</td>
+          <td class="text-muted" style="font-size:.78rem; white-space:nowrap;">
+            {{ mv.created_at.strftime('%d %b %Y, %H:%M') if mv.created_at else '—' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="icon">📈</div>
+      <h3>No movements recorded</h3>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- ── Record Movement Modal ──────────────────────────────────── -->
+<div id="movement-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
+     z-index:200; align-items:center; justify-content:center; padding:20px;">
+  <div class="card" style="width:100%; max-width:480px;">
+    <div class="card-header">
+      <span class="card-title">Record Stock Movement</span>
+      <button onclick="document.getElementById('movement-modal').style.display='none'"
+              class="btn btn-sm btn-outline">✕</button>
+    </div>
+    <form method="post" action="/inventory/movements/add">
+      <input type="hidden" name="material_id" value="{{ material.id }}">
+      <div class="form-group">
+        <label>Movement Type *</label>
+        <select name="movement_type" required>
+          <option value="STOCK_IN">{{ L.stock_in }} (add stock)</option>
+          <option value="STOCK_OUT">{{ L.stock_out }} (remove stock)</option>
+          <option value="ADJUSTMENT">Adjustment (set absolute qty)</option>
+          <option value="RETURN">Return (add back)</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Quantity *</label>
+          <input type="number" name="qty" min="0.01" step="any" required
+                 placeholder="e.g. 50">
+        </div>
+        <div class="form-group">
+          <label>Unit Cost</label>
+          <input type="number" name="unit_cost" min="0" step="any" placeholder="Optional">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Reference</label>
+        <input type="text" name="reference" placeholder="PO number, batch, ticket…">
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea name="notes" rows="2" placeholder="Optional notes"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Branch</label>
+        <select name="branch_id">
+          <option value="">— Select branch (optional)</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}">{{ b.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="flex gap-2 mt-2">
+        <button type="submit" class="btn btn-success">Record Movement</button>
+        <button type="button" onclick="document.getElementById('movement-modal').style.display='none'"
+                class="btn btn-outline">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Edit Modal ────────────────────────────────────────────── -->
+<div id="edit-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4);
+     z-index:200; align-items:center; justify-content:center; padding:20px;">
+  <div class="card" style="width:100%; max-width:560px; max-height:90vh; overflow-y:auto;">
+    <div class="card-header">
+      <span class="card-title">Edit {{ L.Material }}</span>
+      <button onclick="document.getElementById('edit-modal').style.display='none'"
+              class="btn btn-sm btn-outline">✕</button>
+    </div>
+    <form method="post" action="/inventory/materials/{{ material.id }}/edit">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Name *</label>
+          <input type="text" name="name" value="{{ material.name }}" required>
+        </div>
+        <div class="form-group">
+          <label>Unit *</label>
+          <input type="text" name="unit" value="{{ material.unit }}" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea name="description" rows="2">{{ material.description or '' }}</textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Reorder Threshold</label>
+          <input type="number" name="reorder_threshold" value="{{ material.reorder_threshold }}" min="0">
+        </div>
+        <div class="form-group">
+          <label>Reorder Qty</label>
+          <input type="number" name="reorder_qty" value="{{ material.reorder_qty }}" min="0">
+        </div>
+        <div class="form-group">
+          <label>Lead Time (days)</label>
+          <input type="number" name="lead_time_days" value="{{ material.lead_time_days }}" min="0">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>{{ L.Supplier }}</label>
+        <input type="text" name="supplier" value="{{ material.supplier or '' }}">
+      </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" name="is_active" value="true" {% if material.is_active %}checked{% endif %}
+                 style="width:auto;margin-right:6px;">
+          Active
+        </label>
+      </div>
+      <div class="flex gap-2 mt-2">
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+        <button type="button" onclick="document.getElementById('edit-modal').style.display='none'"
+                class="btn btn-outline">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

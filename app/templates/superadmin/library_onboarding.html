@@ -1,0 +1,118 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+{% set msg = request.query_params.get('msg','') %}
+{% if msg %}<div class="alert alert-green">✓ {{ {'created':'Bundle created.','deployed':'Onboarding bundle deployed to tenant — labels, checklists, and flows provisioned.'}[msg] or msg }}</div>{% endif %}
+
+{% include "superadmin/library_nav.html" %}
+
+<div class="page-header" style="margin-top:16px">
+  <div>
+    <h2 class="page-title">Onboarding Bundles</h2>
+    <p class="muted">One-click tenant provisioning: deploys labels, checklists, flows, and sub-modules together.</p>
+  </div>
+</div>
+
+<!-- Existing bundles -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;margin-bottom:24px">
+{% for b in bundles %}
+{% set cl_ids = b.checklist_ids_json | from_json %}
+{% set ft_ids = b.flow_template_ids_json | from_json %}
+{% set sm_ids = b.submodule_ids_json | from_json %}
+<div class="card" style="margin:0">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+    <div>
+      <div style="font-weight:600;color:#f1f5f9">{{ b.name }}</div>
+      <div class="muted" style="margin-top:2px">{{ b.industry or '—' }}</div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <span class="badge badge-blue">v{{ b.version }}</span>
+      {% if b.is_system %}<span class="badge badge-gray" style="font-size:9px">SYSTEM</span>{% endif %}
+    </div>
+  </div>
+  {% if b.description %}<p style="font-size:12px;color:#64748b;margin-bottom:8px">{{ b.description }}</p>{% endif %}
+  <!-- Contents summary -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:11px">
+    {% if b.label_bundle %}
+    <span style="background:rgba(99,102,241,0.15);color:#a5b4fc;border-radius:99px;padding:2px 8px">🏷 {{ b.label_bundle.name }}</span>
+    {% endif %}
+    {% if cl_ids %}
+    <span style="background:rgba(16,185,129,0.12);color:#6ee7b7;border-radius:99px;padding:2px 8px">✓ {{ cl_ids|length }} checklist(s)</span>
+    {% endif %}
+    {% if ft_ids %}
+    <span style="background:rgba(59,130,246,0.12);color:#93c5fd;border-radius:99px;padding:2px 8px">⟶ {{ ft_ids|length }} flow(s)</span>
+    {% endif %}
+    {% if sm_ids %}
+    <span style="background:rgba(245,158,11,0.12);color:#fcd34d;border-radius:99px;padding:2px 8px">📋 {{ sm_ids|length }} sub-module(s)</span>
+    {% endif %}
+  </div>
+  <!-- Quick deploy -->
+  <form method="post" action="/superadmin/library/onboarding/{{ b.id }}/deploy"
+        style="display:flex;gap:6px;align-items:flex-end">
+    <select name="tenant_id" style="flex:1;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:12px">
+      {% for t in tenants %}
+      <option value="{{ t.id }}">{{ t.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-sm btn-purple"
+            onclick="return confirm('Deploy full onboarding bundle to this tenant?')">
+      🚀 Deploy
+    </button>
+  </form>
+</div>
+{% else %}
+<div class="card" style="margin:0;color:#64748b">No onboarding bundles yet.</div>
+{% endfor %}
+</div>
+
+<!-- Create new bundle -->
+<div class="card">
+  <h2>Create New Onboarding Bundle</h2>
+  <form method="post" action="/superadmin/library/onboarding/new">
+    <div class="grid2" style="gap:16px">
+    <div>
+      <div class="form-group"><label>Bundle Name *</label><input type="text" name="name" required placeholder="e.g. Restaurant Quick Start"></div>
+      <div class="form-group"><label>Industry</label><input type="text" name="industry" placeholder="e.g. Restaurant / F&B"></div>
+      <div class="form-group"><label>Description</label><textarea name="description" placeholder="What does this bundle provision?"></textarea></div>
+      <div class="form-group"><label>Notes (internal)</label><textarea name="notes"></textarea></div>
+    </div>
+    <div>
+      <div class="form-group">
+        <label>Label Bundle</label>
+        <select name="label_bundle_id">
+          <option value="">— None —</option>
+          {% for lb in label_bundles %}
+          <option value="{{ lb.id }}">{{ lb.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Checklists to include</label>
+        <select name="checklist_ids" multiple style="height:120px">
+          {% for cl in checklists %}
+          <option value="{{ cl.id }}">{{ cl.name }} ({{ cl.frequency }})</option>
+          {% endfor %}
+        </select>
+        <div style="font-size:11px;color:#4b5563;margin-top:4px">Ctrl/Cmd+click to select multiple</div>
+      </div>
+      <div class="form-group">
+        <label>Flow Templates</label>
+        <select name="flow_ids" multiple style="height:80px">
+          {% for ft in flows %}
+          <option value="{{ ft.id }}">{{ ft.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Sub-modules</label>
+        <select name="submodule_ids" multiple style="height:80px">
+          {% for sm in submodules %}
+          <option value="{{ sm.id }}">{{ sm.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    </div>
+    <button type="submit" class="btn btn-purple">Create Bundle</button>
+  </form>
+</div>
+{% endblock %}

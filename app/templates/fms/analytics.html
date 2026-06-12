@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}FMS Analytics{% endblock %}
+{% block content %}
+<div class="page-header mb-4">
+  <h2 class="mb-0"><i class="bi bi-bar-chart-line me-2"></i>FMS Analytics</h2>
+  <small class="text-muted">Turn-around time compliance and stage performance</small>
+</div>
+
+<!-- My personal compliance -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center">
+      <div class="card-body">
+        <div class="display-5 fw-bold text-{{ 'success' if my_compliance >= 80 else 'warning' if my_compliance >= 60 else 'danger' }}">
+          {{ my_compliance }}%
+        </div>
+        <div class="text-muted">My Compliance Rate</div>
+        <div class="small text-muted mt-1">{{ my_ontime }}/{{ my_total }} stages on time</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold">Compliance by Flow</div>
+      <div class="card-body py-2">
+        {% if flows %}
+        {% for f in flows %}
+        {% set br = flow_breaches.get(f.id, 0) %}
+        <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+          <span class="small fw-semibold">{{ f.name }}</span>
+          <span class="badge {{ 'bg-success' if br == 0 else 'bg-warning text-dark' if br < 3 else 'bg-danger' }}">
+            {{ br }} breach{{ 'es' if br != 1 else '' }}
+          </span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted small mb-0">No flows yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Professional+ section -->
+{% if is_pro %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white d-flex justify-content-between">
+    <span class="fw-semibold"><i class="bi bi-people me-1"></i>Employee TaT Analysis</span>
+    <span class="badge bg-warning text-dark">Professional</span>
+  </div>
+  <div class="card-body p-0">
+    {% if emp_analytics %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Employee</th>
+            <th class="text-center">Stages Done</th>
+            <th class="text-center">TaT Breaches</th>
+            <th>Compliance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ea in emp_analytics %}
+          <tr>
+            <td>{{ ea.user.name }}</td>
+            <td class="text-center">{{ ea.total_stages }}</td>
+            <td class="text-center">
+              <span class="{{ 'text-danger fw-semibold' if ea.breaches > 0 else 'text-success' }}">
+                {{ ea.breaches }}
+              </span>
+            </td>
+            <td>
+              <div class="d-flex align-items-center gap-2">
+                <div class="progress flex-grow-1" style="height:6px">
+                  {% set color = 'bg-success' if ea.ontime_pct >= 80 else 'bg-warning' if ea.ontime_pct >= 60 else 'bg-danger' %}
+                  <div class="progress-bar {{ color }}" style="width:{{ ea.ontime_pct }}%"></div>
+                </div>
+                <span class="small fw-semibold">{{ ea.ontime_pct }}%</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center text-muted py-4">
+      <i class="bi bi-bar-chart display-5"></i>
+      <p class="mt-2 small">No completed stages with TaT targets yet.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div class="card border-2 border-warning mb-4">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-lock display-4 text-warning"></i>
+    <h5 class="mt-2">Employee TaT Analysis</h5>
+    <p class="text-muted">Per-employee compliance analytics is a <strong>Professional</strong> feature.</p>
+    {% if user.role == 'ADMIN' %}
+    <a href="/billing" class="btn btn-warning">Upgrade Plan</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- My own stage history table -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white fw-semibold"><i class="bi bi-clock-history me-1"></i>My Stage History</div>
+  <div class="card-body p-0">
+    {% if my_total %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Stage</th><th>Entered</th><th>Exited</th><th>Duration</th><th>Target</th><th>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- This data is available via FMSStageHistory but passed only as aggregates.
+               Link to per-ticket history via tickets. -->
+          <tr>
+            <td colspan="6" class="text-center text-muted py-3 small">
+              View per-ticket history on each <a href="/fms/dashboard">ticket page</a>.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center text-muted py-4 small">No stage history found.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

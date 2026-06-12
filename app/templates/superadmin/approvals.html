@@ -1,0 +1,85 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+
+{% set msg = request.query_params.get('msg','') %}
+{% set approved_name = request.query_params.get('name','') %}
+{% if msg == 'approved' %}<div class="alert alert-green">✓ {{ approved_name }} approved and activated.</div>{% endif %}
+{% if msg == 'rejected' %}<div class="alert alert-red">Registration rejected and suspended.</div>{% endif %}
+
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Pending Approvals
+      {% if rows %}<span style="font-size:14px;font-weight:400;color:#f59e0b;margin-left:8px">({{ rows|length }} waiting)</span>{% endif %}
+    </h2>
+    <div class="muted">Self-registered factory accounts awaiting review</div>
+  </div>
+  <a href="/superadmin/dashboard" class="btn btn-gray">← Dashboard</a>
+</div>
+
+{% if rows %}
+<div style="display:flex;flex-direction:column;gap:14px">
+{% for tenant, stats in rows %}
+<div class="card" style="border-color:rgba(245,158,11,0.2)">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+
+    <!-- Left: tenant info -->
+    <div style="flex:1;min-width:240px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span style="font-size:15px;font-weight:700;color:#f1f5f9">{{ tenant.name }}</span>
+        <span class="badge badge-amber">TRIAL</span>
+      </div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        <div class="muted">ID: <strong style="color:#94a3b8">{{ tenant.slug }}</strong></div>
+        {% if tenant.contact_name %}<div class="muted">Contact: <strong style="color:#94a3b8">{{ tenant.contact_name }}</strong></div>{% endif %}
+        {% if tenant.contact_email %}<div class="muted">Email: <strong style="color:#94a3b8">{{ tenant.contact_email }}</strong></div>{% endif %}
+        <div class="muted">Registered: <strong style="color:#94a3b8">{{ tenant.trial_started_at.strftime('%d %b %Y, %H:%M') if tenant.trial_started_at else '—' }}</strong></div>
+      </div>
+    </div>
+
+    <!-- Right: approve / reject -->
+    <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+      <!-- Approve form with plan selector -->
+      <form method="post" action="/superadmin/tenants/{{ tenant.id }}/approve" style="display:flex;gap:8px;align-items:center">
+        <select name="plan" style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:12px;cursor:pointer">
+          <option value="STARTER">Starter</option>
+          <option value="PROFESSIONAL">Professional</option>
+          <option value="ENTERPRISE">Enterprise</option>
+        </select>
+        <button type="submit" class="btn btn-green btn-sm">✓ Approve</button>
+      </form>
+      <!-- Reject -->
+      <button class="btn btn-red btn-sm"
+              onclick="document.getElementById('reject-{{ tenant.id }}').style.display='flex'">
+        Reject
+      </button>
+      <!-- View full detail -->
+      <a href="/superadmin/tenants/{{ tenant.id }}" class="btn btn-gray btn-sm">View Detail</a>
+    </div>
+  </div>
+
+  <!-- Reject confirmation (inline) -->
+  <div id="reject-{{ tenant.id }}" style="display:none;margin-top:14px;background:#0d1424;border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:14px;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <form method="post" action="/superadmin/tenants/{{ tenant.id }}/reject" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;width:100%">
+      <div style="flex:1;min-width:200px">
+        <label style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:5px">Reason (optional)</label>
+        <input type="text" name="reason" placeholder="e.g. Duplicate account, spam…"
+               style="width:100%;background:#07090f;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:7px 10px;color:#e2e8f0;font-size:12px;outline:none">
+      </div>
+      <button type="submit" class="btn btn-red btn-sm">Confirm Reject</button>
+      <button type="button" class="btn btn-gray btn-sm"
+              onclick="document.getElementById('reject-{{ tenant.id }}').style.display='none'">Cancel</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+</div>
+
+{% else %}
+<div class="card" style="text-align:center;padding:48px">
+  <div style="font-size:40px;margin-bottom:14px">✓</div>
+  <div style="font-size:15px;font-weight:600;color:#f1f5f9;margin-bottom:6px">All caught up</div>
+  <div class="muted">No pending registrations at the moment.</div>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+<div style="max-width:440px;margin:64px auto">
+
+  <div style="text-align:center;margin-bottom:28px">
+    <div style="font-size:30px;font-weight:800;color:#f1f5f9;letter-spacing:-0.5px">
+      FactoryOS <span style="color:#a78bfa">SA</span>
+    </div>
+    {% if existing_count == 0 %}
+    <div style="color:#64748b;font-size:13px;margin-top:6px">First-time setup — create your Super Admin account</div>
+    {% else %}
+    <div style="color:#64748b;font-size:13px;margin-top:6px">Create an additional Super Admin account</div>
+    {% endif %}
+  </div>
+
+  {% if existing_count > 0 %}
+  <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.22);border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:12px;color:#fcd34d;display:flex;gap:10px;align-items:flex-start">
+    <span style="font-size:16px;line-height:1.2">🔒</span>
+    <div>
+      <strong>Keep this URL private.</strong>
+      Anyone with access to <code style="color:#a78bfa">/superadmin/setup</code> can create
+      a super admin account. Bookmark it and do not share it publicly.
+    </div>
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div class="alert alert-red" style="margin-bottom:16px">{{ error }}</div>
+  {% endif %}
+
+  <div class="card card-purple">
+    <form method="post" action="/superadmin/setup">
+      <div class="form-group">
+        <label>Your Name</label>
+        <input type="text" name="name" placeholder="Platform Administrator" required autofocus>
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" name="email" placeholder="admin@yourcompany.com" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" placeholder="Strong password (min 6 chars)" required minlength="6">
+      </div>
+      <div class="form-group">
+        <label>Confirm Password</label>
+        <input type="password" name="confirm" placeholder="Repeat password" required minlength="6">
+      </div>
+      <button type="submit" class="btn btn-purple"
+              style="width:100%;justify-content:center;padding:10px;margin-top:4px">
+        {% if existing_count == 0 %}Create Super Admin Account →{% else %}Create Account →{% endif %}
+      </button>
+    </form>
+  </div>
+
+  <div style="text-align:center;margin-top:16px;display:flex;justify-content:center;gap:20px">
+    <a href="/superadmin/login" style="color:#4b5568;font-size:12px">← Back to login</a>
+    {% if existing_count > 0 %}
+    <span style="color:#4b5568;font-size:12px">{{ existing_count }} account{{ 's' if existing_count != 1 }} already exist</span>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

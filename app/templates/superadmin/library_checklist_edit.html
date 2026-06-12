@@ -1,0 +1,201 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+{% set msg = request.query_params.get('msg','') %}
+{% if msg == 'saved'   %}<div class="alert alert-green">✓ Saved.</div>{% endif %}
+{% if msg == 'deployed'%}<div class="alert alert-green">✓ Checklist deployed to tenant.</div>{% endif %}
+{% if msg == 'bulk_pushed'%}<div class="alert alert-green">✓ Bulk push done.</div>{% endif %}
+{% if error %}<div class="alert alert-red">{{ error }}</div>{% endif %}
+{% set err_param = request.query_params.get('err','') %}
+{% if err_param %}<div class="alert alert-red">{{ err_param.replace('+',' ') }}</div>{% endif %}
+
+{% include "superadmin/library_nav.html" %}
+
+<div class="page-header" style="margin-top:16px">
+  <h2 class="page-title">{% if item %}{% if item.is_system %}View{% else %}Edit{% endif %}: {{ item.name }}{% else %}New Checklist Template{% endif %}</h2>
+  <a href="/superadmin/library/checklists" class="btn btn-gray btn-sm">← Back</a>
+</div>
+
+{% if item and item.is_system %}
+<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#fcd34d">
+  ⚠ System checklist — read-only. Duplicate to create a custom version.
+</div>
+{% endif %}
+
+<div class="grid2" style="gap:16px">
+<div class="card">
+  <h2>Checklist Details</h2>
+  <form method="post" action="{% if item %}/superadmin/library/checklists/{{ item.id }}{% else %}/superadmin/library/checklists/new{% endif %}">
+    <div class="form-group">
+      <label>Name *</label>
+      <input type="text" name="name" value="{{ item.name if item else '' }}" required
+             {% if item and item.is_system %}readonly{% endif %}>
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea name="description" {% if item and item.is_system %}readonly{% endif %}>{{ item.description if item else '' }}</textarea>
+    </div>
+    <div class="form-group">
+      <label>Industry</label>
+      <input type="text" name="industry" value="{{ item.industry if item else '' }}" placeholder="e.g. Manufacturing"
+             {% if item and item.is_system %}readonly{% endif %}>
+    </div>
+    <div class="form-group">
+      <label>Frequency</label>
+      <select name="frequency" {% if item and item.is_system %}disabled{% endif %}>
+        {% for f in freq_options %}
+        <option value="{{ f }}" {% if item and item.frequency == f %}selected{% endif %}>{{ f }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Assigned to Role</label>
+      <select name="assigned_to_role" {% if item and item.is_system %}disabled{% endif %}>
+        {% for r in role_options %}
+        <option value="{{ r }}" {% if item and item.assigned_to_role == r %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <input type="checkbox" name="proof_required" id="proofReq" value="true"
+             {% if item and item.proof_required %}checked{% endif %}
+             {% if item and item.is_system %}disabled{% endif %}>
+      <label for="proofReq" style="font-size:12px;color:#94a3b8;text-transform:none;letter-spacing:0;font-weight:400">Proof photo required</label>
+    </div>
+    <div class="form-group">
+      <label>Status</label>
+      <select name="status" {% if item and item.is_system %}disabled{% endif %}>
+        {% for s in status_options %}
+        <option value="{{ s }}" {% if item and item.status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea name="notes" {% if item and item.is_system %}readonly{% endif %}>{{ item.notes if item else '' }}</textarea>
+    </div>
+    {% if item and not item.is_system %}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <input type="checkbox" name="bump_version" id="bumpVer" value="true">
+      <label for="bumpVer" style="font-size:12px;color:#94a3b8;text-transform:none;letter-spacing:0;font-weight:400">Bump version (v{{ item.version }})</label>
+    </div>
+    {% endif %}
+    {% if not (item and item.is_system) %}
+    <button type="submit" class="btn btn-purple">{% if item %}Save{% else %}Create{% endif %}</button>
+    {% endif %}
+  </form>
+</div>
+
+<div>
+{% if item %}
+<div class="card">
+  <h2>Deploy to Tenant</h2>
+  <p style="font-size:12px;color:#64748b;margin-bottom:12px">Creates this checklist template in the tenant's active checklist library.</p>
+  <form method="post" action="/superadmin/library/checklists/{{ item.id }}/deploy"
+        style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap"
+        onsubmit="return checkClCap(this)">
+    <div class="form-group" style="flex:1;margin:0;min-width:200px">
+      <label>Tenant</label>
+      <select name="tenant_id" id="cl-tenant-select" onchange="updateClCapHint(this)">
+        {% for t in tenants %}
+        {% set cap = cap_info.get(t.id, {}) %}
+        <option value="{{ t.id }}"
+                data-at-cap="{{ 'true' if cap.at_cap else 'false' }}"
+                data-current="{{ cap.current }}"
+                data-limit="{{ cap.limit if cap.limit is not none else '' }}"
+                data-plan="{{ cap.plan_label }}"
+                data-deployed="{{ 'true' if t.id in deployed_tenant_ids else 'false' }}"
+                {% if t.id in deployed_tenant_ids %} style="color:#10b981"{% elif cap.at_cap %} style="color:#f87171"{% endif %}>
+          {{ t.name }}
+          {% if t.id in deployed_tenant_ids %} ✓ (already deployed)
+          {% elif cap.at_cap %} ✗ at cap ({{ cap.current }}/{{ cap.limit }})
+          {% else %} — {{ cap.plan_label }} ({{ cap.current }}/{{ cap.limit if cap.limit is not none else '∞' }})
+          {% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <button type="submit" class="btn btn-green btn-sm" id="cl-deploy-btn">Deploy</button>
+      <div id="cl-cap-hint" style="font-size:11px;color:#94a3b8;min-height:16px"></div>
+    </div>
+  </form>
+
+  {% if deployments %}
+  <div style="margin-top:14px">
+    <div style="font-size:12px;color:#64748b;margin-bottom:8px">Deployed to {{ deployments|length }} tenant(s):</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      {% for d in deployments %}
+      {% set t_cap = cap_info.get(d.tenant_id, {}) %}
+      <div style="display:flex;align-items:center;justify-content:space-between;background:#0d1424;border-radius:6px;padding:8px 10px">
+        <div>
+          <span style="font-size:12px;color:#f1f5f9;font-weight:500">{{ d.item_name or d.library_item_id[:8] }}</span>
+          <span style="font-size:10px;color:#64748b;margin-left:6px">v{{ d.deployed_version }}</span>
+          {% if d.deployed_version < item.version %}
+          <span class="badge badge-amber" style="font-size:9px;margin-left:4px">Update available v{{ item.version }}</span>
+          {% endif %}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          {% if t_cap.limit is not none %}
+          <span style="font-size:10px;color:#64748b">{{ t_cap.plan_label }} · {{ t_cap.current }}/{{ t_cap.limit }} templates</span>
+          {% set bar_pct = ((t_cap.current / t_cap.limit) * 100)|int if t_cap.limit else 0 %}
+          <div style="width:60px;height:5px;background:#1e293b;border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:{{ [bar_pct,100]|min }}%;background:{% if bar_pct >= 100 %}#ef4444{% elif bar_pct >= 80 %}#f59e0b{% else %}#10b981{% endif %};border-radius:3px"></div>
+          </div>
+          {% else %}
+          <span style="font-size:10px;color:#64748b">{{ t_cap.plan_label }} · unlimited</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <form method="post" action="/superadmin/library/checklists/{{ item.id }}/bulk-push"
+          style="margin-top:10px"
+          onsubmit="return confirm('Push to all {{ deployments|length }} tenants?')">
+      <button class="btn btn-sm btn-amber">⬆ Bulk Push to {{ deployments|length }} tenant(s)</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function updateClCapHint(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const hint = document.getElementById('cl-cap-hint');
+  const btn  = document.getElementById('cl-deploy-btn');
+  const atCap    = opt.dataset.atCap === 'true';
+  const deployed = opt.dataset.deployed === 'true';
+  const current  = opt.dataset.current;
+  const limit    = opt.dataset.limit;
+  const plan     = opt.dataset.plan;
+  if (deployed) {
+    hint.style.color = '#10b981';
+    hint.textContent = '✓ Already deployed — this will update to latest version.';
+    btn.disabled = false; btn.style.opacity = '';
+  } else if (atCap) {
+    hint.style.color = '#f87171';
+    hint.textContent = `✗ At cap: ${plan} plan allows ${limit} template${limit == 1 ? '' : 's'} (${current}/${limit} used). Upgrade plan first.`;
+    btn.disabled = true; btn.style.opacity = '0.4';
+  } else {
+    hint.style.color = '#94a3b8';
+    hint.textContent = limit ? `${plan} plan: ${current}/${limit} templates used.` : `${plan} plan: unlimited templates.`;
+    btn.disabled = false; btn.style.opacity = '';
+  }
+}
+function checkClCap(form) {
+  const sel = document.getElementById('cl-tenant-select');
+  const opt = sel.options[sel.selectedIndex];
+  if (opt.dataset.atCap === 'true' && opt.dataset.deployed !== 'true') {
+    alert('This tenant is at their plan cap for checklist templates. Update their plan before deploying.');
+    return false;
+  }
+  return true;
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('cl-tenant-select');
+  if (sel) updateClCapHint(sel);
+});
+</script>
+{% endif %}
+</div>
+</div>
+{% endblock %}

@@ -1,0 +1,119 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+
+{% set msg = request.query_params.get('msg','') %}
+{% set err = request.query_params.get('err','') %}
+{% if msg == 'created'     %}<div class="alert alert-green">New super admin account created.</div>{% endif %}
+{% if msg == 'deactivated' %}<div class="alert alert-red">Account deactivated — they can no longer log in.</div>{% endif %}
+{% if msg == 'activated'   %}<div class="alert alert-green">Account reactivated.</div>{% endif %}
+{% if err == 'email_taken' %}<div class="alert alert-red">That email is already registered.</div>{% endif %}
+{% if err == 'cannot_deactivate_self' %}<div class="alert alert-red">You cannot deactivate your own account.</div>{% endif %}
+
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Super Admin Accounts</h2>
+    <div class="muted">Manage who has platform-level access</div>
+  </div>
+  <button class="btn btn-purple"
+          onclick="document.getElementById('newAdminModal').style.display='flex'">
+    + Add Super Admin
+  </button>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Email</th><th>Status</th><th>Created</th><th>Last Login</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+    {% for admin in all_admins %}
+    <tr {% if admin.id == sa.id %}style="background:rgba(167,139,250,0.05)"{% endif %}>
+      <td>
+        <span style="font-weight:500;color:#f1f5f9">{{ admin.name }}</span>
+        {% if admin.id == sa.id %}
+        <span class="badge badge-purple" style="margin-left:6px;font-size:9px">YOU</span>
+        {% endif %}
+      </td>
+      <td style="color:#94a3b8">{{ admin.email }}</td>
+      <td>
+        {% if admin.is_active %}
+        <span class="badge badge-green">Active</span>
+        {% else %}
+        <span class="badge badge-red">Inactive</span>
+        {% endif %}
+      </td>
+      <td class="muted">{{ admin.created_at.strftime('%d %b %Y') }}</td>
+      <td class="muted">{{ admin.last_login.strftime('%d %b %Y, %H:%M') if admin.last_login else 'Never' }}</td>
+      <td>
+        {% if admin.id != sa.id %}
+          {% if admin.is_active %}
+          <form method="post" action="/superadmin/admins/{{ admin.id }}/deactivate" style="display:inline">
+            <button type="submit" class="btn btn-sm btn-red"
+                    onclick="return confirm('Deactivate {{ admin.name }}? They will be logged out immediately.')">
+              Deactivate
+            </button>
+          </form>
+          {% else %}
+          <form method="post" action="/superadmin/admins/{{ admin.id }}/activate" style="display:inline">
+            <button type="submit" class="btn btn-sm btn-green">Reactivate</button>
+          </form>
+          {% endif %}
+        {% else %}
+          <a href="/superadmin/profile" class="btn btn-sm btn-gray">Edit Profile</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Security note -->
+<div class="card" style="border-color:rgba(167,139,250,0.15);background:#0d0a1a">
+  <h2>Security Notes</h2>
+  <ul style="color:#64748b;font-size:13px;line-height:2;padding-left:18px">
+    <li>Super admin accounts use a <strong style="color:#94a3b8">separate JWT secret</strong> and cookie from factory users — there is no cross-access.</li>
+    <li>The SA portal is accessible at <code style="color:#a78bfa">/superadmin/login</code> — consider restricting this path to known IPs in production.</li>
+    <li>Deactivated accounts are immediately locked — their active sessions expire within 8 hours (token TTL).</li>
+    <li>Passwords are hashed with <strong style="color:#94a3b8">bcrypt</strong> and never stored in plaintext.</li>
+    <li>To recover a forgotten password, another active SA can deactivate + recreate the account, or a developer can run <code style="color:#a78bfa">reset_sa_password.py</code> from the server.</li>
+  </ul>
+</div>
+
+<!-- Add New SA Modal -->
+<div class="modal-overlay" id="newAdminModal"
+     style="display:none;align-items:center;justify-content:center">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <span class="modal-title">Add Super Admin Account</span>
+      <button class="modal-close"
+              onclick="document.getElementById('newAdminModal').style.display='none'">×</button>
+    </div>
+    <form method="post" action="/superadmin/admins/new">
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" name="name" placeholder="Admin Name" required>
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" name="email" placeholder="admin@company.com" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" placeholder="Min. 6 characters" required minlength="6">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button type="button" class="btn btn-gray"
+                onclick="document.getElementById('newAdminModal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-purple">Create Account</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+document.getElementById('newAdminModal').addEventListener('click', function(e){
+  if(e.target === this) this.style.display = 'none';
+});
+</script>
+{% endblock %}

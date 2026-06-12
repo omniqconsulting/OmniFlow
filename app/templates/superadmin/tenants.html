@@ -1,0 +1,80 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <h2 class="page-title">Tenants <span style="font-size:14px;font-weight:400;color:#64748b">({{ rows|length }})</span></h2>
+  <a href="/superadmin/tenants/new" class="btn btn-purple">+ New Tenant</a>
+</div>
+
+<!-- Filters -->
+<form method="get" action="/superadmin/tenants" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search name or slug…"
+    style="background:#111827;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:7px 12px;color:#e2e8f0;font-size:13px;width:220px;outline:none">
+  <select name="plan" style="background:#111827;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:7px 12px;color:#e2e8f0;font-size:13px;cursor:pointer">
+    <option value="">All Plans</option>
+    <option value="STARTER"      {% if plan_filter=='STARTER'      %}selected{% endif %}>Starter</option>
+    <option value="PROFESSIONAL" {% if plan_filter=='PROFESSIONAL' %}selected{% endif %}>Professional</option>
+    <option value="ENTERPRISE"   {% if plan_filter=='ENTERPRISE'   %}selected{% endif %}>Enterprise</option>
+  </select>
+  <select name="status" style="background:#111827;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:7px 12px;color:#e2e8f0;font-size:13px;cursor:pointer">
+    <option value="">All Status</option>
+    <option value="active"    {% if status_filter=='active'    %}selected{% endif %}>Active</option>
+    <option value="suspended" {% if status_filter=='suspended' %}selected{% endif %}>Suspended</option>
+  </select>
+  <button type="submit" class="btn btn-outline">Filter</button>
+  {% if q or plan_filter or status_filter %}
+  <a href="/superadmin/tenants" class="btn btn-gray">Clear</a>
+  {% endif %}
+</form>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Factory</th><th>Plan</th><th>Contact</th>
+        <th>Users</th><th>Tickets</th><th>Compliance</th>
+        <th>Status</th><th>Joined</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for tenant, stats in rows %}
+    <tr>
+      <td>
+        <div style="font-weight:600;color:#f1f5f9">{{ tenant.name }}</div>
+        <div style="font-size:11px;color:#64748b">{{ tenant.slug }}</div>
+        {% if tenant.industry %}<div style="font-size:10px;color:#4b5568">{{ tenant.industry }}</div>{% endif %}
+      </td>
+      <td>
+        {% if tenant.plan == 'ENTERPRISE' %}<span class="badge badge-purple">ENTERPRISE</span>
+        {% elif tenant.plan == 'PROFESSIONAL' %}<span class="badge badge-blue">PRO</span>
+        {% else %}<span class="badge badge-gray">STARTER</span>{% endif %}
+      </td>
+      <td>
+        <div style="color:#cbd5e1">{{ tenant.contact_name or '—' }}</div>
+        <div class="muted">{{ tenant.contact_email or '' }}</div>
+      </td>
+      <td>{{ stats.users }}</td>
+      <td>
+        <div>{{ stats.tickets }} total</div>
+        <div style="color:{% if stats.open_tickets > 0 %}#f87171{% else %}#6ee7b7{% endif %};font-size:11px">{{ stats.open_tickets }} open</div>
+      </td>
+      <td style="color:{% if stats.compliance >= 80 %}#6ee7b7{% elif stats.compliance >= 50 %}#fcd34d{% else %}#f87171{% endif %}">
+        {{ stats.compliance }}%
+      </td>
+      <td>
+        {% if tenant.is_suspended %}
+        <span class="badge badge-red">SUSPENDED</span>
+        {% else %}
+        <span class="badge badge-green">ACTIVE</span>
+        {% endif %}
+      </td>
+      <td class="muted">{{ tenant.created_at.strftime('%d %b %Y') }}</td>
+      <td><a href="/superadmin/tenants/{{ tenant.id }}" class="btn btn-sm btn-gray">Manage</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" style="text-align:center;color:#64748b;padding:28px">No tenants found.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

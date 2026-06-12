@@ -1,0 +1,110 @@
+{% extends "inventory/base.html" %}
+{% block title %}Stock Movements Ledger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="page-header-left">
+    <h1 class="page-title">📈 Stock Movements Ledger</h1>
+    <p class="page-sub">Immutable audit trail of every {{ L.stock_in }} and {{ L.stock_out }} event.</p>
+  </div>
+</div>
+
+<!-- ── Filters ────────────────────────────────────────────────── -->
+<div class="card mb-3">
+  <form method="get" action="/inventory/movements">
+    <div class="form-row" style="align-items:flex-end;">
+      <div class="form-group" style="margin:0;">
+        <label>{{ L.Material }}</label>
+        <select name="material_id">
+          <option value="">All {{ L.Materials }}</option>
+          {% for m in materials %}
+          <option value="{{ m.id }}" {% if filter_material_id == m.id %}selected{% endif %}>{{ m.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label>Movement Type</label>
+        <select name="movement_type">
+          <option value="">All Types</option>
+          {% for t in movement_types %}
+          <option value="{{ t }}" {% if filter_type == t %}selected{% endif %}>{{ t.replace('_',' ') }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">Filter</button>
+      <a href="/inventory/movements" class="btn btn-outline">Clear</a>
+    </div>
+  </form>
+</div>
+
+<!-- ── Ledger Table ───────────────────────────────────────────── -->
+<div class="card">
+  {% set type_badge = {
+    'STOCK_IN':   'badge-green',
+    'STOCK_OUT':  'badge-red',
+    'ADJUSTMENT': 'badge-amber',
+    'PO_RECEIPT': 'badge-blue',
+    'OPENING':    'badge-indigo',
+    'RETURN':     'badge-purple',
+  } %}
+  {% if movements %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>{{ L.Material }}</th>
+        <th>Type</th>
+        <th>Qty</th>
+        <th>Before</th>
+        <th>After</th>
+        <th>Unit Cost</th>
+        <th>Total</th>
+        <th>Reference</th>
+        <th>By</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for mv in movements %}
+      <tr>
+        <td style="font-size:.78rem; white-space:nowrap;">
+          {{ mv.created_at.strftime('%d %b %Y') if mv.created_at else '—' }}<br>
+          <span class="text-muted">{{ mv.created_at.strftime('%H:%M') if mv.created_at else '' }}</span>
+        </td>
+        <td>
+          <a href="/inventory/materials/{{ mv.material_id }}" style="font-weight:600; color:#1a1a2e;">
+            {{ mv.material.name if mv.material else mv.material_id }}
+          </a>
+        </td>
+        <td><span class="badge {{ type_badge.get(mv.movement_type, 'badge-gray') }}">{{ mv.movement_type.replace('_',' ') }}</span></td>
+        <td>
+          {% if mv.movement_type in ('STOCK_IN','PO_RECEIPT','OPENING','RETURN') %}
+            <span style="color:#10b981; font-weight:700;">+{{ mv.qty | int }}</span>
+          {% elif mv.movement_type == 'STOCK_OUT' %}
+            <span style="color:#ef4444; font-weight:700;">−{{ mv.qty | int }}</span>
+          {% else %}
+            <span style="color:#f59e0b; font-weight:700;">{{ mv.qty | int }}</span>
+          {% endif %}
+          {{ mv.unit or '' }}
+        </td>
+        <td class="text-muted">{{ mv.qty_before | int }}</td>
+        <td><strong>{{ mv.qty_after | int }}</strong></td>
+        <td class="text-muted">{{ '%.2f' | format(mv.unit_cost) if mv.unit_cost else '—' }}</td>
+        <td class="text-muted">{{ '%.2f' | format(mv.total_cost) if mv.total_cost else '—' }}</td>
+        <td class="text-muted" style="font-size:.8rem;">{{ mv.reference or '—' }}</td>
+        <td class="text-muted" style="font-size:.8rem;">{{ mv.actor.name if mv.actor else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div style="font-size:.78rem; color:#9ca3af; margin-top:12px; text-align:right;">
+    Showing {{ movements | length }} most recent records (max 200)
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="icon">📈</div>
+    <h3>No movements found</h3>
+    <p>Adjust your filters or add opening stock from the {{ L.Materials }} catalogue.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

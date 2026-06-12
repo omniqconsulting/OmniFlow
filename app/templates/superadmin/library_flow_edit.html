@@ -1,0 +1,437 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+{% set msg = request.query_params.get('msg','') %}
+{% if msg == 'saved'      %}<div class="alert alert-green">✓ Flow saved.</div>{% endif %}
+{% if msg == 'deployed'   %}<div class="alert alert-green">✓ Flow deployed to tenant — admins can now create tickets against it.</div>{% endif %}
+{% if msg == 'bulk_pushed'%}<div class="alert alert-green">✓ All tenant deployments updated to latest version.</div>{% endif %}
+{% if msg == 'duplicated' %}<div class="alert alert-blue">This is a copy — rename and save.</div>{% endif %}
+{% if error %}<div class="alert alert-red">{{ error }}</div>{% endif %}
+{% set err_param = request.query_params.get('err','') %}
+{% if err_param %}<div class="alert alert-red">{{ err_param.replace('+',' ') }}</div>{% endif %}
+
+{% include "superadmin/library_nav.html" %}
+
+<div class="page-header" style="margin-top:16px">
+  <h2 class="page-title">{% if flow %}Edit Flow: {{ flow.name }}{% else %}New Flow Template{% endif %}</h2>
+  <a href="/superadmin/library/flows" class="btn btn-gray btn-sm">← Back to Flows</a>
+</div>
+
+<div style="display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start">
+
+<!-- ── LEFT: Flow metadata + deploy ─────────────────────────────────────────── -->
+<div style="display:flex;flex-direction:column;gap:16px">
+
+<div class="card">
+  <h2>Flow Details</h2>
+  <form method="post" action="{% if flow %}/superadmin/library/flows/{{ flow.id }}{% else %}/superadmin/library/flows/new{% endif %}" id="flowForm">
+    <div class="form-group">
+      <label>Name *</label>
+      <input type="text" name="name" value="{{ flow.name if flow else '' }}" required placeholder="e.g. Standard Production Flow">
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea name="description" rows="2" placeholder="What kind of work orders does this flow manage?">{{ flow.description if flow else '' }}</textarea>
+    </div>
+    <div class="form-group">
+      <label>Industry</label>
+      <input type="text" name="industry" value="{{ flow.industry if flow else '' }}" placeholder="Manufacturing, Construction, Pharma …">
+    </div>
+    <div class="form-group">
+      <label>Status</label>
+      <select name="status">
+        {% for s in status_options %}
+        <option value="{{ s }}" {% if flow and flow.status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Internal Notes</label>
+      <textarea name="notes" rows="2" placeholder="Notes visible only to SA team">{{ flow.notes if flow else '' }}</textarea>
+    </div>
+    {% if flow %}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 10px;background:#0d1424;border-radius:6px">
+      <input type="checkbox" name="bump_version" id="bumpVersion" value="true">
+      <label for="bumpVersion" style="font-size:12px;color:#94a3b8;text-transform:none;letter-spacing:0;font-weight:400;margin:0">
+        Bump version (currently v{{ flow.version }}) — triggers "update available" for tenants
+      </label>
+    </div>
+    {% endif %}
+    <input type="hidden" name="stages_json" id="stagesJson" value="{{ stages_json or '[]' }}">
+    <button type="submit" class="btn btn-purple" style="width:100%">
+      {% if flow %}💾 Save Changes{% else %}✨ Create Flow{% endif %}
+    </button>
+  </form>
+</div>
+
+{% if flow %}
+<!-- Deploy panel -->
+<div class="card">
+  <h2>🚀 Deploy to Tenant</h2>
+  <p style="font-size:12px;color:#64748b;margin-bottom:12px">
+    Deploying creates live <strong style="color:#e2e8f0">FMSFlow + stages</strong> in the tenant's account.
+    Admins can immediately create tickets against the deployed flow.
+    Re-deploying rebuilds stages from the latest template version.
+  </p>
+  <form method="post" action="/superadmin/library/flows/{{ flow.id }}/deploy"
+        onsubmit="return checkFlowCap(this)">
+    <div class="form-group">
+      <label>Select Tenant</label>
+      <select name="tenant_id" id="flow-tenant-select" onchange="updateFlowCapHint(this)" style="width:100%">
+        {% for t in tenants %}
+        {% set cap = cap_info.get(t.id, {}) %}
+        <option value="{{ t.id }}"
+                data-at-cap="{{ 'true' if cap.at_cap else 'false' }}"
+                data-current="{{ cap.current }}"
+                data-limit="{{ cap.limit if cap.limit is not none else '' }}"
+                data-plan="{{ cap.plan_label }}"
+                data-deployed="{{ 'true' if t.id in deployed_tenant_ids else 'false' }}"
+                {% if t.id in deployed_tenant_ids %} style="color:#10b981"{% elif cap.at_cap %} style="color:#f87171"{% endif %}>
+          {{ t.name }}{% if t.id in deployed_tenant_ids %} ✓{% elif cap.at_cap %} ✗ at cap{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Deploy Notes (optional)</label>
+      <input type="text" name="notes" placeholder="e.g. Initial deploy for onboarding">
+    </div>
+    <div id="flow-cap-hint" style="font-size:12px;color:#94a3b8;margin-bottom:10px;min-height:18px"></div>
+    <button type="submit" class="btn btn-green btn-sm" id="flow-deploy-btn" style="width:100%">
+      🚀 Deploy Flow to Tenant
+    </button>
+  </form>
+
+  {% if deployments %}
+  <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.07);padding-top:14px">
+    <div style="font-size:12px;color:#64748b;margin-bottom:8px;font-weight:600">Deployed to {{ deployments|length }} tenant(s)</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      {% for d in deployments %}
+      {% set t_cap = cap_info.get(d.tenant_id, {}) %}
+      <div style="background:#0d1424;border-radius:6px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <span style="font-size:12px;color:#f1f5f9;font-weight:500">{{ d.item_name or d.library_item_id[:8] }}</span>
+          <span style="font-size:10px;color:#64748b;margin-left:6px">v{{ d.deployed_version }}</span>
+          {% if d.deployed_version < flow.version %}
+          <span class="badge badge-amber" style="font-size:9px;margin-left:4px">v{{ flow.version }} available</span>
+          {% else %}
+          <span class="badge badge-green" style="font-size:9px;margin-left:4px">up to date</span>
+          {% endif %}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:10px;color:#64748b">{{ t_cap.current }}/{{ t_cap.limit if t_cap.limit is not none else '∞' }}</span>
+          {% set bar_pct = ((t_cap.current / t_cap.limit) * 100)|int if t_cap.limit else 0 %}
+          <div style="width:48px;height:4px;background:#1e293b;border-radius:2px;overflow:hidden">
+            <div style="height:100%;width:{{ [bar_pct,100]|min }}%;background:{% if bar_pct >= 100 %}#ef4444{% elif bar_pct >= 80 %}#f59e0b{% else %}#10b981{% endif %};border-radius:2px"></div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <form method="post" action="/superadmin/library/flows/{{ flow.id }}/bulk-push"
+          style="margin-top:10px"
+          onsubmit="return confirm('Push v{{ flow.version }} to all {{ deployments|length }} tenants? This will rebuild their stages.')">
+      <button class="btn btn-sm btn-amber" style="width:100%">⬆ Bulk Push v{{ flow.version }} to All</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function updateFlowCapHint(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const hint = document.getElementById('flow-cap-hint');
+  const btn  = document.getElementById('flow-deploy-btn');
+  const atCap    = opt.dataset.atCap === 'true';
+  const deployed = opt.dataset.deployed === 'true';
+  const current  = opt.dataset.current;
+  const limit    = opt.dataset.limit;
+  const plan     = opt.dataset.plan;
+  if (deployed) {
+    hint.style.color = '#10b981';
+    hint.innerHTML = '✓ Already deployed — this will <strong>rebuild all stages</strong> from the latest template.';
+    btn.disabled = false; btn.style.opacity = '';
+  } else if (atCap) {
+    hint.style.color = '#f87171';
+    hint.textContent = `✗ ${plan} plan cap reached: ${current}/${limit} flows. Upgrade plan first.`;
+    btn.disabled = true; btn.style.opacity = '0.4';
+  } else {
+    hint.style.color = '#94a3b8';
+    hint.textContent = limit ? `${plan} plan: ${current}/${limit} flows used.` : `${plan} plan: unlimited flows.`;
+    btn.disabled = false; btn.style.opacity = '';
+  }
+}
+function checkFlowCap(form) {
+  const sel = document.getElementById('flow-tenant-select');
+  const opt = sel.options[sel.selectedIndex];
+  if (opt.dataset.atCap === 'true' && opt.dataset.deployed !== 'true') {
+    alert('This tenant is at their plan cap for FMS flows. Update their plan first.');
+    return false;
+  }
+  return true;
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('flow-tenant-select');
+  if (sel) updateFlowCapHint(sel);
+});
+</script>
+{% endif %}
+</div><!-- left col -->
+
+<!-- ── RIGHT: Stage Builder ──────────────────────────────────────────────────── -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <h2 style="margin:0">Stage Builder</h2>
+    <button type="button" onclick="addStage()" class="btn btn-sm btn-primary">+ Add Stage</button>
+  </div>
+  <p style="font-size:12px;color:#64748b;margin-bottom:16px">
+    Design the lifecycle stages for this flow. Each stage can have a sub-module, TaT target, and completion rules.
+    When deployed, these stages become the pipeline that tenant admins create tickets against.
+  </p>
+
+  <!-- Pipeline preview strip -->
+  <div id="pipelinePreview" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:16px;padding:10px;background:#0d1424;border-radius:8px;min-height:38px">
+    <span id="emptyPipeline" style="font-size:11px;color:#374151">No stages yet — add stages below</span>
+  </div>
+
+  <div id="stagesList"></div>
+  <div style="margin-top:12px;font-size:11px;color:#4b5563;text-align:center">
+    Click <strong>Save Changes</strong> in the left panel to persist all stage edits.
+  </div>
+</div>
+
+</div><!-- grid -->
+
+<style>
+.stage-card {
+  background: #0d1424;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.stage-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.stage-card-header:hover { background: rgba(255,255,255,0.03); }
+.stage-card-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: none;
+}
+.stage-card-body.open { display: block; }
+.stage-field { margin-bottom: 10px; }
+.stage-field label {
+  display: block; font-size: 11px; font-weight: 600;
+  color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.stage-field input, .stage-field select, .stage-field textarea {
+  width: 100%; background: #111827;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px; padding: 7px 10px;
+  color: #e2e8f0; font-size: 12px; font-family: inherit;
+  box-sizing: border-box;
+}
+.stage-field input:focus, .stage-field select:focus { outline: none; border-color: #3b82f6; }
+.sm-badge {
+  display: inline-block; font-size: 10px; padding: 2px 7px;
+  border-radius: 10px; background: #312e81; color: #c4b5fd;
+  font-weight: 600; white-space: nowrap;
+}
+.pip-chip-sm {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 4px 10px; border-radius: 20px;
+  font-weight: 500; white-space: nowrap;
+}
+</style>
+
+<script>
+var stages = {{ stages_json | safe if stages_json else '[]' }};
+const SUBMODULES = {{ submodules_json | safe if submodules_json else '[]' }};
+const SM_TYPE_LABELS = {
+  PMS: '📊 Production Log', DISPATCH: '🚛 Dispatch', INVOICE: '🧾 Invoice',
+  MATERIAL_REQ: '📦 Material Req', CUSTOM: '📋 Custom Form'
+};
+
+function renderPipeline() {
+  const pip = document.getElementById('pipelinePreview');
+  const empty = document.getElementById('emptyPipeline');
+  if (stages.length === 0) {
+    pip.innerHTML = '<span id="emptyPipeline" style="font-size:11px;color:#374151">No stages yet — add stages below</span>';
+    return;
+  }
+  pip.innerHTML = stages.map((s, i) => `
+    <span class="pip-chip-sm" style="background:${s.color}22;border:1px solid ${s.color}44;color:#e2e8f0">
+      ${escHtml(s.name || 'Stage')}${s.is_terminal ? ' ✓' : ''}
+      ${s.sub_module_tag ? `<span class="sm-badge">${SM_TYPE_LABELS[s.sub_module_tag] || s.sub_module_tag}</span>` : ''}
+    </span>
+    ${i < stages.length - 1 ? '<span style="color:#374151;font-size:14px">›</span>' : ''}
+  `).join('');
+}
+
+function onSubmoduleChange(i, sel) {
+  const val = sel.value;
+  if (!val) {
+    stages[i].submodule_id = null;
+    stages[i].sub_module_tag = null;
+  } else {
+    stages[i].submodule_id = val;
+    const sm = SUBMODULES.find(s => s.id === val);
+    stages[i].sub_module_tag = sm ? sm.type : null;
+  }
+  syncJson();
+  renderPipeline();
+  renderStages();
+}
+
+function renderStages() {
+  const el = document.getElementById('stagesList');
+  const openIds = new Set([...el.querySelectorAll('.stage-card-body.open')].map(b => b.dataset.idx));
+  el.innerHTML = '';
+
+  if (stages.length === 0) {
+    el.innerHTML = '<div style="text-align:center;padding:32px;color:#374151;font-size:13px">No stages yet. Click <strong style="color:#e2e8f0">+ Add Stage</strong> to begin.</div>';
+    return;
+  }
+
+  stages.forEach(function(s, i) {
+    // Group sub-modules by type for optgroup display
+    const typeOrder = ['PMS','DISPATCH','INVOICE','MATERIAL_REQ','CUSTOM'];
+    const grouped = {};
+    SUBMODULES.forEach(sm => {
+      if (!grouped[sm.type]) grouped[sm.type] = [];
+      grouped[sm.type].push(sm);
+    });
+    const smGroupedOptions = typeOrder
+      .filter(t => grouped[t] && grouped[t].length)
+      .map(t => {
+        const opts = grouped[t].map(sm =>
+          `<option value="${sm.id}" data-type="${sm.type}" ${s.submodule_id === sm.id ? 'selected' : ''}>${sm.name}</option>`
+        ).join('');
+        return `<optgroup label="${SM_TYPE_LABELS[t] || t}">${opts}</optgroup>`;
+      }).join('');
+    // Also include CUSTOM-type ones without a type label
+    const otherTypes = Object.keys(grouped).filter(t => !typeOrder.includes(t));
+    const otherOpts = otherTypes.map(t =>
+      grouped[t].map(sm =>
+        `<option value="${sm.id}" data-type="${sm.type}" ${s.submodule_id === sm.id ? 'selected' : ''}>${sm.name} (${sm.type})</option>`
+      ).join('')
+    ).join('');
+
+    const selectedSM = s.submodule_id ? SUBMODULES.find(sm => sm.id === s.submodule_id) : null;
+    const smLabel = selectedSM ? `<span class="sm-badge">${SM_TYPE_LABELS[selectedSM.type] || selectedSM.type}: ${selectedSM.name}</span>` : '';
+
+    const card = document.createElement('div');
+    card.className = 'stage-card';
+    card.innerHTML = `
+      <div class="stage-card-header" onclick="toggleStage(${i})">
+        <input type="color" value="${s.color || '#3b82f6'}"
+               style="width:28px;height:28px;padding:2px;border-radius:4px;border:none;cursor:pointer;background:none;flex-shrink:0"
+               onclick="event.stopPropagation()"
+               onchange="stages[${i}].color=this.value;syncJson();renderPipeline()">
+        <span style="flex:1;font-weight:600;font-size:13px;color:#f1f5f9">${escHtml(s.name || 'Unnamed Stage')}</span>
+        ${s.is_terminal ? '<span class="badge badge-green" style="font-size:10px">terminal</span>' : ''}
+        ${smLabel}
+        ${s.target_tat_hours ? `<span style="font-size:10px;color:#64748b">⏱ ${s.target_tat_hours}h TaT</span>` : ''}
+        <div style="display:flex;gap:4px;margin-left:auto">
+          <button type="button" onclick="event.stopPropagation();moveStage(${i},-1)" class="btn btn-sm btn-outline" style="padding:2px 7px" ${i===0?'disabled':''}>↑</button>
+          <button type="button" onclick="event.stopPropagation();moveStage(${i},1)"  class="btn btn-sm btn-outline" style="padding:2px 7px" ${i===stages.length-1?'disabled':''}>↓</button>
+          <button type="button" onclick="event.stopPropagation();removeStage(${i})" class="btn btn-sm btn-red" style="padding:2px 7px">✕</button>
+        </div>
+        <span style="font-size:14px;color:#374151;flex-shrink:0" id="chevron-${i}">▼</span>
+      </div>
+      <div class="stage-card-body ${openIds.has(String(i)) ? 'open' : ''}" data-idx="${i}">
+        <div style="padding-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="stage-field" style="grid-column:1/-1">
+            <label>Stage Name *</label>
+            <input type="text" value="${escHtml(s.name || '')}" placeholder="e.g. Quality Check"
+                   oninput="stages[${i}].name=this.value;syncJson();renderStages()">
+          </div>
+          <div class="stage-field" style="grid-column:1/-1">
+            <label>Description</label>
+            <input type="text" value="${escHtml(s.description || '')}" placeholder="What happens in this stage?"
+                   oninput="stages[${i}].description=this.value;syncJson()">
+          </div>
+          <div class="stage-field">
+            <label>TaT Target (hours)</label>
+            <input type="number" min="0" value="${s.target_tat_hours || ''}" placeholder="e.g. 24"
+                   oninput="stages[${i}].target_tat_hours=this.value?parseInt(this.value):null;syncJson();renderPipeline()">
+          </div>
+          <div class="stage-field">
+            <label>Sub-module</label>
+            <select onchange="onSubmoduleChange(${i}, this)">
+              <option value="">— None —</option>
+              ${smGroupedOptions}${otherOpts}
+            </select>
+            <div style="font-size:11px;color:#4b5563;margin-top:4px">Attach a data-capture form to this stage.</div>
+          </div>
+          <div class="stage-field" style="grid-column:1/-1;display:flex;gap:20px">
+            <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:#94a3b8;cursor:pointer">
+              <input type="checkbox" ${s.completion_note_required?'checked':''}
+                     onchange="stages[${i}].completion_note_required=this.checked;syncJson()">
+              Completion note required
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:#94a3b8;cursor:pointer">
+              <input type="checkbox" ${s.is_terminal?'checked':''}
+                     onchange="stages[${i}].is_terminal=this.checked;syncJson();renderPipeline();renderStages()">
+              Terminal stage (marks flow as completed)
+            </label>
+          </div>
+        </div>
+      </div>
+    `;
+    el.appendChild(card);
+  });
+  renderPipeline();
+}
+
+function toggleStage(i) {
+  const bodies = document.querySelectorAll('.stage-card-body');
+  const chevrons = document.querySelectorAll('[id^="chevron-"]');
+  const body = bodies[i];
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  if (chevrons[i]) chevrons[i].textContent = isOpen ? '▼' : '▲';
+}
+
+function addStage() {
+  stages.push({name: 'New Stage', color: '#3b82f6', is_terminal: false,
+               description: '', target_tat_hours: null,
+               sub_module_tag: null, submodule_id: null,
+               completion_note_required: false, order: stages.length});
+  syncJson();
+  renderStages();
+  // Auto-open the new stage
+  const bodies = document.querySelectorAll('.stage-card-body');
+  if (bodies.length > 0) bodies[bodies.length - 1].classList.add('open');
+}
+
+function removeStage(i) {
+  if (!confirm(`Remove stage "${stages[i].name || 'this stage'}"?`)) return;
+  stages.splice(i, 1);
+  syncJson(); renderStages();
+}
+
+function moveStage(i, dir) {
+  var j = i + dir;
+  if (j < 0 || j >= stages.length) return;
+  var tmp = stages[i]; stages[i] = stages[j]; stages[j] = tmp;
+  syncJson(); renderStages();
+}
+
+function syncJson() {
+  document.getElementById('stagesJson').value = JSON.stringify(stages);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+renderStages();
+</script>
+{% endblock %}

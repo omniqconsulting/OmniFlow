@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- ── Page header ─────────────────────────────────────────────── -->
+<div class="page-header">
+  <div>
+    <h2 class="page-title">{{ user.name }}</h2>
+    <p style="font-size:13px;color:#64748b;margin-top:2px">
+      {{ user.role | title }}
+      {% if user.department %} · {{ user.department.name }}{% endif %}
+      &nbsp;·&nbsp; {{ now.strftime('%d %b %Y') }}
+    </p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/kpi" class="btn btn-sm btn-outline">Full KPIs</a>
+    <a href="/tickets" class="btn btn-sm btn-outline">All Tickets</a>
+  </div>
+</div>
+
+<!-- ── KPI strip ───────────────────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+
+  <div class="card" style="margin:0;text-align:center;padding:16px 12px">
+    <div style="font-size:26px;font-weight:700;color:#e2e8f0">{{ kpis.active_count }}</div>
+    <div style="font-size:11px;color:#64748b;margin-top:4px">Active Tickets</div>
+  </div>
+
+  <div class="card" style="margin:0;text-align:center;padding:16px 12px">
+    {% set otr = kpis.on_time_rate | round(0) | int %}
+    <div style="font-size:26px;font-weight:700;color:{% if otr>=80 %}#10b981{% elif otr>=60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ otr }}%</div>
+    <div style="font-size:11px;color:#64748b;margin-top:4px">On-Time Rate</div>
+    <div style="font-size:10px;color:#475569;margin-top:2px">30d</div>
+  </div>
+
+  <div class="card" style="margin:0;text-align:center;padding:16px 12px">
+    {% set cr = kpis.compliance_rate | round(0) | int %}
+    <div style="font-size:26px;font-weight:700;color:{% if cr>=80 %}#10b981{% elif cr>=60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ cr }}%</div>
+    <div style="font-size:11px;color:#64748b;margin-top:4px">Checklist Compliance</div>
+  </div>
+
+  <div class="card" style="margin:0;text-align:center;padding:16px 12px">
+    {% set tat = kpis.avg_tat_hours %}
+    <div style="font-size:26px;font-weight:700;color:#e2e8f0">{{ tat | round(1) }}h</div>
+    <div style="font-size:11px;color:#64748b;margin-top:4px">Avg TAT</div>
+    {% if org_avg is not none %}
+    <div style="font-size:10px;margin-top:2px;color:{% if tat <= org_avg %}#10b981{% else %}#f59e0b{% endif %}">
+      Org avg {{ org_avg | round(1) }}h
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- ── My Active Tickets ───────────────────────────────────────── -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h2 style="margin:0">My Active Tickets</h2>
+    <a href="/tickets" class="btn btn-sm btn-outline">View All →</a>
+  </div>
+  {% if active_tickets %}
+  <table>
+    <thead>
+      <tr>
+        <th style="width:90px">ID</th>
+        <th>Title</th>
+        <th>Priority</th>
+        <th>Status</th>
+        <th>Due</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in active_tickets %}
+    <tr>
+      <td style="font-family:monospace;font-size:11px;color:#94a3b8">{{ t.display_id or '—' }}</td>
+      <td style="font-weight:500;color:#e2e8f0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        {% if t.is_flagged %}<span style="color:#f87171">🚩</span> {% endif %}{{ t.title }}
+      </td>
+      <td>
+        <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}" style="font-size:9px">
+          {{ t.priority }}
+        </span>
+      </td>
+      <td>
+        <span class="badge {% if t.status=='OPEN' %}badge-blue{% elif t.status=='IN_PROGRESS' %}badge-yellow{% elif t.status=='HELP_REQUESTED' %}badge-red{% else %}badge-gray{% endif %}" style="font-size:9px">
+          {{ t.status }}
+        </span>
+      </td>
+      <td style="font-size:12px;{% if t.due_at and t.due_at < now %}color:#f87171{% else %}color:#94a3b8{% endif %}">
+        {{ t.due_at.strftime('%d %b') if t.due_at else '—' }}
+        {% if t.due_at and t.due_at < now %}<span style="font-size:10px"> OVERDUE</span>{% endif %}
+      </td>
+      <td><a href="/tickets/{{ t.id }}" class="btn btn-sm btn-outline">View</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#64748b;font-size:13px;padding:8px 0">No active tickets — all caught up!</p>
+  {% endif %}
+</div>
+
+<!-- ── My FMS Tickets (only if any) ──────────────────────────── -->
+{% if active_fms or complete_fms %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h2 style="margin:0">My FMS Tickets</h2>
+    <a href="/fms" class="btn btn-sm btn-outline">View All →</a>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:90px">ID</th>
+        <th>Title</th>
+        <th>Stage</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in active_fms %}
+    <tr>
+      <td style="font-family:monospace;font-size:11px;color:#94a3b8">{{ t.display_id or '—' }}</td>
+      <td style="font-weight:500;color:#e2e8f0">{{ t.title }}</td>
+      <td style="font-size:12px;color:#94a3b8">{{ t.current_stage.name if t.current_stage else '—' }}</td>
+      <td>
+        <span class="badge badge-blue" style="font-size:9px">{{ t.status }}</span>
+      </td>
+      <td><a href="/fms/{{ t.id }}" class="btn btn-sm btn-outline">View</a></td>
+    </tr>
+    {% endfor %}
+    {% if complete_fms %}
+    {% for t in complete_fms %}
+    <tr style="opacity:0.55">
+      <td style="font-family:monospace;font-size:11px;color:#94a3b8">{{ t.display_id or '—' }}</td>
+      <td style="font-weight:500;color:#e2e8f0">{{ t.title }}</td>
+      <td style="font-size:12px;color:#94a3b8">{{ t.current_stage.name if t.current_stage else '—' }}</td>
+      <td>
+        <span class="badge badge-green" style="font-size:9px">{{ t.status }}</span>
+      </td>
+      <td><a href="/fms/{{ t.id }}" class="btn btn-sm btn-outline">View</a></td>
+    </tr>
+    {% endfor %}
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- ── My Checklists ───────────────────────────────────────────── -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h2 style="margin:0">My Checklists</h2>
+    <a href="/checklists" class="btn btn-sm btn-outline">View All →</a>
+  </div>
+  {% if my_checklists %}
+  {% set overdue = my_checklists | selectattr('status','eq','OVERDUE') | list %}
+  {% set pending = my_checklists | rejectattr('status','eq','OVERDUE') | list %}
+  {% for a in overdue + pending %}
+  <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;justify-content:space-between;align-items:center;gap:12px{% if a.status=='OVERDUE' %};background:rgba(248,113,113,0.04);border-radius:6px;padding-left:8px{% endif %}">
+    <div style="min-width:0;flex:1">
+      <div style="font-weight:500;color:{% if a.status=='OVERDUE' %}#f87171{% else %}#e2e8f0{% endif %};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+        {% if a.status=='OVERDUE' %}⚠ {% endif %}{{ a.template.title if a.template else '—' }}
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-top:3px">
+        Due: {{ a.due_at.strftime('%d %b, %I:%M %p') if a.due_at else '—' }}
+        {% if a.status == 'OVERDUE' %}<span style="color:#f87171;font-weight:600"> · OVERDUE</span>{% endif %}
+      </div>
+    </div>
+    <form method="post" action="/checklists/complete/{{ a.id }}" style="flex-shrink:0">
+      <button class="btn btn-sm btn-green" type="submit">✓ Done</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p style="color:#64748b;font-size:13px;padding:8px 0">All caught up — no pending checklists.</p>
+  {% endif %}
+</div>
+
+<!-- ── 8-week compliance chart ─────────────────────────────────── -->
+<div class="card">
+  <h2>Checklist Compliance — 8-Week Trend</h2>
+  <canvas id="complianceChart" height="70"></canvas>
+</div>
+<script>
+new Chart(document.getElementById('complianceChart'), {
+  type: 'line',
+  data: {
+    labels: {{ kpis.weekly_labels | tojson }},
+    datasets: [{
+      label: 'Compliance %',
+      data: {{ kpis.weekly_compliance | tojson }},
+      borderColor: '#3b82f6',
+      backgroundColor: 'rgba(59,130,246,0.08)',
+      tension: 0.4,
+      fill: true,
+      pointRadius: 4,
+      pointBackgroundColor: '#3b82f6',
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      y: { min:0, max:100, ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' } },
+      x: { ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' } }
+    }
+  }
+});
+</script>
+
+<!-- ── Recently Closed Tickets (only if any) ──────────────────── -->
+{% if recent_closed %}
+<div class="card">
+  <h2>Recently Closed</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:90px">ID</th>
+        <th>Title</th>
+        <th>Priority</th>
+        <th>Closed</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in recent_closed %}
+    <tr style="opacity:0.7">
+      <td style="font-family:monospace;font-size:11px;color:#94a3b8">{{ t.display_id or '—' }}</td>
+      <td style="color:#cbd5e1">{{ t.title }}</td>
+      <td>
+        <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}" style="font-size:9px;opacity:0.7">
+          {{ t.priority }}
+        </span>
+      </td>
+      <td style="font-size:12px;color:#64748b">
+        {{ t.updated_at.strftime('%d %b') if t.updated_at else '—' }}
+      </td>
+      <td><a href="/tickets/{{ t.id }}" class="btn btn-sm btn-outline">View</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}

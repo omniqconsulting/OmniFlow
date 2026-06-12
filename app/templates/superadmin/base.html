@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FactoryOS — Super Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#07090f;color:#e2e8f0;font-size:13px;min-height:100vh}
+a{color:#a78bfa;text-decoration:none}
+a:hover{color:#c4b5fd}
+
+/* ── NAV ── */
+.sa-nav{background:#0f0a1e;border-bottom:1px solid rgba(167,139,250,0.18);display:flex;align-items:center;padding:0 24px;height:52px;gap:4px;position:sticky;top:0;z-index:50}
+.sa-nav .logo{font-size:15px;font-weight:700;color:#f1f5f9;margin-right:20px;letter-spacing:-0.3px}
+.sa-nav .logo span{color:#a78bfa}
+.sa-nav a{color:#94a3b8;padding:6px 11px;border-radius:6px;font-size:13px;font-weight:500;transition:all 0.12s}
+.sa-nav a:hover{background:rgba(167,139,250,0.1);color:#e2e8f0}
+.sa-nav a.active{background:rgba(167,139,250,0.18);color:#c4b5fd}
+.sa-nav .spacer{flex:1}
+.sa-nav .sa-info{font-size:12px;color:#94a3b8;margin-right:6px}
+.sa-nav .logout{font-size:12px;color:#94a3b8;padding:5px 10px;border:1px solid rgba(167,139,250,0.2);border-radius:6px}
+.sa-nav .logout:hover{color:#e2e8f0;border-color:rgba(167,139,250,0.45);background:rgba(167,139,250,0.08)}
+.sa-badge{display:inline-block;background:rgba(167,139,250,0.2);color:#c4b5fd;font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:6px;letter-spacing:0.05em;vertical-align:middle}
+
+/* ── CONTAINER ── */
+.sa-wrap{max-width:1280px;margin:0 auto;padding:28px 20px}
+
+/* ── CARDS ── */
+.card{background:#111827;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:20px;margin-bottom:14px}
+.card h2{font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:14px}
+.card-purple{border-color:rgba(167,139,250,0.22);background:#110e1f}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid rgba(255,255,255,0.14);background:#1e293b;color:#cbd5e1;text-decoration:none;transition:all 0.12s;font-family:inherit;white-space:nowrap}
+.btn:hover{background:#273549;color:#f1f5f9}
+.btn-sm{padding:4px 10px;font-size:11px;border-radius:6px}
+.btn-purple{background:#7c3aed;border-color:transparent;color:#fff}
+.btn-purple:hover{background:#6d28d9;color:#fff}
+.btn-red{background:#dc2626;border-color:transparent;color:#fff}
+.btn-red:hover{background:#b91c1c;color:#fff}
+.btn-green{background:#059669;border-color:transparent;color:#fff}
+.btn-green:hover{background:#047857;color:#fff}
+.btn-amber{background:#d97706;border-color:transparent;color:#fff}
+.btn-amber:hover{background:#b45309;color:#fff}
+.btn-gray{background:#1e293b;border-color:rgba(255,255,255,0.12);color:#94a3b8}
+.btn-gray:hover{background:#273549;color:#e2e8f0}
+.btn-outline{background:transparent;border:1px solid rgba(255,255,255,0.14);color:#94a3b8}
+.btn-outline:hover{background:rgba(255,255,255,0.06);color:#e2e8f0}
+
+/* ── FORMS ── */
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:11px;font-weight:600;margin-bottom:6px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em}
+.form-group input,.form-group select,.form-group textarea{width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:9px 12px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit;transition:border-color 0.12s}
+.form-group input:focus,.form-group select:focus{border-color:#7c3aed;box-shadow:0 0 0 3px rgba(124,58,237,0.15)}
+.form-group select{cursor:pointer}
+select option{background:#111827;color:#e2e8f0}
+
+/* ── TABLES ── */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:9px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#64748b;border-bottom:1px solid rgba(255,255,255,0.08)}
+td{padding:11px 12px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-align:middle;color:#cbd5e1}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,0.02)}
+
+/* ── BADGES ── */
+.badge{display:inline-block;padding:3px 9px;border-radius:99px;font-size:10px;font-weight:600;letter-spacing:0.02em}
+.badge-purple{background:rgba(139,92,246,0.2);color:#c4b5fd}
+.badge-blue{background:rgba(59,130,246,0.18);color:#7dd3fc}
+.badge-green{background:rgba(16,185,129,0.18);color:#6ee7b7}
+.badge-amber{background:rgba(245,158,11,0.18);color:#fcd34d}
+.badge-red{background:rgba(239,68,68,0.18);color:#fca5a5}
+.badge-gray{background:rgba(255,255,255,0.08);color:#94a3b8}
+
+/* ── KPI TILES ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.kpi-tile{background:#111827;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:18px}
+.kpi-tile .label{font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.06em}
+.kpi-tile .value{font-size:28px;font-weight:700;margin-top:8px;color:#f1f5f9}
+.kpi-tile .sub{font-size:11px;color:#64748b;margin-top:4px}
+
+/* ── MISC ── */
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.page-title{font-size:18px;font-weight:700;color:#f1f5f9}
+.muted{color:#64748b;font-size:12px}
+.overdue{color:#f87171!important}
+.alert{padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px}
+.alert-red{background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.25)}
+.alert-green{background:rgba(16,185,129,0.1);color:#6ee7b7;border:1px solid rgba(16,185,129,0.2)}
+.alert-purple{background:rgba(139,92,246,0.1);color:#c4b5fd;border:1px solid rgba(139,92,246,0.2)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+/* ── MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100}
+.modal-box{background:#131c2e;border:1px solid rgba(167,139,250,0.18);border-radius:14px;padding:28px;width:460px;max-width:95vw}
+.modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.modal-title{font-size:15px;font-weight:600;color:#f1f5f9}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1;padding:0}
+.modal-close:hover{color:#e2e8f0}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#1e293b;border-radius:99px}
+</style>
+</head>
+<body>
+{% if sa is defined %}
+<nav class="sa-nav">
+  <span class="logo">FactoryOS <span>SA</span></span>
+  <a href="/superadmin/dashboard"  {% if '/dashboard'  in request.url.path %}class="active"{% endif %}>Dashboard</a>
+  <a href="/superadmin/tenants"        {% if '/tenants' in request.url.path and '/approvals' not in request.url.path %}class="active"{% endif %}>Tenants</a>
+  <a href="/superadmin/library"        {% if '/library' in request.url.path %}class="active"{% endif %}>📚 Library</a>
+  <a href="/superadmin/onboarding-guide" {% if '/onboarding-guide' in request.url.path %}class="active"{% endif %}>🗺 Onboarding Guide</a>
+  <a href="/superadmin/approvals"  {% if '/approvals' in request.url.path %}class="active"{% endif %}
+     style="position:relative">Approvals
+    {% if pending_count is defined and pending_count > 0 %}
+    <span style="position:absolute;top:-2px;right:-4px;background:#f59e0b;color:#0b0f1a;font-size:9px;font-weight:800;border-radius:99px;padding:1px 5px;min-width:16px;text-align:center">{{ pending_count }}</span>
+    {% endif %}
+  </a>
+  <span class="spacer"></span>
+  <a href="/superadmin/profile" {% if '/profile' in request.url.path %}class="active"{% endif %}
+     style="font-size:12px;color:#94a3b8;padding:5px 10px;border-radius:6px">
+    {{ sa.name }}<span class="sa-badge">SUPER ADMIN</span>
+  </a>
+  <a href="/superadmin/admins" {% if '/admins' in request.url.path %}class="active"{% endif %}
+     style="font-size:12px;color:#94a3b8;padding:5px 10px;border-radius:6px">SA Accounts</a>
+  <a href="/superadmin/logout" class="logout">Logout</a>
+</nav>
+{% endif %}
+<div class="sa-wrap">{% block content %}{% endblock %}</div>
+</body>
+</html>

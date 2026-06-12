@@ -1,0 +1,63 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+{% include "superadmin/library_nav.html" %}
+
+<div class="page-header" style="margin-top:16px">
+  <div>
+    <h2 class="page-title">Update Preview: {{ item_name }}</h2>
+    <div class="muted">Tenant: {{ tenant.name }} · {{ item_type | capitalize }}</div>
+  </div>
+  <a href="/superadmin/library/{{ item_type }}s" class="btn btn-gray btn-sm">← Back</a>
+</div>
+
+<div style="display:flex;gap:12px;margin-bottom:16px">
+  <div class="card" style="flex:1;margin:0">
+    <h2 style="color:#fcd34d">Deployed to Tenant</h2>
+    <div style="font-size:13px;color:#94a3b8">Version: <strong style="color:#f1f5f9">v{{ deployed_version or '—' }}</strong></div>
+    {% if deployed %}
+    <div style="font-size:12px;color:#64748b;margin-top:4px">Deployed {{ deployed.deployed_at.strftime('%d %b %Y %H:%M') }}</div>
+    {% endif %}
+  </div>
+  <div class="card" style="flex:1;margin:0">
+    <h2 style="color:#10b981">Current Library Version</h2>
+    <div style="font-size:13px;color:#94a3b8">Version: <strong style="color:#f1f5f9">v{{ library_version }}</strong></div>
+    {% if deployed_version and library_version > deployed_version %}
+    <div class="badge badge-yellow" style="margin-top:6px">{{ library_version - deployed_version }} version(s) behind</div>
+    {% else %}
+    <div class="badge badge-green" style="margin-top:6px">Up to date</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if item_type == 'flow' and flow %}
+<div class="card">
+  <h2>Current Stages (Library v{{ library_version }})</h2>
+  <table>
+    <thead><tr><th>#</th><th>Stage Name</th><th>Color</th><th style="text-align:center">Terminal?</th></tr></thead>
+    <tbody>
+    {% for s in stages %}
+    <tr>
+      <td class="muted">{{ loop.index }}</td>
+      <td style="font-weight:500;color:#f1f5f9">{{ s.name }}</td>
+      <td><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:{{ s.color }}"></span> {{ s.color }}</td>
+      <td style="text-align:center">{% if s.is_terminal %}<span class="badge badge-green">Yes</span>{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if deployed_version and library_version > deployed_version %}
+<div style="margin-top:8px">
+  <form method="post" action="/superadmin/library/{{ item_type }}s/{{ flow.id if flow else '' }}/deploy">
+    <input type="hidden" name="tenant_id" value="{{ tenant.id }}">
+    <input type="hidden" name="notes" value="Update from diff view">
+    <button type="submit" class="btn btn-green">
+      ✓ Push v{{ library_version }} to {{ tenant.name }}
+    </button>
+  </form>
+</div>
+{% endif %}
+
+{% endblock %}

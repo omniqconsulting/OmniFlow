@@ -1,0 +1,126 @@
+{% extends "superadmin/base.html" %}
+{% block content %}
+{% set msg = request.query_params.get('msg','') %}
+{% if msg %}<div class="alert alert-green">✓ {{ {'created':'Sub-module created.','saved':'Changes saved.','deployed':'Deployed to tenant.','revoked':'Access revoked.','bulk_pushed':'Bulk push complete.','duplicated':'Duplicated as draft.'}[msg] or msg }}</div>{% endif %}
+
+{% include "superadmin/library_nav.html" %}
+
+<div class="page-header" style="margin-top:16px">
+  <h2 class="page-title">Sub-module Definitions</h2>
+  <a href="/superadmin/library/submodules/new" class="btn btn-purple">+ New Custom Sub-module</a>
+</div>
+<p style="color:#64748b;font-size:12px;margin-bottom:20px">
+  Built-in sub-modules (PMS, Dispatch, Invoice, Material Req.) must be <strong>deployed to a tenant</strong> before
+  that tenant can attach them to flow stages. Custom sub-modules work the same way.
+  System definitions cannot be edited — duplicate first to customise.
+</p>
+
+<!-- ── Built-in system sub-modules ─────────────────────────────────────── -->
+<h3 style="font-size:13px;font-weight:600;color:#94a3b8;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">
+  Built-in Sub-modules
+</h3>
+<div class="card" style="margin-bottom:24px">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th style="text-align:center">Deployed to</th>
+        <th style="text-align:center">Status</th>
+        <th style="width:200px">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for item in items if item.is_system %}
+    {% set dep_count = deploy_counts.get(item.id, 0) %}
+    <tr>
+      <td>
+        <a href="/superadmin/library/submodules/{{ item.id }}" style="color:#e2e8f0;font-weight:500">{{ item.name }}</a>
+        <span class="badge badge-gray" style="font-size:9px;margin-left:4px">SYSTEM</span>
+      </td>
+      <td>
+        {% set type_colors = {'PMS':'blue','DISPATCH':'purple','INVOICE':'green','MATERIAL_REQ':'yellow','CUSTOM':'gray'} %}
+        <span class="badge badge-{{ type_colors.get(item.sub_module_type,'gray') }}">{{ item.sub_module_type }}</span>
+      </td>
+      <td style="text-align:center">
+        {% if dep_count > 0 %}
+          <span class="badge badge-green">{{ dep_count }} tenant{{ 's' if dep_count != 1 }}</span>
+        {% else %}
+          <span style="color:#64748b;font-size:12px">None yet</span>
+        {% endif %}
+      </td>
+      <td style="text-align:center">
+        <span class="badge badge-green">{{ item.status }}</span>
+      </td>
+      <td>
+        <div style="display:flex;gap:5px">
+          <a href="/superadmin/library/submodules/{{ item.id }}" class="btn btn-sm btn-gray">Deploy / View</a>
+          <form method="post" action="/superadmin/library/submodules/{{ item.id }}/duplicate" style="display:inline">
+            <button class="btn btn-sm btn-outline">Duplicate</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" style="text-align:center;color:#64748b;padding:16px">No built-in sub-modules found — restart the server to seed them.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ── Custom sub-modules ───────────────────────────────────────────────── -->
+<h3 style="font-size:13px;font-weight:600;color:#94a3b8;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px">
+  Custom Sub-modules
+</h3>
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Industry</th>
+        <th style="text-align:center">Fields</th>
+        <th style="text-align:center">Deployed to</th>
+        <th style="text-align:center">Version</th>
+        <th style="text-align:center">Status</th>
+        <th style="width:200px">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for item in items if not item.is_system %}
+    {% set fields = item.fields_json | from_json if item.fields_json else [] %}
+    {% set dep_count = deploy_counts.get(item.id, 0) %}
+    <tr>
+      <td>
+        <a href="/superadmin/library/submodules/{{ item.id }}" style="color:#e2e8f0;font-weight:500">{{ item.name }}</a>
+      </td>
+      <td class="muted">{{ item.industry or '—' }}</td>
+      <td style="text-align:center">{{ fields|length }}</td>
+      <td style="text-align:center">
+        {% if dep_count > 0 %}
+          <span class="badge badge-green">{{ dep_count }} tenant{{ 's' if dep_count != 1 }}</span>
+        {% else %}
+          <span style="color:#64748b;font-size:12px">None</span>
+        {% endif %}
+      </td>
+      <td style="text-align:center"><span class="badge badge-blue">v{{ item.version }}</span></td>
+      <td style="text-align:center">
+        <span class="badge badge-{% if item.status=='PUBLISHED' %}green{% elif item.status=='DEPRECATED' %}red{% else %}yellow{% endif %}">
+          {{ item.status }}
+        </span>
+      </td>
+      <td>
+        <div style="display:flex;gap:5px">
+          <a href="/superadmin/library/submodules/{{ item.id }}" class="btn btn-sm btn-gray">Edit</a>
+          <form method="post" action="/superadmin/library/submodules/{{ item.id }}/duplicate" style="display:inline">
+            <button class="btn btn-sm btn-outline">Duplicate</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" style="text-align:center;color:#64748b;padding:24px">No custom sub-modules yet. <a href="/superadmin/library/submodules/new">Create one →</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
