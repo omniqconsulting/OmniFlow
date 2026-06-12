@@ -3,14 +3,19 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, date
 import enum, uuid, os
 
-# Pin the DB to the project root (one level up from this file: app/../omniflow.db)
-# This means the same database is used regardless of which directory
-# the terminal is in when you run `python run.py`.
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_DB_FILE      = os.path.join(_PROJECT_ROOT, "omniflow.db")
-DATABASE_URL  = f"sqlite:///{_DB_FILE}"
+# Use DATABASE_URL env var on Render (Postgres); fall back to local SQLite for dev.
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+if DATABASE_URL:
+    # Render still issues legacy postgres:// URLs — SQLAlchemy requires postgresql://
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    engine = create_engine(DATABASE_URL)
+else:
+    _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _DB_FILE      = os.path.join(_PROJECT_ROOT, "omniflow.db")
+    DATABASE_URL  = f"sqlite:///{_DB_FILE}"
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
