@@ -7,6 +7,7 @@ Design principles:
   • Audience scoping — each event type has a defined audience.
   • Sync bridge — broadcast_sync() can be called from sync route handlers.
   • Fallback — clients that can't hold a WebSocket use GET /api/poll.
+end of note
 """
 import asyncio
 import json
