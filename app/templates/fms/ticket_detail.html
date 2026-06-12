@@ -93,6 +93,28 @@ select option{background:#111827}
 {% set dir_labels = {'FORWARD':'→ Forward','BACKWARD':'↩ Return','MANAGER_OVERRIDE':'⚡ Override'} %}
 {% set dir_cls    = {'FORWARD':'b-blue','BACKWARD':'b-amber','MANAGER_OVERRIDE':'b-red'} %}
 
+<!-- ══ SUB-MODULE MODAL ══════════════════════════════════════════════════════ -->
+<div id="smModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(4px);z-index:500;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#111827;border:1px solid rgba(255,255,255,0.1);border-radius:12px;width:100%;max-width:680px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.6)">
+    <!-- Modal header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="smModalIcon" style="font-size:16px"></span>
+        <div>
+          <div id="smModalTitle" style="font-size:14px;font-weight:700;color:#f1f5f9"></div>
+          <div id="smModalSubtitle" style="font-size:11px;color:#64748b;margin-top:1px"></div>
+        </div>
+      </div>
+      <button onclick="closeSubmoduleModal()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#94a3b8;font-size:14px;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+    </div>
+    <!-- Modal body -->
+    <div id="smModalBody" style="padding:16px 18px;overflow-y:auto;flex:1;min-height:0">
+      <div id="smModalLoading" style="text-align:center;padding:40px;color:#64748b;font-size:13px">Loading…</div>
+      <div id="smModalContent" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
 <div class="fms-wrap">
 <main class="fms-main">
 
@@ -284,13 +306,18 @@ select option{background:#111827}
         {% if p.sub_module_tag %}
         <div class="sa-section">
           <div class="sa-section-title">Sub-module</div>
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <span style="font-size:12px;color:#c4b5fd">{{ sm_labels.get(p.sub_module_tag, p.sub_module_tag) }}</span>
-            {% if ticket.status not in ('COMPLETED','CLOSED') %}
-            {% set sm = p.sub_module_tag %}
-            <a href="/submodules/{% if sm == 'PMS' %}pms{% elif sm == 'DISPATCH' %}dispatch{% elif sm == 'INVOICE' %}invoice{% elif sm == 'MATERIAL_REQ' %}materials{% elif sm == 'CUSTOM' %}custom/{{ ticket.id }}/{{ s.id }}{% endif %}{% if sm != 'CUSTOM' %}/{{ ticket.id }}{% endif %}"
-               class="btn-xs">Open →</a>
-            {% endif %}
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:12px;color:#c4b5fd;font-weight:500">{{ sm_labels.get(p.sub_module_tag, p.sub_module_tag) }}</span>
+              {% if p.sub_module_tag == 'PMS' and ticket.target_qty %}
+              <span style="font-size:11px;color:#64748b">{{ p.qty_done }}/{{ ticket.target_qty }} {{ ticket.qty_unit or 'units' }}</span>
+              {% endif %}
+            </div>
+            <button
+              onclick="openSubmoduleModal('{{ ticket.id }}','{{ p.sub_module_tag }}','{{ s.id }}','{{ sm_labels.get(p.sub_module_tag, p.sub_module_tag) }}')"
+              class="btn-xs" style="background:#1e3a5f;border-color:rgba(96,165,250,0.3);color:#93c5fd;font-weight:600;padding:5px 12px">
+              📋 View Sub-module
+            </button>
           </div>
           {% if p.sub_module_tag == 'PMS' and ticket.target_qty %}
           {% set pms_pct = [((p.qty_done / ticket.target_qty) * 100)|int, 100]|min %}
@@ -690,6 +717,185 @@ function checkDirection() {
     btn.textContent = '↗ Move Ticket';
     btn.className = 'btn-sm-primary';
   }
+}
+
+// ── Sub-module Modal ─────────────────────────────────────────────────────────
+function esc(s) {
+  if (s == null) return '—';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+const smIcons = {PMS:'📊',DISPATCH:'🚛',INVOICE:'🧾',MATERIAL_REQ:'📦',CUSTOM:'📋'};
+
+function openSubmoduleModal(ticketId, tag, stageId, label) {
+  const modal = document.getElementById('smModal');
+  modal.style.display = 'flex';
+  document.getElementById('smModalIcon').textContent    = smIcons[tag] || '📋';
+  document.getElementById('smModalTitle').textContent   = label;
+  document.getElementById('smModalSubtitle').textContent = '';
+  document.getElementById('smModalLoading').style.display  = 'block';
+  document.getElementById('smModalContent').style.display  = 'none';
+  document.getElementById('smModalContent').innerHTML      = '';
+
+  const url = `/submodules/data/${ticketId}/${tag}` + (stageId ? `?stage_id=${stageId}` : '');
+  fetch(url, {credentials:'same-origin'})
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('smModalLoading').style.display = 'none';
+      const el = document.getElementById('smModalContent');
+      el.innerHTML = renderSubmoduleData(data);
+      el.style.display = 'block';
+    })
+    .catch(() => {
+      document.getElementById('smModalLoading').innerHTML = '<span style="color:#f87171">Failed to load data.</span>';
+    });
+}
+
+function closeSubmoduleModal() {
+  document.getElementById('smModal').style.display = 'none';
+}
+
+document.getElementById('smModal').addEventListener('click', function(e) {
+  if (e.target === this) closeSubmoduleModal();
+});
+
+function smKV(label, value, color) {
+  if (!value && value !== 0) return '';
+  return `<div style="display:flex;flex-direction:column;gap:2px">
+    <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.06em">${label}</div>
+    <div style="font-size:12px;color:${color||'#e2e8f0'};font-weight:500">${value}</div>
+  </div>`;
+}
+
+function renderSubmoduleData(d) {
+  if (d.type === 'PMS') {
+    const pct = d.target ? Math.min(Math.round(d.total_done/d.target*100),100) : 0;
+    const barColor = pct>=100?'#10b981':pct>=50?'#f59e0b':'#3b82f6';
+    let rows = '';
+    for (const e of d.entries) {
+      if (e.event_type === 'DAILY_LOG') {
+        rows += `<tr>
+          <td style="padding:8px;color:#94a3b8">${esc(e.date)}</td>
+          <td style="padding:8px;color:#e2e8f0;font-weight:600">${esc(e.qty_done)} ${esc(d.unit)}</td>
+          <td style="padding:8px">${e.has_blockers?'<span style="color:#f87171;font-size:10px">⚠ Blocker</span>':'<span style="color:#6ee7b7;font-size:10px">✓ OK</span>'}</td>
+          <td style="padding:8px;color:#64748b;font-size:11px">${esc(e.comment)}</td>
+          <td style="padding:8px;color:#64748b;font-size:11px">${esc(e.actor)}</td>
+        </tr>`;
+      } else if (e.event_type === 'TARGET_REVISED') {
+        rows += `<tr style="background:rgba(245,158,11,0.05)">
+          <td style="padding:8px;color:#94a3b8">${esc(e.date)}</td>
+          <td colspan="3" style="padding:8px;color:#fcd34d;font-size:11px">Target revised: ${esc(e.old_target)} → ${esc(e.new_target)}. ${esc(e.revision_reason)}</td>
+          <td style="padding:8px;color:#64748b;font-size:11px">${esc(e.actor)}</td>
+        </tr>`;
+      }
+    }
+    return `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+      ${smKV('Total Done',`${d.total_done} ${esc(d.unit)}`,'#6ee7b7')}
+      ${smKV('Target',`${d.target} ${esc(d.unit)}`,'#e2e8f0')}
+      ${smKV('Progress',`${pct}%`, pct>=100?'#6ee7b7':pct>=50?'#fcd34d':'#93c5fd')}
+    </div>
+    <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.06);overflow:hidden;margin-bottom:14px">
+      <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width .3s"></div>
+    </div>
+    ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.07)">
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase;letter-spacing:.07em">Date</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Qty</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Status</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Note</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">By</th>
+      </tr></thead><tbody>${rows}</tbody></table>` : '<div style="color:#374151;font-size:12px;text-align:center;padding:20px">No log entries yet.</div>'}`;
+  }
+
+  if (d.type === 'DISPATCH') {
+    const pct = d.target ? Math.min(Math.round(d.total_dispatched/d.target*100),100) : 0;
+    let rows = d.records.map(r => `<tr>
+      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.created_at)}</td>
+      <td style="padding:8px;color:#e2e8f0;font-weight:600">${esc(r.qty_dispatched)} ${esc(r.unit)}</td>
+      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.destination)}</td>
+      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.vehicle_number)}</td>
+      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.driver_name)}</td>
+      <td style="padding:8px">${r.pod_uploaded?'<span style="color:#6ee7b7;font-size:10px">✓ POD</span>':'<span style="color:#475569;font-size:10px">Pending</span>'}</td>
+    </tr>`).join('');
+    return `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+      ${smKV('Total Dispatched',`${d.total_dispatched} ${esc(d.unit)}`,'#6ee7b7')}
+      ${smKV('Target',d.target?`${d.target} ${esc(d.unit)}`:'—','#e2e8f0')}
+      ${pct?smKV('Dispatch %',`${pct}%`,pct>=100?'#6ee7b7':'#93c5fd'):''}
+    </div>
+    ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.07)">
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Date</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Qty</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Destination</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Vehicle</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Driver</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">POD</th>
+      </tr></thead><tbody>${rows}</tbody></table>` : '<div style="color:#374151;font-size:12px;text-align:center;padding:20px">No dispatch records yet.</div>'}`;
+  }
+
+  if (d.type === 'INVOICE') {
+    const curr = d.invoices[0]?.currency || 'INR';
+    let rows = d.invoices.map(i => `<tr>
+      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(i.created_at)}</td>
+      <td style="padding:8px;color:#c4b5fd;font-family:monospace;font-size:11px">${esc(i.invoice_number)}</td>
+      <td style="padding:8px;color:#e2e8f0;font-weight:600">${esc(i.currency)} ${Number(i.amount).toLocaleString()}</td>
+      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(i.due_date)}</td>
+      <td style="padding:8px">${i.is_paid?`<span style="color:#6ee7b7;font-size:10px">✓ Paid${i.paid_at?' '+esc(i.paid_at):''}</span>`:'<span style="color:#f87171;font-size:10px">Unpaid</span>'}</td>
+    </tr>`).join('');
+    return `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+      ${smKV('Total Invoiced',`${esc(curr)} ${Number(d.total_invoiced).toLocaleString()}`,'#e2e8f0')}
+      ${smKV('Received',`${esc(curr)} ${Number(d.total_received).toLocaleString()}`,'#6ee7b7')}
+      ${smKV('Outstanding',`${esc(curr)} ${Number(d.outstanding).toLocaleString()}`,d.outstanding>0?'#f87171':'#6ee7b7')}
+    </div>
+    ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.07)">
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Date</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Invoice #</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Amount</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Due</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Status</th>
+      </tr></thead><tbody>${rows}</tbody></table>` : '<div style="color:#374151;font-size:12px;text-align:center;padding:20px">No invoices yet.</div>'}`;
+  }
+
+  if (d.type === 'MATERIAL_REQ') {
+    const statusColor = {PENDING:'#fcd34d',APPROVED:'#6ee7b7',REJECTED:'#f87171'};
+    let rows = d.requests.map(r => `<tr>
+      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.created_at)}</td>
+      <td style="padding:8px;color:#e2e8f0;font-weight:500">${esc(r.material_name)}</td>
+      <td style="padding:8px;color:#e2e8f0">${esc(r.qty_requested)} ${esc(r.unit)}</td>
+      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.stage_name)}</td>
+      <td style="padding:8px"><span style="color:${statusColor[r.status]||'#94a3b8'};font-size:10px;font-weight:600">${esc(r.status)}</span></td>
+      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.reason)}</td>
+    </tr>`).join('');
+    const pending = d.requests.filter(r=>r.status==='PENDING').length;
+    return `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+      ${smKV('Total Requests',d.requests.length,'#e2e8f0')}
+      ${pending?smKV('Pending Approval',pending,'#fcd34d'):''}
+    </div>
+    ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.07)">
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Date</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Material</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Qty</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Stage</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Status</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Reason</th>
+      </tr></thead><tbody>${rows}</tbody></table>` : '<div style="color:#374151;font-size:12px;text-align:center;padding:20px">No material requests yet.</div>'}`;
+  }
+
+  if (d.type === 'CUSTOM') {
+    if (!d.fields || !d.fields.length) return '<div style="color:#374151;font-size:12px;text-align:center;padding:20px">No form fields defined.</div>';
+    let html = `<div style="margin-bottom:10px"><span style="font-size:11px;color:${d.is_complete?'#6ee7b7':'#fcd34d'}">${d.is_complete?'✓ Completed':'⏳ In progress'}</span></div>`;
+    for (const f of d.fields) {
+      const val = d.responses[f.name] || d.responses[f.label] || null;
+      html += `<div style="margin-bottom:10px;padding:10px 12px;background:#0d1424;border-radius:7px;border:1px solid rgba(255,255,255,0.06)">
+        <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">${esc(f.label||f.name)}</div>
+        <div style="font-size:12px;color:#e2e8f0">${esc(val)}</div>
+      </div>`;
+    }
+    return html;
+  }
+
+  return '<div style="color:#374151;font-size:12px;text-align:center;padding:20px">Unknown sub-module type.</div>';
 }
 </script>
 {% endblock %}

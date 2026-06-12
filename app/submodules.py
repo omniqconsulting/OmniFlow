@@ -11,7 +11,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -639,6 +639,144 @@ async def custom_submit(
 
     db.commit()
     return _redirect(f"/fms/tickets/{ticket_id}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3-F: JSON data API — used by ticket detail modal popup
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/data/{ticket_id}/{sub_module_tag}")
+def submodule_data_api(
+    ticket_id: str,
+    sub_module_tag: str,
+    stage_id: str = "",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return submodule data as JSON for the inline modal on ticket_detail."""
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    tag = sub_module_tag.upper()
+
+    if tag == "PMS":
+        logs = db.query(PMSDailyLog).filter(
+            PMSDailyLog.ticket_id == ticket_id
+        ).order_by(PMSDailyLog.log_date.asc()).all()
+        total_done = sum(l.qty_done for l in logs if l.event_type == "DAILY_LOG")
+        entries = []
+        for l in logs:
+            actor = db.query(User).get(l.actor_id) if l.actor_id else None
+            entries.append({
+                "date": l.log_date.isoformat() if l.log_date else None,
+                "event_type": l.event_type,
+                "qty_done": l.qty_done,
+                "has_blockers": l.has_blockers,
+                "comment": l.comment,
+                "actor": actor.name if actor else None,
+                "old_target": getattr(l, "old_target", None),
+                "new_target": getattr(l, "new_target", None),
+                "revision_reason": getattr(l, "revision_reason", None),
+            })
+        return JSONResponse({"type": "PMS", "total_done": total_done,
+                             "target": ticket.target_qty or 0,
+                             "unit": ticket.qty_unit or "units",
+                             "entries": entries})
+
+    if tag == "DISPATCH":
+        records = db.query(DispatchRecord).filter(
+            DispatchRecord.ticket_id == ticket_id
+        ).order_by(DispatchRecord.created_at.asc()).all()
+        total_dispatched = sum(r.qty_dispatched for r in records)
+        rows = []
+        for r in records:
+            actor = db.query(User).get(r.actor_id) if r.actor_id else None
+            rows.append({
+                "id": r.id,
+                "qty_dispatched": r.qty_dispatched,
+                "unit": r.unit,
+                "vehicle_number": r.vehicle_number,
+                "driver_name": r.driver_name,
+                "destination": r.destination,
+                "expected_delivery": r.expected_delivery.isoformat() if r.expected_delivery else None,
+                "pod_uploaded": bool(r.proof_photo_url),
+                "notes": r.notes,
+                "actor": actor.name if actor else None,
+                "created_at": r.created_at.strftime("%d %b %Y, %H:%M") if r.created_at else None,
+            })
+        return JSONResponse({"type": "DISPATCH", "total_dispatched": total_dispatched,
+                             "target": ticket.target_qty or 0,
+                             "unit": ticket.qty_unit or "units",
+                             "records": rows})
+
+    if tag == "INVOICE":
+        invoices = db.query(InvoiceRecord).filter(
+            InvoiceRecord.ticket_id == ticket_id,
+            InvoiceRecord.is_deleted == False,
+        ).order_by(InvoiceRecord.created_at.asc()).all()
+        total_invoiced = sum(i.amount for i in invoices)
+        total_received = sum(i.amount for i in invoices if i.is_paid)
+        rows = []
+        for i in invoices:
+            actor = db.query(User).get(i.actor_id) if i.actor_id else None
+            rows.append({
+                "id": i.id,
+                "invoice_number": i.invoice_number,
+                "amount": i.amount,
+                "currency": i.currency,
+                "invoice_date": i.invoice_date.isoformat() if i.invoice_date else None,
+                "due_date": i.due_date.isoformat() if i.due_date else None,
+                "is_paid": i.is_paid,
+                "paid_at": i.paid_at.strftime("%d %b %Y") if i.paid_at else None,
+                "payment_ref": getattr(i, "payment_ref", None),
+                "payment_terms": i.payment_terms,
+                "actor": actor.name if actor else None,
+                "created_at": i.created_at.strftime("%d %b %Y") if i.created_at else None,
+            })
+        return JSONResponse({"type": "INVOICE",
+                             "total_invoiced": total_invoiced,
+                             "total_received": total_received,
+                             "outstanding": total_invoiced - total_received,
+                             "invoices": rows})
+
+    if tag == "MATERIAL_REQ":
+        reqs = db.query(MaterialRequest).filter(
+            MaterialRequest.ticket_id == ticket_id
+        ).order_by(MaterialRequest.created_at.asc()).all()
+        rows = []
+        for r in reqs:
+            req_by = db.query(User).get(r.requested_by_id) if r.requested_by_id else None
+            appr_by = db.query(User).get(r.approved_by_id) if getattr(r, "approved_by_id", None) else None
+            rows.append({
+                "id": r.id,
+                "material_name": r.material_name,
+                "qty_requested": r.qty_requested,
+                "unit": r.unit,
+                "reason": r.reason,
+                "status": r.status,
+                "stage_name": r.stage_name,
+                "requested_by": req_by.name if req_by else None,
+                "approved_by": appr_by.name if appr_by else None,
+                "approved_at": r.approved_at.strftime("%d %b %Y") if getattr(r, "approved_at", None) else None,
+                "rejection_note": getattr(r, "rejection_note", None),
+                "created_at": r.created_at.strftime("%d %b %Y, %H:%M") if r.created_at else None,
+            })
+        return JSONResponse({"type": "MATERIAL_REQ", "requests": rows})
+
+    if tag == "CUSTOM" and stage_id:
+        stage = db.query(FMSStage).filter(
+            FMSStage.id == stage_id, FMSStage.flow_id == ticket.flow_id).first()
+        existing = db.query(CustomSubmoduleResponse).filter(
+            CustomSubmoduleResponse.ticket_id == ticket_id,
+            CustomSubmoduleResponse.stage_id  == stage_id,
+        ).first() if stage else None
+        submodule_def = stage.deployed_submodule if stage and stage.deployed_submodule_id else None
+        fields = _json.loads(submodule_def.fields_json) if submodule_def and submodule_def.fields_json else []
+        responses = _json.loads(existing.field_responses_json) if existing else {}
+        return JSONResponse({"type": "CUSTOM",
+                             "name": submodule_def.name if submodule_def else "Custom",
+                             "is_complete": existing.is_complete if existing else False,
+                             "fields": fields, "responses": responses})
+
+    raise HTTPException(404, "Unknown sub-module type")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
