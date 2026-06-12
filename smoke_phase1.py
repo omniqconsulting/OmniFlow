@@ -81,7 +81,7 @@ try:
     # ── 1-4: websocket_sessions table ─────────────────────────────────────────
     print("\n[1-4] WebSocket session tracking")
     import sqlite3
-    conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+    conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
     tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
     check("websocket_sessions table exists", "websocket_sessions" in tables)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(websocket_sessions)").fetchall()]

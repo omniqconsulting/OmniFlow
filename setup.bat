@@ -1,6 +1,6 @@
 @echo off
 echo ============================================
-echo  FactoryOS - Environment Setup
+echo  OmniFlow - Environment Setup
 echo ============================================
 
 REM Check Python

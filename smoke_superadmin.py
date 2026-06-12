@@ -38,7 +38,7 @@ try:
     print("\n[H-2] Create SA & Login")
     s = requests.Session()
     r = s.post(f"{BASE}/superadmin/setup", data={
-        "name": "Platform Admin", "email": "sa@factoryos.io",
+        "name": "Platform Admin", "email": "sa@omniflow.io",
         "password": "secret123", "confirm": "secret123",
     }, allow_redirects=True)
     check("POST /superadmin/setup → dashboard", "/superadmin/dashboard" in r.url or r.status_code == 200)
@@ -124,7 +124,7 @@ try:
     print("\n[H-10] SA Login")
     s2 = requests.Session()
     r = s2.post(f"{BASE}/superadmin/login", data={
-        "email": "sa@factoryos.io", "password": "secret123"
+        "email": "sa@omniflow.io", "password": "secret123"
     }, allow_redirects=True)
     check("POST /superadmin/login → dashboard", r.status_code == 200 and "Platform Overview" in r.text)
     check("sa_token cookie on re-login", "sa_token" in s2.cookies)

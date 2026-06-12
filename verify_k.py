@@ -6,7 +6,7 @@ seed_library(db)
 db.close()
 
 import sqlite3
-conn = sqlite3.connect('factoryos.db')
+conn = sqlite3.connect('omniflow.db')
 tables = [t[0] for t in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
 print("Tables:", tables)
 for tbl in ['library_flow_templates','library_flow_stages','library_submodule_definitions',

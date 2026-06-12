@@ -51,7 +51,7 @@ from .constants import (
 )
 from .labels import get_labels, DEFAULT_L, INDUSTRY_NAMES, INDUSTRY_PRESETS
 
-app = FastAPI(title="FactoryOS")
+app = FastAPI(title="OmniFlow")
 
 # ── Super Admin routers — Phase 0-H / 0-K ────────────────────────────────────
 from .superadmin import router as sa_router

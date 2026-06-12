@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from .database import get_db, SuperAdmin
 
-SA_SECRET = "factoryos-superadmin-secret-CHANGE-IN-PROD-64chars!!"
+SA_SECRET = "omniflow-superadmin-secret-CHANGE-IN-PROD-64chars!!"
 ALGORITHM  = "HS256"
 COOKIE     = "sa_token"
 

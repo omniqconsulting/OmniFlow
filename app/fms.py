@@ -191,7 +191,7 @@ def fms_flows(request: Request, user: User = Depends(require_admin),
 def fms_flow_new(request: Request, user: User = Depends(require_admin),
                  db: Session = Depends(get_db)):
     # Flow creation is SA-only — redirect client admins
-    return _redirect("/fms/flows?err=Flows+are+configured+by+your+FactoryOS+account+manager.+Contact+support+to+add+a+new+flow.")
+    return _redirect("/fms/flows?err=Flows+are+configured+by+your+OmniFlow+account+manager.+Contact+support+to+add+a+new+flow.")
 
 
 @router.post("/flows/new")
@@ -202,7 +202,7 @@ def fms_flow_create(
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
     """Flow creation is SA-only — block silently."""
-    return _redirect("/fms/flows?err=Flow+creation+is+managed+by+your+FactoryOS+account+manager.")
+    return _redirect("/fms/flows?err=Flow+creation+is+managed+by+your+OmniFlow+account+manager.")
 
 
 @router.get("/flows/{flow_id}", response_class=HTMLResponse)
@@ -230,20 +230,20 @@ def fms_flow_update(
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
     """Flow editing is SA-only — block silently."""
-    return _redirect(f"/fms/flows/{flow_id}?err=Flow+definitions+are+managed+by+your+FactoryOS+account+manager.")
+    return _redirect(f"/fms/flows/{flow_id}?err=Flow+definitions+are+managed+by+your+OmniFlow+account+manager.")
 
 
 @router.post("/flows/{flow_id}/delete")
 def fms_flow_delete(flow_id: str, user: User = Depends(require_admin),
                     db: Session = Depends(get_db)):
     """Flow deletion is SA-only — block client admins."""
-    return _redirect("/fms/flows?err=Flow+deletion+is+managed+by+your+FactoryOS+account+manager.")
+    return _redirect("/fms/flows?err=Flow+deletion+is+managed+by+your+OmniFlow+account+manager.")
 
 
 @router.post("/flows/deploy-library")
 def fms_deploy_library(user: User = Depends(require_admin)):
     """Flow deployment is SA-only — block client admins."""
-    return _redirect("/fms/flows?err=Flows+are+deployed+by+your+FactoryOS+account+manager.+Contact+support+to+request+a+new+flow.")
+    return _redirect("/fms/flows?err=Flows+are+deployed+by+your+OmniFlow+account+manager.+Contact+support+to+request+a+new+flow.")
 
 
 @router.post("/flows/import-csv")

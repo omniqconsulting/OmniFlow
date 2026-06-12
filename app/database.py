@@ -3,11 +3,11 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, date
 import enum, uuid, os
 
-# Pin the DB to the project root (one level up from this file: app/../factoryos.db)
+# Pin the DB to the project root (one level up from this file: app/../omniflow.db)
 # This means the same database is used regardless of which directory
 # the terminal is in when you run `python run.py`.
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_DB_FILE      = os.path.join(_PROJECT_ROOT, "factoryos.db")
+_DB_FILE      = os.path.join(_PROJECT_ROOT, "omniflow.db")
 DATABASE_URL  = f"sqlite:///{_DB_FILE}"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})

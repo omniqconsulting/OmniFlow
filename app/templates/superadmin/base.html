@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FactoryOS — Super Admin</title>
+<title>OmniFlow — Super Admin</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -108,7 +108,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 <body>
 {% if sa is defined %}
 <nav class="sa-nav">
-  <span class="logo">FactoryOS <span>SA</span></span>
+  <span class="logo">OmniFlow <span>SA</span></span>
   <a href="/superadmin/dashboard"  {% if '/dashboard'  in request.url.path %}class="active"{% endif %}>Dashboard</a>
   <a href="/superadmin/tenants"        {% if '/tenants' in request.url.path and '/approvals' not in request.url.path %}class="active"{% endif %}>Tenants</a>
   <a href="/superadmin/library"        {% if '/library' in request.url.path %}class="active"{% endif %}>📚 Library</a>

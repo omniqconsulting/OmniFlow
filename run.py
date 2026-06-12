@@ -16,7 +16,7 @@ if __name__ == "__main__":
     ai_status = "enabled" if ai_key else "NOT configured (set ANTHROPIC_API_KEY in .env)"
 
     print("\n============================================")
-    print("  FactoryOS is starting...")
+    print("  OmniFlow is starting...")
     print("============================================")
     print(f"  URL      : http://localhost:8000")
     print(f"  Register : http://localhost:8000/register")

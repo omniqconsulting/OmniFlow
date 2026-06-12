@@ -55,7 +55,7 @@ try:
     print("\n[3] Super Admin setup + login")
     s_sa = requests.Session()
     r = s_sa.post(f"{BASE}/superadmin/setup", data={
-        "name": "Platform Admin", "email": "sa@factoryos.io",
+        "name": "Platform Admin", "email": "sa@omniflow.io",
         "password": "sapass123", "confirm": "sapass123",
     }, allow_redirects=True)
     check("SA setup completes", r.status_code == 200 and "Platform Overview" in r.text)

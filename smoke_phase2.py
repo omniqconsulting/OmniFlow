@@ -64,7 +64,7 @@ try:
 
     # ── 2-A: DB Models ─────────────────────────────────────────────────────────
     print("\n[2-A] FMS Database Models")
-    conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+    conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
     tables = [r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
 
@@ -143,7 +143,7 @@ try:
     check("GET /fms/tickets/new → 200", r.status_code == 200, f"got {r.status_code}")
 
     # Get stage IDs from DB
-    conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+    conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
     if flow_id:
         stage_rows = conn.execute(
             "SELECT id, name, \"order\" FROM fms_stages WHERE flow_id=? AND is_deleted=0 ORDER BY \"order\"",
@@ -169,7 +169,7 @@ try:
         check("POST /fms/tickets/new → 200", r.status_code == 200, f"got {r.status_code}")
 
         # Get ticket id
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         row = conn.execute(
             "SELECT id FROM fms_tickets WHERE title='PROD-001 Steel Frame' LIMIT 1").fetchone()
         ticket_id = row[0] if row else None
@@ -205,7 +205,7 @@ try:
         }, allow_redirects=True)
         check("Forward transition → 200", r.status_code == 200, f"got {r.status_code}")
 
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         t = conn.execute("SELECT current_stage_id FROM fms_tickets WHERE id=?", (ticket_id,)).fetchone()
         check("Ticket current_stage_id updated", t[0] == s2_id if t else False)
 
@@ -225,7 +225,7 @@ try:
         }, allow_redirects=True)
         check("Backward transition → 200", r.status_code == 200, f"got {r.status_code}")
 
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         h3 = conn.execute(
             "SELECT direction FROM fms_stage_history WHERE ticket_id=? ORDER BY entered_at",
             (ticket_id,)).fetchall()
@@ -240,7 +240,7 @@ try:
             "next_stage_id":s2_id,"new_assignee_id":worker_id,
             "completion_note":"Revised design complete","qty_completed":"15",
         }, allow_redirects=True)
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         h4 = conn.execute(
             "SELECT count(*) FROM fms_stage_history WHERE ticket_id=?", (ticket_id,)).fetchone()
         check("4th row created on revisit (non-linear immutable log)", h4[0] == 4, f"got {h4[0]}")
@@ -252,7 +252,7 @@ try:
             "next_stage_id":s3_id,"new_assignee_id":worker_id,
             "completion_note":"All fabrication done","qty_completed":"50",
         }, allow_redirects=True)
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         t = conn.execute("SELECT status FROM fms_tickets WHERE id=?", (ticket_id,)).fetchone()
         check("Ticket status = COMPLETED on terminal stage", t[0] == "COMPLETED" if t else False)
         conn.close()
@@ -261,7 +261,7 @@ try:
     print("\n[2-D] Ticket Actions")
 
     # Create a fresh ticket for action tests
-    conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+    conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
     t2 = conn.execute("SELECT id FROM fms_tickets WHERE title='PROD-001 Steel Frame'").fetchone()
     action_ticket_id = t2[0] if t2 else None
     conn.close()
@@ -273,7 +273,7 @@ try:
             "flow_id":flow_id,"starting_stage_id":s1_id,
             "priority":"MEDIUM","assignee_id":worker_id,
         }, allow_redirects=True)
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         row = conn.execute(
             "SELECT id FROM fms_tickets WHERE title='ACTION-TEST Ticket' LIMIT 1").fetchone()
         action_ticket_id = row[0] if row else None
@@ -291,7 +291,7 @@ try:
                    data={"action":"flag","flag_reason":"Quality issue spotted"},
                    allow_redirects=True)
         check("Action: flag → 200", r.status_code == 200)
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         t = conn.execute("SELECT is_flagged, flagged_reason FROM fms_tickets WHERE id=?",
                          (action_ticket_id,)).fetchone()
         check("Ticket is_flagged = True", t[0] == 1 if t else False)
@@ -302,7 +302,7 @@ try:
         r = s.post(BASE+f"/fms/tickets/{action_ticket_id}/action",
                    data={"action":"unflag"}, allow_redirects=True)
         check("Action: unflag → 200", r.status_code == 200)
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         t = conn.execute("SELECT is_flagged FROM fms_tickets WHERE id=?", (action_ticket_id,)).fetchone()
         check("Ticket is_flagged = False after unflag", t[0] == 0 if t else False)
         conn.close()
@@ -312,7 +312,7 @@ try:
                    data={"action":"help_request","comment":"Machine broke down"},
                    allow_redirects=True)
         check("Action: help_request → 200", r.status_code == 200)
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         t = conn.execute("SELECT status FROM fms_tickets WHERE id=?", (action_ticket_id,)).fetchone()
         check("Ticket status = HELP_REQUESTED", t[0] == "HELP_REQUESTED" if t else False)
         conn.close()
@@ -322,7 +322,7 @@ try:
                    data={"action":"add_helper","helper_id":worker_id,"reason":"Extra support"},
                    allow_redirects=True)
         check("Action: add_helper → 200", r.status_code == 200)
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         h = conn.execute("SELECT * FROM fms_ticket_helpers WHERE ticket_id=?",
                          (action_ticket_id,)).fetchall()
         check("Helper row created", len(h) >= 1, f"got {len(h)}")
@@ -339,7 +339,7 @@ try:
                    data={"action":"on_hold","reason":"Waiting for parts"},
                    allow_redirects=True)
         check("Action: on_hold → 200", r.status_code == 200)
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         t = conn.execute("SELECT status FROM fms_tickets WHERE id=?", (action_ticket_id,)).fetchone()
         check("Ticket status = ON_HOLD", t[0] == "ON_HOLD" if t else False)
         conn.close()
@@ -354,14 +354,14 @@ try:
                    data={"action":"close","reason":"Cancelled by client"},
                    allow_redirects=True)
         check("Action: close → 200", r.status_code == 200)
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         t = conn.execute("SELECT status FROM fms_tickets WHERE id=?", (action_ticket_id,)).fetchone()
         check("Ticket status = CLOSED", t[0] == "CLOSED" if t else False)
         conn.close()
 
     # Event log completeness
     if action_ticket_id:
-        conn = sqlite3.connect(os.path.join(proj, "factoryos.db"))
+        conn = sqlite3.connect(os.path.join(proj, "omniflow.db"))
         ev = [r[0] for r in conn.execute(
             "SELECT event_type FROM fms_events WHERE ticket_id=?", (action_ticket_id,)).fetchall()]
         conn.close()

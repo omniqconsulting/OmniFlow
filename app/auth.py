@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from .database import get_db, User
 
-SECRET_KEY = "factoryos-secret-key-change-in-production-32chars"
+SECRET_KEY = "omniflow-secret-key-change-in-production-32chars"
 ALGORITHM = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

@@ -115,7 +115,7 @@ def _increment_usage(db: Session, tenant_id: str) -> None:
 # ── System prompt ──────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are the AI business intelligence assistant embedded inside FactoryOS — \
+You are the AI business intelligence assistant embedded inside OmniFlow — \
 an operations management platform used by SMEs across manufacturing, retail, \
 logistics, hospitality, and other industries.
 

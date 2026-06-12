@@ -1,5 +1,5 @@
 """
-Auto-migration utility for factoryos.db
+Auto-migration utility for omniflow.db
 ----------------------------------------
 Compares every Column() definition in app/database.py against the live
 SQLite schema and issues ALTER TABLE ... ADD COLUMN for anything missing.
@@ -31,7 +31,7 @@ _TYPE_MAP = {
 }
 
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-_DB_FILE      = os.path.join(_PROJECT_ROOT, "factoryos.db")
+_DB_FILE      = os.path.join(_PROJECT_ROOT, "omniflow.db")
 _MODEL_FILE   = os.path.join(_PROJECT_ROOT, "app", "database.py")
 
 

@@ -7,7 +7,7 @@ seed_library(db)
 db.close()
 
 import sqlite3
-conn = sqlite3.connect('factoryos.db')
+conn = sqlite3.connect('omniflow.db')
 tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
 print("Tables:", tables)
 assert "websocket_sessions" in tables, "MISSING: websocket_sessions"
