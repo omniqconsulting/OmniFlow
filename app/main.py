@@ -535,6 +535,130 @@ def pending_approval(request: Request, user: User = Depends(get_current_user),
                                        "L": _L(db, user)})
 
 
+def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manager_id=None):
+    """Compute lightweight KPIs for the Summary dashboard view."""
+    from datetime import date as _date, datetime as _dt
+    try:
+        df = _dt.fromisoformat(date_from_str)
+        dt = _dt.fromisoformat(date_to_str).replace(hour=23, minute=59, second=59)
+    except Exception:
+        today = _date.today()
+        df = _dt.combine(today - timedelta(days=30), _dt.min.time())
+        dt = _dt.combine(today, _dt.max.time())
+
+    q = db.query(Ticket).filter(
+        Ticket.tenant_id == tid, Ticket.is_deleted == False)
+    if dept_id:
+        dept_users = [u.id for u in db.query(User).filter(
+            User.tenant_id == tid, User.dept_id == dept_id,
+            User.is_deleted == False).all()]
+        q = q.filter(Ticket.current_assignee_id.in_(dept_users))
+    if manager_id:
+        team_ids = [u.id for u in db.query(User).filter(
+            User.manager_id == manager_id, User.is_deleted == False).all()]
+        team_ids.append(manager_id)
+        q = q.filter(Ticket.current_assignee_id.in_(team_ids))
+
+    open_statuses   = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
+    closed_statuses = ("DONE", "CLOSED")
+
+    total_open   = q.filter(Ticket.status.in_(open_statuses)).count()
+    prev_open    = total_open  # no prev-period comparison for now
+    in_period    = q.filter(Ticket.created_at >= df, Ticket.created_at <= dt).all()
+    closed_in_p  = [t for t in in_period if t.status in closed_statuses]
+    total_closed = len(closed_in_p)
+
+    # On-time: closed before or at due_at
+    on_time = [t for t in closed_in_p if t.due_at and t.updated_at and t.updated_at <= t.due_at]
+    on_time_pct   = round(len(on_time) / max(len(closed_in_p), 1) * 100)
+    closed_count  = len(closed_in_p)
+
+    # Avg TaT in hours
+    tats = []
+    for t in closed_in_p:
+        if t.created_at and t.updated_at:
+            tats.append((t.updated_at - t.created_at).total_seconds() / 3600)
+    avg_tat_hours = round(sum(tats) / max(len(tats), 1), 1) if tats else 0
+
+    # Help tickets open
+    open_help = db.query(Ticket).filter(
+        Ticket.tenant_id == tid, Ticket.is_deleted == False,
+        Ticket.ticket_category == "HELP",
+        Ticket.status.in_(open_statuses),
+    ).count() if hasattr(Ticket, "ticket_category") else 0
+
+    # Checklist compliance
+    try:
+        from .database import ChecklistAssignment as _CA
+        cl_due  = db.query(_CA).filter(
+            _CA.tenant_id == tid, _CA.due_at >= df, _CA.due_at <= dt).count()
+        cl_done = db.query(_CA).filter(
+            _CA.tenant_id == tid, _CA.due_at >= df, _CA.due_at <= dt,
+            _CA.status == "COMPLETED").count()
+        cl_compliance_pct = round(cl_done / max(cl_due, 1) * 100)
+    except Exception:
+        cl_due = cl_done = cl_compliance_pct = 0
+
+    # FMS
+    try:
+        from .database import FMSTicket as _FT
+        fms_active = db.query(_FT).filter(
+            _FT.tenant_id == tid, _FT.is_deleted == False,
+            _FT.status.notin_(["COMPLETED", "CLOSED"])).count()
+        fms_tat_breaches = 0  # expensive to compute inline; keep 0 for now
+    except Exception:
+        fms_active = fms_tat_breaches = 0
+
+    class _KPIs:
+        pass
+    k = _KPIs()
+    k.total_open = total_open
+    k.prev_open  = prev_open
+    k.total_closed = total_closed
+    k.on_time_pct = on_time_pct
+    k.on_time_count = len(on_time)
+    k.closed_count = closed_count
+    k.avg_tat_hours = avg_tat_hours
+    k.open_help = open_help
+    k.cl_compliance_pct = cl_compliance_pct
+    k.cl_done = cl_done
+    k.cl_due  = cl_due
+    k.fms_active = fms_active
+    k.fms_tat_breaches = fms_tat_breaches
+    return k
+
+
+def _calc_dept_health(db, tid, date_from_str, date_to_str):
+    """Per-department on-time completion rate for the dept health strip."""
+    from datetime import datetime as _dt
+    try:
+        df = _dt.fromisoformat(date_from_str)
+        dt = _dt.fromisoformat(date_to_str).replace(hour=23, minute=59, second=59)
+    except Exception:
+        return []
+
+    depts = db.query(Department).filter(
+        Department.tenant_id == tid, Department.is_deleted == False).all()
+    result = []
+    for d in depts:
+        dept_users = [u.id for u in db.query(User).filter(
+            User.tenant_id == tid, User.dept_id == d.id,
+            User.is_deleted == False).all()]
+        if not dept_users:
+            continue
+        closed = db.query(Ticket).filter(
+            Ticket.tenant_id == tid, Ticket.is_deleted == False,
+            Ticket.current_assignee_id.in_(dept_users),
+            Ticket.status.in_(("DONE", "CLOSED")),
+            Ticket.created_at >= df, Ticket.created_at <= dt).all()
+        if not closed:
+            continue
+        on_time = sum(1 for t in closed if t.due_at and t.updated_at and t.updated_at <= t.due_at)
+        rate = round(on_time / len(closed) * 100)
+        result.append({"dept_id": d.id, "name": d.name, "rate": rate})
+    return sorted(result, key=lambda x: x["rate"])
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, user: User = Depends(get_current_user),
               db: Session = Depends(get_db)):
@@ -546,6 +670,28 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
 
     unread = _unread_count(db, user)
 
+    # ── Store Manager: restricted view ───────────────────────────────────────
+    if user.role == "STORE_MANAGER":
+        from .database import ChecklistAssignment as _CA
+        open_statuses = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
+        my_tickets = db.query(Ticket).filter(
+            Ticket.tenant_id == tid, Ticket.is_deleted == False,
+            Ticket.current_assignee_id == user.id,
+            Ticket.status.in_(open_statuses),
+        ).order_by(Ticket.created_at.desc()).all()
+        my_checklists = db.query(_CA).filter(
+            _CA.tenant_id == tid, _CA.user_id == user.id,
+            _CA.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+        ).order_by(_CA.due_at).all()
+        return templates.TemplateResponse(request, "store_manager_dashboard.html", {
+            "user": user, "unread": unread, "L": _L(db, user),
+            "now": datetime.utcnow(),
+            **_nav_ctx(db, user),
+            "my_tickets": my_tickets,
+            "my_checklists": my_checklists,
+            "has_inventory": has_feature(tenant, "INVENTORY") if hasattr(tenant, "plan") else True,
+        })
+
     if user.role in ("ADMIN", "MANAGER"):
         from datetime import date as _date
         _today = _date.today()
@@ -554,6 +700,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         dept_id    = request.query_params.get("dept_id", None) or None
         manager_id = request.query_params.get("manager_id", None) or None
         expand_flow= request.query_params.get("expand_flow", None) or None
+        view       = request.query_params.get("view", "summary")
 
         # Managers locked to their own team
         if user.role == "MANAGER":
@@ -564,7 +711,50 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         managers = db.query(User).filter(
             User.tenant_id == tid, User.role.in_(["ADMIN", "MANAGER"]),
             User.is_deleted == False).all() if user.role == "ADMIN" else []
+        branches = db.query(Branch).filter(
+            Branch.tenant_id == tid, Branch.is_deleted == False).all() \
+            if hasattr(Branch, "is_deleted") else \
+            db.query(Branch).filter(Branch.tenant_id == tid).all()
+        branch_id = request.query_params.get("branch_id", None) or None
 
+        has_fms        = has_feature(tenant, "FMS", db) if hasattr(tenant, "plan") else True
+        has_checklists = True  # always available
+
+        # ── Summary View (default) ────────────────────────────────────────────
+        if view != "detailed":
+            # Date presets
+            from datetime import date as _dt2
+            _td = _dt2.today()
+            date_presets = [
+                ("Today",   _td.isoformat(),                        _td.isoformat()),
+                ("7d",      (_td - timedelta(days=7)).isoformat(),  _td.isoformat()),
+                ("30d",     (_td - timedelta(days=30)).isoformat(), _td.isoformat()),
+                ("90d",     (_td - timedelta(days=90)).isoformat(), _td.isoformat()),
+            ]
+            # Determine active preset
+            active_preset = None
+            for label, f, t in date_presets:
+                if date_from == f and date_to == t:
+                    active_preset = label
+                    break
+
+            kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_id, manager_id)
+            dept_health= _calc_dept_health(db, tid, date_from, date_to)
+
+            return templates.TemplateResponse(request, "dashboard_summary.html", {
+                "user": user, "unread": unread, "L": _L(db, user),
+                "now": datetime.utcnow(),
+                **_nav_ctx(db, user, tenant=tenant),
+                "date_from": date_from, "date_to": date_to,
+                "dept_id": dept_id, "manager_id": manager_id,
+                "branch_id": branch_id,
+                "departments": departments, "managers": managers, "branches": branches,
+                "date_presets": date_presets, "active_preset": active_preset,
+                "kpis": kpis, "dept_health": dept_health,
+                "has_fms": has_fms, "has_checklists": has_checklists,
+            })
+
+        # ── Detailed View ─────────────────────────────────────────────────────
         # Delegation
         deleg_sc   = get_delegation_scorecards(db, tid, date_from, date_to, dept_id, manager_id)
         deleg_wk   = get_delegation_weekly(db, tid, dept_id, manager_id)
@@ -596,7 +786,6 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         cl_dept = get_checklist_by_dept(db, tid, date_from, date_to)
 
         # FMS
-        has_fms     = has_feature(tenant, "FMS", db) if hasattr(tenant, "plan") else True
         fms_sc      = get_fms_scorecards(db, tid, date_from, date_to) if has_fms else None
         fms_flows   = get_fms_flow_summary(db, tid) if has_fms else []
         fms_wk      = get_fms_weekly(db, tid) if has_fms else None

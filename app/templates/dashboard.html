@@ -155,7 +155,12 @@
 <!-- ── CONTENT ────────────────────────────────────────────────────────────── -->
 <main class="db-content">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
-    <div style="font-size:16px;font-weight:600;color:#f1f5f9">Dashboard</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <a href="/dashboard?view=summary&date_from={{ date_from }}&date_to={{ date_to }}&dept_id={{ dept_id or '' }}&manager_id={{ manager_id or '' }}"
+         style="font-size:12px;color:#64748b;text-decoration:none;padding:4px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;background:#1e293b"
+         title="Back to Summary">← Summary</a>
+      <div style="font-size:16px;font-weight:600;color:#f1f5f9">Detailed Analysis</div>
+    </div>
     <div style="font-size:11px;color:#374151">
       {{ date_from }} → {{ date_to }}
       {% if dept_id %}· {{ departments|selectattr('id','equalto',dept_id)|map(attribute='name')|first|default('') }}{% endif %}
