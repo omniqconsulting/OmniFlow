@@ -66,6 +66,8 @@ from .inventory import router as inventory_router
 app.include_router(inventory_router)
 from .ai_router import router as ai_router
 app.include_router(ai_router)
+from .setup_routes import router as setup_router
+app.include_router(setup_router)
 BASE_DIR = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 # Register custom Jinja2 filters

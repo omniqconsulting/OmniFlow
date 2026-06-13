@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Setup</h2>
+</div>
+
+<div class="setup-outer">
+  {% set active_section = 'custom_lists' %}
+  {% include "setup/nav.html" %}
+
+  <div class="setup-content">
+    {% if msg %}<div class="alert alert-green" style="margin-bottom:12px">{{ msg }}</div>{% endif %}
+    {% if err %}<div class="alert alert-red" style="margin-bottom:12px">{{ err }}</div>{% endif %}
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">Custom Reference Lists</h2>
+      <div style="display:flex;gap:8px">
+        <a href="/setup/custom-lists/items/template" class="btn btn-sm btn-outline">⬇ Items CSV Template</a>
+        <button onclick="document.getElementById('addListModal').style.display='flex'" class="btn btn-sm btn-primary">+ New List</button>
+      </div>
+    </div>
+
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:16px">
+      Create named lists (e.g. Machine Types, Complaint Categories) whose items appear as dropdown options on ticket, checklist, and FMS forms.
+    </p>
+
+    {% if lists %}
+    <div style="display:flex;flex-direction:column;gap:12px">
+      {% for lst in lists %}
+      <div class="card" style="padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <div>
+            <strong style="font-size:15px">{{ lst.list_name }}</strong>
+            <span style="font-size:12px;color:#64748b;margin-left:8px">{{ lst.items|length }} items</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button onclick="openEditList({{ lst|tojson }})" class="btn btn-xs btn-outline">Rename</button>
+            <button onclick="openImportItems({{ lst.id|tojson }}, {{ lst.list_name|tojson }})" class="btn btn-xs btn-outline">⬆ Import Items</button>
+            <button onclick="openAddItem({{ lst.id|tojson }}, {{ lst.list_name|tojson }})" class="btn btn-xs btn-primary">+ Add Item</button>
+            <form method="post" action="/setup/custom-lists/{{ lst.id }}/delete" style="display:inline"
+                  onsubmit="return confirm('Delete list {{ lst.list_name }} and all its items?')">
+              <button type="submit" class="btn btn-xs btn-red">Delete List</button>
+            </form>
+          </div>
+        </div>
+
+        {% if lst.items %}
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          {% for item in lst.items %}
+          {% if not item.is_deleted %}
+          <div style="display:flex;align-items:center;gap:4px;background:rgba(255,255,255,0.06);border-radius:6px;padding:4px 8px;font-size:12px">
+            <span>{{ item.value }}</span>
+            <form method="post" action="/setup/custom-lists/items/{{ item.id }}/delete" style="display:inline">
+              <button type="submit" title="Remove item" style="background:none;border:none;color:#ef4444;cursor:pointer;padding:0;line-height:1;font-size:11px">✕</button>
+            </form>
+          </div>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% else %}
+        <div style="font-size:13px;color:#475569">No items yet — add items above.</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card" style="text-align:center;padding:40px;color:#64748b">
+      No custom lists yet. Create your first list to add reference data to forms.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Add List Modal -->
+<div id="addListModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal-box" style="max-width:400px;width:100%">
+    <div class="modal-title">Create Custom List</div>
+    <form method="post" action="/setup/custom-lists/add">
+      <div class="form-group">
+        <label class="form-label">List Name <span style="color:#f87171">*</span></label>
+        <input name="list_name" class="form-input" required placeholder="e.g. Machine Types, Complaint Categories">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="document.getElementById('addListModal').style.display='none'" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create List</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Rename List Modal -->
+<div id="editListModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal-box" style="max-width:400px;width:100%">
+    <div class="modal-title">Rename List</div>
+    <form method="post" id="editListForm">
+      <div class="form-group">
+        <label class="form-label">List Name <span style="color:#f87171">*</span></label>
+        <input name="list_name" id="edit_list_name" class="form-input" required>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="document.getElementById('editListModal').style.display='none'" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add Item Modal -->
+<div id="addItemModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal-box" style="max-width:380px;width:100%">
+    <div class="modal-title">Add Item to <span id="addItemListName"></span></div>
+    <form method="post" id="addItemForm">
+      <div class="form-group">
+        <label class="form-label">Item Value <span style="color:#f87171">*</span></label>
+        <input name="value" class="form-input" required maxlength="200" placeholder="Item label shown in dropdown">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Sort Order</label>
+        <input name="sort_order" type="number" class="form-input" value="0">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="document.getElementById('addItemModal').style.display='none'" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add Item</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Import Items Modal -->
+<div id="importItemsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal-box" style="max-width:400px;width:100%">
+    <div class="modal-title">Import Items into <span id="importListName"></span></div>
+    <a href="/setup/custom-lists/items/template" class="btn btn-sm btn-outline" style="margin-bottom:12px;display:inline-block">⬇ Download Template</a>
+    <form method="post" action="/setup/custom-lists/items/import" enctype="multipart/form-data">
+      <input type="hidden" name="list_id" id="importListId">
+      <div class="form-group">
+        <input type="file" name="file" accept=".csv" class="form-input" required>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="document.getElementById('importItemsModal').style.display='none'" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload & Import</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openEditList(lst) {
+  document.getElementById('edit_list_name').value = lst.list_name;
+  document.getElementById('editListForm').action = '/setup/custom-lists/' + lst.id + '/edit';
+  document.getElementById('editListModal').style.display = 'flex';
+}
+function openAddItem(listId, listName) {
+  document.getElementById('addItemListName').textContent = listName;
+  document.getElementById('addItemForm').action = '/setup/custom-lists/' + listId + '/items/add';
+  document.getElementById('addItemModal').style.display = 'flex';
+}
+function openImportItems(listId, listName) {
+  document.getElementById('importListName').textContent = listName;
+  document.getElementById('importListId').value = listId;
+  document.getElementById('importItemsModal').style.display = 'flex';
+}
+</script>
+{% endblock %}

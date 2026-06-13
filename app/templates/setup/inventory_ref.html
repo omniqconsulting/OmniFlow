@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header"><h2 class="page-title">Setup</h2></div>
+<div class="setup-outer">
+  {% set active_section = 'inventory_ref' %}
+  {% include "setup/nav.html" %}
+  <div class="setup-content">
+    <h2 style="margin:0 0 4px">{{ L.Inventory }} Reference</h2>
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:20px">
+      {{ L.Materials }} and {{ L.Suppliers }} are managed in the {{ L.Inventory }} module. This section provides direct navigation.
+    </p>
+
+    <div style="display:flex;flex-direction:column;gap:12px;max-width:520px">
+      <div class="card" style="padding:18px;display:flex;align-items:center;gap:16px">
+        <div style="font-size:32px">📦</div>
+        <div style="flex:1">
+          <div style="font-weight:600;margin-bottom:4px">{{ L.Materials }} Catalogue</div>
+          <div style="font-size:13px;color:#94a3b8;margin-bottom:10px">
+            Add, edit and manage your raw {{ L.materials }} catalogue including stock levels, reorder thresholds and {{ L.Suppliers }}.
+          </div>
+          <a href="/inventory/materials" class="btn btn-sm btn-primary">Go to {{ L.Materials }} →</a>
+        </div>
+      </div>
+
+      <div class="card" style="padding:18px;display:flex;align-items:center;gap:16px">
+        <div style="font-size:32px">🏭</div>
+        <div style="flex:1">
+          <div style="font-weight:600;margin-bottom:4px">{{ L.Suppliers }} / Vendors</div>
+          <div style="font-size:13px;color:#94a3b8;margin-bottom:10px">
+            {{ L.Supplier }} information is stored on each {{ L.material }} record in the {{ L.Inventory }} module.
+          </div>
+          <a href="/inventory/materials" class="btn btn-sm btn-outline">Go to {{ L.Inventory }} → {{ L.Materials }} →</a>
+        </div>
+      </div>
+
+      <div class="card" style="padding:14px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2)">
+        <div style="font-size:12px;color:#93c5fd">
+          ℹ️ {{ L.Inventory }} is the single source of truth for {{ L.materials }} and {{ L.suppliers }}.
+          All form dropdowns for {{ L.Material }} and {{ L.Supplier }} on ticket, checklist, and FMS forms
+          pull directly from the {{ L.Inventory }} module at query time. Do not duplicate this data here.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

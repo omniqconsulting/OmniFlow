@@ -8,9 +8,14 @@
 {% set imp_d = request.query_params.get('imported_depts') %}
 
 <div class="page-header">
-  <h2 class="page-title">Factory Setup</h2>
+  <h2 class="page-title">Setup</h2>
   <a href="/setup/wizard" class="btn btn-sm btn-purple">🧭 Setup Guide</a>
 </div>
+
+<div class="setup-outer">
+{% set active_section = 'org' %}
+{% include "setup/nav.html" %}
+<div class="setup-content">
 
 {% if imp_b %}<div class="alert alert-green">✓ Imported {{ imp_b }} branch(es).</div>{% endif %}
 {% if imp_d %}<div class="alert alert-green">✓ Imported {{ imp_d }} department(s).</div>{% endif %}
@@ -292,4 +297,6 @@ function closeUpgradeModal() {
   document.getElementById('upgrade-modal').style.display = 'none';
 }
 </script>
+</div>{# /setup-content #}
+</div>{# /setup-outer #}
 {% endblock %}
