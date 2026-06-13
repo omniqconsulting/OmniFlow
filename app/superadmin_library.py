@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from markupsafe import Markup as _Markup
 import os
 
 from .database import (
@@ -28,6 +29,16 @@ router = APIRouter(prefix="/superadmin/library")
 BASE_DIR  = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 templates.env.filters["from_json"] = lambda s: (json.loads(s) if s else [])
+
+
+class _OrmEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if hasattr(obj, "__dict__"):
+            return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+        return super().default(obj)
+
+
+templates.env.filters["tojson"] = lambda v: _Markup(json.dumps(v, cls=_OrmEncoder))
 log = logging.getLogger(__name__)
 
 FIELD_TYPES = [

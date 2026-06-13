@@ -35,6 +35,7 @@ class UserRole(str, enum.Enum):
     EMPLOYEE = "EMPLOYEE"
     MANAGER = "MANAGER"
     ADMIN = "ADMIN"
+    STORE_MANAGER = "STORE_MANAGER"
 
 class TicketStatus(str, enum.Enum):
     OPEN = "OPEN"
@@ -133,10 +134,17 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     role = Column(String, default="EMPLOYEE")
     department_id = Column(String, ForeignKey("departments.id"))
+    branch_id = Column(String, ForeignKey("branches.id"), nullable=True)   # P1-09
     manager_id = Column(String, ForeignKey("users.id"))       # Phase 0-A-1
     is_active = Column(Boolean, default=True)
     is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # P1-05: Employee profile additions
+    employee_id   = Column(String)          # auto-generated EMP-XXXX per tenant
+    joining_date  = Column(Date)
+    address       = Column(Text)
+    status        = Column(String, default="ACTIVE")   # ACTIVE / TERMINATED
+    terminated_at = Column(DateTime)
 
     tenant = relationship("Tenant", back_populates="users")
     department = relationship("Department", back_populates="users")
@@ -162,6 +170,9 @@ class Ticket(Base):
     is_flagged = Column(Boolean, default=False)
     flagged_reason = Column(String)
     proof_required = Column(Boolean, default=False)
+    # P1-06: ticket enhancements
+    ticket_category   = Column(String, default="NORMAL")   # NORMAL / HELP
+    evidence_required = Column(Boolean, default=False)     # replaces proof_required
     is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -218,6 +229,7 @@ class ChecklistTemplate(Base):
     description = Column(Text, nullable=False)
     frequency = Column(String, default="DAILY")
     proof_required = Column(Boolean, default=False)
+    evidence_required = Column(Boolean, default=False)  # P1-08: replaces proof_required on template
     assigned_to_role = Column(String)
     assigned_to_dept_id = Column(String, ForeignKey("departments.id"), nullable=True)
     assigned_to_user_id = Column(String, ForeignKey("users.id"), nullable=True)
@@ -244,6 +256,9 @@ class ChecklistAssignment(Base):
     status = Column(String, default="PENDING")   # PENDING|IN_PROGRESS|OVERDUE|DONE|FAILED
     proof_url = Column(String)
     failure_note = Column(Text, nullable=True)    # reason when status=FAILED
+    # P1-08: checklist assignment enhancements
+    delay_reason      = Column(Text)              # mandatory when OVERDUE completion
+    evidence_required = Column(Boolean)           # inherited from template at assignment creation
     created_at = Column(DateTime, default=datetime.utcnow)
 
     template = relationship("ChecklistTemplate", back_populates="assignments")
@@ -409,6 +424,7 @@ class LibraryFlowStage(Base):
     sub_module_tag               = Column(String,  nullable=True)   # PMS|DISPATCH|INVOICE|MATERIAL_REQ|CUSTOM
     submodule_id                 = Column(String,  ForeignKey("library_submodule_definitions.id"), nullable=True)
     completion_note_required     = Column(Boolean, default=False)
+    evidence_required            = Column(Boolean, default=False)   # P1-07
 
     template   = relationship("LibraryFlowTemplate", back_populates="stages")
     submodule  = relationship("LibrarySubmoduleDefinition", foreign_keys=[submodule_id])
@@ -589,6 +605,7 @@ class FMSStage(Base):
     is_mandatory            = Column(Boolean, default=True)
     completion_note_required= Column(Boolean, default=False)
     is_terminal             = Column(Boolean, default=False)         # reaching this = COMPLETED
+    evidence_required       = Column(Boolean, default=False)         # P1-07: stage-level evidence
     is_deleted              = Column(Boolean, default=False)
 
     flow              = relationship("FMSFlow", back_populates="stages")
@@ -977,6 +994,99 @@ class CustomSubmoduleResponse(Base):
     stage         = relationship("FMSStage",                 foreign_keys=[stage_id])
     submodule_def = relationship("LibrarySubmoduleDefinition", foreign_keys=[submodule_def_id])
     actor         = relationship("User",                     foreign_keys=[actor_id])
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Enhancement Pass — Setup Entity Tables (Phase 1, Section 3.1)
+# ═══════════════════════════════════════════════════════════════════
+
+class Customer(Base):
+    __tablename__ = "customers"
+    id             = Column(String,  primary_key=True, default=new_id)
+    tenant_id      = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name           = Column(String,  nullable=False)
+    contact_person = Column(String)
+    phone          = Column(String)
+    email          = Column(String)
+    address        = Column(Text)
+    notes          = Column(Text)
+    is_active      = Column(Boolean, default=True)
+    is_deleted     = Column(Boolean, default=False)
+    created_by_id  = Column(String,  ForeignKey("users.id"))
+    created_at     = Column(DateTime, default=datetime.utcnow)
+    updated_at     = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class EndProduct(Base):
+    __tablename__ = "end_products"
+    id            = Column(String,  primary_key=True, default=new_id)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name          = Column(String,  nullable=False)
+    sku_code      = Column(String)
+    unit          = Column(String)
+    description   = Column(Text)
+    is_active     = Column(Boolean, default=True)
+    is_deleted    = Column(Boolean, default=False)
+    created_by_id = Column(String,  ForeignKey("users.id"))
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class CustomReferenceList(Base):
+    __tablename__ = "custom_reference_lists"
+    id            = Column(String,  primary_key=True, default=new_id)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    list_name     = Column(String,  nullable=False)
+    is_active     = Column(Boolean, default=True)
+    is_deleted    = Column(Boolean, default=False)
+    created_by_id = Column(String,  ForeignKey("users.id"))
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    items      = relationship("CustomReferenceItem", back_populates="ref_list",
+                              order_by="CustomReferenceItem.sort_order",
+                              cascade="all, delete-orphan")
+
+
+class CustomReferenceItem(Base):
+    __tablename__ = "custom_reference_items"
+    id         = Column(String,  primary_key=True, default=new_id)
+    list_id    = Column(String,  ForeignKey("custom_reference_lists.id"), nullable=False)
+    tenant_id  = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    value      = Column(String,  nullable=False)
+    sort_order = Column(Integer, default=0)
+    is_active  = Column(Boolean, default=True)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    ref_list = relationship("CustomReferenceList", back_populates="items")
+    tenant   = relationship("Tenant")
+
+
+class LinkedEntityReference(Base):
+    """Polymorphic table linking any entity to a ticket/checklist/FMS ticket.
+    No FK on parent_id or entity_id — resolved at query time for flexibility."""
+    __tablename__ = "linked_entity_references"
+    id           = Column(String, primary_key=True, default=new_id)
+    tenant_id    = Column(String, ForeignKey("tenants.id"), nullable=False)
+    parent_type  = Column(String, nullable=False)  # TICKET / CHECKLIST_ASSIGNMENT / FMS_TICKET
+    parent_id    = Column(String, nullable=False)
+    entity_type  = Column(String, nullable=False)  # CUSTOMER / END_PRODUCT / MATERIAL / VENDOR / CUSTOM_LIST / OTHER
+    entity_id    = Column(String)
+    entity_label = Column(String)  # snapshot of entity name at time of linking
+    custom_text  = Column(String)  # used when entity_type is OTHER
+    created_by_id= Column(String, ForeignKey("users.id"))
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
 
 
 def create_tables():

@@ -84,6 +84,13 @@ from markupsafe import Markup as _Markup
 templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
 templates.env.filters["tojson"]    = lambda v: _Markup(_json.dumps(v, cls=_OrmEncoder))
 
+def _next_employee_id(db, tenant_id: str) -> str:
+    """Generate the next EMP-XXXX id for a tenant."""
+    count = db.query(User).filter(
+        User.tenant_id == tenant_id, User.is_deleted == False
+    ).count()
+    return f"EMP-{count + 1:04d}"
+
 # Default nav feature flags to False — per-route _nav_ctx() overrides with real values.
 templates.env.globals["has_inventory"]  = False
 templates.env.globals["has_fms"]        = False
@@ -339,43 +346,6 @@ def login(request: Request, slug: str = Form(...), phone: str = Form(...),
     resp.set_cookie("token", token, httponly=True, max_age=86400)
     return resp
 
-@app.get("/check-slug")
-def check_slug_public(slug: str, db: Session = Depends(get_db)):
-    """Public slug availability check for the self-registration form."""
-    from fastapi.responses import JSONResponse as _J
-    exists = db.query(Tenant).filter(Tenant.slug == slug).first()
-    return _J({"available": exists is None})
-
-
-@app.get("/register", response_class=HTMLResponse)
-def register_page(request: Request):
-    return templates.TemplateResponse(request, "register.html", {"error": None})
-
-@app.post("/register")
-def register(request: Request, factory_name: str = Form(...), slug: str = Form(...),
-             name: str = Form(...), phone: str = Form(...), password: str = Form(...),
-             contact_email: str = Form(""),
-             db: Session = Depends(get_db)):
-    if db.query(Tenant).filter(Tenant.slug == slug).first():
-        return templates.TemplateResponse(request, "register.html",
-                                          {"error": "Factory ID already taken"})
-    # Self-registered tenants start as TRIAL + unapproved (Option C)
-    tenant = Tenant(
-        name=factory_name, slug=slug,
-        plan="TRIAL", is_approved=False,
-        contact_name=name, contact_email=contact_email or None,
-        trial_started_at=datetime.utcnow(),
-    )
-    db.add(tenant)
-    db.flush()
-    user = User(tenant_id=tenant.id, name=name, phone=phone,
-                password_hash=hash_password(password), role="ADMIN")
-    db.add(user)
-    db.commit()
-    # Don't log them in yet — show a "pending approval" confirmation page
-    return templates.TemplateResponse(request, "register_pending.html", {
-        "factory_name": factory_name, "slug": slug, "name": name,
-    })
 
 @app.get("/help", response_class=HTMLResponse)
 def help_page(request: Request, user: User = Depends(get_current_user),
@@ -1438,6 +1408,8 @@ def create_employee(
         password_hash=hash_password(password), role=role,
         department_id=department_id or None,
         manager_id=manager_id or None,
+        employee_id=_next_employee_id(db, user.tenant_id),
+        status="ACTIVE",
     )
     db.add(emp)
     db.commit()
@@ -1531,10 +1503,36 @@ async def bulk_import_employees(file: UploadFile = File(...),
             if dept:
                 dept_id = dept.id
 
+        # Resolve optional manager
+        mgr_id = None
+        mgr_phone = (row.get("manager_phone") or "").strip()
+        if mgr_phone:
+            mgr = db.query(User).filter(
+                User.tenant_id == user.tenant_id,
+                User.phone == mgr_phone, User.is_deleted == False,
+            ).first()
+            if mgr:
+                mgr_id = mgr.id
+
+        from datetime import date as _date
+        jdate = None
+        jdate_str = (row.get("joining_date") or "").strip()
+        if jdate_str:
+            try:
+                jdate = _date.fromisoformat(jdate_str)
+            except ValueError:
+                pass
+
         db.add(User(
             tenant_id=user.tenant_id, name=name, phone=phone,
+            email=(row.get("email") or "").strip() or None,
             password_hash=hash_password(password), role=role,
             department_id=dept_id,
+            manager_id=mgr_id,
+            address=(row.get("address") or "").strip() or None,
+            joining_date=jdate,
+            status="ACTIVE",
+            employee_id=_next_employee_id(db, user.tenant_id),
         ))
         imported += 1
 

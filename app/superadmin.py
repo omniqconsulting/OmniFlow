@@ -7,7 +7,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from datetime import datetime
-import os
+import json as _json, os
+from markupsafe import Markup as _Markup
 
 from .database import (
     get_db, new_id,
@@ -32,6 +33,16 @@ router = APIRouter(prefix="/superadmin")
 
 BASE_DIR  = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+
+
+class _OrmEncoder(_json.JSONEncoder):
+    def default(self, obj):
+        if hasattr(obj, "__dict__"):
+            return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+        return super().default(obj)
+
+
+templates.env.filters["tojson"] = lambda v: _Markup(_json.dumps(v, cls=_OrmEncoder))
 
 
 def _redirect(path: str):
