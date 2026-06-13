@@ -781,7 +781,7 @@ def fms_ticket_detail(
 
 
 @router.post("/tickets/{ticket_id}/transition")
-def fms_transition(
+async def fms_transition(
     ticket_id: str,
     next_stage_id: str = Form(...),
     new_assignee_id: str = Form(...),
@@ -789,6 +789,7 @@ def fms_transition(
     qty_completed: str = Form("0"),
     return_reason: str = Form(""),
     is_override: bool = Form(False),
+    evidence_file: UploadFile = File(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -830,13 +831,32 @@ def fms_transition(
     if cur_stage and cur_stage.completion_note_required and not completion_note.strip():
         raise HTTPException(400, f"Stage '{cur_stage.name}' requires a completion note")
 
+    # Stage requires evidence upload
+    evidence_url = None
+    evidence_filename = None
+    if cur_stage and getattr(cur_stage, "evidence_required", False):
+        has_file = (evidence_file is not None
+                    and evidence_file.filename
+                    and evidence_file.filename.strip())
+        if not has_file:
+            raise HTTPException(
+                400,
+                f"Stage '{cur_stage.name}' requires an evidence file upload before moving on"
+            )
+        from .uploads import save_upload as _save_upload
+        result = await _save_upload(evidence_file, user.tenant_id)
+        evidence_url = result["file_path"]
+        evidence_filename = result["file_name"]
+
     qty = int(qty_completed) if qty_completed.strip().isdigit() else 0
 
     # Close current stage history row
     if open_h:
-        open_h.exited_at       = datetime.utcnow()
-        open_h.completion_note = completion_note.strip() or None
-        open_h.qty_completed   = qty
+        open_h.exited_at        = datetime.utcnow()
+        open_h.completion_note  = completion_note.strip() or None
+        open_h.qty_completed    = qty
+        open_h.evidence_url     = evidence_url
+        open_h.evidence_filename= evidence_filename
         _log(db, ticket_id, user.id, "STAGE_EXITED",
              f"From: {cur_stage.name if cur_stage else '?'} | "
              f"note: {completion_note[:80]}" if completion_note else "")

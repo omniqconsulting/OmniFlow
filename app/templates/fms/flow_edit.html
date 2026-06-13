@@ -73,6 +73,7 @@
             {% if stage.is_terminal %}<span class="badge badge-green" style="font-size:9px">Terminal</span>{% endif %}
             {% if stage.is_mandatory %}<span class="badge badge-blue" style="font-size:9px">Mandatory</span>{% endif %}
             {% if stage.completion_note_required %}<span class="badge badge-gray" style="font-size:9px">Note req'd</span>{% endif %}
+            {% if stage.evidence_required %}<span class="badge badge-amber" style="font-size:9px">📎 Evidence req'd</span>{% endif %}
           </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:#64748b">

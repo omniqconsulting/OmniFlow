@@ -373,6 +373,14 @@ select option{background:#111827}
             {% if v.history.completion_note %}
             <div style="font-size:11px;color:#6ee7b7;margin-bottom:4px">✓ Note: {{ v.history.completion_note }}</div>
             {% endif %}
+            {% if v.history.evidence_url %}
+            <div style="margin-bottom:6px">
+              <a href="{{ v.history.evidence_url }}" target="_blank"
+                 style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#fcd34d;text-decoration:none;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:5px;padding:3px 9px">
+                📎 {{ v.history.evidence_filename or 'View Evidence' }}
+              </a>
+            </div>
+            {% endif %}
 
             <!-- Events during this visit -->
             {% if v.events %}
@@ -454,8 +462,15 @@ select option{background:#111827}
   <!-- ══ TRANSITION FORM ═══════════════════════════════════════════════════════ -->
   {% if can_transition and ticket.status not in ('COMPLETED','CLOSED') %}
   <div class="card">
-    <div class="card-hdr"><span class="card-title">↗ Move to Stage</span></div>
-    <form method="post" action="/fms/tickets/{{ ticket.id }}/transition">
+    <div class="card-hdr">
+      <span class="card-title">↗ Move to Stage</span>
+      {% if ticket.current_stage and ticket.current_stage.evidence_required %}
+      <span style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#fcd34d;font-size:11px;font-weight:600;padding:3px 10px;border-radius:6px">
+        📎 Evidence required to complete this stage
+      </span>
+      {% endif %}
+    </div>
+    <form method="post" action="/fms/tickets/{{ ticket.id }}/transition" enctype="multipart/form-data">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
         <div class="form-group" style="margin-bottom:0">
           <label>Next Stage *</label>
@@ -488,6 +503,17 @@ select option{background:#111827}
           <input type="text" name="completion_note" placeholder="What was accomplished…">
         </div>
       </div>
+      {% if ticket.current_stage and ticket.current_stage.evidence_required %}
+      <div class="form-group" style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <label style="color:#fcd34d">📎 Evidence File *</label>
+        <input type="file" name="evidence_file" required
+               style="width:100%;background:#0d1424;border:1px solid rgba(245,158,11,0.3);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0">
+        <div style="font-size:11px;color:#92400e;margin-top:5px">
+          Required — upload a photo, document, or report before moving to the next stage.
+          Accepted: images, PDF, Office docs (max 20 MB).
+        </div>
+      </div>
+      {% endif %}
       <div id="returnReasonRow" style="display:none" class="form-group">
         <label style="color:#f59e0b">Return reason *</label>
         <input type="text" name="return_reason" placeholder="Why is this being returned?">

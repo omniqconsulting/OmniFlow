@@ -227,6 +227,8 @@ def lib_flow_duplicate(flow_id: str, sa: SuperAdmin = Depends(get_current_sa),
         db.add(LibraryFlowStage(
             template_id=copy.id, name=s.name, description=s.description,
             color=s.color, order=s.order, is_terminal=s.is_terminal,
+            completion_note_required=bool(s.completion_note_required),
+            evidence_required=bool(s.evidence_required),
         ))
     db.commit()
     return _r(f"/superadmin/library/flows/{copy.id}?msg=duplicated")
@@ -294,6 +296,7 @@ def lib_flow_deploy(flow_id: str, tenant_id: str = Form(...),
             sub_module_tag=lib_stage.sub_module_tag,
             deployed_submodule_id=lib_stage.submodule_id,
             completion_note_required=bool(lib_stage.completion_note_required),
+            evidence_required=bool(lib_stage.evidence_required),
             is_terminal=lib_stage.is_terminal,
         ))
 
@@ -900,6 +903,7 @@ def _stage_to_dict(s: LibraryFlowStage) -> dict:
         "sub_module_tag": s.sub_module_tag or "",
         "submodule_id": s.submodule_id or "",
         "completion_note_required": bool(s.completion_note_required),
+        "evidence_required": bool(s.evidence_required),
     }
 
 
@@ -921,6 +925,7 @@ def _save_stages(db, template_id: str, stages_json: str):
             sub_module_tag=s.get("sub_module_tag") or None,
             submodule_id=s.get("submodule_id") or None,
             completion_note_required=bool(s.get("completion_note_required")),
+            evidence_required=bool(s.get("evidence_required")),
         ))
 
 

@@ -269,6 +269,7 @@ function renderPipeline() {
     <span class="pip-chip-sm" style="background:${s.color}22;border:1px solid ${s.color}44;color:#e2e8f0">
       ${escHtml(s.name || 'Stage')}${s.is_terminal ? ' ✓' : ''}
       ${s.sub_module_tag ? `<span class="sm-badge">${SM_TYPE_LABELS[s.sub_module_tag] || s.sub_module_tag}</span>` : ''}
+      ${s.evidence_required ? '<span style="font-size:9px;background:rgba(245,158,11,0.2);color:#fcd34d;border-radius:4px;padding:1px 5px;font-weight:700">📎 Evidence</span>' : ''}
     </span>
     ${i < stages.length - 1 ? '<span style="color:#374151;font-size:14px">›</span>' : ''}
   `).join('');
@@ -370,11 +371,17 @@ function renderStages() {
             </select>
             <div style="font-size:11px;color:#4b5563;margin-top:4px">Attach a data-capture form to this stage.</div>
           </div>
-          <div class="stage-field" style="grid-column:1/-1;display:flex;gap:20px">
+          <div class="stage-field" style="grid-column:1/-1;display:flex;flex-wrap:wrap;gap:20px">
             <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:#94a3b8;cursor:pointer">
               <input type="checkbox" ${s.completion_note_required?'checked':''}
                      onchange="stages[${i}].completion_note_required=this.checked;syncJson()">
               Completion note required
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:#fcd34d;cursor:pointer"
+                   title="Assignee must upload a file before this stage can be completed">
+              <input type="checkbox" ${s.evidence_required?'checked':''}
+                     onchange="stages[${i}].evidence_required=this.checked;syncJson();renderPipeline();renderStages()">
+              Evidence upload required
             </label>
             <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:#94a3b8;cursor:pointer">
               <input type="checkbox" ${s.is_terminal?'checked':''}
@@ -403,7 +410,8 @@ function addStage() {
   stages.push({name: 'New Stage', color: '#3b82f6', is_terminal: false,
                description: '', target_tat_hours: null,
                sub_module_tag: null, submodule_id: null,
-               completion_note_required: false, order: stages.length});
+               completion_note_required: false, evidence_required: false,
+               order: stages.length});
   syncJson();
   renderStages();
   // Auto-open the new stage

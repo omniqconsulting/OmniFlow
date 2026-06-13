@@ -689,6 +689,8 @@ class FMSStageHistory(Base):
     qty_completed    = Column(Integer, default=0)
     from_stage_id    = Column(String,  nullable=True)
     from_stage_name  = Column(String,  nullable=True)
+    evidence_url     = Column(String,  nullable=True)   # uploaded file path/URL
+    evidence_filename= Column(String,  nullable=True)   # original filename for display
 
     ticket   = relationship("FMSTicket", back_populates="stage_history")
     stage    = relationship("FMSStage",  foreign_keys=[stage_id])
