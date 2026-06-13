@@ -1,0 +1,145 @@
+{#
+  Reusable Linked Entities section — include on ticket/checklist/FMS ticket creation forms
+  and detail pages.
+
+  Required context variables:
+    entity_options  — dict from get_linked_entity_options() — used on CREATE forms
+    linked_refs     — list of LinkedEntityReference objects — used on DETAIL pages
+    parent_type     — "TICKET" / "CHECKLIST_ASSIGNMENT" / "FMS_TICKET"
+    parent_id       — ID of the parent record (empty string on create forms)
+    readonly        — True on detail pages, False on create/edit forms
+#}
+
+{% if not readonly %}
+{# ── CREATE / EDIT form section ─────────────────────────────────────────── #}
+<div class="card" style="padding:14px;margin-top:12px" id="linked-entities-section">
+  <div style="font-weight:600;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+    🔗 Linked Entities
+    <span style="font-size:11px;font-weight:400;color:#64748b">Optional — link related records to this item</span>
+  </div>
+
+  <div id="linked-entity-selections" style="display:flex;flex-direction:column;gap:8px">
+
+    {% if entity_options.get('CUSTOMER') %}
+    <div class="linked-entity-row">
+      <label class="form-label" style="font-size:12px;margin-bottom:3px">Customer</label>
+      <select name="linked_customer" class="form-input" style="font-size:13px"
+              onchange="showEntityDetail(this, 'customer-detail')">
+        <option value="">— None —</option>
+        {% for opt in entity_options['CUSTOMER'] %}
+        <option value="{{ opt.id }}" data-label="{{ opt.label }}" data-detail="{{ opt.detail }}">{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+      <div id="customer-detail" class="entity-detail-card" style="display:none"></div>
+    </div>
+    {% endif %}
+
+    {% if entity_options.get('END_PRODUCT') %}
+    <div class="linked-entity-row">
+      <label class="form-label" style="font-size:12px;margin-bottom:3px">End Product</label>
+      <select name="linked_end_product" class="form-input" style="font-size:13px"
+              onchange="showEntityDetail(this, 'endproduct-detail')">
+        <option value="">— None —</option>
+        {% for opt in entity_options['END_PRODUCT'] %}
+        <option value="{{ opt.id }}" data-label="{{ opt.label }}" data-detail="{{ opt.detail }}">{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+      <div id="endproduct-detail" class="entity-detail-card" style="display:none"></div>
+    </div>
+    {% endif %}
+
+    {% if entity_options.get('MATERIAL') %}
+    <div class="linked-entity-row">
+      <label class="form-label" style="font-size:12px;margin-bottom:3px">{{ L.Material }}</label>
+      <select name="linked_material" class="form-input" style="font-size:13px"
+              onchange="showEntityDetail(this, 'material-detail')">
+        <option value="">— None —</option>
+        {% for opt in entity_options['MATERIAL'] %}
+        <option value="{{ opt.id }}" data-label="{{ opt.label }}" data-detail="{{ opt.detail }}">{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+      <div id="material-detail" class="entity-detail-card" style="display:none"></div>
+    </div>
+    {% endif %}
+
+    {% if entity_options.get('VENDOR') %}
+    <div class="linked-entity-row">
+      <label class="form-label" style="font-size:12px;margin-bottom:3px">{{ L.Supplier }}</label>
+      <select name="linked_vendor" class="form-input" style="font-size:13px">
+        <option value="">— None —</option>
+        {% for opt in entity_options['VENDOR'] %}
+        <option value="{{ opt.id }}" data-label="{{ opt.label }}">{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+
+    {% for key, items in entity_options.items() %}
+    {% if key.startswith('CUSTOM_LIST:') %}
+    {% set parts = key.split(':') %}
+    {% set list_id = parts[1] %}
+    {% set list_name = parts[2] %}
+    <div class="linked-entity-row">
+      <label class="form-label" style="font-size:12px;margin-bottom:3px">{{ list_name }}</label>
+      <select name="linked_custom_{{ list_id }}" class="form-input" style="font-size:13px"
+              data-list-id="{{ list_id }}" data-list-name="{{ list_name }}">
+        <option value="">— None —</option>
+        {% for opt in items %}
+        <option value="{{ opt.id }}" data-label="{{ opt.label }}">{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    <!-- Other / free text — always shown -->
+    <div class="linked-entity-row">
+      <label class="form-label" style="font-size:12px;margin-bottom:3px">Additional Reference</label>
+      <input name="linked_other" class="form-input" style="font-size:13px"
+             placeholder="Free text — any other reference (optional)">
+    </div>
+
+  </div>
+</div>
+
+<style>
+.entity-detail-card {
+  margin-top:4px; padding:8px 10px; background:rgba(59,130,246,0.06);
+  border:1px solid rgba(59,130,246,0.2); border-radius:6px;
+  font-size:12px; color:#93c5fd;
+}
+.linked-entity-row { display:flex; flex-direction:column; }
+</style>
+
+<script>
+function showEntityDetail(select, detailId) {
+  const card = document.getElementById(detailId);
+  const opt = select.options[select.selectedIndex];
+  const detail = opt ? opt.dataset.detail : '';
+  if (detail && detail !== 'undefined') {
+    card.textContent = detail;
+    card.style.display = 'block';
+  } else {
+    card.style.display = 'none';
+  }
+}
+</script>
+
+{% else %}
+{# ── READ-ONLY display on detail pages ─────────────────────────────────── #}
+{% if linked_refs %}
+<div class="card" style="padding:14px;margin-top:12px">
+  <div style="font-weight:600;font-size:13px;margin-bottom:10px">🔗 Linked Entities</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    {% for ref in linked_refs %}
+    <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px">
+      <span style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:0.05em">
+        {% if ref.entity_type == 'CUSTOM_LIST' %}Ref{% else %}{{ ref.entity_type.replace('_',' ') }}{% endif %}
+      </span>
+      <div style="color:#e2e8f0;font-weight:500;margin-top:2px">{{ ref.entity_label or ref.custom_text or '—' }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endif %}
