@@ -115,7 +115,7 @@
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
     <div>
-      <h2 style="margin:0">Departments</h2>
+      <h2 style="margin:0">{{ L.Departments }}</h2>
       <div style="font-size:12px;color:#64748b;margin-top:3px">Add as many departments as you need. E.g. Production, Quality, Maintenance, HR.</div>
     </div>
     <span class="badge badge-blue">{{ departments|length }} added</span>
@@ -152,7 +152,7 @@
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
     <div>
-      <h2 style="margin:0">Employees</h2>
+      <h2 style="margin:0">{{ L.Employees }}</h2>
       <div style="font-size:12px;color:#64748b;margin-top:3px">Add team members — operators, supervisors, managers. You can assign roles and departments.</div>
     </div>
     <span class="badge {% if employees|length > 1 %}badge-green{% else %}badge-gray{% endif %}">{{ employees|length }} registered</span>
@@ -160,7 +160,7 @@
 
   {% if employees %}
   <table style="margin-bottom:16px">
-    <thead><tr><th>Name</th><th>Role</th><th>Department</th></tr></thead>
+    <thead><tr><th>Name</th><th>Role</th><th>{{ L.Department }}</th></tr></thead>
     <tbody>
     {% for e in employees %}
     <tr>
@@ -189,7 +189,7 @@
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
     <div>
-      <h2 style="margin:0">Checklists</h2>
+      <h2 style="margin:0">{{ L.Checklists }}</h2>
       <div style="font-size:12px;color:#64748b;margin-top:3px">Create recurring inspection or task routines that auto-repeat for your team.</div>
     </div>
     <span class="badge {% if checklist_count > 0 %}badge-green{% else %}badge-gray{% endif %}">{{ checklist_count }} created</span>

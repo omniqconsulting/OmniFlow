@@ -651,7 +651,7 @@ select option{background:#111827}
     <div id="helperPanel" class="action-panel" style="margin-top:8px">
       <form method="post" action="/fms/tickets/{{ ticket.id }}/action">
         <input type="hidden" name="action" value="add_helper">
-        <div class="form-group"><label>Employee</label>
+        <div class="form-group"><label>{{ L.Employee }}</label>
           <select name="helper_id" required>
             <option value="">Select…</option>
             {% for emp in employees if emp.id not in helper_ids %}
@@ -900,7 +900,7 @@ function renderSubmoduleData(d) {
     ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.07)">
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Date</th>
-        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Material</th>
+        <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">{{ L.Material }}</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Qty</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Stage</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Status</th>

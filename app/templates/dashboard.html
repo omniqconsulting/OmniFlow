@@ -118,7 +118,7 @@
     </div>
   </form>
   {% if departments %}
-  <div style="padding:8px 8px 4px;font-size:10px;color:#4b5568">Department</div>
+  <div style="padding:8px 8px 4px;font-size:10px;color:#4b5568">{{ L.Department }}</div>
   <a class="sb-link {% if not dept_id %}active{% endif %}"
      href="?date_from={{ date_from }}&date_to={{ date_to }}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}">
     <i class="ti ti-building"></i> All
@@ -216,7 +216,7 @@
         <div class="card-hdr"><span class="card-title">Avg TaT by employee</span></div>
         {% if emp_tat %}
         <table class="dt">
-          <thead><tr><th>Employee</th><th>Dept</th><th>Closed</th><th>Avg TaT</th><th>vs org</th></tr></thead>
+          <thead><tr><th>{{ L.Employee }}</th><th>Dept</th><th>Closed</th><th>Avg TaT</th><th>vs org</th></tr></thead>
           <tbody>{% for r in emp_tat %}
           <tr>
             <td class="name">{{ r.name }}</td><td>{{ r.dept }}</td><td>{{ r.closed }}</td>
@@ -347,7 +347,7 @@
         <div class="card-hdr"><span class="card-title">By template</span></div>
         {% if cl_tmpl %}
         <table class="dt">
-          <thead><tr><th>Checklist</th><th>Freq</th><th>Assigned</th><th>Done</th><th>Rate</th></tr></thead>
+          <thead><tr><th>{{ L.Checklist }}</th><th>Freq</th><th>Assigned</th><th>Done</th><th>Rate</th></tr></thead>
           <tbody>{% for r in cl_tmpl %}
           <tr>
             <td class="name">{{ r.title[:26] }}{% if r.title|length>26 %}…{% endif %}</td>
@@ -365,7 +365,7 @@
     <div class="card">
       <div class="card-hdr"><span class="card-title">Compliance by department</span></div>
       <table class="dt">
-        <thead><tr><th>Department</th><th>Assigned</th><th>Done</th><th style="min-width:180px">Rate</th></tr></thead>
+        <thead><tr><th>{{ L.Department }}</th><th>Assigned</th><th>Done</th><th style="min-width:180px">Rate</th></tr></thead>
         <tbody>{% for r in cl_dept %}
         <tr>
           <td class="name">{{ r.dept }}</td><td>{{ r.total }}</td><td>{{ r.done }}</td>
@@ -528,7 +528,7 @@
     </div>
     {% if cl_sc.due_24h_items %}
     <table class="dt">
-      <thead><tr><th>Checklist</th><th>Assignee</th><th>Due</th></tr></thead>
+      <thead><tr><th>{{ L.Checklist }}</th><th>Assignee</th><th>Due</th></tr></thead>
       <tbody>{% for item in cl_sc.due_24h_items %}
       <tr>
         <td class="name">{{ item.title[:42] }}{% if item.title|length>42 %}…{% endif %}</td>

@@ -437,7 +437,7 @@ select option{background:#111827;color:#e2e8f0}
   {% if active_flow %}<input type="hidden" name="flow_id" value="{{ active_flow.id }}">{% endif %}
   {% if departments %}
   <div class="filter-group">
-    <label>Department</label>
+    <label>{{ L.Department }}</label>
     <select name="dept_id">
       <option value="">All Departments</option>
       {% for d in departments %}<option value="{{ d.id }}" {{ 'selected' if f_dept_id == d.id }}>{{ d.name }}</option>{% endfor %}

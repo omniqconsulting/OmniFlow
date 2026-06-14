@@ -10,7 +10,8 @@ if DATABASE_URL:
     # Render still issues legacy postgres:// URLs — SQLAlchemy requires postgresql://
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    engine = create_engine(DATABASE_URL)
+    # pool_pre_ping: validates connections before use (handles Render idle-timeout drops)
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
 else:
     _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     _DB_FILE      = os.path.join(_PROJECT_ROOT, "omniflow.db")

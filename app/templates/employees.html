@@ -88,7 +88,7 @@
   </div>
   <div class="kpi-tile">
     <div class="kt-val" style="color:#fbbf24">{{ kpi_departments }}</div>
-    <div class="kt-lbl">Departments</div>
+    <div class="kt-lbl">{{ L.Departments }}</div>
   </div>
 </div>
 
@@ -98,7 +98,7 @@
   <table>
     <thead>
       <tr>
-        <th>Name</th><th>Phone</th><th>Role</th><th>Department</th>
+        <th>Name</th><th>Phone</th><th>Role</th><th>{{ L.Department }}</th>
         <th>Manager</th><th>Status</th>
         <th>Actions</th>
       </tr>
@@ -216,7 +216,7 @@
               </select>
             </div>
             <div class="form-group" style="margin:0">
-              <label>Department</label>
+              <label>{{ L.Department }}</label>
               <select name="department_id">
                 <option value="">— None —</option>
                 {% for d in departments %}
@@ -275,7 +275,7 @@
   <!-- Filter bar -->
   <div style="background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
     <div>
-      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Department</div>
+      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">{{ L.Department }}</div>
       <select id="orgDeptFilter" onchange="renderOrg()" style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:160px">
         <option value="">All Departments</option>
         {% for d in departments %}
@@ -327,14 +327,14 @@
         <div class="form-group">
           <label>Role</label>
           <select name="role">
-            <option value="EMPLOYEE">Employee</option>
+            <option value="EMPLOYEE">{{ L.Employee }}</option>
             <option value="MANAGER">Manager</option>
             <option value="STORE_MANAGER">Store Manager</option>
             <option value="ADMIN">Admin</option>
           </select>
         </div>
         <div class="form-group">
-          <label>Department</label>
+          <label>{{ L.Department }}</label>
           <select name="department_id">
             <option value="">— None —</option>
             {% for d in departments %}
@@ -380,7 +380,7 @@
         </div>
         <div style="text-align:center">
           <div id="tw-cls" style="font-size:20px;font-weight:700;color:#fbbf24"></div>
-          <div style="font-size:10px;color:#64748b">Checklists</div>
+          <div style="font-size:10px;color:#64748b">{{ L.Checklists }}</div>
         </div>
         <div style="text-align:center">
           <div id="tw-fms" style="font-size:20px;font-weight:700;color:#7dd3fc"></div>

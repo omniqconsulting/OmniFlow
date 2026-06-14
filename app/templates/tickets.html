@@ -74,7 +74,7 @@
   <input type="hidden" name="status" value="{{ status_filter }}">
   <input type="hidden" name="view" value="{{ view }}">
   <div>
-    <label>Branch</label>
+    <label>{{ L.Branch }}</label>
     <select name="branch_id" onchange="this.form.submit()">
       <option value="">All Branches</option>
       {% for b in branches %}

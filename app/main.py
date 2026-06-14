@@ -88,6 +88,25 @@ from markupsafe import Markup as _Markup
 templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
 templates.env.filters["tojson"]    = lambda v: _Markup(_json.dumps(v, cls=_OrmEncoder))
 
+# ── P10-04: Validation helpers ──────────────────────────────────────────────
+import re as _re
+
+def _validate_phone(phone: str) -> str | None:
+    """Return error message or None if valid. Expects exactly 10 digits."""
+    digits = _re.sub(r"\D", "", phone)
+    if len(digits) != 10:
+        return "Phone must be exactly 10 digits"
+    return None
+
+def _validate_email(email: str) -> str | None:
+    """Return error message or None if valid (or empty — email is optional)."""
+    if not email:
+        return None
+    if not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return "Invalid email address format"
+    return None
+
+
 def _next_employee_id(db, tenant_id: str) -> str:
     """Generate the next EMP-XXXX id for a tenant."""
     count = db.query(User).filter(
@@ -2088,6 +2107,9 @@ def create_employee(
     if _limit_hit(tenant, "max_users", current_count):
         return RedirectResponse("/employees?upgrade=users",
                                 status_code=302)
+    phone_err = _validate_phone(phone)
+    if phone_err:
+        return RedirectResponse(f"/employees?error={phone_err.replace(' ', '+')}", status_code=302)
     if db.query(User).filter(
         User.tenant_id == user.tenant_id,
         User.phone == phone, User.is_deleted == False,
@@ -2292,6 +2314,12 @@ def edit_employee(
     joining_date: str = Form(""), address: str = Form(""),
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
+    phone_err = _validate_phone(phone)
+    if phone_err:
+        return redirect(f"/employees?error={phone_err.replace(' ', '+')}")
+    email_err = _validate_email(email)
+    if email_err:
+        return redirect(f"/employees?error={email_err.replace(' ', '+')}")
     emp = db.query(User).filter(
         User.id == emp_id, User.tenant_id == user.tenant_id, User.is_deleted == False,
     ).first()

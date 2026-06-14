@@ -27,7 +27,7 @@
 {% if user.role in ('ADMIN','MANAGER') %}
 <form method="get" action="/checklists" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px">
   <div class="form-group" style="margin:0;min-width:160px">
-    <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;display:block;margin-bottom:4px">Department</label>
+    <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;display:block;margin-bottom:4px">{{ L.Department }}</label>
     <select name="dept_id" onchange="this.form.submit()"
             style="background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:7px 10px;font-size:12px;color:#e2e8f0;outline:none">
       <option value="">All Departments</option>
@@ -243,7 +243,7 @@
   <table>
     <thead>
       <tr>
-        <th>Checklist</th>
+        <th>{{ L.Checklist }}</th>
         <th>Frequency</th>
         <th>Assigned To</th>
         <th>Last Completed</th>
