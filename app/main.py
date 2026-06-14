@@ -108,11 +108,19 @@ def _validate_email(email: str) -> str | None:
 
 
 def _next_employee_id(db, tenant_id: str) -> str:
-    """Generate the next EMP-XXXX id for a tenant."""
-    count = db.query(User).filter(
-        User.tenant_id == tenant_id, User.is_deleted == False
-    ).count()
-    return f"EMP-{count + 1:04d}"
+    """Generate the next EMP-XXXX id for a tenant using MAX to avoid collisions after soft-delete."""
+    from sqlalchemy import func as _func
+    max_id = db.query(_func.max(User.employee_id)).filter(
+        User.tenant_id == tenant_id, User.employee_id.isnot(None)
+    ).scalar()
+    if max_id and max_id.startswith("EMP-"):
+        try:
+            next_num = int(max_id[4:]) + 1
+        except ValueError:
+            next_num = 1
+    else:
+        next_num = 1
+    return f"EMP-{next_num:04d}"
 
 # Default nav feature flags to False — per-route _nav_ctx() overrides with real values.
 templates.env.globals["has_inventory"]  = False

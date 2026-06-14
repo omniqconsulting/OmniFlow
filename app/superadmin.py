@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, date as _date
 import json as _json, os
 from markupsafe import Markup as _Markup
 
@@ -39,6 +39,8 @@ class _OrmEncoder(_json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, "__dict__"):
             return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+        if isinstance(obj, (datetime, _date)):
+            return obj.isoformat()
         return super().default(obj)
 
 
@@ -497,7 +499,7 @@ def sa_edit_tenant(tenant_id: str,
         row.department_s=_get("department",0);row.department_p=_get("department",1)
         row.employee_s=_get("employee",0);   row.employee_p=_get("employee",1)
         row.industry=industry
-        from datetime import datetime as _dt; row.updated_at=_dt.utcnow()
+        row.updated_at=datetime.utcnow()
     db.commit()
     return _redirect(f"/superadmin/tenants/{tenant_id}?msg=updated")
 

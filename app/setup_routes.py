@@ -5,7 +5,7 @@ Deployed Config, and Inventory Reference routes.
 from __future__ import annotations
 
 import csv, io, json
-from datetime import datetime
+from datetime import datetime, date as _date
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -36,6 +36,8 @@ class _OrmEncoder(_json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, "__dict__"):
             return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+        if isinstance(obj, (datetime, _date)):
+            return obj.isoformat()
         return super().default(obj)
 
 

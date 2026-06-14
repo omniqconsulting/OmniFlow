@@ -5,7 +5,7 @@ Tabs: flows | submodules | checklists | labels | onboarding
 """
 from __future__ import annotations
 import json, logging
-from datetime import datetime
+from datetime import datetime, date as _date
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -35,6 +35,8 @@ class _OrmEncoder(json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, "__dict__"):
             return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+        if isinstance(obj, (datetime, _date)):
+            return obj.isoformat()
         return super().default(obj)
 
 
