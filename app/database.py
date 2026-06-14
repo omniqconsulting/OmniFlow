@@ -259,6 +259,7 @@ class ChecklistAssignment(Base):
     # P1-08: checklist assignment enhancements
     delay_reason      = Column(Text)              # mandatory when OVERDUE completion
     evidence_required = Column(Boolean)           # inherited from template at assignment creation
+    is_deleted        = Column(Boolean, default=False)  # P6-03: soft delete
     created_at = Column(DateTime, default=datetime.utcnow)
 
     template = relationship("ChecklistTemplate", back_populates="assignments")

@@ -284,6 +284,106 @@ def morning_ticket_summary():
         db.close()
 
 
+# ── Phase 6 jobs ─────────────────────────────────────────────────────────────
+
+def checklist_morning_summary():
+    """P6-02: 8:00 AM — notify each user of PENDING/IN_PROGRESS assignments due today."""
+    from datetime import date as _date
+    from .database import SessionLocal, ChecklistAssignment, Notification
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        today_start = datetime.combine(_date.today(), datetime.min.time())
+        today_end   = datetime.combine(_date.today(), datetime.max.time())
+        pending = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.due_at >= today_start,
+            ChecklistAssignment.due_at <= today_end,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+            ChecklistAssignment.is_deleted == False,
+        ).all()
+        by_user: dict = {}
+        for a in pending:
+            by_user.setdefault((a.user_id, a.tenant_id), []).append(a)
+        for (uid, tid), items in by_user.items():
+            label = items[0].template.title if items[0].template else "a checklist"
+            body = f"You have {len(items)} checklist(s) due today. First: \"{label}\"."
+            db.add(Notification(tenant_id=tid, user_id=uid,
+                                notif_type="CHECKLIST_REMINDER",
+                                title="🌅 Morning checklist summary",
+                                body=body, link="/checklists"))
+        db.commit()
+        logger.info("Checklist morning summary sent to %d users", len(by_user))
+    except Exception as e:
+        logger.error("checklist_morning_summary error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def checklist_midday_reminder():
+    """P6-02: 1:00 PM — remind users of still-incomplete assignments due today."""
+    from datetime import date as _date
+    from .database import SessionLocal, ChecklistAssignment, Notification
+    db = SessionLocal()
+    try:
+        today_end = datetime.combine(_date.today(), datetime.max.time())
+        now = datetime.utcnow()
+        pending = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.due_at <= today_end,
+            ChecklistAssignment.due_at >= now,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+            ChecklistAssignment.is_deleted == False,
+        ).all()
+        by_user: dict = {}
+        for a in pending:
+            by_user.setdefault((a.user_id, a.tenant_id), []).append(a)
+        for (uid, tid), items in by_user.items():
+            db.add(Notification(tenant_id=tid, user_id=uid,
+                                notif_type="CHECKLIST_REMINDER",
+                                title="☀ Midday reminder",
+                                body=f"You still have {len(items)} pending checklist(s) due today.",
+                                link="/checklists"))
+        db.commit()
+        logger.info("Checklist midday reminder sent to %d users", len(by_user))
+    except Exception as e:
+        logger.error("checklist_midday_reminder error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def checklist_eod_overdue():
+    """P6-02: 6:00 PM — mark past-due assignments OVERDUE then notify assignees."""
+    from .database import SessionLocal, ChecklistAssignment, Notification
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        past_due = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.due_at < now,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+            ChecklistAssignment.is_deleted == False,
+        ).all()
+        for a in past_due:
+            a.status = "OVERDUE"
+        db.flush()
+        by_user: dict = {}
+        for a in past_due:
+            by_user.setdefault((a.user_id, a.tenant_id), []).append(a)
+        for (uid, tid), items in by_user.items():
+            db.add(Notification(tenant_id=tid, user_id=uid,
+                                notif_type="CHECKLIST_OVERDUE",
+                                title="🌆 End-of-day: overdue checklists",
+                                body=f"{len(items)} checklist(s) are now marked OVERDUE. Please complete with a delay reason.",
+                                link="/checklists"))
+        db.commit()
+        logger.info("EOD: marked %d assignments OVERDUE", len(past_due))
+    except Exception as e:
+        logger.error("checklist_eod_overdue error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
 # ── Phase 3 jobs ─────────────────────────────────────────────────────────────
 
 def pms_no_entry_check():
@@ -455,6 +555,13 @@ def start_scheduler():
     # Phase 5 jobs
     scheduler.add_job(morning_ticket_summary,
                       CronTrigger(hour=8, minute=0, timezone="UTC"), id="morning_tickets", replace_existing=True)
+    # Phase 6 jobs
+    scheduler.add_job(checklist_morning_summary,
+                      CronTrigger(hour=8, minute=0, timezone="UTC"), id="cl_morning", replace_existing=True)
+    scheduler.add_job(checklist_midday_reminder,
+                      CronTrigger(hour=13, minute=0, timezone="UTC"), id="cl_midday", replace_existing=True)
+    scheduler.add_job(checklist_eod_overdue,
+                      CronTrigger(hour=18, minute=0, timezone="UTC"), id="cl_eod", replace_existing=True)
     # Phase 3 jobs
     scheduler.add_job(pms_no_entry_check,
                       IntervalTrigger(hours=1), id="pms_noe",   replace_existing=True)
@@ -464,7 +571,7 @@ def start_scheduler():
                       IntervalTrigger(hours=6), id="inv_chk",   replace_existing=True)
     if not scheduler.running:
         scheduler.start()
-    logger.info("Scheduler started (8 jobs)")
+    logger.info("Scheduler started (11 jobs)")
 
 
 def stop_scheduler():

@@ -1522,6 +1522,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         ChecklistAssignment.tenant_id == tid,
         ChecklistAssignment.user_id == user.id,
         ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+        ChecklistAssignment.is_deleted == False,
     ).order_by(ChecklistAssignment.due_at).all()
 
     # Upcoming assignments (next 7 days — scoped to manager's team)
@@ -1591,6 +1592,8 @@ def checklists(request: Request, user: User = Depends(get_current_user),
     ).order_by(User.name).all()
     managers = [e for e in employees if e.role in ("MANAGER", "ADMIN")]
 
+    from .linked_entities import get_linked_entity_options as _geo
+    entity_options = _geo(db, user.tenant_id)
     return templates.TemplateResponse(request, "checklists.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -1600,13 +1603,17 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         "departments": departments, "employees": employees, "managers": managers,
         "chart_weeks": chart_weeks,
         "dept_id": dept_id, "manager_id": manager_id,
+        "entity_options": entity_options,
         "now": now,
     })
 
 @app.post("/checklists/templates/create")
-def create_template(
+async def create_template(
+    request: Request,
     title: str = Form(...), description: str = Form(...),
-    frequency: str = Form("DAILY"), proof_required: bool = Form(False),
+    frequency: str = Form("DAILY"),
+    proof_required: bool = Form(False),
+    evidence_required: bool = Form(False),
     assigned_to_user_id: str = Form(""),
     assigned_to_dept_id: str = Form(""),
     assigned_to_role: str = Form("EMPLOYEE"),
@@ -1615,23 +1622,29 @@ def create_template(
     is_recurring: bool = Form(True),
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
-    # Derive role from the selected user if a specific user is chosen
     role = assigned_to_role
     if assigned_to_user_id:
         emp = db.query(User).filter(User.id == assigned_to_user_id).first()
         if emp:
             role = emp.role
-    db.add(ChecklistTemplate(
+    tmpl = ChecklistTemplate(
         tenant_id=user.tenant_id, title=title, description=description,
         frequency=frequency, proof_required=proof_required,
+        evidence_required=evidence_required,
         assigned_to_role=role,
         assigned_to_dept_id=assigned_to_dept_id or None,
         assigned_to_user_id=assigned_to_user_id or None,
         reminder_hours_before=reminder_hours_before,
         reminder_repeat_hours=reminder_repeat_hours,
         is_recurring=is_recurring,
-    ))
+    )
+    db.add(tmpl)
     db.commit()
+    db.refresh(tmpl)
+    # P6-05: save linked entities
+    from .linked_entities import save_linked_entities_from_form as _slf
+    form_data = dict(await request.form())
+    _slf(db, form_data, "CHECKLIST_TEMPLATE", tmpl.id, user.tenant_id, user.id)
     return redirect("/checklists")
 
 @app.post("/checklists/assign/{template_id}")
@@ -1668,21 +1681,59 @@ def assign_checklist(template_id: str, due_at: str = Form(...),
     db.commit()
     return redirect("/checklists")
 
-@app.post("/checklists/complete/{assignment_id}")
-def complete_checklist(assignment_id: str, user: User = Depends(get_current_user),
-                       db: Session = Depends(get_db)):
+@app.post("/checklists/start/{assignment_id}")
+def start_checklist(assignment_id: str, user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """P6-01: PENDING → IN_PROGRESS."""
     a = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.id == assignment_id,
         ChecklistAssignment.user_id == user.id,
+        ChecklistAssignment.is_deleted == False,
     ).first()
     if not a:
         raise HTTPException(404)
+    if a.status == "PENDING":
+        a.status = "IN_PROGRESS"
+        db.commit()
+    return redirect("/checklists")
+
+
+@app.post("/checklists/complete/{assignment_id}")
+async def complete_checklist(assignment_id: str, request: Request,
+                              delay_reason: str = Form(""),
+                              evidence_file: UploadFile = File(None),
+                              user: User = Depends(get_current_user),
+                              db: Session = Depends(get_db)):
+    """P6-01/P6-06: Mark assignment complete; gate evidence upload and delay reason."""
+    a = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.id == assignment_id,
+        ChecklistAssignment.user_id == user.id,
+        ChecklistAssignment.is_deleted == False,
+    ).first()
+    if not a:
+        raise HTTPException(404)
+    # P6-01: delay_reason required for OVERDUE
+    if a.status == "OVERDUE" and not delay_reason.strip():
+        raise HTTPException(400, "Delay reason is required for overdue assignments")
+    # P6-06: evidence required gate
+    ev_required = bool(a.evidence_required or (a.template and a.template.evidence_required))
+    if ev_required and (not evidence_file or not evidence_file.filename):
+        raise HTTPException(400, "Evidence file is required for this checklist")
     a.status = "DONE"
     a.completed_at = datetime.utcnow()
+    if delay_reason.strip():
+        a.delay_reason = delay_reason.strip()
+    # Save evidence file
+    if evidence_file and evidence_file.filename:
+        info = await save_upload(evidence_file, user.tenant_id)
+        db.add(MediaUpload(
+            tenant_id=user.tenant_id, entity_type="CHECKLIST_ASSIGNMENT",
+            entity_id=assignment_id, uploaded_by_id=user.id, **info,
+        ))
+        a.proof_url = info["file_path"]
     admins   = _admin_ids(db, user.tenant_id)
     managers = _manager_ids_for_ticket(db, user.tenant_id, user.id)
     notify_checklist_completed(db, a, admins, managers)
-    # Auto-schedule next occurrence for recurring checklists
     tmpl = a.template
     if tmpl and getattr(tmpl, "is_recurring", True):
         next_due = _next_due_from(tmpl.frequency, a.due_at)
@@ -1696,11 +1747,12 @@ def complete_checklist(assignment_id: str, user: User = Depends(get_current_user
             db.add(ChecklistAssignment(
                 template_id=tmpl.id, tenant_id=a.tenant_id,
                 user_id=a.user_id, due_at=next_due,
+                evidence_required=ev_required,
             ))
     db.commit()
     audience = list(set(admins + managers))
     broadcast_sync(user.tenant_id, audience, CHECKLIST_COMPLETED, {
-        "checklist": tmpl.name if tmpl else "",
+        "checklist": tmpl.title if tmpl else "",
         "completed_by": user.name,
     })
     return redirect("/checklists")
@@ -1803,6 +1855,183 @@ async def upload_checklist_proof(assignment_id: str, file: UploadFile = File(...
     a.proof_url = info["file_path"]
     db.commit()
     return redirect("/checklists")
+
+
+# ── P6-03: Edit / Delete checklist templates & assignments ────────────────────
+
+@app.post("/checklists/templates/{template_id}/edit")
+def edit_checklist_template(
+    template_id: str,
+    title: str = Form(...), description: str = Form(...),
+    frequency: str = Form("DAILY"),
+    evidence_required: bool = Form(False),
+    reminder_hours_before: int = Form(2),
+    reminder_repeat_hours: int = Form(4),
+    assigned_to_user_id: str = Form(""),
+    assigned_to_dept_id: str = Form(""),
+    assigned_to_role: str = Form("EMPLOYEE"),
+    user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    tmpl = db.query(ChecklistTemplate).filter(
+        ChecklistTemplate.id == template_id,
+        ChecklistTemplate.tenant_id == user.tenant_id,
+        ChecklistTemplate.is_deleted == False,
+    ).first()
+    if not tmpl:
+        raise HTTPException(404)
+    tmpl.title = title
+    tmpl.description = description
+    tmpl.frequency = frequency
+    tmpl.evidence_required = evidence_required
+    tmpl.reminder_hours_before = reminder_hours_before
+    tmpl.reminder_repeat_hours = reminder_repeat_hours
+    tmpl.assigned_to_user_id = assigned_to_user_id or None
+    tmpl.assigned_to_dept_id = assigned_to_dept_id or None
+    tmpl.assigned_to_role = assigned_to_role
+    db.commit()
+    return redirect("/checklists")
+
+
+@app.post("/checklists/templates/{template_id}/delete")
+def delete_checklist_template(template_id: str,
+                               user: User = Depends(require_admin),
+                               db: Session = Depends(get_db)):
+    tmpl = db.query(ChecklistTemplate).filter(
+        ChecklistTemplate.id == template_id,
+        ChecklistTemplate.tenant_id == user.tenant_id,
+    ).first()
+    if not tmpl:
+        raise HTTPException(404)
+    tmpl.is_deleted = True
+    tmpl.is_active = False
+    db.commit()
+    return redirect("/checklists")
+
+
+@app.post("/checklists/assignments/{assignment_id}/edit")
+def edit_checklist_assignment(
+    assignment_id: str, due_at: str = Form(...),
+    user: User = Depends(require_manager), db: Session = Depends(get_db),
+):
+    a = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.id == assignment_id,
+        ChecklistAssignment.tenant_id == user.tenant_id,
+        ChecklistAssignment.status == "PENDING",
+        ChecklistAssignment.is_deleted == False,
+    ).first()
+    if not a:
+        raise HTTPException(404, "Assignment not found or already started")
+    a.due_at = datetime.fromisoformat(due_at)
+    db.commit()
+    return redirect("/checklists")
+
+
+@app.post("/checklists/assignments/{assignment_id}/delete")
+def delete_checklist_assignment(assignment_id: str,
+                                 user: User = Depends(require_admin),
+                                 db: Session = Depends(get_db)):
+    a = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.id == assignment_id,
+        ChecklistAssignment.tenant_id == user.tenant_id,
+    ).first()
+    if not a:
+        raise HTTPException(404)
+    a.is_deleted = True
+    db.commit()
+    return redirect("/checklists")
+
+
+# ── P6-04: Bulk upload checklist templates ────────────────────────────────────
+
+@app.get("/checklists/bulk-template")
+def checklist_bulk_template(user: User = Depends(require_admin)):
+    import csv, io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["title","description","frequency","assigned_to_role",
+                "assigned_to_department","assigned_to_phone",
+                "evidence_required","reminder_hours_before","reminder_repeat_hours"])
+    w.writerow(["Mandatory. Max 200 chars","Mandatory. Instructions",
+                "DAILY|WEEKLY|MONTHLY|PER_SHIFT","EMPLOYEE|MANAGER|ADMIN|STORE_MANAGER (opt)",
+                "Department name (opt)","Phone number of specific user (opt)",
+                "TRUE|FALSE (default FALSE)","Integer hours (default 2)","Integer hours (default 4)"])
+    w.writerow(["Daily Machine Check","Inspect all machines before shift","DAILY","EMPLOYEE",
+                "","","FALSE","2","4"])
+    buf.seek(0)
+    from fastapi.responses import StreamingResponse as _SR
+    return _SR(iter([buf.read().encode()]),
+               media_type="text/csv",
+               headers={"Content-Disposition": "attachment; filename=checklist_template.csv"})
+
+
+@app.post("/checklists/bulk-upload")
+async def checklist_bulk_upload(file: UploadFile = File(...),
+                                 user: User = Depends(require_admin),
+                                 db: Session = Depends(get_db)):
+    import csv, io
+    from fastapi.responses import StreamingResponse as _SR
+    content = (await file.read()).decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(content))
+    errors = []
+    created = 0
+    for i, row in enumerate(reader, start=1):
+        if i == 2:  # skip description row
+            continue
+        title = (row.get("title") or "").strip()
+        desc  = (row.get("description") or "").strip()
+        freq  = (row.get("frequency") or "DAILY").strip().upper()
+        if not title or not desc:
+            errors.append((i, title or "(blank)", "title and description are required"))
+            continue
+        if freq not in ("DAILY","WEEKLY","MONTHLY","PER_SHIFT"):
+            errors.append((i, title, f"Invalid frequency: {freq}"))
+            continue
+        # Resolve assignee
+        role = (row.get("assigned_to_role") or "EMPLOYEE").strip().upper()
+        dept_id = None
+        user_id = None
+        dept_name = (row.get("assigned_to_department") or "").strip()
+        phone = (row.get("assigned_to_phone") or "").strip()
+        if phone:
+            u = db.query(User).filter(User.tenant_id == user.tenant_id,
+                                       User.phone == phone, User.is_deleted == False).first()
+            if not u:
+                errors.append((i, title, f"No user with phone {phone}"))
+                continue
+            user_id = u.id
+            role = u.role
+        elif dept_name:
+            from .database import Department as _Dept
+            d = db.query(_Dept).filter(_Dept.tenant_id == user.tenant_id,
+                                        _Dept.name == dept_name,
+                                        _Dept.is_deleted == False).first()
+            if not d:
+                errors.append((i, title, f"Department not found: {dept_name}"))
+                continue
+            dept_id = d.id
+        ev_req = (row.get("evidence_required") or "FALSE").strip().upper() == "TRUE"
+        remind_b = int((row.get("reminder_hours_before") or "2").strip() or 2)
+        remind_r = int((row.get("reminder_repeat_hours") or "4").strip() or 4)
+        db.add(ChecklistTemplate(
+            tenant_id=user.tenant_id, title=title, description=desc,
+            frequency=freq, assigned_to_role=role,
+            assigned_to_dept_id=dept_id, assigned_to_user_id=user_id,
+            evidence_required=ev_req,
+            reminder_hours_before=remind_b, reminder_repeat_hours=remind_r,
+        ))
+        created += 1
+    db.commit()
+    if errors:
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["row","title","error"])
+        for (r, t, e) in errors:
+            w.writerow([r, t, e])
+        buf.seek(0)
+        return _SR(iter([buf.read().encode()]),
+                   media_type="text/csv",
+                   headers={"Content-Disposition": "attachment; filename=checklist_upload_errors.csv"})
+    return redirect(f"/checklists?uploaded={created}")
 
 
 # ── Employees ─────────────────────────────────────────────────────────────────

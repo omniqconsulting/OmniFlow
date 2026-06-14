@@ -1,12 +1,27 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+.ev-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:200;align-items:center;justify-content:center}
+.ev-modal-bg.open{display:flex}
+.form-panel{margin-top:10px;background:#0d1424;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:12px}
+.form-panel label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#64748b;display:block;margin-bottom:3px}
+.form-panel input,.form-panel select,.form-panel textarea{width:100%;background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;outline:none;font-family:inherit;box-sizing:border-box}
+</style>
 
 <div class="page-header">
   <h2 class="page-title">{{ L.Checklists }}</h2>
-  {% if user.role == 'ADMIN' %}
-  <button onclick="show('create-modal')" class="btn btn-primary">+ New Checklist</button>
-  {% endif %}
+  <div style="display:flex;gap:8px">
+    {% if user.role == 'ADMIN' %}
+    <a href="/checklists/bulk-template" class="btn btn-outline btn-sm">⬇ Template</a>
+    <button onclick="show('bulk-modal')" class="btn btn-outline btn-sm">⬆ Bulk Upload</button>
+    <button onclick="show('create-modal')" class="btn btn-primary">+ New Checklist</button>
+    {% endif %}
+  </div>
 </div>
+
+{% if request.query_params.get('uploaded') %}
+<div class="alert alert-green" style="margin-bottom:12px">✓ {{ request.query_params.get('uploaded') }} checklist template(s) created.</div>
+{% endif %}
 
 <!-- ── Filter Bar (Admin/Manager only) ──────────────────────────────────── -->
 {% if user.role in ('ADMIN','MANAGER') %}
@@ -41,7 +56,6 @@
 {% if user.role in ('ADMIN','MANAGER') %}
 <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;margin-bottom:16px">
 
-  <!-- Upcoming -->
   <div class="card" style="margin:0">
     <h2 style="margin-bottom:12px">Upcoming — Next 7 Days</h2>
     {% if upcoming %}
@@ -61,6 +75,19 @@
           </div>
           <span class="badge badge-{% if a.status=='OVERDUE' %}red{% elif a.status=='IN_PROGRESS' %}yellow{% else %}blue{% endif %}" style="font-size:9px;margin-top:3px">{{ a.status }}</span>
         </div>
+        {% if user.role in ('ADMIN','MANAGER') %}
+        <div style="margin-left:10px;display:flex;flex-direction:column;gap:4px">
+          <button onclick="toggleForm('up-edit-{{ a.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 6px">Edit Due</button>
+        </div>
+        <div id="up-edit-{{ a.id }}" class="form-panel" style="display:none;position:absolute;z-index:50;background:#131c2e;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:10px;min-width:220px">
+          <form method="post" action="/checklists/assignments/{{ a.id }}/edit" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <input type="datetime-local" name="due_at" value="{{ a.due_at.strftime('%Y-%m-%dT%H:%M') if a.due_at else '' }}"
+                   style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;color-scheme:dark;outline:none" required>
+            <button type="submit" class="btn btn-sm btn-primary">Save</button>
+            <button type="button" onclick="toggleForm('up-edit-{{ a.id }}')" class="btn btn-sm btn-gray">×</button>
+          </form>
+        </div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
@@ -69,7 +96,6 @@
     {% endif %}
   </div>
 
-  <!-- Weekly Compliance Chart -->
   <div class="card" style="margin:0">
     <h2 style="margin-bottom:14px">Weekly Completions</h2>
     {% set max_val = chart_weeks|map(attribute='done')|max if chart_weeks else 1 %}
@@ -111,7 +137,10 @@
   <div style="border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:14px 16px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">
       <div>
-        <div style="font-weight:600;font-size:13px;color:#f1f5f9">{{ a.template.title if a.template else '—' }}</div>
+        <div style="font-weight:600;font-size:13px;color:#f1f5f9">
+          {{ a.template.title if a.template else '—' }}
+          {% if a.template and a.template.evidence_required %}<span class="badge badge-amber" style="font-size:9px;margin-left:6px">Evidence Required</span>{% endif %}
+        </div>
         <div style="font-size:11px;color:#64748b;margin-top:3px">{{ a.template.description[:100] if a.template and a.template.description else '' }}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
@@ -140,17 +169,37 @@
     </div>
     {% endif %}
 
+    {# P6-01: status-aware action buttons #}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      {% if a.status != 'DONE' %}
-      <form method="post" action="/checklists/complete/{{ a.id }}">
-        <button type="submit" class="btn btn-sm btn-green">✓ Mark Done</button>
+      {% if a.status == 'PENDING' %}
+      <form method="post" action="/checklists/start/{{ a.id }}">
+        <button type="submit" class="btn btn-sm btn-cyan">▶ Mark as Started</button>
       </form>
+      {% endif %}
+
+      {% if a.status == 'IN_PROGRESS' %}
+        {% set ev_req = a.evidence_required or (a.template and a.template.evidence_required) %}
+        {% if ev_req %}
+        <button onclick="openCompleteModal('{{ a.id }}', false)" class="btn btn-sm btn-green">📎 Mark as Complete</button>
+        {% else %}
+        <form method="post" action="/checklists/complete/{{ a.id }}" enctype="multipart/form-data">
+          <button type="submit" class="btn btn-sm btn-green">✓ Mark as Complete</button>
+        </form>
+        {% endif %}
+      {% endif %}
+
+      {% if a.status == 'OVERDUE' %}
+      <button onclick="openCompleteModal('{{ a.id }}', true)" class="btn btn-sm btn-amber">✓ Mark as Complete (Overdue)</button>
+      {% endif %}
+
       <button onclick="toggleForm('fail-{{ a.id }}')" class="btn btn-sm btn-red">✗ Mark Failed</button>
-      {% if a.template and a.template.proof_required %}
-      <button onclick="toggleForm('proof-{{ a.id }}')" class="btn btn-sm btn-outline">📎 Upload Proof</button>
-      {% endif %}
-      {% endif %}
       <button onclick="toggleForm('comment-{{ a.id }}')" class="btn btn-sm btn-gray">💬 Comment</button>
+      {% if user.role == 'ADMIN' %}
+      <form method="post" action="/checklists/assignments/{{ a.id }}/delete"
+            onsubmit="return confirm('Delete this assignment?')" style="display:inline">
+        <button type="submit" class="btn btn-sm btn-red" style="opacity:0.7">🗑</button>
+      </form>
+      {% endif %}
     </div>
 
     <!-- Fail form -->
@@ -162,16 +211,6 @@
           <button type="submit" class="btn btn-sm btn-red">Confirm Failed</button>
           <button type="button" onclick="toggleForm('fail-{{ a.id }}')" class="btn btn-sm btn-gray">Cancel</button>
         </div>
-      </form>
-    </div>
-
-    <!-- Proof upload form -->
-    <div id="proof-{{ a.id }}" class="form-panel" style="display:none;margin-top:10px">
-      <form method="post" action="/checklists/upload/{{ a.id }}" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input type="file" name="file" accept="image/*,video/*" required
-               style="flex:1;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;min-width:200px">
-        <button type="submit" class="btn btn-sm btn-green">Upload</button>
-        <button type="button" onclick="toggleForm('proof-{{ a.id }}')" class="btn btn-sm btn-outline">Cancel</button>
       </form>
     </div>
 
@@ -225,6 +264,7 @@
         {% if t.assigned_to_dept %}
         <div style="font-size:10px;color:#475569;margin-top:1px">Dept: {{ t.assigned_to_dept.name }}</div>
         {% endif %}
+        {% if t.evidence_required %}<span class="badge badge-amber" style="font-size:9px;margin-top:2px">Evidence Req</span>{% endif %}
         {% if not t.is_recurring %}<span class="badge badge-gray" style="font-size:9px;margin-top:3px">One-time</span>{% endif %}
       </td>
       <td><span class="badge badge-blue" style="font-size:10px">{{ t.frequency }}</span></td>
@@ -268,12 +308,19 @@
         </span>
       </td>
       <td>
-        <div style="display:flex;gap:6px;flex-direction:column">
-          <!-- Assign Now -->
+        <div style="display:flex;gap:4px;flex-direction:column">
           <button onclick="toggleForm('assign-{{ t.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">Assign</button>
-          <!-- History -->
           <a href="/checklists/history/{{ t.id }}" class="btn btn-sm btn-gray" style="font-size:10px;padding:3px 8px;text-decoration:none;text-align:center">History</a>
+          {% if user.role == 'ADMIN' %}
+          <button onclick="toggleForm('edit-tmpl-{{ t.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">✏ Edit</button>
+          <form method="post" action="/checklists/templates/{{ t.id }}/delete"
+                onsubmit="return confirm('Soft-delete this template? Existing assignments are retained.')">
+            <button type="submit" class="btn btn-sm btn-red" style="font-size:10px;padding:3px 8px;width:100%">Delete</button>
+          </form>
+          {% endif %}
         </div>
+
+        <!-- Assign form -->
         <div id="assign-{{ t.id }}" style="display:none;margin-top:8px;min-width:220px">
           <form method="post" action="/checklists/assign/{{ t.id }}" style="display:flex;flex-direction:column;gap:6px">
             <input type="datetime-local" name="due_at" required
@@ -284,6 +331,42 @@
             </div>
           </form>
         </div>
+
+        {# P6-03: Edit template inline form #}
+        {% if user.role == 'ADMIN' %}
+        <div id="edit-tmpl-{{ t.id }}" style="display:none;margin-top:8px;min-width:280px;background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:12px;z-index:50;position:relative">
+          <form method="post" action="/checklists/templates/{{ t.id }}/edit" style="display:flex;flex-direction:column;gap:8px">
+            <div><label style="font-size:10px;color:#64748b">Title</label>
+              <input name="title" value="{{ t.title }}" required style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box"></div>
+            <div><label style="font-size:10px;color:#64748b">Description</label>
+              <textarea name="description" rows="2" style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;font-family:inherit;resize:vertical;box-sizing:border-box">{{ t.description }}</textarea></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div><label style="font-size:10px;color:#64748b">Frequency</label>
+                <select name="frequency" style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px;font-size:12px;color:#e2e8f0;outline:none">
+                  {% for f in ['DAILY','WEEKLY','MONTHLY','PER_SHIFT'] %}
+                  <option {% if f == t.frequency %}selected{% endif %}>{{ f }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div><label style="font-size:10px;color:#64748b">Remind hrs before</label>
+                <input type="number" name="reminder_hours_before" value="{{ t.reminder_hours_before or 2 }}" min="0"
+                       style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box"></div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#94a3b8;cursor:pointer">
+              <input type="checkbox" name="evidence_required" value="true" {% if t.evidence_required %}checked{% endif %}>
+              Evidence Required
+            </label>
+            <input type="hidden" name="assigned_to_role" value="{{ t.assigned_to_role or 'EMPLOYEE' }}">
+            <input type="hidden" name="assigned_to_dept_id" value="{{ t.assigned_to_dept_id or '' }}">
+            <input type="hidden" name="assigned_to_user_id" value="{{ t.assigned_to_user_id or '' }}">
+            <input type="hidden" name="reminder_repeat_hours" value="{{ t.reminder_repeat_hours or 4 }}">
+            <div style="display:flex;gap:6px">
+              <button type="submit" class="btn btn-sm btn-primary" style="flex:1">Save</button>
+              <button type="button" onclick="toggleForm('edit-tmpl-{{ t.id }}')" class="btn btn-sm btn-gray">Cancel</button>
+            </div>
+          </form>
+        </div>
+        {% endif %}
       </td>
     </tr>
     {% endfor %}
@@ -298,8 +381,64 @@
 </div>
 {% endif %}
 
-<!-- ── Create Checklist Modal ─────────────────────────────────────────── -->
+<!-- ── Complete modal (delay reason + evidence) ─────────────────────── -->
+<div id="complete-modal" class="ev-modal-bg">
+  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:24px;width:420px;max-width:95vw">
+    <div style="font-size:15px;font-weight:600;color:#f1f5f9;margin-bottom:16px">Mark as Complete</div>
+    <form id="complete-form" method="post" enctype="multipart/form-data">
+      <div id="delay-reason-section" style="display:none;margin-bottom:14px">
+        <label class="form-label" style="font-size:12px;color:#94a3b8">
+          Delay Reason <span style="color:#f87171">*</span>
+          <span style="font-size:11px;font-weight:400">(required — this assignment is overdue)</span>
+        </label>
+        <textarea name="delay_reason" id="delay-reason-input" rows="3"
+                  style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:8px 12px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
+                  placeholder="Explain why this was completed late…"></textarea>
+      </div>
+      <div id="evidence-section" style="display:none;margin-bottom:14px">
+        <label class="form-label" style="font-size:12px;color:#94a3b8">
+          Evidence File <span style="color:#f87171">*</span>
+        </label>
+        <input type="file" name="evidence_file" id="evidence-input"
+               accept="image/*,.pdf,.doc,.docx"
+               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box">
+      </div>
+      <p id="complete-simple-msg" style="font-size:13px;color:#94a3b8;margin-bottom:14px">Confirm completion of this checklist assignment?</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="document.getElementById('complete-modal').classList.remove('open')" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">✓ Confirm Complete</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Bulk Upload Modal ──────────────────────────────────────────────── -->
 {% if user.role == 'ADMIN' %}
+<div id="bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;z-index:100">
+  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:24px;width:440px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">Bulk Upload Checklists</h3>
+      <button onclick="hide('bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b">×</button>
+    </div>
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:14px">
+      Upload a CSV file to create multiple checklist templates at once.
+      <a href="/checklists/bulk-template" style="color:#3b82f6;text-decoration:none">Download template →</a>
+    </p>
+    <form method="post" action="/checklists/bulk-upload" enctype="multipart/form-data">
+      <div class="form-group" style="margin-bottom:16px">
+        <label class="form-label">Select CSV File</label>
+        <input type="file" name="file" accept=".csv" required
+               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="hide('bulk-modal')" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload & Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Create Checklist Modal ─────────────────────────────────────────── -->
 <div id="create-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
   <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:92vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -334,7 +473,6 @@
         </div>
       </div>
 
-      <!-- Assign to specific employee (primary) -->
       <div class="form-group">
         <label>Assign To Employee</label>
         <select name="assigned_to_user_id" id="cl_user_sel" onchange="onClUserChange(this)">
@@ -345,7 +483,6 @@
         </select>
       </div>
 
-      <!-- Role + dept fallback (hidden when specific user selected) -->
       <div id="cl_role_dept" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group">
           <label>Or Assign To Role</label>
@@ -375,11 +512,15 @@
         </div>
       </div>
 
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#94a3b8;margin-bottom:18px;cursor:pointer">
-        <input type="checkbox" name="proof_required" value="true"> Proof photo/video required on completion
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#94a3b8;margin-bottom:12px;cursor:pointer">
+        <input type="checkbox" name="evidence_required" value="true"> Evidence Required on completion
       </label>
 
-      <div style="display:flex;gap:10px">
+      {# P6-05: Linked entities #}
+      {% set readonly = false %}
+      {% include "components/linked_entities.html" %}
+
+      <div style="display:flex;gap:10px;margin-top:16px">
         <button type="button" onclick="hide('create-modal')" class="btn btn-outline" style="flex:1">Cancel</button>
         <button type="submit" class="btn btn-primary" style="flex:1">Create Checklist</button>
       </div>
@@ -399,13 +540,38 @@ function onClUserChange(sel) {
   var roleDept = document.getElementById('cl_role_dept');
   if (sel.value) {
     roleDept.style.display = 'none';
-    // auto-fill role from data attribute
     var opt = sel.options[sel.selectedIndex];
     var roleEl = document.getElementById('cl_role_sel');
     if (roleEl && opt.dataset.role) roleEl.value = opt.dataset.role;
   } else {
     roleDept.style.display = 'grid';
   }
+}
+
+function openCompleteModal(assignmentId, isOverdue) {
+  var modal = document.getElementById('complete-modal');
+  var form = document.getElementById('complete-form');
+  form.action = '/checklists/complete/' + assignmentId;
+  var delaySection = document.getElementById('delay-reason-section');
+  var evidenceSection = document.getElementById('evidence-section');
+  var simpleMsg = document.getElementById('complete-simple-msg');
+  var delayInput = document.getElementById('delay-reason-input');
+  var evidenceInput = document.getElementById('evidence-input');
+
+  if (isOverdue) {
+    delaySection.style.display = 'block';
+    simpleMsg.style.display = 'none';
+    delayInput.required = true;
+  } else {
+    delaySection.style.display = 'none';
+    simpleMsg.style.display = 'block';
+    delayInput.required = false;
+  }
+  // Evidence section visibility is handled server-side but show it for non-overdue if template requires it
+  evidenceSection.style.display = 'block';
+  evidenceInput.required = false; // actual enforcement is server-side
+
+  modal.classList.add('open');
 }
 </script>
 {% endblock %}
