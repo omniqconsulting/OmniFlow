@@ -14,7 +14,7 @@ from .database import (
     Ticket, TicketComment, TicketEvent, TicketAssignee,
     ChecklistTemplate, ChecklistAssignment, ChecklistComment,
     Notification, MediaUpload, WebSocketSession,
-    FMSFlow, FMSTicket, FMSStageHistory, FMSTicketHelper,
+    FMSFlow, FMSTicket, FMSStageHistory, FMSTicketHelper, FMSEvent,
     TicketStatus, Priority, ChecklistStatus, new_id,
 )
 from .auth import (
@@ -2405,29 +2405,84 @@ def terminate_employee(
     if getattr(emp, "status", "ACTIVE") == "TERMINATED":
         return redirect("/employees?error=Employee+already+terminated")
 
+    OPEN_STATUSES = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS"]
+
     if ticket_reassign_to:
-        for ta in db.query(TicketAssignee).filter(TicketAssignee.user_id == emp_id).all():
-            ta.user_id = ticket_reassign_to
+        # Validate reassignee belongs to this tenant
+        reassignee = db.query(User).filter(
+            User.id == ticket_reassign_to, User.tenant_id == tid, User.is_deleted == False,
+        ).first()
+        if reassignee:
+            # 1. Reassign primary assignee on open tickets (the main case — was missing)
+            open_tickets = db.query(Ticket).filter(
+                Ticket.tenant_id == tid,
+                Ticket.current_assignee_id == emp_id,
+                Ticket.is_deleted == False,
+                Ticket.status.in_(OPEN_STATUSES),
+            ).all()
+            for t in open_tickets:
+                t.current_assignee_id = ticket_reassign_to
+                log_event(db, t.id, user.id, "REASSIGNED",
+                          f"Bulk reassign on termination of {emp.name} → {reassignee.name}")
+
+            # 2. Reassign helper/co-assignee rows on open tickets (tenant-scoped)
+            helper_rows = (
+                db.query(TicketAssignee)
+                .join(Ticket, Ticket.id == TicketAssignee.ticket_id)
+                .filter(
+                    TicketAssignee.user_id == emp_id,
+                    Ticket.tenant_id == tid,
+                    Ticket.is_deleted == False,
+                    Ticket.status.in_(OPEN_STATUSES),
+                )
+                .all()
+            )
+            for ta in helper_rows:
+                ta.user_id = ticket_reassign_to
 
     if checklist_reassign_to:
-        for cl in db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.user_id == emp_id,
-            ChecklistAssignment.is_deleted == False,
-            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
-        ).all():
-            cl.user_id = checklist_reassign_to
+        reassignee_cl = db.query(User).filter(
+            User.id == checklist_reassign_to, User.tenant_id == tid, User.is_deleted == False,
+        ).first()
+        if reassignee_cl:
+            for cl in db.query(ChecklistAssignment).filter(
+                ChecklistAssignment.user_id == emp_id,
+                ChecklistAssignment.tenant_id == tid,
+                ChecklistAssignment.is_deleted == False,
+                ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+            ).all():
+                cl.user_id = checklist_reassign_to
 
     if fms_reassign_to:
         from .database import FMSTicketHelper as _FTH
-        for fh in (
-            db.query(_FTH)
-            .filter(_FTH.user_id == emp_id)
-            .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
-            .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
-                    FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
-            .all()
-        ):
-            fh.user_id = fms_reassign_to
+        reassignee_fms = db.query(User).filter(
+            User.id == fms_reassign_to, User.tenant_id == tid, User.is_deleted == False,
+        ).first()
+        if reassignee_fms:
+            # Reassign primary assignee on open FMS tickets
+            open_fms = db.query(FMSTicket).filter(
+                FMSTicket.tenant_id == tid,
+                FMSTicket.current_assignee_id == emp_id,
+                FMSTicket.is_deleted == False,
+                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            ).all()
+            for ft in open_fms:
+                ft.current_assignee_id = fms_reassign_to
+                db.add(FMSEvent(
+                    ticket_id=ft.id, actor_id=user.id, event_type="REASSIGNED",
+                    detail=f"Bulk reassign on termination of {emp.name} → {reassignee_fms.name}",
+                ))
+
+            # Reassign FMS helper rows (tenant-scoped)
+            for fh in (
+                db.query(_FTH)
+                .filter(_FTH.user_id == emp_id)
+                .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
+                .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
+                        FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+                .all()
+            ):
+                fh.user_id = fms_reassign_to
 
     emp.status = "TERMINATED"
     emp.is_active = False

@@ -1059,6 +1059,9 @@ def fms_ticket_detail(
     can_transition = _can_transition(user, ticket)
     can_manage     = user.role in ("ADMIN", "MANAGER")
 
+    from .linked_entities import get_linked_entity_options as _geo
+    entity_options = _geo(db, user.tenant_id)
+
     return templates.TemplateResponse(request, "fms/ticket_detail.html", _ctx(
         request, user, db,
         ticket=ticket, flow=flow, stages=stages,
@@ -1068,6 +1071,7 @@ def fms_ticket_detail(
         employees=employees, helper_ids=helper_ids,
         can_transition=can_transition, can_manage=can_manage,
         now=now,
+        entity_options=entity_options,
     ))
 
 

@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" id="sa-html">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OmniFlow — Super Admin</title>
+<script>(function(){if(localStorage.getItem('sa_theme')==='light'){document.getElementById('sa-html').classList.add('sa-light')}})()</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -10,6 +11,37 @@
 body{font-family:'DM Sans',system-ui,sans-serif;background:#07090f;color:#e2e8f0;font-size:13px;min-height:100vh}
 a{color:#a78bfa;text-decoration:none}
 a:hover{color:#c4b5fd}
+
+/* ── Light theme overrides ── */
+html.sa-light body{background:#f1f5f9;color:#1e293b}
+html.sa-light .sa-nav{background:#ffffff;border-bottom-color:rgba(124,58,237,0.18)}
+html.sa-light .sa-nav a{color:#475569}
+html.sa-light .sa-nav a:hover{background:rgba(124,58,237,0.08);color:#1e293b}
+html.sa-light .sa-nav a.active{background:rgba(124,58,237,0.12);color:#7c3aed}
+html.sa-light .sa-nav .sa-info{color:#64748b}
+html.sa-light .sa-nav .logout{color:#64748b;border-color:rgba(124,58,237,0.25)}
+html.sa-light .card{background:#ffffff;border-color:rgba(0,0,0,0.08)}
+html.sa-light .card-purple{background:#faf5ff;border-color:rgba(124,58,237,0.2)}
+html.sa-light .card h2{color:#1e293b}
+html.sa-light th{color:#64748b;border-bottom-color:rgba(0,0,0,0.08)}
+html.sa-light td{color:#334155;border-bottom-color:rgba(0,0,0,0.05)}
+html.sa-light tr:hover td{background:rgba(0,0,0,0.02)}
+html.sa-light .form-group input,.sa-light .form-group select,.sa-light .form-group textarea{background:#f8fafc;border-color:rgba(0,0,0,0.15);color:#1e293b}
+html.sa-light .kpi-tile{background:#ffffff;border-color:rgba(0,0,0,0.08)}
+html.sa-light .kpi-tile .value{color:#1e293b}
+html.sa-light .modal-box{background:#ffffff;border-color:rgba(124,58,237,0.18)}
+html.sa-light .modal-title{color:#1e293b}
+html.sa-light .btn{background:#f1f5f9;border-color:rgba(0,0,0,0.12);color:#334155}
+html.sa-light .btn:hover{background:#e2e8f0;color:#1e293b}
+html.sa-light a{color:#7c3aed}
+html.sa-light a:hover{color:#6d28d9}
+html.sa-light .page-title{color:#1e293b}
+
+/* ── Theme toggle button ── */
+.sa-theme-btn{background:none;border:1px solid rgba(167,139,250,0.2);border-radius:7px;cursor:pointer;font-size:15px;padding:4px 9px;color:#94a3b8;transition:all .12s;font-family:inherit;line-height:1}
+.sa-theme-btn:hover{border-color:rgba(167,139,250,0.45);background:rgba(167,139,250,0.08);color:#e2e8f0}
+html.sa-light .sa-theme-btn{border-color:rgba(124,58,237,0.2);color:#64748b}
+html.sa-light .sa-theme-btn:hover{background:rgba(124,58,237,0.08);color:#1e293b}
 
 /* ── NAV ── */
 .sa-nav{background:#0f0a1e;border-bottom:1px solid rgba(167,139,250,0.18);display:flex;align-items:center;padding:0 24px;height:52px;gap:4px;position:sticky;top:0;z-index:50}
@@ -126,8 +158,26 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   </a>
   <a href="/superadmin/admins" {% if '/admins' in request.url.path %}class="active"{% endif %}
      style="font-size:12px;color:#94a3b8;padding:5px 10px;border-radius:6px">SA Accounts</a>
-  <a href="/superadmin/logout" class="logout">Logout</a>
+  <button id="sa-theme-btn" class="sa-theme-btn" onclick="saMToggleTheme()" title="Toggle light/dark">🌙</button>
+  <a href="/superadmin/logout" class="logout" style="margin-left:6px">Logout</a>
 </nav>
+<script>
+(function(){
+  var btn = document.getElementById('sa-theme-btn');
+  if(localStorage.getItem('sa_theme')==='light' && btn) btn.textContent='☀️';
+})();
+function saMToggleTheme(){
+  var h = document.getElementById('sa-html');
+  var btn = document.getElementById('sa-theme-btn');
+  if(h.classList.toggle('sa-light')){
+    localStorage.setItem('sa_theme','light');
+    if(btn) btn.textContent='☀️';
+  } else {
+    localStorage.setItem('sa_theme','dark');
+    if(btn) btn.textContent='🌙';
+  }
+}
+</script>
 {% endif %}
 <div class="sa-wrap">{% block content %}{% endblock %}</div>
 </body>

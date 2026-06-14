@@ -666,6 +666,17 @@ select option{background:#111827}
     {% endif %}
   </div>
 
+  {# P7-08: Linked Entities #}
+  {% if entity_options %}
+  <div style="margin-bottom:16px">
+    <div style="font-size:10px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.09em;margin-bottom:8px">Linked Entities</div>
+    {% set parent_type = 'FMS_TICKET' %}
+    {% set parent_id = ticket.id %}
+    {% set readonly = true %}
+    {% include "components/linked_entities.html" %}
+  </div>
+  {% endif %}
+
   <!-- Ticket meta -->
   <div style="font-size:11px;color:#64748b;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px;display:flex;flex-direction:column;gap:5px">
     <div>Created: <span style="color:#94a3b8">{{ ticket.created_at.strftime('%d %b %Y') if ticket.created_at else '—' }}</span></div>
