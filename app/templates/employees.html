@@ -38,6 +38,11 @@
 }
 .view-btn { padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 500; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; background: transparent; color: #64748b; transition: all .12s; }
 .view-btn.active { background: rgba(59,130,246,0.2); color: #7dd3fc; border-color: rgba(59,130,246,0.4); }
+/* KPI strip */
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.kpi-tile { background: #111827; border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 14px 18px; }
+.kpi-tile .kt-val { font-size: 26px; font-weight: 700; line-height: 1; }
+.kpi-tile .kt-lbl { font-size: 11px; color: #64748b; margin-top: 4px; font-weight: 500; }
 </style>
 
 <div class="page-header">
@@ -58,12 +63,34 @@
 
 {% set err = request.query_params.get('error') %}
 {% if err %}<div class="alert alert-red">{{ err }}</div>{% endif %}
+{% set msg = request.query_params.get('msg') %}
+{% if msg %}<div style="background:rgba(16,185,129,0.12);color:#6ee7b7;border:1px solid rgba(16,185,129,0.25);padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px">✓ {{ msg }}</div>{% endif %}
 {% set imported = request.query_params.get('imported') %}
 {% if imported %}
 <div style="background:rgba(16,185,129,0.12);color:#6ee7b7;border:1px solid rgba(16,185,129,0.25);padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px">
   ✓ Successfully imported {{ imported }} employee(s).
 </div>
 {% endif %}
+
+<!-- ══ P8-04: KPI STRIP ══════════════════════════════════════════════════════ -->
+<div class="kpi-strip">
+  <div class="kpi-tile">
+    <div class="kt-val" style="color:#7dd3fc">{{ kpi_total }}</div>
+    <div class="kt-lbl">Total Employees</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="kt-val" style="color:#6ee7b7">{{ kpi_active }}</div>
+    <div class="kt-lbl">Active</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="kt-val" style="color:#f87171">{{ kpi_terminated }}</div>
+    <div class="kt-lbl">Terminated</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="kt-val" style="color:#fbbf24">{{ kpi_departments }}</div>
+    <div class="kt-lbl">Departments</div>
+  </div>
+</div>
 
 <!-- ══ LIST VIEW ══════════════════════════════════════════════════════════ -->
 <div id="view-list">
@@ -73,13 +100,16 @@
       <tr>
         <th>Name</th><th>Phone</th><th>Role</th><th>Department</th>
         <th>Manager</th><th>Status</th>
-        {% if user.role == 'ADMIN' %}<th>Actions</th>{% endif %}
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
     {% for emp in employees %}
     <tr>
-      <td style="font-weight:500;color:#f1f5f9">{{ emp.name }}</td>
+      <td style="font-weight:500;color:#f1f5f9">
+        {{ emp.name }}
+        {% if emp.employee_id %}<span style="font-size:10px;color:#475569;margin-left:6px">{{ emp.employee_id }}</span>{% endif %}
+      </td>
       <td style="color:#94a3b8">{{ emp.phone }}</td>
       <td>
         <span class="badge {% if emp.role=='ADMIN' %}badge-purple{% elif emp.role=='MANAGER' %}badge-blue{% elif emp.role=='STORE_MANAGER' %}badge-amber{% else %}badge-gray{% endif %}">
@@ -89,17 +119,27 @@
       <td style="color:#94a3b8">{{ emp.department.name if emp.department else '—' }}</td>
       <td style="color:#94a3b8">{{ emp.manager.name if emp.manager else '—' }}</td>
       <td>
-        <span class="badge {% if emp.is_active %}badge-green{% else %}badge-red{% endif %}">
-          {{ 'Active' if emp.is_active else 'Inactive' }}
+        <span class="badge {% if emp.status == 'TERMINATED' %}badge-red{% elif emp.is_active %}badge-green{% else %}badge-gray{% endif %}">
+          {{ emp.status if emp.status else ('Active' if emp.is_active else 'Inactive') }}
         </span>
       </td>
-      {% if user.role == 'ADMIN' %}
-      <td style="display:flex;gap:6px;flex-wrap:wrap">
-        <button onclick="toggleRow('mgr-{{ emp.id }}')" class="btn btn-sm btn-outline">Set Manager</button>
+      <td style="display:flex;gap:5px;flex-wrap:wrap">
+        <a href="/employees/{{ emp.id }}/performance" class="btn btn-sm btn-outline" title="Performance">📊</a>
+        {% if user.role == 'ADMIN' %}
+        <button onclick="toggleRow('mgr-{{ emp.id }}')" class="btn btn-sm btn-outline">Manager</button>
         <button onclick="toggleRow('pw-{{ emp.id }}')" class="btn btn-sm btn-gray">Reset PW</button>
+        <button onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-outline" style="color:#fbbf24;border-color:rgba(251,191,36,.3)">Edit</button>
+        {% if emp.status != 'TERMINATED' and emp.id != user.id %}
+        <button onclick="openTerminate('{{ emp.id }}','{{ emp.name | e }}')" class="btn btn-sm btn-outline" style="color:#f87171;border-color:rgba(248,113,113,.3)">Terminate</button>
+        {% endif %}
+        {% if emp.id != user.id %}
+        <button onclick="confirmDelete('{{ emp.id }}','{{ emp.name | e }}')" class="btn btn-sm btn-red">Delete</button>
+        {% endif %}
+        {% endif %}
       </td>
-      {% endif %}
     </tr>
+
+    <!-- Set Manager inline row -->
     {% if user.role == 'ADMIN' %}
     <tr id="mgr-{{ emp.id }}" style="display:none;background:rgba(59,130,246,0.04)">
       <td colspan="7" style="padding:10px 16px">
@@ -124,6 +164,8 @@
         </form>
       </td>
     </tr>
+
+    <!-- Reset PW inline row -->
     <tr id="pw-{{ emp.id }}" style="display:none;background:rgba(239,68,68,0.04)">
       <td colspan="7" style="padding:10px 16px">
         <form method="post" action="/employees/{{ emp.id }}/reset-password"
@@ -144,7 +186,75 @@
         </div>
       </td>
     </tr>
+
+    <!-- P8-01/P8-06: Edit profile inline row -->
+    <tr id="edit-{{ emp.id }}" style="display:none;background:rgba(251,191,36,0.04)">
+      <td colspan="7" style="padding:14px 16px">
+        <form method="post" action="/employees/{{ emp.id }}/edit">
+          <div style="font-size:12px;font-weight:600;color:#fbbf24;margin-bottom:12px">Edit Profile — {{ emp.name }}</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+            <div class="form-group" style="margin:0">
+              <label>Full Name</label>
+              <input name="name" value="{{ emp.name }}" required>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Phone</label>
+              <input name="phone" value="{{ emp.phone }}" required>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Email</label>
+              <input name="email" type="email" value="{{ emp.email or '' }}" placeholder="optional">
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+            <div class="form-group" style="margin:0">
+              <label>Role</label>
+              <select name="role">
+                {% for r in ['EMPLOYEE','MANAGER','STORE_MANAGER','ADMIN'] %}
+                <option value="{{ r }}" {% if emp.role == r %}selected{% endif %}>{{ r }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Department</label>
+              <select name="department_id">
+                <option value="">— None —</option>
+                {% for d in departments %}
+                <option value="{{ d.id }}" {% if emp.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Reports To</label>
+              <select name="manager_id">
+                <option value="">— None —</option>
+                {% for m in managers %}
+                {% if m.id != emp.id %}
+                <option value="{{ m.id }}" {% if emp.manager_id == m.id %}selected{% endif %}>{{ m.name }}</option>
+                {% endif %}
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+            <div class="form-group" style="margin:0">
+              <label>Joining Date</label>
+              <input type="date" name="joining_date" value="{{ emp.joining_date.isoformat() if emp.joining_date else '' }}">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Address</label>
+              <input name="address" value="{{ emp.address or '' }}" placeholder="optional">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
+            <button type="button" onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
+          </div>
+        </form>
+      </td>
+    </tr>
     {% endif %}
+
     {% else %}
     <tr>
       <td colspan="7" style="text-align:center;color:#64748b;padding:48px">
@@ -249,6 +359,94 @@
     </form>
   </div>
 </div>
+
+<!-- ══ P8-02: TERMINATE MODAL ════════════════════════════════════════════ -->
+<div id="terminate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:200">
+  <div style="background:#131c2e;border:1px solid rgba(248,113,113,0.25);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.7);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:15px;font-weight:600;color:#f87171">Terminate Employee</h3>
+      <button onclick="closeTerminate()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+    </div>
+    <p id="term-emp-label" style="font-size:13px;color:#94a3b8;margin-bottom:16px"></p>
+
+    <!-- Open work summary -->
+    <div id="term-loading" style="text-align:center;padding:20px;color:#64748b;font-size:13px">Loading open work...</div>
+    <div id="term-work-summary" style="display:none;background:#0d1424;border-radius:8px;padding:14px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Open Work Summary</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <div style="text-align:center">
+          <div id="tw-tickets" style="font-size:20px;font-weight:700;color:#f87171"></div>
+          <div style="font-size:10px;color:#64748b">Open Tickets</div>
+        </div>
+        <div style="text-align:center">
+          <div id="tw-cls" style="font-size:20px;font-weight:700;color:#fbbf24"></div>
+          <div style="font-size:10px;color:#64748b">Checklists</div>
+        </div>
+        <div style="text-align:center">
+          <div id="tw-fms" style="font-size:20px;font-weight:700;color:#7dd3fc"></div>
+          <div style="font-size:10px;color:#64748b">FMS Tickets</div>
+        </div>
+      </div>
+    </div>
+
+    <form id="terminate-form" method="post" style="display:none">
+      <div class="form-group">
+        <label>Reassign Open Tickets To</label>
+        <select name="ticket_reassign_to">
+          <option value="">— Don't reassign —</option>
+          {% for m in managers %}
+          <option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>
+          {% endfor %}
+          {% for emp in employees %}
+          {% if emp.role not in ['ADMIN','MANAGER'] %}
+          <option value="{{ emp.id }}">{{ emp.name }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Reassign Pending Checklists To</label>
+        <select name="checklist_reassign_to">
+          <option value="">— Don't reassign —</option>
+          {% for m in managers %}
+          <option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>
+          {% endfor %}
+          {% for emp in employees %}
+          {% if emp.role not in ['ADMIN','MANAGER'] %}
+          <option value="{{ emp.id }}">{{ emp.name }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Reassign FMS Tickets To</label>
+        <select name="fms_reassign_to">
+          <option value="">— Don't reassign —</option>
+          {% for m in managers %}
+          <option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>
+          {% endfor %}
+          {% for emp in employees %}
+          {% if emp.role not in ['ADMIN','MANAGER'] %}
+          <option value="{{ emp.id }}">{{ emp.name }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+      <div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:#fca5a5">
+        ⚠ This action marks the employee as TERMINATED and disables their account. It cannot be undone without admin database access.
+      </div>
+      <div style="display:flex;gap:10px">
+        <button type="button" onclick="closeTerminate()" class="btn btn-outline" style="flex:1">Cancel</button>
+        <button type="submit" class="btn btn-red" style="flex:1">Confirm Terminate</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Delete confirmation form (hidden, submitted via JS) -->
+<form id="delete-form" method="post" style="display:none">
+  <input type="hidden" name="_method" value="delete">
+</form>
 {% endif %}
 
 <!-- ══ BULK IMPORT MODAL ══════════════════════════════════════════════════ -->
@@ -267,6 +465,7 @@
         <a href="/employees/import/template?entity=departments" class="btn btn-sm btn-outline">⬇ Departments CSV</a>
         <a href="/employees/import/template?entity=branches" class="btn btn-sm btn-outline">⬇ Branches CSV</a>
       </div>
+      <div style="font-size:11px;color:#475569;margin-top:8px">Row 2 in each CSV is a description row — do not edit or delete it. Add your data from row 3 onwards.</div>
     </div>
     <p style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Step 2 — Upload Filled CSV</p>
     {% for label, icon, action in [('Employees','👤','/employees/import'),('Departments','🏢','/departments/import'),('Branches','📍','/branches/import')] %}
@@ -309,6 +508,47 @@ function switchView(v) {
   document.getElementById('btn-list').classList.toggle('active', v === 'list');
   document.getElementById('btn-org').classList.toggle('active', v === 'org');
   if (v === 'org') renderOrg();
+}
+
+// ── P8-06: Delete employee ─────────────────────────────────────────────────
+function confirmDelete(empId, empName) {
+  if (!confirm('Permanently remove ' + empName + '? This cannot be undone.')) return;
+  var f = document.getElementById('delete-form');
+  f.action = '/employees/' + empId + '/delete';
+  f.submit();
+}
+
+// ── P8-02: Terminate modal ─────────────────────────────────────────────────
+var _terminateEmpId = null;
+
+function openTerminate(empId, empName) {
+  _terminateEmpId = empId;
+  document.getElementById('term-emp-label').textContent = 'You are about to terminate: ' + empName;
+  document.getElementById('term-loading').style.display = '';
+  document.getElementById('term-work-summary').style.display = 'none';
+  document.getElementById('terminate-form').style.display = 'none';
+  document.getElementById('terminate-modal').style.display = 'flex';
+
+  fetch('/employees/' + empId + '/open-work')
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('tw-tickets').textContent = data.tickets;
+      document.getElementById('tw-cls').textContent = data.checklists;
+      document.getElementById('tw-fms').textContent = data.fms;
+      document.getElementById('term-loading').style.display = 'none';
+      document.getElementById('term-work-summary').style.display = '';
+      var f = document.getElementById('terminate-form');
+      f.action = '/employees/' + empId + '/terminate';
+      f.style.display = '';
+    })
+    .catch(() => {
+      document.getElementById('term-loading').textContent = 'Failed to load open work. Please refresh and try again.';
+    });
+}
+
+function closeTerminate() {
+  document.getElementById('terminate-modal').style.display = 'none';
+  _terminateEmpId = null;
 }
 
 // ── Employee data ──────────────────────────────────────────────────────────
@@ -355,7 +595,6 @@ function renderOrg() {
   const byId = {};
   EMP_DATA.forEach(e => byId[e.id] = e);
 
-  // Build child map from ALL employees (for structural relationships)
   const children = {};
   EMP_DATA.forEach(e => {
     if (e.manager_id) {
@@ -364,7 +603,6 @@ function renderOrg() {
     }
   });
 
-  // Find roots (no manager or manager not in list)
   const filteredIds = new Set(filtered.map(e => e.id));
   const roots = filtered.filter(e => !e.manager_id || !filteredIds.has(e.manager_id));
 

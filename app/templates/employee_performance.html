@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div style="display:flex;align-items:center;gap:12px">
+    <a href="/employees" class="btn btn-sm btn-outline">← Back</a>
+    <div>
+      <h2 class="page-title" style="margin:0">{{ emp.name }}</h2>
+      <div style="font-size:12px;color:#64748b;margin-top:2px">
+        {% if emp.employee_id %}{{ emp.employee_id }} · {% endif %}
+        {{ emp.role }}{% if emp.department %} · {{ emp.department.name }}{% endif %}
+        {% if emp.joining_date %} · Joined {{ emp.joining_date.strftime('%b %Y') }}{% endif %}
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <!-- Period filter -->
+    <div style="display:flex;border:1px solid rgba(255,255,255,0.1);border-radius:8px;overflow:hidden">
+      {% for p, lbl in [('7d','7D'),('30d','30D'),('90d','90D'),('all','All')] %}
+      <a href="?period={{ p }}" style="padding:6px 12px;font-size:12px;font-weight:500;text-decoration:none;
+         {% if period == p %}background:rgba(59,130,246,0.2);color:#7dd3fc;{% else %}color:#64748b;{% endif %}
+         border-right:1px solid rgba(255,255,255,0.06)">{{ lbl }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Overall Score ──────────────────────────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:1fr 3fr;gap:16px;margin-bottom:20px">
+  <div class="card" style="text-align:center;padding:24px 16px;display:flex;flex-direction:column;align-items:center;justify-content:center">
+    <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Overall Score</div>
+    <div style="
+      width:90px;height:90px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+      background:conic-gradient(
+        {% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% else %}#ef4444{% endif %}
+        {{ overall_score * 3.6 }}deg, #1e293b 0deg);
+      font-size:26px;font-weight:700;
+      color:{% if overall_score >= 80 %}#6ee7b7{% elif overall_score >= 60 %}#fbbf24{% else %}#f87171{% endif %}">
+      {{ overall_score }}%
+    </div>
+    <div style="font-size:11px;color:#475569;margin-top:10px">
+      {% if overall_score >= 80 %}Excellent{% elif overall_score >= 60 %}Good{% elif overall_score > 0 %}Needs Improvement{% else %}No Data{% endif %}
+    </div>
+  </div>
+
+  <!-- Profile quick-view -->
+  <div class="card" style="padding:20px">
+    <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">Profile</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      {% set fields = [
+        ('Phone', emp.phone),
+        ('Email', emp.email or '—'),
+        ('Status', emp.status or 'ACTIVE'),
+        ('Department', emp.department.name if emp.department else '—'),
+        ('Manager', emp.manager.name if emp.manager else '—'),
+        ('Address', emp.address or '—'),
+      ] %}
+      {% for lbl, val in fields %}
+      <div>
+        <div style="font-size:10px;color:#475569;margin-bottom:2px">{{ lbl }}</div>
+        <div style="font-size:13px;color:#e2e8f0;font-weight:500">{{ val }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Module KPI Cards ───────────────────────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
+
+  <!-- Tickets -->
+  <div class="card" style="padding:20px">
+    <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">Tickets (Last 30 Days)</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#7dd3fc">{{ ticket_kpis.closed_30d }}</div>
+        <div style="font-size:10px;color:#64748b">Closed</div>
+      </div>
+      <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if ticket_kpis.on_time_rate >= 80 %}#6ee7b7{% elif ticket_kpis.on_time_rate >= 60 %}#fbbf24{% else %}#f87171{% endif %}">{{ ticket_kpis.on_time_rate }}%</div>
+        <div style="font-size:10px;color:#64748b">On-Time Rate</div>
+      </div>
+      <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#e2e8f0">{{ ticket_kpis.active_count }}</div>
+        <div style="font-size:10px;color:#64748b">Active Now</div>
+      </div>
+      <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#e2e8f0">{{ ticket_kpis.avg_tat_hours }}h</div>
+        <div style="font-size:10px;color:#64748b">Avg TaT</div>
+      </div>
+    </div>
+    {% if ticket_kpis.active_by_priority %}
+    <div style="margin-top:12px">
+      <div style="font-size:10px;color:#475569;margin-bottom:6px">Active by Priority</div>
+      {% for pri, col in [('CRITICAL','#f87171'),('HIGH','#fb923c'),('MEDIUM','#fbbf24'),('LOW','#6ee7b7')] %}
+      {% if ticket_kpis.active_by_priority.get(pri, 0) > 0 %}
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+        <span style="font-size:9px;padding:1px 6px;border-radius:99px;background:{{ col }}22;color:{{ col }};font-weight:700">{{ pri }}</span>
+        <span style="font-size:12px;color:#e2e8f0">{{ ticket_kpis.active_by_priority[pri] }}</span>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Checklists -->
+  <div class="card" style="padding:20px">
+    <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">Checklists ({{ period }})</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#7dd3fc">{{ cl_total }}</div>
+        <div style="font-size:10px;color:#64748b">Assigned</div>
+      </div>
+      <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#6ee7b7">{{ cl_done }}</div>
+        <div style="font-size:10px;color:#64748b">Completed</div>
+      </div>
+      <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#f87171">{{ cl_overdue }}</div>
+        <div style="font-size:10px;color:#64748b">Overdue</div>
+      </div>
+      <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if cl_compliance >= 80 %}#6ee7b7{% elif cl_compliance >= 60 %}#fbbf24{% else %}#f87171{% endif %}">{{ cl_compliance }}%</div>
+        <div style="font-size:10px;color:#64748b">Compliance</div>
+      </div>
+    </div>
+    {% if cl_total > 0 %}
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;margin-bottom:4px">
+        <span>Completion</span><span>{{ cl_done }}/{{ cl_total }}</span>
+      </div>
+      <div style="background:#1e293b;border-radius:99px;height:6px;overflow:hidden">
+        <div style="height:100%;border-radius:99px;width:{{ cl_compliance }}%;background:{% if cl_compliance >= 80 %}#10b981{% elif cl_compliance >= 60 %}#f59e0b{% else %}#ef4444{% endif %}"></div>
+      </div>
+    </div>
+    {% else %}
+    <div style="text-align:center;color:#475569;font-size:12px;padding:16px 0">No checklists in this period</div>
+    {% endif %}
+  </div>
+
+  <!-- FMS -->
+  <div class="card" style="padding:20px">
+    <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">FMS Tickets ({{ period }})</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#7dd3fc">{{ fms_total }}</div>
+        <div style="font-size:10px;color:#64748b">Assigned</div>
+      </div>
+      <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#6ee7b7">{{ fms_done }}</div>
+        <div style="font-size:10px;color:#64748b">Completed</div>
+      </div>
+    </div>
+    {% if fms_total > 0 %}
+    {% set fms_pct = (fms_done / fms_total * 100) | round | int %}
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;margin-bottom:4px">
+        <span>Completion Rate</span><span>{{ fms_pct }}%</span>
+      </div>
+      <div style="background:#1e293b;border-radius:99px;height:6px;overflow:hidden">
+        <div style="height:100%;border-radius:99px;width:{{ fms_pct }}%;background:{% if fms_pct >= 80 %}#10b981{% elif fms_pct >= 60 %}#f59e0b{% else %}#ef4444{% endif %}"></div>
+      </div>
+    </div>
+    {% else %}
+    <div style="text-align:center;color:#475569;font-size:12px;padding:16px 0">No FMS tickets in this period</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── 8-Week Checklist Compliance Trend ──────────────────────────────────── -->
+{% if ticket_kpis.weekly_compliance %}
+<div class="card" style="padding:20px;margin-bottom:20px">
+  <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px">8-Week Checklist Compliance Trend</div>
+  <div style="display:flex;gap:6px;align-items:flex-end;height:80px">
+    {% for pct in ticket_kpis.weekly_compliance %}
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+      <div style="font-size:9px;color:#475569">{{ pct }}%</div>
+      <div style="width:100%;border-radius:3px 3px 0 0;
+           background:{% if pct >= 80 %}rgba(16,185,129,0.6){% elif pct >= 60 %}rgba(245,158,11,0.6){% else %}rgba(239,68,68,0.6){% endif %};
+           height:{{ [pct, 4] | max }}%"></div>
+    </div>
+    {% endfor %}
+  </div>
+  <div style="display:flex;gap:6px;margin-top:4px">
+    {% for lbl in ticket_kpis.weekly_labels %}
+    <div style="flex:1;text-align:center;font-size:9px;color:#374151">{{ lbl }}</div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

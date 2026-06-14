@@ -2059,12 +2059,20 @@ def employees_page(request: Request, user: User = Depends(require_manager),
         User.role.in_(["ADMIN","MANAGER"])).all()]
     tenant = db.query(Tenant).get(tid)
     can_bulk = has_feature(tenant, "BULK_IMPORT")
+    # P8-04: KPI strip
+    all_for_kpi = db.query(User).filter(User.tenant_id == tid, User.is_deleted == False).all()
+    kpi_total      = len(all_for_kpi)
+    kpi_active     = sum(1 for u in all_for_kpi if getattr(u, "status", "ACTIVE") == "ACTIVE")
+    kpi_terminated = sum(1 for u in all_for_kpi if getattr(u, "status", "ACTIVE") == "TERMINATED")
+    kpi_departments = db.query(Department).filter(Department.tenant_id == tid, Department.is_deleted == False).count()
     return templates.TemplateResponse(request, "employees.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "employees": all_users, "departments": departments,
         "branches": branches, "managers": managers,
         "can_bulk": can_bulk,
+        "kpi_total": kpi_total, "kpi_active": kpi_active,
+        "kpi_terminated": kpi_terminated, "kpi_departments": kpi_departments,
     })
 
 @app.post("/employees/create")
@@ -2121,14 +2129,22 @@ def download_csv_template(entity: str = "employees",
         raise HTTPException(403, "Bulk import requires Professional plan")
 
     headers = {
-        "employees": ["name", "phone", "password", "role", "department_name", "manager_phone"],
+        "employees": ["name", "phone", "password", "role", "department_name", "manager_phone", "email", "joining_date", "address"],
         "departments": ["name", "branch_name"],
         "branches": ["name", "address"],
     }
+    descriptions = {
+        "employees": ["Full name", "10-digit phone", "Temp password (min 6)", "EMPLOYEE/MANAGER/ADMIN/STORE_MANAGER", "Exact dept name or blank", "Manager phone or blank", "Email or blank", "YYYY-MM-DD or blank", "Address or blank"],
+        "departments": ["Department name", "Branch name or blank"],
+        "branches": ["Branch name", "Address or blank"],
+    }
     cols = headers.get(entity, headers["employees"])
+    desc = descriptions.get(entity, descriptions["employees"])
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(cols)
+    w.writerow(desc)
+    w.writerow(["Ravi Kumar", "9876543210", "Pass@123", "EMPLOYEE", "Sales", "", "ravi@example.com", "2024-01-15", "Mumbai"] if entity == "employees" else (["Example Dept", "Main Branch"] if entity == "departments" else ["Main Branch", "123 Main St"]))
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]),
@@ -2150,6 +2166,8 @@ async def bulk_import_employees(file: UploadFile = File(...),
 
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
+        if i == 2:  # skip description row
+            continue
         name = (row.get("name") or "").strip()
         phone = (row.get("phone") or "").strip()
         password = (row.get("password") or "").strip()
@@ -2262,6 +2280,223 @@ def reset_employee_password(
     emp.password_hash = hash_password(temp_password)
     db.commit()
     return redirect(f"/employees?msg=Password+reset+for+{emp.name}")
+
+
+# ── P8-01 / P8-06: Edit employee profile ─────────────────────────────────────
+@app.post("/employees/{emp_id}/edit")
+def edit_employee(
+    emp_id: str,
+    name: str = Form(...), phone: str = Form(...),
+    email: str = Form(""), role: str = Form(...),
+    department_id: str = Form(""), manager_id: str = Form(""),
+    joining_date: str = Form(""), address: str = Form(""),
+    user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    emp = db.query(User).filter(
+        User.id == emp_id, User.tenant_id == user.tenant_id, User.is_deleted == False,
+    ).first()
+    if not emp:
+        raise HTTPException(404)
+    emp.name = name
+    emp.phone = phone
+    emp.email = email or None
+    emp.role = role
+    emp.department_id = department_id or None
+    emp.manager_id = manager_id or None
+    emp.address = address or None
+    from datetime import date as _date
+    if joining_date:
+        try:
+            emp.joining_date = _date.fromisoformat(joining_date)
+        except ValueError:
+            pass
+    db.commit()
+    return redirect(f"/employees?msg=Profile+updated+for+{emp.name}")
+
+
+# ── P8-02: Open-work count (JSON) for terminate modal ────────────────────────
+@app.get("/employees/{emp_id}/open-work")
+def emp_open_work(emp_id: str, user: User = Depends(require_admin),
+                  db: Session = Depends(get_db)):
+    tid = user.tenant_id
+    target = db.query(User).filter(
+        User.id == emp_id, User.tenant_id == tid, User.is_deleted == False,
+    ).first()
+    if not target:
+        raise HTTPException(404)
+    open_tickets = (
+        db.query(TicketAssignee)
+        .filter(TicketAssignee.user_id == emp_id)
+        .join(Ticket, Ticket.id == TicketAssignee.ticket_id)
+        .filter(Ticket.tenant_id == tid, Ticket.is_deleted == False,
+                Ticket.status.in_(["OPEN", "ACKNOWLEDGED", "IN_PROGRESS"]))
+        .count()
+    )
+    open_cls = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.user_id == emp_id,
+        ChecklistAssignment.is_deleted == False,
+        ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+    ).count()
+    from .database import FMSTicketHelper as _FTH
+    open_fms = (
+        db.query(_FTH)
+        .filter(_FTH.user_id == emp_id)
+        .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
+        .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
+                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+        .count()
+    )
+    return JSONResponse({"tickets": open_tickets, "checklists": open_cls, "fms": open_fms})
+
+
+# ── P8-02: Terminate employee with migration flow ─────────────────────────────
+@app.post("/employees/{emp_id}/terminate")
+def terminate_employee(
+    emp_id: str,
+    ticket_reassign_to: str = Form(""),
+    checklist_reassign_to: str = Form(""),
+    fms_reassign_to: str = Form(""),
+    user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    tid = user.tenant_id
+    emp = db.query(User).filter(
+        User.id == emp_id, User.tenant_id == tid, User.is_deleted == False,
+    ).first()
+    if not emp:
+        raise HTTPException(404)
+    if emp.id == user.id:
+        return redirect("/employees?error=Cannot+terminate+yourself")
+    if getattr(emp, "status", "ACTIVE") == "TERMINATED":
+        return redirect("/employees?error=Employee+already+terminated")
+
+    if ticket_reassign_to:
+        for ta in db.query(TicketAssignee).filter(TicketAssignee.user_id == emp_id).all():
+            ta.user_id = ticket_reassign_to
+
+    if checklist_reassign_to:
+        for cl in db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.user_id == emp_id,
+            ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+        ).all():
+            cl.user_id = checklist_reassign_to
+
+    if fms_reassign_to:
+        from .database import FMSTicketHelper as _FTH
+        for fh in (
+            db.query(_FTH)
+            .filter(_FTH.user_id == emp_id)
+            .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
+            .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
+                    FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+            .all()
+        ):
+            fh.user_id = fms_reassign_to
+
+    emp.status = "TERMINATED"
+    emp.is_active = False
+    emp.terminated_at = datetime.utcnow()
+    db.commit()
+    return redirect(f"/employees?msg={emp.name}+has+been+terminated")
+
+
+# ── P8-06: Soft-delete employee ───────────────────────────────────────────────
+@app.post("/employees/{emp_id}/delete")
+def delete_employee(
+    emp_id: str, user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    emp = db.query(User).filter(
+        User.id == emp_id, User.tenant_id == user.tenant_id, User.is_deleted == False,
+    ).first()
+    if not emp:
+        raise HTTPException(404)
+    if emp.id == user.id:
+        return redirect("/employees?error=Cannot+delete+yourself")
+    emp.is_deleted = True
+    emp.is_active = False
+    db.commit()
+    return redirect("/employees?msg=Employee+removed")
+
+
+# ── P8-03: Per-employee performance dashboard ─────────────────────────────────
+@app.get("/employees/{emp_id}/performance", response_class=HTMLResponse)
+def employee_performance(
+    emp_id: str, request: Request, period: str = "30d",
+    user: User = Depends(require_manager), db: Session = Depends(get_db),
+):
+    tid = user.tenant_id
+    emp = db.query(User).filter(
+        User.id == emp_id, User.tenant_id == tid, User.is_deleted == False,
+    ).first()
+    if not emp:
+        raise HTTPException(404)
+    if user.role == "MANAGER" and emp.manager_id != user.id and emp.id != user.id:
+        raise HTTPException(403)
+
+    now = datetime.utcnow()
+    since_map = {
+        "7d": now - timedelta(days=7),
+        "30d": now - timedelta(days=30),
+        "90d": now - timedelta(days=90),
+        "all": datetime(2000, 1, 1),
+    }
+    since = since_map.get(period, since_map["30d"])
+
+    ticket_kpis = get_employee_kpis(db, emp_id, tid)
+
+    cl_base = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.user_id == emp_id,
+        ChecklistAssignment.is_deleted == False,
+        ChecklistAssignment.created_at >= since,
+    )
+    cl_total   = cl_base.count()
+    cl_done    = cl_base.filter(ChecklistAssignment.status == "DONE").count()
+    cl_overdue = cl_base.filter(ChecklistAssignment.status == "OVERDUE").count()
+    cl_compliance = round(cl_done / cl_total * 100) if cl_total else 0
+
+    from .database import FMSTicketHelper as _FTH
+    fms_base = (
+        db.query(_FTH)
+        .filter(_FTH.user_id == emp_id)
+        .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
+        .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
+                FMSTicket.created_at >= since)
+    )
+    fms_total = fms_base.count()
+    fms_done  = (
+        db.query(_FTH)
+        .filter(_FTH.user_id == emp_id)
+        .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
+        .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
+                FMSTicket.created_at >= since,
+                FMSTicket.status.in_(["COMPLETED", "CLOSED"]))
+        .count()
+    )
+
+    scores = []
+    if ticket_kpis.get("closed_30d", 0) > 0:
+        scores.append(ticket_kpis.get("on_time_rate", 100))
+    if cl_total > 0:
+        scores.append(cl_compliance)
+    if fms_total > 0:
+        scores.append(round(fms_done / fms_total * 100))
+    overall_score = round(sum(scores) / len(scores)) if scores else 0
+
+    return templates.TemplateResponse(request, "employee_performance.html", {
+        "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "emp": emp, "period": period,
+        "ticket_kpis": ticket_kpis,
+        "cl_total": cl_total, "cl_done": cl_done,
+        "cl_overdue": cl_overdue, "cl_compliance": cl_compliance,
+        "fms_total": fms_total, "fms_done": fms_done,
+        "overall_score": overall_score,
+        "managers": db.query(User).filter(
+            User.tenant_id == tid, User.is_deleted == False,
+            User.role.in_(["ADMIN", "MANAGER"]),
+        ).all(),
+    })
 
 
 @app.post("/departments/import")
