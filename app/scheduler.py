@@ -232,6 +232,58 @@ def escalate_unacknowledged_tickets():
         db.close()
 
 
+# ── Phase 5 jobs ─────────────────────────────────────────────────────────────
+
+def morning_ticket_summary():
+    """P5-05: 8:00 AM daily — notify each user of their open/in-progress tickets due today or overdue."""
+    from datetime import date as _date
+    from .database import SessionLocal, Ticket, User, Notification
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        today_end = datetime.combine(_date.today(), datetime.max.time())
+
+        # Group open tickets by assignee
+        open_statuses = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
+        tickets = db.query(Ticket).filter(
+            Ticket.is_deleted == False,
+            Ticket.status.in_(open_statuses),
+            Ticket.due_at <= today_end,
+        ).all()
+
+        by_user: dict = {}
+        for t in tickets:
+            by_user.setdefault(t.current_assignee_id, []).append(t)
+
+        for uid, user_tickets in by_user.items():
+            if not uid:
+                continue
+            overdue = [t for t in user_tickets if t.due_at and t.due_at < now]
+            due_today = [t for t in user_tickets if t.due_at and t.due_at >= now]
+            parts = []
+            if overdue:
+                parts.append(f"{len(overdue)} overdue")
+            if due_today:
+                parts.append(f"{len(due_today)} due today")
+            if not parts:
+                continue
+            tenant_id = user_tickets[0].tenant_id
+            db.add(Notification(
+                tenant_id=tenant_id, user_id=uid,
+                notif_type="TICKET_REMINDER",
+                title="🌅 Morning ticket summary",
+                body=f"You have {', '.join(parts)} ticket(s) needing attention.",
+                link="/tickets?status=OPEN",
+            ))
+        db.commit()
+        logger.info("Morning ticket summary sent to %d users", len(by_user))
+    except Exception as e:
+        logger.error("morning_ticket_summary error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
 # ── Phase 3 jobs ─────────────────────────────────────────────────────────────
 
 def pms_no_entry_check():
@@ -391,6 +443,7 @@ def invoice_overdue_check():
 # ── Start / stop ──────────────────────────────────────────────────────────────
 
 def start_scheduler():
+    from apscheduler.triggers.cron import CronTrigger
     scheduler.add_job(generate_recurring_checklists,
                       IntervalTrigger(hours=1), id="gen_cl",    replace_existing=True)
     scheduler.add_job(mark_overdue_checklists,
@@ -399,6 +452,9 @@ def start_scheduler():
                       IntervalTrigger(minutes=15), id="remind",  replace_existing=True)
     scheduler.add_job(escalate_unacknowledged_tickets,
                       IntervalTrigger(minutes=30), id="escalate",replace_existing=True)
+    # Phase 5 jobs
+    scheduler.add_job(morning_ticket_summary,
+                      CronTrigger(hour=8, minute=0, timezone="UTC"), id="morning_tickets", replace_existing=True)
     # Phase 3 jobs
     scheduler.add_job(pms_no_entry_check,
                       IntervalTrigger(hours=1), id="pms_noe",   replace_existing=True)
@@ -408,7 +464,7 @@ def start_scheduler():
                       IntervalTrigger(hours=6), id="inv_chk",   replace_existing=True)
     if not scheduler.running:
         scheduler.start()
-    logger.info("Scheduler started (7 jobs)")
+    logger.info("Scheduler started (8 jobs)")
 
 
 def stop_scheduler():

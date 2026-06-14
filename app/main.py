@@ -886,11 +886,13 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
 # ── Tickets ───────────────────────────────────────────────────────────────────
 
 @app.get("/tickets", response_class=HTMLResponse)
-def tickets_list(request: Request, status: str = "", view: str = "table",
-                 month: str = "", dept_id: str = "", manager_id: str = "",
-                 branch_id: str = "",
+def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
+                 dept_id: str = "", manager_id: str = "", branch_id: str = "",
+                 priority: str = "", ticket_category: str = "",
+                 date_from: str = "", date_to: str = "", assignee_id: str = "",
                  user: User = Depends(get_current_user),
                  db: Session = Depends(get_db)):
+    from datetime import date as _date
     tid = user.tenant_id
     q = db.query(Ticket).filter(Ticket.tenant_id == tid, Ticket.is_deleted == False)
 
@@ -913,43 +915,70 @@ def tickets_list(request: Request, status: str = "", view: str = "table",
             (Ticket.id.in_(helper_ticket_ids))
         )
 
+    # Status tab filter — default OPEN
     if status:
         q = q.filter(Ticket.status == status)
 
-    # Month filter: YYYY-MM
-    if month:
-        try:
-            y, m = int(month[:4]), int(month[5:7])
-            from datetime import date
-            month_start = datetime(y, m, 1)
-            if m == 12:
-                month_end = datetime(y + 1, 1, 1)
-            else:
-                month_end = datetime(y, m + 1, 1)
-            q = q.filter(Ticket.created_at >= month_start, Ticket.created_at < month_end)
-        except Exception:
-            pass
-
-    # Department filter: employees in that dept
+    # Extended filters (P5-04)
     if dept_id:
         dept_user_ids = [u.id for u in db.query(User).filter(
             User.department_id == dept_id, User.tenant_id == tid,
             User.is_deleted == False).all()]
         q = q.filter(Ticket.current_assignee_id.in_(dept_user_ids))
-
-    # Manager filter: employees under that manager
     if manager_id:
         mgr_team_ids = [u.id for u in db.query(User).filter(
             User.manager_id == manager_id, User.tenant_id == tid,
             User.is_deleted == False).all()]
         q = q.filter(Ticket.current_assignee_id.in_(mgr_team_ids))
+    if branch_id:
+        branch_user_ids = [u.id for u in db.query(User).filter(
+            User.branch_id == branch_id, User.tenant_id == tid,
+            User.is_deleted == False).all()]
+        q = q.filter(Ticket.current_assignee_id.in_(branch_user_ids))
+    if priority:
+        q = q.filter(Ticket.priority == priority)
+    if ticket_category and hasattr(Ticket, "ticket_category"):
+        q = q.filter(Ticket.ticket_category == ticket_category)
+    if assignee_id:
+        q = q.filter(Ticket.current_assignee_id == assignee_id)
+    if date_from:
+        try:
+            q = q.filter(Ticket.created_at >= datetime.fromisoformat(date_from))
+        except Exception:
+            pass
+    if date_to:
+        try:
+            q = q.filter(Ticket.created_at <= datetime.fromisoformat(date_to).replace(hour=23, minute=59, second=59))
+        except Exception:
+            pass
 
     tickets = q.order_by(Ticket.created_at.desc()).all()
+
+    # Count per status for tab badges
+    base_q = db.query(Ticket).filter(Ticket.tenant_id == tid, Ticket.is_deleted == False)
+    if user.role == "MANAGER":
+        base_q = base_q.filter(
+            (Ticket.current_assignee_id.in_(team_ids)) |
+            (Ticket.created_by_id.in_(team_ids)) |
+            (Ticket.id.in_(helper_tids))
+        )
+    elif user.role == "EMPLOYEE":
+        base_q = base_q.filter(
+            (Ticket.current_assignee_id == user.id) |
+            (Ticket.id.in_(helper_ticket_ids))
+        )
+    tab_statuses = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "DONE", "CLOSED"]
+    status_counts = {s: base_q.filter(Ticket.status == s).count() for s in tab_statuses}
+
     employees = db.query(User).filter(
-        User.tenant_id == tid, User.is_deleted == False, User.is_active == True).all()
+        User.tenant_id == tid, User.is_deleted == False,
+        User.is_active == True).all()
     departments = db.query(Department).filter(
         Department.tenant_id == tid, Department.is_deleted == False).all()
     managers = [e for e in employees if e.role in ("MANAGER", "ADMIN")]
+    branches = db.query(Branch).filter(Branch.tenant_id == tid).all() \
+        if hasattr(Branch, "is_deleted") else \
+        db.query(Branch).filter(Branch.tenant_id == tid).all()
 
     statuses = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "HELP_REQUESTED", "DONE", "CLOSED"]
     kanban_columns = {s: [] for s in statuses}
@@ -957,35 +986,56 @@ def tickets_list(request: Request, status: str = "", view: str = "table",
         if t.status in kanban_columns:
             kanban_columns[t.status].append(t)
 
+    from .linked_entities import get_linked_entity_options
+    entity_options = get_linked_entity_options(db, tid)
+
     return templates.TemplateResponse(request, "tickets.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "tickets": tickets, "employees": employees,
-        "departments": departments, "managers": managers,
-        "status_filter": status, "statuses": statuses,
+        "departments": departments, "managers": managers, "branches": branches,
+        "status_filter": status, "statuses": statuses, "tab_statuses": tab_statuses,
+        "status_counts": status_counts,
         "kanban_columns": kanban_columns,
         "view": view,
-        "month": month, "dept_id": dept_id, "manager_id": manager_id,
+        "dept_id": dept_id, "manager_id": manager_id, "branch_id": branch_id,
+        "priority": priority, "ticket_category": ticket_category,
+        "assignee_id": assignee_id, "date_from": date_from, "date_to": date_to,
+        "entity_options": entity_options,
         "now": datetime.utcnow(),
     })
 
 @app.post("/tickets/create")
-def create_ticket(
+async def create_ticket(
+    request: Request,
     title: str = Form(...), description: str = Form(...),
     priority: str = Form("MEDIUM"), assignee_id: str = Form(...),
-    due_at: str = Form(...), proof_required: bool = Form(False),
-    user: User = Depends(require_manager), db: Session = Depends(get_db),
+    due_at: str = Form(...), evidence_required: bool = Form(False),
+    ticket_category: str = Form("NORMAL"),
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
 ):
+    # P5-02: Employees can only create Help tickets
+    if user.role == "EMPLOYEE" and ticket_category != "HELP":
+        raise HTTPException(403, "Employees can only create Help tickets")
+    if user.role not in ("ADMIN", "MANAGER", "EMPLOYEE"):
+        raise HTTPException(403)
+    # Employees creating help tickets assign to themselves by default
+    if user.role == "EMPLOYEE":
+        assignee_id = assignee_id or user.id
+
     ticket = Ticket(
         tenant_id=user.tenant_id, title=title, description=description,
         priority=priority, created_by_id=user.id,
         current_assignee_id=assignee_id,
         due_at=datetime.fromisoformat(due_at),
-        proof_required=proof_required, ticket_type="D",
+        ticket_type="D",
     )
+    if hasattr(ticket, "evidence_required"):
+        ticket.evidence_required = evidence_required
+    if hasattr(ticket, "ticket_category"):
+        ticket.ticket_category = ticket_category
     db.add(ticket)
     db.flush()
-    # Generate display ID (e.g. T-0042)
     tenant = db.query(Tenant).get(user.tenant_id)
     tenant.ticket_seq = (tenant.ticket_seq or 0) + 1
     ticket.display_id = f"T-{tenant.ticket_seq:04d}"
@@ -993,8 +1043,11 @@ def create_ticket(
     log_event(db, ticket.id, user.id, "CREATED", f"Assigned to {assignee.name if assignee else assignee_id}")
     if assignee:
         notify_ticket_assigned(db, ticket, assignee)
+    # P5-10: save linked entities
+    form_data = await request.form()
+    from .linked_entities import save_linked_entities_from_form
+    save_linked_entities_from_form(db, dict(form_data), "TICKET", ticket.id, user.tenant_id, user.id)
     db.commit()
-    # Real-time: notify all admins/managers + the assignee
     audience = list(set(_admin_ids(db, user.tenant_id) + _manager_ids_for_ticket(db, user.tenant_id, assignee_id) + [assignee_id]))
     broadcast_sync(user.tenant_id, audience, TICKET_ASSIGNED, {
         "ticket_id": ticket.id, "display_id": ticket.display_id,
@@ -1046,13 +1099,221 @@ def ticket_detail(ticket_id: str, request: Request,
         MediaUpload.entity_id == ticket_id,
     ).order_by(MediaUpload.created_at).all()
     helper_ids = [h.user_id for h in ticket.helpers]
+    from .linked_entities import get_linked_entity_options
+    from .database import LinkedEntityReference
+    linked_refs = db.query(LinkedEntityReference).filter(
+        LinkedEntityReference.tenant_id == user.tenant_id,
+        LinkedEntityReference.parent_type == "TICKET",
+        LinkedEntityReference.parent_id == ticket_id,
+    ).order_by(LinkedEntityReference.created_at).all()
+    entity_options = get_linked_entity_options(db, user.tenant_id)
     return templates.TemplateResponse(request, "ticket_detail.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "ticket": ticket, "employees": employees,
         "media": media, "helper_ids": helper_ids,
+        "linked_refs": linked_refs, "entity_options": entity_options,
         "now": datetime.utcnow(),
     })
+
+@app.post("/tickets/{ticket_id}/advance")
+async def ticket_advance(ticket_id: str, request: Request,
+                         user: User = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """P5-03: Mark as Done quick action — advances ticket to next status."""
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id,
+        Ticket.is_deleted == False).first()
+    if not ticket:
+        raise HTTPException(404)
+    _status_seq = {"OPEN": "ACKNOWLEDGED", "ACKNOWLEDGED": "IN_PROGRESS",
+                   "IN_PROGRESS": "DONE", "DONE": "CLOSED"}
+    next_status = _status_seq.get(ticket.status)
+    if not next_status:
+        return redirect(f"/tickets")
+    # Evidence gate: IN_PROGRESS → DONE requires upload if evidence_required
+    if (next_status == "DONE" and getattr(ticket, "evidence_required", False)):
+        form = await request.form()
+        file = form.get("evidence_file")
+        if file and hasattr(file, "filename") and file.filename:
+            from .uploads import save_upload
+            info = await save_upload(file, user.tenant_id)
+            db.add(MediaUpload(
+                tenant_id=user.tenant_id, entity_type="ticket", entity_id=ticket_id,
+                uploaded_by_id=user.id, **info,
+            ))
+            log_event(db, ticket_id, user.id, "EVIDENCE_UPLOADED", info["file_name"])
+        else:
+            return redirect(f"/tickets?evidence_error={ticket_id}")
+    old_status = ticket.status
+    ticket.status = next_status
+    if next_status == "ACKNOWLEDGED" and not ticket.acknowledged_at:
+        ticket.acknowledged_at = datetime.utcnow()
+    if next_status in ("DONE", "CLOSED"):
+        ticket.closed_at = datetime.utcnow()
+    log_event(db, ticket_id, user.id, "STATUS_CHANGED", f"{old_status} → {next_status}")
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+    notify_ticket_status_changed(db, ticket, user.id, old_status, next_status, admins, managers)
+    db.commit()
+    audience = list(set(admins + managers + [ticket.current_assignee_id]))
+    broadcast_sync(user.tenant_id, audience, TICKET_STATUS_CHANGED, {
+        "ticket_id": ticket_id, "display_id": ticket.display_id,
+        "old_status": old_status, "new_status": next_status,
+    })
+    return redirect(f"/tickets?status={old_status}&advanced=1")
+
+
+@app.post("/tickets/{ticket_id}/remind")
+def ticket_remind(ticket_id: str, user: User = Depends(require_manager),
+                  db: Session = Depends(get_db)):
+    """P5-06: Send Reminder — Admin/Manager only."""
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id,
+        Ticket.is_deleted == False).first()
+    if not ticket:
+        raise HTTPException(404)
+    assignee = db.query(User).get(ticket.current_assignee_id)
+    if assignee:
+        notify_ticket_assigned(db, ticket, assignee)
+    log_event(db, ticket_id, user.id, "REMINDER_SENT", f"Manual reminder to {assignee.name if assignee else '?'}")
+    db.commit()
+    return redirect(f"/tickets/{ticket_id}?reminded=1")
+
+
+@app.post("/tickets/{ticket_id}/edit")
+def ticket_edit(ticket_id: str, title: str = Form(...), description: str = Form(...),
+                priority: str = Form("MEDIUM"), assignee_id: str = Form(...),
+                due_at: str = Form(...), evidence_required: bool = Form(False),
+                ticket_category: str = Form("NORMAL"),
+                user: User = Depends(require_manager), db: Session = Depends(get_db)):
+    """P5-08: Edit ticket — Admin/Manager only."""
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id,
+        Ticket.is_deleted == False, Ticket.status != "CLOSED").first()
+    if not ticket:
+        raise HTTPException(404)
+    old = f"{ticket.title} | {ticket.priority} | {ticket.current_assignee_id}"
+    ticket.title = title
+    ticket.description = description
+    ticket.priority = priority
+    ticket.current_assignee_id = assignee_id
+    try:
+        ticket.due_at = datetime.fromisoformat(due_at)
+    except Exception:
+        pass
+    if hasattr(ticket, "evidence_required"):
+        ticket.evidence_required = evidence_required
+    if hasattr(ticket, "ticket_category"):
+        ticket.ticket_category = ticket_category
+    log_event(db, ticket_id, user.id, "EDITED", f"Previous: {old}")
+    db.commit()
+    return redirect(f"/tickets/{ticket_id}")
+
+
+@app.post("/tickets/{ticket_id}/delete")
+def ticket_delete(ticket_id: str, user: User = Depends(require_admin),
+                  db: Session = Depends(get_db)):
+    """P5-09: Soft delete — Admin only."""
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id).first()
+    if not ticket:
+        raise HTTPException(404)
+    ticket.is_deleted = True
+    log_event(db, ticket_id, user.id, "DELETED", "Soft deleted by admin")
+    db.commit()
+    return redirect("/tickets")
+
+
+@app.get("/tickets/bulk-template")
+def tickets_bulk_template(user: User = Depends(require_manager)):
+    """P5-07: CSV template download."""
+    import io as _io
+    buf = _io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["title","description","priority","ticket_category","assignee_phone","due_at","evidence_required","department_name"])
+    w.writerow(["Short title (max 200)","Full task description","LOW/MEDIUM/HIGH/CRITICAL","NORMAL or HELP","10-digit phone of assignee","YYYY-MM-DD HH:MM","TRUE or FALSE (default FALSE)","Department name (optional)"])
+    w.writerow(["Fix machine oil leak","Check and refill oil in machine #3","HIGH","NORMAL","9876543210","2026-08-01 18:00","FALSE","Production"])
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=tickets_template.csv"})
+
+
+@app.post("/tickets/bulk-upload")
+async def tickets_bulk_upload(file: UploadFile = File(...),
+                               user: User = Depends(require_manager),
+                               db: Session = Depends(get_db)):
+    """P5-07: Bulk upload tickets from CSV."""
+    tid = user.tenant_id
+    content = (await file.read()).decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(content))
+    errors = []
+    created = 0
+    tenant = db.query(Tenant).get(tid)
+    for i, row in enumerate(reader, start=2):
+        if i == 3:  # skip description row
+            continue
+        title = (row.get("title") or "").strip()
+        description = (row.get("description") or "").strip()
+        priority = (row.get("priority") or "MEDIUM").strip().upper()
+        category = (row.get("ticket_category") or "NORMAL").strip().upper()
+        phone = (row.get("assignee_phone") or "").strip()
+        due_str = (row.get("due_at") or "").strip()
+        ev_req = (row.get("evidence_required") or "FALSE").strip().upper() == "TRUE"
+        dept_name = (row.get("department_name") or "").strip()
+
+        if not title:
+            errors.append(f"Row {i}: title is required"); continue
+        if not description:
+            errors.append(f"Row {i}: description is required"); continue
+        if priority not in ("LOW","MEDIUM","HIGH","CRITICAL"):
+            errors.append(f"Row {i}: invalid priority '{priority}'"); continue
+        if category not in ("NORMAL","HELP"):
+            errors.append(f"Row {i}: invalid ticket_category '{category}'"); continue
+        if not phone:
+            errors.append(f"Row {i}: assignee_phone is required"); continue
+        assignee = db.query(User).filter(User.phone == phone, User.tenant_id == tid,
+                                          User.is_active == True, User.is_deleted == False).first()
+        if not assignee:
+            errors.append(f"Row {i}: no active user with phone '{phone}'"); continue
+        if not due_str:
+            errors.append(f"Row {i}: due_at is required"); continue
+        try:
+            due_dt = datetime.strptime(due_str, "%Y-%m-%d %H:%M")
+        except Exception:
+            errors.append(f"Row {i}: due_at must be YYYY-MM-DD HH:MM, got '{due_str}'"); continue
+
+        ticket = Ticket(
+            tenant_id=tid, title=title[:200], description=description,
+            priority=priority, created_by_id=user.id,
+            current_assignee_id=assignee.id, due_at=due_dt, ticket_type="D",
+        )
+        if hasattr(ticket, "evidence_required"):
+            ticket.evidence_required = ev_req
+        if hasattr(ticket, "ticket_category"):
+            ticket.ticket_category = category
+        db.add(ticket)
+        db.flush()
+        tenant.ticket_seq = (tenant.ticket_seq or 0) + 1
+        ticket.display_id = f"T-{tenant.ticket_seq:04d}"
+        log_event(db, ticket.id, user.id, "CREATED", f"Bulk upload — assigned to {assignee.name}")
+        notify_ticket_assigned(db, ticket, assignee)
+        created += 1
+
+    db.commit()
+    if errors:
+        import io as _io
+        buf = _io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["Row","Error"])
+        for e in errors:
+            parts = e.split(": ", 1)
+            w.writerow(parts if len(parts)==2 else [e, ""])
+        buf.seek(0)
+        return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=ticket_upload_errors.csv"})
+    return redirect(f"/tickets?bulk_created={created}")
+
 
 @app.post("/tickets/{ticket_id}/action")
 def ticket_action(ticket_id: str, action: str = Form(...),
