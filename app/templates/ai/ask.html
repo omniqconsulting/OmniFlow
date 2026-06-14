@@ -359,6 +359,27 @@
 <div class="ai-page">
 
   <!-- ═══════════════════════════════════════════════════════════
+       P9-01: Sub-tab navigation
+  ════════════════════════════════════════════════════════════ -->
+  <div style="display:flex;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;gap:0">
+    <button id="tab-btn-chat" onclick="switchAiTab('chat')"
+      style="padding:10px 22px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;
+             border-bottom:2px solid #818cf8;color:#a5b4fc;margin-bottom:-1px">
+      💬 Chat
+    </button>
+    <button id="tab-btn-report" onclick="switchAiTab('report')"
+      style="padding:10px 22px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;
+             border-bottom:2px solid transparent;color:#64748b;margin-bottom:-1px">
+      📊 Report Generator
+    </button>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TAB: CHAT (existing interface, unchanged)
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-chat">
+
+  <!-- ═══════════════════════════════════════════════════════════
        HERO
   ════════════════════════════════════════════════════════════ -->
   <div class="ai-hero">
@@ -479,6 +500,151 @@
       <button class="copy-btn" onclick="copyAnswer()">Copy</button>
     </div>
   </div>
+
+  </div><!-- /#tab-chat -->
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TAB: REPORT GENERATOR (P9-02, P9-04)
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-report" style="display:none">
+
+    <!-- Usage tracker (shared) -->
+    {% set limit_pct2 = ((ai_calls_today / ai_daily_limit * 100) | int) if ai_daily_limit else 0 %}
+    {% set limit_color2 = '#f87171' if limit_pct2 >= 90 else ('#fbbf24' if limit_pct2 >= 70 else '#6ee7b7') %}
+    <div style="background:#0d1220;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:20px">
+      <div style="flex:1">
+        <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">AI Calls Remaining Today</div>
+        {% if ai_daily_limit %}
+        {% set remaining = ai_daily_limit - ai_calls_today %}
+        <div style="font-size:14px;font-weight:700;color:{{ limit_color2 }}">
+          {{ [remaining, 0]|max }} / {{ ai_daily_limit }} remaining
+        </div>
+        {% if remaining <= 0 %}
+        <div style="font-size:11px;color:#f87171;margin-top:2px">Limit reached — resets at midnight UTC</div>
+        {% endif %}
+        {% else %}
+        <div style="font-size:14px;font-weight:700;color:#6ee7b7">Unlimited</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- P9-02: Input controls -->
+    <div class="ask-card" style="margin-bottom:20px">
+      <div class="ask-label">📊 Generate Structured Report</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div class="form-group" style="margin:0">
+          <label style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:8px">Section</label>
+          <select id="rpt-section" style="background:rgba(255,255,255,0.04);border:1.5px solid rgba(255,255,255,0.1);border-radius:10px;color:#e2e8f0;font-size:13px;padding:11px 14px;width:100%;outline:none">
+            {% for val, label in report_sections %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:8px">Date Range</label>
+          <select id="rpt-range" style="background:rgba(255,255,255,0.04);border:1.5px solid rgba(255,255,255,0.1);border-radius:10px;color:#e2e8f0;font-size:13px;padding:11px 14px;width:100%;outline:none">
+            {% for val, label in report_date_ranges %}
+            <option value="{{ val }}" {% if val == '30d' %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="form-group" style="margin:0 0 16px">
+        <label style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:8px">Focus Area <span style="font-weight:400;color:#475569;text-transform:none;letter-spacing:0">(optional)</span></label>
+        <textarea id="rpt-focus" rows="2" placeholder="e.g. Identify bottlenecks in the dispatch stage, or highlight top performers"
+          style="background:rgba(255,255,255,0.04);border:1.5px solid rgba(255,255,255,0.1);border-radius:10px;color:#e2e8f0;font-size:13px;padding:11px 14px;width:100%;resize:vertical;outline:none;font-family:inherit;box-sizing:border-box"></textarea>
+      </div>
+      {% set at_limit = ai_daily_limit and ai_calls_today >= ai_daily_limit %}
+      <button id="rpt-btn" onclick="generateReport()" class="ask-btn"
+              {% if not api_configured or at_limit %}disabled{% endif %}
+              style="width:100%;justify-content:center">
+        <span id="rpt-btn-icon">📊</span>
+        <span id="rpt-btn-text">{% if at_limit %}Limit Reached{% else %}Generate Report{% endif %}</span>
+      </button>
+      {% if not api_configured %}
+      <div style="font-size:12px;color:#f87171;margin-top:8px;text-align:center">AI service not configured — set ANTHROPIC_API_KEY</div>
+      {% endif %}
+    </div>
+
+    <!-- P9-04: Report output -->
+    <div id="rpt-output" style="display:none">
+
+      <!-- Header with export button -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div>
+          <div style="font-size:16px;font-weight:700;color:#f1f5f9" id="rpt-title"></div>
+          <div style="font-size:11px;color:#475569;margin-top:2px" id="rpt-subtitle"></div>
+        </div>
+        <button onclick="exportReport()" class="copy-btn" style="padding:8px 16px;font-size:12px">
+          📋 Copy as Text
+        </button>
+      </div>
+
+      <!-- Executive Summary -->
+      <div class="card" style="padding:20px;margin-bottom:12px;border-left:3px solid #818cf8">
+        <div style="font-size:10px;font-weight:700;color:#818cf8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Executive Summary</div>
+        <div id="rpt-summary" style="font-size:13.5px;color:#cbd5e1;line-height:1.7"></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <!-- What's Working Well -->
+        <div class="card" style="padding:20px;border-left:3px solid #10b981">
+          <div style="font-size:10px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">✓ What is Working Well</div>
+          <ul id="rpt-working" style="margin:0;padding-left:18px;font-size:13px;color:#cbd5e1;line-height:1.7"></ul>
+        </div>
+        <!-- Needs Attention -->
+        <div class="card" style="padding:20px;border-left:3px solid #ef4444">
+          <div style="font-size:10px;font-weight:700;color:#f87171;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">⚠ What Needs Attention</div>
+          <ul id="rpt-attention" style="margin:0;padding-left:18px;font-size:13px;color:#cbd5e1;line-height:1.7"></ul>
+        </div>
+      </div>
+
+      <!-- Where to Focus -->
+      <div class="card" style="padding:20px;margin-bottom:12px;border-left:3px solid #f59e0b">
+        <div style="font-size:10px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">🎯 Where to Focus</div>
+        <ol id="rpt-focus-out" style="margin:0;padding-left:20px;font-size:13px;color:#cbd5e1;line-height:1.8"></ol>
+      </div>
+
+      <!-- Key Metrics Table -->
+      <div class="card" style="padding:20px;margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:#7dd3fc;text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">📈 Key Metrics</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:1px solid rgba(255,255,255,0.08)">Metric</th>
+              <th style="text-align:right;padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:1px solid rgba(255,255,255,0.08)">Value</th>
+            </tr>
+          </thead>
+          <tbody id="rpt-metrics"></tbody>
+        </table>
+      </div>
+
+      <!-- Employee Highlights (only for Employees section) -->
+      <div id="rpt-emp-highlights" style="display:none">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div class="card" style="padding:20px;border-left:3px solid #6ee7b7">
+            <div style="font-size:10px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">🏆 Top Performers</div>
+            <ul id="rpt-top" style="margin:0;padding-left:18px;font-size:13px;color:#cbd5e1;line-height:1.7"></ul>
+          </div>
+          <div class="card" style="padding:20px;border-left:3px solid #f87171">
+            <div style="font-size:10px;font-weight:700;color:#f87171;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">📉 Need Support</div>
+            <ul id="rpt-bottom" style="margin:0;padding-left:18px;font-size:13px;color:#cbd5e1;line-height:1.7"></ul>
+          </div>
+        </div>
+        <div class="card" style="padding:20px;margin-bottom:12px">
+          <div style="font-size:10px;font-weight:700;color:#c084fc;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">🔄 Team Patterns</div>
+          <div id="rpt-patterns" style="font-size:13px;color:#cbd5e1;line-height:1.7"></div>
+          <div style="font-size:10px;font-weight:700;color:#c084fc;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">💡 Recommended Focus for Next Period</div>
+          <div id="rpt-recommendation" style="font-size:13px;color:#cbd5e1;line-height:1.7"></div>
+        </div>
+      </div>
+
+    </div><!-- /#rpt-output -->
+
+    <!-- Error state -->
+    <div id="rpt-error" style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:16px 18px;color:#fca5a5;font-size:13px"></div>
+
+  </div><!-- /#tab-report -->
 
 </div><!-- /.ai-page -->
 
@@ -678,5 +844,181 @@ function copyAnswer() {
 const styleEl = document.createElement('style');
 styleEl.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
 document.head.appendChild(styleEl);
+</script>
+
+<script>
+// ── P9-01: Tab switching ─────────────────────────────────────────────────────
+function switchAiTab(tab) {
+  const isChat = tab === 'chat';
+  document.getElementById('tab-chat').style.display   = isChat ? '' : 'none';
+  document.getElementById('tab-report').style.display = isChat ? 'none' : '';
+
+  const chatBtn   = document.getElementById('tab-btn-chat');
+  const reportBtn = document.getElementById('tab-btn-report');
+  chatBtn.style.borderBottomColor   = isChat ? '#818cf8' : 'transparent';
+  chatBtn.style.color               = isChat ? '#a5b4fc' : '#64748b';
+  reportBtn.style.borderBottomColor = isChat ? 'transparent' : '#818cf8';
+  reportBtn.style.color             = isChat ? '#64748b' : '#a5b4fc';
+}
+
+// ── P9-03 / P9-04: Report generation ────────────────────────────────────────
+let _reportData = null;
+
+async function generateReport() {
+  const section   = document.getElementById('rpt-section').value;
+  const dateRange = document.getElementById('rpt-range').value;
+  const focusArea = document.getElementById('rpt-focus').value;
+
+  const btn     = document.getElementById('rpt-btn');
+  const btnText = document.getElementById('rpt-btn-text');
+  const btnIcon = document.getElementById('rpt-btn-icon');
+  const output  = document.getElementById('rpt-output');
+  const errDiv  = document.getElementById('rpt-error');
+
+  btn.disabled  = true;
+  btnText.textContent = 'Generating…';
+  btnIcon.style.animation = 'spin 1s linear infinite';
+  btnIcon.style.display = 'inline-block';
+  output.style.display = 'none';
+  errDiv.style.display = 'none';
+
+  try {
+    const fd = new FormData();
+    fd.append('section',    section);
+    fd.append('date_range', dateRange);
+    fd.append('focus_area', focusArea);
+
+    const resp = await fetch('/ai/report', { method: 'POST', body: fd });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      errDiv.textContent = '⚠ ' + (data.detail || 'Report generation failed');
+      errDiv.style.display = '';
+      return;
+    }
+
+    _reportData = data.report;
+    renderReport(data.report, section, dateRange);
+    output.style.display = '';
+    output.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  } catch (e) {
+    errDiv.textContent = '⚠ Network error — please check your connection.';
+    errDiv.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btnText.textContent = 'Generate Report';
+    btnIcon.style.animation = '';
+    btnIcon.textContent = '📊';
+  }
+}
+
+function renderReport(r, section, dateRange) {
+  // Title bar
+  const rangeLabels = {
+    '7d':'Last 7 Days','30d':'Last 30 Days','3m':'Last 3 Months',
+    '6m':'Last 6 Months','month':'This Month','quarter':'This Quarter'
+  };
+  document.getElementById('rpt-title').textContent = section + ' Report';
+  document.getElementById('rpt-subtitle').textContent =
+    rangeLabels[dateRange] || dateRange;
+
+  // Executive Summary
+  document.getElementById('rpt-summary').textContent = r.executive_summary || '';
+
+  // Working Well
+  const ww = document.getElementById('rpt-working');
+  ww.innerHTML = '';
+  (r.working_well || []).forEach(item => {
+    const li = document.createElement('li'); li.textContent = item; ww.appendChild(li);
+  });
+
+  // Needs Attention
+  const na = document.getElementById('rpt-attention');
+  na.innerHTML = '';
+  (r.needs_attention || []).forEach(item => {
+    const li = document.createElement('li'); li.textContent = item; na.appendChild(li);
+  });
+
+  // Where to Focus
+  const wf = document.getElementById('rpt-focus-out');
+  wf.innerHTML = '';
+  (r.where_to_focus || []).forEach(item => {
+    const li = document.createElement('li'); li.textContent = item; wf.appendChild(li);
+  });
+
+  // Key Metrics Table
+  const mt = document.getElementById('rpt-metrics');
+  mt.innerHTML = '';
+  (r.key_metrics || []).forEach(m => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td style="padding:9px 12px;font-size:13px;color:#e2e8f0;border-bottom:1px solid rgba(255,255,255,0.04)">${m.metric}</td>` +
+      `<td style="padding:9px 12px;font-size:13px;font-weight:700;color:#7dd3fc;text-align:right;border-bottom:1px solid rgba(255,255,255,0.04)">${m.value}</td>`;
+    mt.appendChild(tr);
+  });
+
+  // Employee Highlights
+  const eh = r.employee_highlights;
+  const ehDiv = document.getElementById('rpt-emp-highlights');
+  if (eh) {
+    ehDiv.style.display = '';
+    const top = document.getElementById('rpt-top');
+    top.innerHTML = '';
+    (eh.top || []).forEach(e => {
+      const li = document.createElement('li');
+      li.innerHTML = `<strong style="color:#f1f5f9">${e.name}</strong> — ${e.metric}`;
+      top.appendChild(li);
+    });
+    const bot = document.getElementById('rpt-bottom');
+    bot.innerHTML = '';
+    (eh.bottom || []).forEach(e => {
+      const li = document.createElement('li');
+      li.innerHTML = `<strong style="color:#f1f5f9">${e.name}</strong> — ${e.metric}`;
+      bot.appendChild(li);
+    });
+    document.getElementById('rpt-patterns').textContent = eh.patterns || '';
+    document.getElementById('rpt-recommendation').textContent = eh.recommendation || '';
+  } else {
+    ehDiv.style.display = 'none';
+  }
+}
+
+// P9-04: Copy report as plain text
+function exportReport() {
+  if (!_reportData) return;
+  const r = _reportData;
+  const lines = [
+    '== EXECUTIVE SUMMARY ==',
+    r.executive_summary || '',
+    '',
+    '== WHAT IS WORKING WELL ==',
+    ...(r.working_well || []).map((x, i) => `${i+1}. ${x}`),
+    '',
+    '== WHAT NEEDS ATTENTION ==',
+    ...(r.needs_attention || []).map((x, i) => `${i+1}. ${x}`),
+    '',
+    '== WHERE TO FOCUS ==',
+    ...(r.where_to_focus || []).map((x, i) => `${i+1}. ${x}`),
+    '',
+    '== KEY METRICS ==',
+    ...(r.key_metrics || []).map(m => `${m.metric}: ${m.value}`),
+  ];
+  if (r.employee_highlights) {
+    const eh = r.employee_highlights;
+    lines.push('', '== TOP PERFORMERS ==',
+      ...(eh.top || []).map(e => `${e.name}: ${e.metric}`));
+    lines.push('', '== NEED SUPPORT ==',
+      ...(eh.bottom || []).map(e => `${e.name}: ${e.metric}`));
+    lines.push('', '== TEAM PATTERNS ==', eh.patterns || '');
+    lines.push('', '== RECOMMENDED FOCUS ==', eh.recommendation || '');
+  }
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    const btn = document.querySelector('[onclick="exportReport()"]');
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  });
+}
 </script>
 {% endblock %}
