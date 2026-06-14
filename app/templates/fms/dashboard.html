@@ -149,12 +149,15 @@ select option{background:#111827;color:#e2e8f0}
   </div>
   <div style="display:flex;gap:8px;align-items:center">
     {% if user.role in ('ADMIN','MANAGER') %}
+    <a href="/fms/tickets/bulk-template" class="btn btn-outline btn-sm">⬇ Template</a>
+    <button onclick="show('fms-bulk-modal')" class="btn btn-outline btn-sm">⬆ Bulk Upload</button>
     <button class="btn btn-primary btn-sm"
             onclick="openTicketModal('{{ active_flow.id if active_flow else '' }}')">
       + New Ticket
     </button>
     {% endif %}
     <div class="view-toggle">
+      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=stage_table" class="{{ 'active' if view == 'stage_table' else '' }}">Stages</a>
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=swimlane" class="{{ 'active' if view == 'swimlane' else '' }}">Board</a>
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=list"     class="{{ 'active' if view == 'list' else '' }}">List</a>
     </div>
@@ -162,6 +165,191 @@ select option{background:#111827;color:#e2e8f0}
 </div>
 {% endif %}
 
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     STAGE-TABLE VIEW (P7-03 / P7-04)
+══════════════════════════════════════════════════════════════════════════ -->
+{% if view == 'stage_table' %}
+{% if active_flow and stage_table_stages %}
+<div style="display:grid;grid-template-columns:220px 1fr;gap:0;border:1px solid rgba(255,255,255,0.08);border-radius:10px;overflow:hidden;background:#111827">
+
+  <!-- Left: stage list -->
+  <div style="border-right:1px solid rgba(255,255,255,0.07);background:#0d1220;padding:12px 0">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;padding:0 14px;margin-bottom:8px">Stages</div>
+    {% for s in stage_table_stages %}
+    {% set cnt = stage_ticket_counts.get(s.id, 0) %}
+    {% set is_sel = active_stage and active_stage.id == s.id %}
+    <a href="/fms/dashboard?flow_id={{ active_flow.id }}&view=stage_table&stage_id={{ s.id }}"
+       style="display:flex;align-items:center;gap:9px;padding:8px 14px;text-decoration:none;transition:background .12s;
+              background:{{ 'rgba(255,255,255,0.05)' if is_sel else 'transparent' }};
+              border-left:3px solid {{ s.color or '#3b82f6' if is_sel else 'transparent' }}">
+      <span style="width:8px;height:8px;border-radius:50%;background:{{ s.color or '#3b82f6' }};flex-shrink:0"></span>
+      <span style="flex:1;font-size:12px;font-weight:{{ '600' if is_sel else '400' }};color:{{ '#f1f5f9' if is_sel else '#94a3b8' }}">{{ s.name }}</span>
+      {% if cnt %}
+      <span style="font-size:10px;padding:1px 6px;border-radius:99px;background:{{ (s.color or '#3b82f6') + '28' }};color:#e2e8f0">{{ cnt }}</span>
+      {% endif %}
+      {% if s.evidence_required %}<span title="Evidence required" style="font-size:9px;color:#fbbf24">🔒</span>{% endif %}
+      {% if s.is_terminal %}<span title="Terminal stage" style="font-size:9px;color:#6ee7b7">✓</span>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- Right: ticket table for selected stage -->
+  <div style="padding:16px;overflow-x:auto">
+    {% if active_stage %}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:14px;font-weight:600;color:#f1f5f9">{{ active_stage.name }}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">
+          {{ stage_tickets|length }} ticket{{ 's' if stage_tickets|length != 1 }}
+          {% if active_stage.target_tat_hours %} · TaT target: {{ active_stage.target_tat_hours }}h{% endif %}
+          {% if active_stage.sub_module_tag %} · <span style="color:#c4b5fd">{{ active_stage.sub_module_tag }}</span>{% endif %}
+          {% if active_stage.evidence_required %} · <span style="color:#fbbf24">Evidence Required</span>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if stage_tickets %}
+    <table class="list-table">
+      <thead>
+        <tr style="background:#0d1220">
+          <th>ID</th><th>Title</th><th>Assignee</th><th>Priority</th><th>TaT</th><th>Due</th>
+          {# P7-04: dynamic sub-module columns #}
+          {% if active_stage.sub_module_tag == 'PMS' %}
+          <th>Target</th><th>Cumul. Qty</th><th>% Progress</th><th>Blockers</th><th>Last Entry</th>
+          {% elif active_stage.sub_module_tag == 'DISPATCH' %}
+          <th>Total Disp.</th><th>Remaining</th><th>Last Dispatch</th><th>POD Uploaded</th>
+          {% elif active_stage.sub_module_tag == 'INVOICE' %}
+          <th>Total Inv.</th><th>Received</th><th>Outstanding</th><th>Oldest Due</th>
+          {% endif %}
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in stage_tickets %}{% set t = row.ticket %}
+      <tr>
+        <td><span style="font-family:monospace;font-size:11px;color:#60a5fa">{{ t.display_id or t.id[:8] }}</span></td>
+        <td>
+          <a href="/fms/tickets/{{ t.id }}" style="font-weight:600;font-size:12px;color:#e2e8f0;text-decoration:none">
+            {{ t.title[:40] }}{% if t.title|length > 40 %}…{% endif %}
+          </a>
+          {% if t.is_flagged %} 🚩{% endif %}
+          {% if t.wo_number %}<div style="font-size:10px;color:#64748b">{{ t.wo_number }}</div>{% endif %}
+        </td>
+        <td style="font-size:12px;color:#94a3b8">{{ row.assignee_name }}</td>
+        <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
+        <td>
+          {% if row.tat_pct is not none %}
+          {% set tc = '#10b981' if row.tat_color == 'green' else ('#f59e0b' if row.tat_color == 'amber' else '#ef4444') %}
+          <div class="tat-mini"><div style="height:100%;border-radius:2px;width:{{ [row.tat_pct,100]|min }}%;background:{{ tc }}"></div></div>
+          <div style="font-size:10px;color:#64748b;margin-top:2px">{{ row.tat_pct }}%</div>
+          {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
+        </td>
+        <td>
+          {% if t.due_at %}
+          <span style="font-size:12px;color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}#94a3b8{% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
+          {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
+        </td>
+        {# sub-module data columns #}
+        {% if active_stage.sub_module_tag == 'PMS' %}
+        {% set sub = row.sub %}
+        <td style="font-size:12px;color:#94a3b8">{{ sub.target_qty or '—' }}</td>
+        <td style="font-size:12px;color:#94a3b8">{{ sub.cum_qty or 0 }}</td>
+        <td>
+          {% if sub.pct is defined %}
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="width:60px;height:5px;background:rgba(255,255,255,0.07);border-radius:3px;overflow:hidden">
+              <div style="height:100%;background:{% if sub.pct >= 80 %}#10b981{% elif sub.pct >= 40 %}#f59e0b{% else %}#ef4444{% endif %};width:{{ sub.pct }}%"></div>
+            </div>
+            <span style="font-size:11px;color:#94a3b8">{{ sub.pct }}%</span>
+          </div>
+          {% else %}—{% endif %}
+        </td>
+        <td><span style="font-size:11px;color:{% if sub.blockers %}#f87171{% else %}#6ee7b7{% endif %}">{{ 'Yes' if sub.blockers else 'No' }}</span></td>
+        <td style="font-size:11px;color:#64748b">{{ sub.last_entry.strftime('%d %b') if sub.last_entry else '—' }}</td>
+        {% elif active_stage.sub_module_tag == 'DISPATCH' %}
+        {% set sub = row.sub %}
+        <td style="font-size:12px;color:#94a3b8">{{ sub.total_dispatched or 0 }}</td>
+        <td style="font-size:12px;color:{% if (sub.remaining or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.remaining or 0 }}</td>
+        <td style="font-size:11px;color:#64748b">{{ sub.last_dispatch.strftime('%d %b') if sub.last_dispatch else '—' }}</td>
+        <td><span style="font-size:11px;color:{% if sub.pod_uploaded %}#6ee7b7{% else %}#f87171{% endif %}">{{ 'Yes' if sub.pod_uploaded else 'No' }}</span></td>
+        {% elif active_stage.sub_module_tag == 'INVOICE' %}
+        {% set sub = row.sub %}
+        <td style="font-size:12px;color:#94a3b8">{{ sub.total_invoiced|round(0)|int if sub.total_invoiced else 0 }}</td>
+        <td style="font-size:12px;color:#6ee7b7">{{ sub.total_received|round(0)|int if sub.total_received else 0 }}</td>
+        <td style="font-size:12px;color:{% if (sub.outstanding or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.outstanding|round(0)|int if sub.outstanding else 0 }}</td>
+        <td style="font-size:11px;color:{% if sub.oldest_due and sub.oldest_due < now.date() %}#f87171{% else %}#64748b{% endif %}">{{ sub.oldest_due.strftime('%d %b') if sub.oldest_due else '—' }}</td>
+        {% endif %}
+        <td>
+          <div style="display:flex;gap:6px">
+            {% if not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
+            <button onclick="openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ active_stage.evidence_required|lower }}','{{ active_stage.completion_note_required|lower }}')"
+                    class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px;white-space:nowrap">
+              ✓ Mark Done
+            </button>
+            {% endif %}
+            {% if user.role in ('ADMIN','MANAGER') %}
+            <button onclick="toggleForm('fms-edit-{{ t.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">✏</button>
+            {% endif %}
+          </div>
+
+          {# Inline edit form #}
+          {% if user.role in ('ADMIN','MANAGER') %}
+          <div id="fms-edit-{{ t.id }}" style="display:none;margin-top:8px;min-width:260px;background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:12px;position:relative;z-index:50">
+            <form method="post" action="/fms/tickets/{{ t.id }}/edit" style="display:flex;flex-direction:column;gap:8px">
+              <div><label style="font-size:10px;color:#64748b">Title</label>
+                <input name="title" value="{{ t.title }}" required style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box"></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                <div><label style="font-size:10px;color:#64748b">Priority</label>
+                  <select name="priority" style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px;font-size:12px;color:#e2e8f0;outline:none">
+                    {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+                    <option {% if p == t.priority %}selected{% endif %}>{{ p }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div><label style="font-size:10px;color:#64748b">WO Number</label>
+                  <input name="wo_number" value="{{ t.wo_number or '' }}" style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box"></div>
+              </div>
+              <div><label style="font-size:10px;color:#64748b">Due Date</label>
+                <input type="datetime-local" name="due_at" value="{{ t.due_at.strftime('%Y-%m-%dT%H:%M') if t.due_at else '' }}"
+                       style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px;font-size:12px;color:#e2e8f0;color-scheme:dark;outline:none;box-sizing:border-box">
+              </div>
+              <input type="hidden" name="description" value="{{ t.description or '' }}">
+              <div style="display:flex;gap:6px">
+                <button type="submit" class="btn btn-sm btn-primary" style="flex:1">Save</button>
+                <button type="button" onclick="toggleForm('fms-edit-{{ t.id }}')" class="btn btn-sm btn-gray">Cancel</button>
+                {% if user.role == 'ADMIN' %}
+                <form method="post" action="/fms/tickets/{{ t.id }}/delete"
+                      onsubmit="return confirm('Delete this ticket? Only allowed if no stage history.')" style="display:inline">
+                  <button type="submit" class="btn btn-sm btn-red" style="padding:4px 8px">🗑</button>
+                </form>
+                {% endif %}
+              </div>
+            </form>
+          </div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:50px 0;color:#374151">
+      <div style="font-size:28px;margin-bottom:8px">📭</div>
+      <div style="font-size:13px;color:#64748b">No tickets at this stage</div>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div style="text-align:center;padding:60px 0">
+  <div style="font-size:32px;margin-bottom:10px">📋</div>
+  <div style="font-size:14px;font-weight:500;color:#64748b;margin-bottom:4px">No active flows deployed</div>
+  <div style="font-size:12px;color:#374151">Contact your OmniFlow account manager to get started.</div>
+</div>
+{% endif %}
+{% endif %}
 
 <!-- ══════════════════════════════════════════════════════════════════════════
      SWIMLANE VIEW
@@ -512,6 +700,91 @@ select option{background:#111827;color:#e2e8f0}
 {% endif %}
 
 
+<!-- ── P7-05: Mark Stage Complete modal ──────────────────────────────────── -->
+<div id="stageCompleteModal" class="fms-modal-overlay" onclick="if(event.target===this)closeSCModal()">
+  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;width:420px;max-width:95vw;padding:24px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:#f1f5f9" id="scModalTitle">Mark Stage Complete</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px" id="scModalSubtitle"></div>
+      </div>
+      <button class="fms-modal-close" onclick="closeSCModal()">✕</button>
+    </div>
+    <form id="scForm" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="is_override" value="false">
+
+      <!-- Next stage selector (auto-populated) -->
+      <div class="fm-group" id="scNextStageGroup">
+        <label>Move to Next Stage</label>
+        <select name="next_stage_id" id="scNextStageId" required
+                style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:#e2e8f0;outline:none">
+        </select>
+      </div>
+
+      <!-- Assignee for next stage -->
+      <div class="fm-group">
+        <label>Assign to (next stage)</label>
+        <select name="new_assignee_id" id="scAssignee" required
+                style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:#e2e8f0;outline:none">
+          <option value="">— select assignee —</option>
+          {% for emp in employees %}
+          <option value="{{ emp.id }}">{{ emp.name }} · {{ emp.role }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Completion note -->
+      <div class="fm-group" id="scNoteGroup">
+        <label id="scNoteLabel">Completion Note</label>
+        <textarea name="completion_note" id="scNote" rows="2"
+                  style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit;resize:vertical"></textarea>
+      </div>
+
+      <!-- Evidence upload (shown when evidence_required) -->
+      <div class="fm-group" id="scEvidenceGroup" style="display:none">
+        <label>Evidence File <span style="color:#f87171">*</span></label>
+        <input type="file" name="evidence_file" id="scEvidenceFile"
+               accept="image/*,.pdf,.doc,.docx"
+               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0">
+      </div>
+
+      <input type="hidden" name="qty_completed" value="0">
+      <input type="hidden" name="return_reason" value="">
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="closeSCModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">✓ Complete Stage →</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── P7-07: Bulk upload modal ──────────────────────────────────────────── -->
+{% if user.role in ('ADMIN','MANAGER') %}
+<div id="fms-bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;z-index:300">
+  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:24px;width:440px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">Bulk Upload FMS Tickets</h3>
+      <button onclick="hide('fms-bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b">×</button>
+    </div>
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:14px">
+      Upload CSV to create multiple FMS tickets at once.
+      <a href="/fms/tickets/bulk-template" style="color:#3b82f6;text-decoration:none">Download template →</a>
+    </p>
+    <form method="post" action="/fms/tickets/bulk-upload" enctype="multipart/form-data">
+      <div style="margin-bottom:16px">
+        <input type="file" name="file" accept=".csv" required
+               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="hide('fms-bulk-modal')" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload & Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <!-- ── Drag-drop script ────────────────────────────────────────────────────── -->
 {% if can_drag and view == 'swimlane' %}
 <script>
@@ -709,5 +982,76 @@ function checkReady() {
 }
 </script>
 {% endif %}
+
+<!-- ── Stage-complete + utility JS ──────────────────────────────────────── -->
+<script>
+function show(id){ document.getElementById(id).style.display='flex'; }
+function hide(id){ document.getElementById(id).style.display='none'; }
+function toggleForm(id){
+  var el=document.getElementById(id);
+  el.style.display=(el.style.display==='none'||el.style.display==='')?'block':'none';
+}
+
+const NEXT_STAGE_MAP = {
+  {% for sid, ns in next_stage_map.items() %}
+  "{{ sid }}": { id: "{{ ns.id }}", name: {{ ns.name | tojson }} }{% if not loop.last %},{% endif %}
+  {% endfor %}
+};
+
+function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired, noteRequired) {
+  var modal = document.getElementById('stageCompleteModal');
+  var form  = document.getElementById('scForm');
+  form.action = '/fms/tickets/' + ticketId + '/transition';
+
+  document.getElementById('scModalTitle').textContent = 'Mark Stage Complete';
+  document.getElementById('scModalSubtitle').textContent = displayId + ' — ' + stageName;
+
+  var activeStageId = "{{ active_stage.id if active_stage else '' }}";
+  var ns = NEXT_STAGE_MAP[activeStageId];
+  var sel = document.getElementById('scNextStageId');
+  sel.innerHTML = '';
+  if (ns) {
+    var opt = document.createElement('option');
+    opt.value = ns.id;
+    opt.textContent = ns.name;
+    sel.appendChild(opt);
+  } else {
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '(terminal — will complete ticket)';
+    sel.appendChild(opt);
+  }
+
+  var noteLabel = document.getElementById('scNoteLabel');
+  var noteEl    = document.getElementById('scNote');
+  if (noteRequired === 'true') {
+    noteLabel.innerHTML = 'Completion Note <span style="color:#f87171">*</span>';
+    noteEl.required = true;
+  } else {
+    noteLabel.textContent = 'Completion Note (optional)';
+    noteEl.required = false;
+  }
+  noteEl.value = '';
+
+  var evGroup = document.getElementById('scEvidenceGroup');
+  var evFile  = document.getElementById('scEvidenceFile');
+  if (evidenceRequired === 'true') {
+    evGroup.style.display = '';
+    evFile.required = true;
+  } else {
+    evGroup.style.display = 'none';
+    evFile.required = false;
+  }
+
+  modal.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSCModal() {
+  document.getElementById('stageCompleteModal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeSCModal(); });
+</script>
 
 {% endblock %}
