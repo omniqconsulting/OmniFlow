@@ -112,7 +112,7 @@
       </td>
       <td style="color:var(--text-muted)">{{ emp.phone }}</td>
       <td>
-        <span class="badge {% if emp.role=='ADMIN' %}badge-purple{% elif emp.role=='MANAGER' %}badge-blue{% elif emp.role=='STORE_MANAGER' %}badge-amber{% else %}badge-gray{% endif %}">
+        <span class="badge {% if emp.role=='ADMIN' %}badge-purple{% elif emp.role=='MANAGER' %}badge-blue{% else %}badge-gray{% endif %}">
           {{ emp.role }}
         </span>
       </td>
@@ -210,7 +210,7 @@
             <div class="form-group" style="margin:0">
               <label>Role</label>
               <select name="role">
-                {% for r in ['EMPLOYEE','MANAGER','STORE_MANAGER','ADMIN'] %}
+                {% for r in ['EMPLOYEE','MANAGER','ADMIN'] %}
                 <option value="{{ r }}" {% if emp.role == r %}selected{% endif %}>{{ r }}</option>
                 {% endfor %}
               </select>
@@ -289,7 +289,6 @@
         <option value="">All Roles</option>
         <option value="ADMIN">Admins only</option>
         <option value="MANAGER">Managers only</option>
-        <option value="STORE_MANAGER">Store Managers only</option>
         <option value="EMPLOYEE">Employees only</option>
       </select>
     </div>
@@ -329,7 +328,6 @@
           <select name="role">
             <option value="EMPLOYEE">{{ L.Employee }}</option>
             <option value="MANAGER">Manager</option>
-            <option value="STORE_MANAGER">Store Manager</option>
             <option value="ADMIN">Admin</option>
           </select>
         </div>
@@ -566,8 +564,8 @@ const EMP_DATA = [
   {% endfor %}
 ];
 
-const ROLE_COLOR = { ADMIN: '#7c3aed', MANAGER: '#2563eb', STORE_MANAGER: '#d97706', EMPLOYEE: '#0f766e' };
-const ROLE_BG    = { ADMIN: 'rgba(124,58,237,.15)', MANAGER: 'rgba(37,99,235,.15)', STORE_MANAGER: 'rgba(217,119,6,.15)', EMPLOYEE: 'rgba(15,118,110,.15)' };
+const ROLE_COLOR = { ADMIN: '#7c3aed', MANAGER: '#2563eb', EMPLOYEE: '#0f766e' };
+const ROLE_BG    = { ADMIN: 'rgba(124,58,237,.15)', MANAGER: 'rgba(37,99,235,.15)', EMPLOYEE: 'rgba(15,118,110,.15)' };
 
 function empCard(e) {
   const initials = e.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);

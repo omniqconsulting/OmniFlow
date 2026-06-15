@@ -226,11 +226,6 @@ tr:hover td{background:var(--row-hover)}
   {% if user.role in ('ADMIN','MANAGER') %}
   <a href="/employees" {% if '/employees' in request.url.path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>
   {% endif %}
-  {% if user.role in ('ADMIN', 'STORE_MANAGER') and has_inventory is defined and has_inventory %}
-  <a href="/inventory" {% if '/inventory' in request.url.path %}class="active"{% endif %}>
-    {{ L.Inventory if L is defined else 'Inventory' }}
-  </a>
-  {% endif %}
   {% if user.role == 'ADMIN' %}
   <a href="/setup" {% if '/setup' in request.url.path %}class="active"{% endif %}>Setup</a>
   <a href="/plan"  {% if '/plan'  in request.url.path %}class="active"{% endif %}>Plan</a>

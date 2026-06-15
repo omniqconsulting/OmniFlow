@@ -53,7 +53,6 @@
 .oc-hline { position:absolute; top:0; height:2px; background:rgba(255,255,255,0.15); }
 .role-ADMIN    { background:rgba(124,58,237,.2); color:#a78bfa; }
 .role-MANAGER  { background:rgba(37,99,235,.2);  color:#60a5fa; }
-.role-STORE_MANAGER { background:rgba(217,119,6,.2); color:#fbbf24; }
 .role-EMPLOYEE { background:rgba(5,150,105,.2);  color:#6ee7b7; }
 </style>
 
@@ -91,7 +90,7 @@ function buildTree(emps) {
 function renderNode(emp) {
   const roleColors = {
     ADMIN: 'role-ADMIN', MANAGER: 'role-MANAGER',
-    STORE_MANAGER: 'role-STORE_MANAGER', EMPLOYEE: 'role-EMPLOYEE'
+    EMPLOYEE: 'role-EMPLOYEE'
   };
   const div = document.createElement('div');
   div.className = 'oc-node';

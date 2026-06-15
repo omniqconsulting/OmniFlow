@@ -1,16 +1,11 @@
-"""Phase 0-J / Phase 4: Domain Agnosticism — Label Configuration System.
+"""Phase 0-J: Domain Agnosticism — Label Configuration System.
 
 Every tenant can rename core concepts so the UI feels native to their industry.
 Templates access labels via the `L` dict injected into every response:
     {{ L.Ticket }}        → "Work Order"  (or whatever the tenant configured)
-    {{ L.Material }}      → "Product" / "SKU" / "Item"
-    {{ L.stock_in }}      → "GRN" / "Receiving" / "Purchase Receipt"
 
 Core keys:  Ticket/Tickets, Checklist/Checklists, Branch/Branches,
             Department/Departments, Employee/Employees
-Inventory:  Inventory/Inventories, Material/Materials, stock_in, stock_out,
-            Adjustment, PurchaseOrder/PurchaseOrders, Supplier/Suppliers,
-            StoreManager/StoreManagers
 """
 
 from __future__ import annotations
@@ -25,58 +20,6 @@ DEFAULTS: dict[str, tuple[str, str]] = {
     "branch":            ("Branch",           "Branches"),
     "department":        ("Department",       "Departments"),
     "employee":          ("Employee",         "Employees"),
-    # ── Inventory (Phase 4) ───────────────────────────────────────────────────
-    "inventory":         ("Inventory",        "Inventories"),
-    "material":          ("Material",         "Materials"),
-    "stock_in":          ("Stock In",         "Stock In"),      # rarely pluralised
-    "stock_out":         ("Stock Out",        "Stock Out"),
-    "adjustment":        ("Adjustment",       "Adjustments"),
-    "purchase_order":    ("Purchase Order",   "Purchase Orders"),
-    "supplier":          ("Supplier",         "Suppliers"),
-    "store_manager":     ("Store Manager",    "Store Managers"),
-}
-
-# ── Industry inventory presets ────────────────────────────────────────────────
-INVENTORY_PRESETS: dict[str, dict[str, tuple[str, str]]] = {
-    "Manufacturing": {
-        "material":       ("Raw Material",       "Raw Materials"),
-        "stock_in":       ("GRN",                "GRNs"),
-        "stock_out":      ("Issue",              "Issues"),
-        "store_manager":  ("Store Manager",      "Store Managers"),
-    },
-    "Retail": {
-        "inventory":      ("Store",              "Stores"),
-        "material":       ("Product",            "Products"),
-        "stock_in":       ("Receiving",          "Receivings"),
-        "stock_out":      ("Sale Deduction",     "Sale Deductions"),
-        "store_manager":  ("Stock Controller",   "Stock Controllers"),
-    },
-    "Restaurant / F&B": {
-        "material":       ("Ingredient",         "Ingredients"),
-        "stock_in":       ("Receiving",          "Receivings"),
-        "stock_out":      ("Consumption",        "Consumptions"),
-        "purchase_order": ("Procurement Order",  "Procurement Orders"),
-        "store_manager":  ("Kitchen Store Lead", "Kitchen Store Leads"),
-    },
-    "Construction": {
-        "material":       ("Material",           "Materials"),
-        "stock_in":       ("Site Delivery",      "Site Deliveries"),
-        "stock_out":      ("Site Issue",         "Site Issues"),
-        "supplier":       ("Vendor",             "Vendors"),
-        "store_manager":  ("Site Store Incharge","Site Store Incharges"),
-    },
-    "Logistics": {
-        "material":       ("Item",               "Items"),
-        "stock_in":       ("Inbound",            "Inbounds"),
-        "stock_out":      ("Outbound",           "Outbounds"),
-        "store_manager":  ("Warehouse Manager",  "Warehouse Managers"),
-    },
-    "Healthcare": {
-        "material":       ("Supply",             "Supplies"),
-        "stock_in":       ("Procurement",        "Procurements"),
-        "stock_out":      ("Dispensing",         "Dispensings"),
-        "store_manager":  ("Supply Chain Lead",  "Supply Chain Leads"),
-    },
 }
 
 # ── Industry presets ──────────────────────────────────────────────────────────
@@ -145,23 +88,16 @@ def _build_L(**overrides) -> dict[str, str]:
         s = _v(concept, "s")
         p = _v(concept, "p")
         # Title-case keys for headings/nav
-        tc = concept.replace("_", " ").title().replace(" ", "")   # "purchase_order" → "PurchaseOrder"
+        tc = concept.replace("_", " ").title().replace(" ", "")
         L[tc]          = s
-        L[tc + "s"]    = p   # PurchaseOrders etc.  (may dupe for already-plural like "Employees")
+        L[tc + "s"]    = p
         # lower-case keys for inline prose
         L[concept]     = s.lower()
         L[concept + "s"] = p.lower()
 
     # Friendly aliases used in templates
-    L["Ticket"]        = L["Ticket"]          if "Ticket"        in L else DEFAULTS["ticket"][0]
-    L["Tickets"]       = L["Tickets"]         if "Tickets"       in L else DEFAULTS["ticket"][1]
-    # stock_in / stock_out don't pluralise meaningfully; keep as-is
-    L["stock_in"]      = _v("stock_in",   "s")
-    L["stock_out"]     = _v("stock_out",  "s")
-    L["StockIn"]       = L["stock_in"]
-    L["StockOut"]      = L["stock_out"]
-    L["Adjustment"]    = _v("adjustment", "s")
-    L["Adjustments"]   = _v("adjustment", "p")
+    L["Ticket"]   = L.get("Ticket",  DEFAULTS["ticket"][0])
+    L["Tickets"]  = L.get("Tickets", DEFAULTS["ticket"][1])
     return L
 
 
@@ -187,32 +123,19 @@ def get_labels(db, tenant_id: Optional[str]) -> dict[str, str]:
         return DEFAULT_L
 
     return _build_L(
-        # Core
         ticket_s=row.ticket_s,       ticket_p=row.ticket_p,
         checklist_s=row.checklist_s, checklist_p=row.checklist_p,
         branch_s=row.branch_s,       branch_p=row.branch_p,
         department_s=row.department_s, department_p=row.department_p,
         employee_s=row.employee_s,   employee_p=row.employee_p,
-        # Inventory
-        inventory_s=row.inventory_s,           inventory_p=row.inventory_p,
-        material_s=row.material_s,             material_p=row.material_p,
-        stock_in_s=row.stock_in_s,
-        stock_out_s=row.stock_out_s,
-        adjustment_s=row.adjustment_s,
-        purchase_order_s=row.purchase_order_s, purchase_order_p=row.purchase_order_p,
-        supplier_s=row.supplier_s,             supplier_p=row.supplier_p,
-        store_manager_s=row.store_manager_s,   store_manager_p=row.store_manager_p,
     )
 
 
 def get_preset_labels(industry: str) -> dict[str, str]:
-    """Return the L dict for a named industry preset (core + inventory)."""
-    core_over = INDUSTRY_PRESETS.get(industry, {})
-    inv_over  = INVENTORY_PRESETS.get(industry, {})
-    merged    = {**core_over, **inv_over}
-
+    """Return the L dict for a named industry preset."""
+    overrides = INDUSTRY_PRESETS.get(industry, {})
     kwargs = {}
-    for concept, (s, p) in merged.items():
+    for concept, (s, p) in overrides.items():
         kwargs[f"{concept}_s"] = s
         kwargs[f"{concept}_p"] = p
     return _build_L(**kwargs)

@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 from .database import (
     Ticket, TicketEvent, User, Branch, Department,
     ChecklistTemplate, ChecklistAssignment,
-    Material, StockMovement, PurchaseOrder,
 )
 from .analytics import get_org_avg_tat, calc_tat_hours
 
@@ -211,39 +210,6 @@ def _section_checklists(db: Session, tenant_id: str, L: dict) -> str:
     return "\n".join(lines)
 
 
-def _section_inventory(db: Session, tenant_id: str, L: dict) -> str:
-    """Inventory snapshot (only included if tenant has INVENTORY feature)."""
-    total_mats = db.query(func.count(Material.id)).filter(
-        Material.tenant_id == tenant_id, Material.is_deleted == False,
-    ).scalar() or 0
-    if not total_mats:
-        return ""
-
-    low_stock = db.query(func.count(Material.id)).filter(
-        Material.tenant_id == tenant_id, Material.is_deleted == False,
-        Material.reorder_threshold > 0,
-        Material.current_stock <= Material.reorder_threshold,
-    ).scalar() or 0
-
-    zero_stock = db.query(func.count(Material.id)).filter(
-        Material.tenant_id == tenant_id, Material.is_deleted == False,
-        Material.current_stock == 0, Material.is_active == True,
-    ).scalar() or 0
-
-    open_pos = db.query(func.count(PurchaseOrder.id)).filter(
-        PurchaseOrder.tenant_id == tenant_id, PurchaseOrder.is_deleted == False,
-        PurchaseOrder.status.in_(["SUBMITTED", "APPROVED", "PARTIALLY_RECEIVED"]),
-    ).scalar() or 0
-
-    lines = [
-        f"## {L.get('Inventory', 'Inventory')} Snapshot",
-        f"- {L.get('Materials', 'Materials')} in catalogue: {total_mats}",
-        f"- Below reorder threshold: {low_stock}  |  Zero stock: {zero_stock}",
-        f"- Open {L.get('PurchaseOrders', 'Purchase Orders')}: {open_pos}",
-    ]
-    return "\n".join(lines)
-
-
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def build_context(db: Session, tenant_id: str, L: dict) -> str:
@@ -256,7 +222,6 @@ def build_context(db: Session, tenant_id: str, L: dict) -> str:
         _section_tickets(db, tenant_id, L),
         _section_employees(db, tenant_id, L),
         _section_checklists(db, tenant_id, L),
-        _section_inventory(db, tenant_id, L),
     ]
     header = (
         f"DATA SNAPSHOT — generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}\n"

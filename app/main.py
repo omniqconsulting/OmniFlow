@@ -62,8 +62,6 @@ from .fms import router as fms_router
 app.include_router(fms_router)
 from .submodules import router as submodules_router
 app.include_router(submodules_router)
-from .inventory import router as inventory_router
-app.include_router(inventory_router)
 from .ai_router import router as ai_router
 app.include_router(ai_router)
 from .setup_routes import router as setup_router
@@ -371,8 +369,7 @@ def login(request: Request, slug: str = Form(...), phone: str = Form(...),
     if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(request, "login.html", {"error": "Invalid credentials"})
     token = create_token(user.id, tenant.id, user.role)
-    # Role-based redirect: Store Manager goes straight to inventory dashboard
-    landing = "/inventory" if user.role == "STORE_MANAGER" else "/dashboard"
+    landing = "/dashboard"
     resp = redirect(landing)
     resp.set_cookie("token", token, httponly=True, max_age=86400)
     return resp
@@ -696,28 +693,6 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         return redirect("/pending")
 
     unread = _unread_count(db, user)
-
-    # ── Store Manager: restricted view ───────────────────────────────────────
-    if user.role == "STORE_MANAGER":
-        from .database import ChecklistAssignment as _CA
-        open_statuses = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
-        my_tickets = db.query(Ticket).filter(
-            Ticket.tenant_id == tid, Ticket.is_deleted == False,
-            Ticket.current_assignee_id == user.id,
-            Ticket.status.in_(open_statuses),
-        ).order_by(Ticket.created_at.desc()).all()
-        my_checklists = db.query(_CA).filter(
-            _CA.tenant_id == tid, _CA.user_id == user.id,
-            _CA.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
-        ).order_by(_CA.due_at).all()
-        return templates.TemplateResponse(request, "store_manager_dashboard.html", {
-            "user": user, "unread": unread, "L": _L(db, user),
-            "now": datetime.utcnow(),
-            **_nav_ctx(db, user),
-            "my_tickets": my_tickets,
-            "my_checklists": my_checklists,
-            "has_inventory": has_feature(tenant, "INVENTORY", db) if hasattr(tenant, "plan") else True,
-        })
 
     if user.role in ("ADMIN", "MANAGER"):
         from datetime import date as _date
@@ -1979,7 +1954,7 @@ def checklist_bulk_template(user: User = Depends(require_admin)):
                 "assigned_to_department","assigned_to_phone",
                 "evidence_required","reminder_hours_before","reminder_repeat_hours"])
     w.writerow(["Mandatory. Max 200 chars","Mandatory. Instructions",
-                "DAILY|WEEKLY|MONTHLY|PER_SHIFT","EMPLOYEE|MANAGER|ADMIN|STORE_MANAGER (opt)",
+                "DAILY|WEEKLY|MONTHLY|PER_SHIFT","EMPLOYEE|MANAGER|ADMIN (opt)",
                 "Department name (opt)","Phone number of specific user (opt)",
                 "TRUE|FALSE (default FALSE)","Integer hours (default 2)","Integer hours (default 4)"])
     w.writerow(["Daily Machine Check","Inspect all machines before shift","DAILY","EMPLOYEE",
@@ -2164,7 +2139,7 @@ def download_csv_template(entity: str = "employees",
         "branches": ["name", "address"],
     }
     descriptions = {
-        "employees": ["Full name", "10-digit phone", "Temp password (min 6)", "EMPLOYEE/MANAGER/ADMIN/STORE_MANAGER", "Exact dept name or blank", "Manager phone or blank", "Email or blank", "YYYY-MM-DD or blank", "Address or blank"],
+        "employees": ["Full name", "10-digit phone", "Temp password (min 6)", "EMPLOYEE/MANAGER/ADMIN", "Exact dept name or blank", "Manager phone or blank", "Email or blank", "YYYY-MM-DD or blank", "Address or blank"],
         "departments": ["Department name", "Branch name or blank"],
         "branches": ["Branch name", "Address or blank"],
     }
@@ -2212,7 +2187,7 @@ async def bulk_import_employees(file: UploadFile = File(...),
         if not password:
             errors.append({"row": i, "error": "password is required", "data": dict(row)})
             continue
-        if role not in ("EMPLOYEE", "MANAGER", "ADMIN", "STORE_MANAGER"):
+        if role not in ("EMPLOYEE", "MANAGER", "ADMIN"):
             errors.append({"row": i, "error": f"invalid role '{role}'", "data": dict(row)})
             continue
         if db.query(User).filter(

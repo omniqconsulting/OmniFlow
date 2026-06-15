@@ -17,7 +17,8 @@ import os
 from .database import (
     get_db, new_id,
     User, Tenant, Branch, Department,
-    Customer, EndProduct, CustomReferenceList, CustomReferenceItem,
+    Customer, EndProduct, Vendor, RawMaterial,
+    CustomReferenceList, CustomReferenceItem,
     FMSFlow, FMSStage, FMSTicket,
 )
 from .auth import require_admin
@@ -628,19 +629,108 @@ def deployed_config_page(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# INVENTORY REFERENCE (static nav page)
+# VENDORS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.get("/setup/inventory-ref", response_class=HTMLResponse)
-def inventory_ref_page(
-    request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    return templates.TemplateResponse(request, "setup/inventory_ref.html", {
+@router.get("/setup/vendors", response_class=HTMLResponse)
+def vendors_page(request: Request, page: int = 1,
+                 user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    q = db.query(Vendor).filter(Vendor.tenant_id == user.tenant_id, Vendor.is_deleted == False).order_by(Vendor.name)
+    total = q.count()
+    vendors = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    return templates.TemplateResponse(request, "setup/vendors.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
+        "vendors": vendors, "total": total, "page": page, "page_size": PAGE_SIZE,
+        "msg": request.query_params.get("msg", ""),
+        "err": request.query_params.get("err", ""),
     })
+
+@router.post("/setup/vendors/add")
+def add_vendor(name: str = Form(...), contact_person: str = Form(""), phone: str = Form(""),
+               email: str = Form(""), address: str = Form(""), notes: str = Form(""),
+               user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    if not name.strip():
+        return _redir("/setup/vendors?err=Name+is+required")
+    db.add(Vendor(tenant_id=user.tenant_id, name=name.strip(),
+                  contact_person=contact_person.strip() or None,
+                  phone=phone.strip() or None, email=email.strip() or None,
+                  address=address.strip() or None, notes=notes.strip() or None,
+                  created_by_id=user.id))
+    db.commit()
+    return _redir("/setup/vendors?msg=Vendor+added")
+
+@router.post("/setup/vendors/{vendor_id}/edit")
+def edit_vendor(vendor_id: str, name: str = Form(...), contact_person: str = Form(""),
+                phone: str = Form(""), email: str = Form(""), address: str = Form(""),
+                notes: str = Form(""), is_active: str = Form("1"),
+                user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    v = db.query(Vendor).filter(Vendor.id == vendor_id, Vendor.tenant_id == user.tenant_id, Vendor.is_deleted == False).first()
+    if not v:
+        return _redir("/setup/vendors?err=Not+found")
+    v.name = name.strip(); v.contact_person = contact_person.strip() or None
+    v.phone = phone.strip() or None; v.email = email.strip() or None
+    v.address = address.strip() or None; v.notes = notes.strip() or None
+    v.is_active = (is_active == "1"); v.updated_at = datetime.utcnow()
+    db.commit()
+    return _redir("/setup/vendors?msg=Vendor+updated")
+
+@router.post("/setup/vendors/{vendor_id}/delete")
+def delete_vendor(vendor_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    v = db.query(Vendor).filter(Vendor.id == vendor_id, Vendor.tenant_id == user.tenant_id).first()
+    if v:
+        v.is_deleted = True; db.commit()
+    return _redir("/setup/vendors?msg=Vendor+deleted")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RAW MATERIALS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/setup/raw-materials", response_class=HTMLResponse)
+def raw_materials_page(request: Request, page: int = 1,
+                       user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    q = db.query(RawMaterial).filter(RawMaterial.tenant_id == user.tenant_id, RawMaterial.is_deleted == False).order_by(RawMaterial.name)
+    total = q.count()
+    items = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    return templates.TemplateResponse(request, "setup/raw_materials.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "items": items, "total": total, "page": page, "page_size": PAGE_SIZE,
+        "msg": request.query_params.get("msg", ""),
+        "err": request.query_params.get("err", ""),
+    })
+
+@router.post("/setup/raw-materials/add")
+def add_raw_material(name: str = Form(...), unit: str = Form(""), description: str = Form(""),
+                     notes: str = Form(""), user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    if not name.strip():
+        return _redir("/setup/raw-materials?err=Name+is+required")
+    db.add(RawMaterial(tenant_id=user.tenant_id, name=name.strip(),
+                       unit=unit.strip() or None, description=description.strip() or None,
+                       notes=notes.strip() or None, created_by_id=user.id))
+    db.commit()
+    return _redir("/setup/raw-materials?msg=Raw+material+added")
+
+@router.post("/setup/raw-materials/{item_id}/edit")
+def edit_raw_material(item_id: str, name: str = Form(...), unit: str = Form(""),
+                      description: str = Form(""), notes: str = Form(""), is_active: str = Form("1"),
+                      user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    m = db.query(RawMaterial).filter(RawMaterial.id == item_id, RawMaterial.tenant_id == user.tenant_id, RawMaterial.is_deleted == False).first()
+    if not m:
+        return _redir("/setup/raw-materials?err=Not+found")
+    m.name = name.strip(); m.unit = unit.strip() or None
+    m.description = description.strip() or None; m.notes = notes.strip() or None
+    m.is_active = (is_active == "1"); m.updated_at = datetime.utcnow()
+    db.commit()
+    return _redir("/setup/raw-materials?msg=Raw+material+updated")
+
+@router.post("/setup/raw-materials/{item_id}/delete")
+def delete_raw_material(item_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    m = db.query(RawMaterial).filter(RawMaterial.id == item_id, RawMaterial.tenant_id == user.tenant_id).first()
+    if m:
+        m.is_deleted = True; db.commit()
+    return _redir("/setup/raw-materials?msg=Raw+material+deleted")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

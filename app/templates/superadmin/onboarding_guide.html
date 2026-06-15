@@ -17,9 +17,8 @@
       ('step1','1. Create Tenant'),
       ('step2','2. Checklists'),
       ('step3','3. Flow Board'),
-      ('step4','4. Inventory'),
-      ('step5','5. Employees'),
-      ('step6','6. Verify & Go Live'),
+      ('step5','4. Employees'),
+      ('step6','5. Verify & Go Live'),
     ] %}
     <a href="#{{ step[0] }}" style="padding:5px 12px;border-radius:99px;background:rgba(124,58,237,0.12);color:#c4b5fd;font-size:12px;font-weight:500;border:1px solid rgba(124,58,237,0.25)">{{ step[1] }}</a>
     {% endfor %}
@@ -33,7 +32,7 @@
     <div style="font-weight:600;color:#fcd34d;font-size:13px">Running example throughout this guide</div>
     <div style="color:#94a3b8;font-size:12px;margin-top:3px">
       <strong style="color:#e2e8f0">Acme Manufacturing Ltd</strong> — a mid-size factory that needs:
-      daily safety checklists, a production order pipeline with material requests, and an inventory store.
+      daily safety checklists and a production order pipeline with dispatch and invoicing.
       We'll build this live as we go through each step.
     </div>
   </div>
@@ -99,12 +98,11 @@
         <div class="module-pill always-on">🎫 Tickets — always on (cannot disable)</div>
         <div class="module-pill">✅ Checklists — tick for SOPs, daily inspections, QC</div>
         <div class="module-pill">🔄 Flow Board — tick for multi-stage pipelines</div>
-        <div class="module-pill">📦 Inventory — tick for physical stock / material tracking</div>
         <div class="module-pill">✦ Ask AI — tick only if plan allows and client wants it</div>
       </div>
       <div style="margin-top:12px;padding:10px 12px;background:rgba(245,158,11,0.08);border-radius:7px;border:1px solid rgba(245,158,11,0.2)">
         <div style="font-size:11px;color:#fcd34d;font-weight:600;margin-bottom:4px">For Acme Manufacturing</div>
-        <div style="font-size:12px;color:#94a3b8">Tick: ✅ Checklists + 🔄 Flow Board + 📦 Inventory</div>
+        <div style="font-size:12px;color:#94a3b8">Tick: ✅ Checklists + 🔄 Flow Board</div>
       </div>
     </div>
   </div>
@@ -280,17 +278,15 @@
       <div style="margin-top:12px;font-size:12px;color:#94a3b8;line-height:1.6">
         <strong style="color:#e2e8f0">How it works at Acme:</strong><br>
         1. MANAGER creates "Production Order #PO-001" ticket.<br>
-        2. Ticket moves to <em>Production</em> → MATERIAL_REQ sub-module fires → Store Manager gets a request for raw materials.<br>
-        3. Store Manager approves / fulfils the request → ticket continues.<br>
-        4. Ticket moves to <em>Dispatch</em> → DISPATCH form fires → driver details and vehicle logged.<br>
-        5. Ticket closes → auto-KPI updates on all dashboards.
+        2. Ticket moves to <em>Production</em> → PMS sub-module tracks daily progress.<br>
+        3. Ticket moves to <em>Dispatch</em> → DISPATCH form fires → driver details and vehicle logged.<br>
+        4. Ticket closes → auto-KPI updates on all dashboards.
       </div>
 
       <div style="margin-top:10px;padding:10px 12px;background:rgba(245,158,11,0.08);border-radius:7px;border:1px solid rgba(245,158,11,0.2)">
         <div style="font-size:11px;color:#fcd34d;font-weight:600;margin-bottom:4px">Role coverage for this flow</div>
         <div style="font-size:11px;color:#94a3b8;line-height:1.7">
           MANAGER — creates + moves tickets<br>
-          STORE_MANAGER — sees material requests, approves stock<br>
           EMPLOYEE — assigned to production/QC stages<br>
           ADMIN — sees all, can reassign
         </div>
@@ -299,101 +295,7 @@
   </div>
 
   <div class="guide-tip" style="border-color:rgba(59,130,246,0.3);background:rgba(59,130,246,0.06)">
-    <strong>Sub-module tip:</strong> MATERIAL_REQ on the Production stage means the request is raised <em>as soon as the ticket enters that stage</em>, not when it's manually triggered. The stage name is also recorded on the request so the store can prioritize.
-  </div>
-</div>
-
-
-<!-- ═══════════════════════════════════════════════════════════ -->
-<!-- STEP 4: INVENTORY -->
-<!-- ═══════════════════════════════════════════════════════════ -->
-<div id="step4" class="card" style="border-left:3px solid #f59e0b">
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-    <div style="width:32px;height:32px;border-radius:50%;background:#d97706;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0">4</div>
-    <div>
-      <h2 style="margin:0">Set Up Inventory</h2>
-      <div style="color:#64748b;font-size:12px">Add materials, set reorder thresholds, assign Store Manager</div>
-    </div>
-  </div>
-
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-    <div>
-      <div class="guide-section-label">Step by step</div>
-      <div class="guide-step">
-        <span class="guide-num" style="background:#d97706">①</span>
-        <div>
-          Ensure <strong>Inventory</strong> module was ticked when creating the tenant (or enable it now via tenant Feature Flags).
-        </div>
-      </div>
-      <div class="guide-step">
-        <span class="guide-num" style="background:#d97706">②</span>
-        <div>
-          Ask the client ADMIN to log in and go to <strong>Inventory → Materials</strong>.
-          They can add materials one-by-one or use <strong>Bulk Import</strong> (CSV upload) for large catalogues.
-        </div>
-      </div>
-      <div class="guide-step">
-        <span class="guide-num" style="background:#d97706">③</span>
-        <div>
-          For each material, set the <strong>Reorder Level</strong>. When stock drops at or below this number, the ADMIN, MANAGER, and STORE_MANAGER automatically receive a low-stock alert.
-        </div>
-      </div>
-      <div class="guide-step">
-        <span class="guide-num" style="background:#d97706">④</span>
-        <div>
-          Create a <strong>STORE_MANAGER</strong> employee (see Step 5) and assign them to the store. They will:
-          <ul style="margin:4px 0 0 14px;font-size:12px;color:#94a3b8">
-            <li>Approve / fulfil material requests from the Flow Board</li>
-            <li>Record stock-in (from PO) and stock-out movements</li>
-            <li>Raise Purchase Orders when below threshold</li>
-          </ul>
-        </div>
-      </div>
-      <div class="guide-step">
-        <span class="guide-num" style="background:#d97706">⑤</span>
-        <div>
-          For the bulk import CSV, click <strong>Download Template</strong> on the Materials page to get the correct column headers.
-        </div>
-      </div>
-    </div>
-
-    <div>
-      <div class="guide-section-label" style="color:#f59e0b">Example — Acme starter catalogue (CSV)</div>
-      <div style="background:#0d1424;border:1px solid rgba(245,158,11,0.18);border-radius:8px;padding:0;overflow:hidden;font-family:monospace">
-        <div style="background:rgba(245,158,11,0.1);padding:7px 12px;font-size:10px;color:#fcd34d;font-weight:600;letter-spacing:0.05em">materials_import.csv</div>
-        <div style="overflow-x:auto">
-        <table style="margin:0;font-size:11px">
-          <tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
-            <th style="padding:6px 10px;color:#94a3b8">name</th>
-            <th style="padding:6px 10px;color:#94a3b8">unit</th>
-            <th style="padding:6px 10px;color:#94a3b8">current_stock</th>
-            <th style="padding:6px 10px;color:#94a3b8">reorder_level</th>
-          </tr>
-          {% for row in [
-            ('Steel Rods 10mm','pcs','500','50'),
-            ('Aluminium Sheet 2mm','sqft','200','30'),
-            ('Welding Wire ER70','kg','80','15'),
-            ('Safety Gloves (M)','pairs','120','20'),
-            ('Hydraulic Oil 46','litres','60','10'),
-          ] %}
-          <tr>
-            <td style="padding:5px 10px;color:#e2e8f0">{{ row[0] }}</td>
-            <td style="padding:5px 10px;color:#7dd3fc">{{ row[1] }}</td>
-            <td style="padding:5px 10px;color:#6ee7b7">{{ row[2] }}</td>
-            <td style="padding:5px 10px;color:#fca5a5">{{ row[3] }}</td>
-          </tr>
-          {% endfor %}
-        </table>
-        </div>
-      </div>
-      <div style="margin-top:8px;font-size:11px;color:#64748b">
-        Upload this on Inventory → Materials → Bulk Import. Failed rows are returned as an error CSV with reasons.
-      </div>
-    </div>
-  </div>
-
-  <div class="guide-tip" style="border-color:rgba(245,158,11,0.3);background:rgba(245,158,11,0.06)">
-    <strong>Flow Board ↔ Inventory link:</strong> when a ticket reaches the Production stage with a MATERIAL_REQ sub-module, it creates a request inside Inventory → Requests automatically. The Store Manager sees it there and can approve/fulfil without leaving their dashboard.
+    <strong>Sub-module tip:</strong> PMS on the Production stage tracks daily progress. DISPATCH on the Dispatch stage captures driver details and vehicle. Both sub-modules fire as soon as the ticket enters the stage.
   </div>
 </div>
 
@@ -415,8 +317,7 @@
       <div class="guide-section-label">Role reference</div>
       {% for role in [
         ('ADMIN','#7c3aed','Full access. All dashboards, all modules, all settings. Creates employees, assigns roles, deploys checklists.'),
-        ('MANAGER','#2563eb','Creates and manages tickets / flow board tickets. Sees team KPIs. Can raise material requests.'),
-        ('STORE_MANAGER','#d97706','Inventory-focused. Approves material requests, records stock movements, raises purchase orders. Sees the Inventory tab.'),
+        ('MANAGER','#2563eb','Creates and manages tickets / flow board tickets. Sees team KPIs and reports.'),
         ('EMPLOYEE','#059669','Assigned tickets and checklists. Sees own dashboard: active tickets, my checklists, compliance chart.'),
       ] %}
       <div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
@@ -437,14 +338,13 @@
           {% for emp in [
             ('Rajesh Kumar','ADMIN'),
             ('Priya Menon','MANAGER'),
-            ('Suresh Nair','STORE_MANAGER'),
             ('Amit Singh','EMPLOYEE'),
             ('Kavitha Rao','EMPLOYEE'),
           ] %}
           <tr>
             <td style="padding:7px 12px;color:#e2e8f0">{{ emp[0] }}</td>
             <td style="padding:7px 12px">
-              <span class="badge {% if emp[1]=='ADMIN' %}badge-purple{% elif emp[1]=='MANAGER' %}badge-blue{% elif emp[1]=='STORE_MANAGER' %}badge-amber{% else %}badge-green{% endif %}">{{ emp[1] }}</span>
+              <span class="badge {% if emp[1]=='ADMIN' %}badge-purple{% elif emp[1]=='MANAGER' %}badge-blue{% else %}badge-green{% endif %}">{{ emp[1] }}</span>
             </td>
           </tr>
           {% endfor %}
@@ -464,7 +364,7 @@
   </div>
 
   <div class="guide-tip" style="border-color:rgba(139,92,246,0.3);background:rgba(139,92,246,0.06)">
-    <strong>Remind the admin:</strong> STORE_MANAGER is a restricted role — they only see the Inventory tab and their assigned tickets. They do <em>not</em> see the full admin or manager dashboard. This is intentional for domain separation.
+    <strong>Remind the admin:</strong> EMPLOYEE is a restricted role — they only see their assigned tickets and checklists. They do <em>not</em> see the full admin or manager dashboard. This is intentional for domain separation.
   </div>
 </div>
 
@@ -491,10 +391,8 @@
         ('Checklist template deployed and visible in tenant Checklists','checklists'),
         ('Flow / Pipeline deployed and visible in tenant Flow Board','fms'),
         ('At least one stage has a sub-module attached','submodule'),
-        ('Inventory materials loaded (or CSV imported)','inventory'),
         ('At least one employee of each required role created','employees'),
-        ('Low-stock alert threshold set on at least one material','alerts'),
-        ('Test ticket created → moves through stages → material request fires','e2e'),
+        ('Test ticket created → moves through stages → sub-modules fire correctly','e2e'),
       ] %}
       <div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
         <div style="width:16px;height:16px;border:1.5px solid #059669;border-radius:3px;flex-shrink:0"></div>
@@ -546,16 +444,8 @@
       <div style="font-size:12px;color:#94a3b8;line-height:1.8">Tickets = always on. Everything else = SA opts in per tenant. Override plan defaults via Feature Flags on tenant page.</div>
     </div>
     <div class="qr-box">
-      <div class="qr-label">Who can see Inventory tab?</div>
-      <div style="font-size:12px;color:#94a3b8;line-height:1.8">ADMIN + STORE_MANAGER. MANAGER and EMPLOYEE do not see the Inventory nav tab (only material request panel in their ticket view).</div>
-    </div>
-    <div class="qr-box">
       <div class="qr-label">Sub-module trigger timing</div>
-      <div style="font-size:12px;color:#94a3b8;line-height:1.8">Fires when a ticket <em>enters</em> the stage. Creates a pending request automatically. Store Manager sees it immediately via WebSocket push.</div>
-    </div>
-    <div class="qr-box">
-      <div class="qr-label">Low-stock alert recipients</div>
-      <div style="font-size:12px;color:#94a3b8;line-height:1.8">ADMIN, MANAGER, STORE_MANAGER — all three get notified when stock ≤ reorder level after any movement.</div>
+      <div style="font-size:12px;color:#94a3b8;line-height:1.8">Fires when a ticket <em>enters</em> the stage. PMS, Dispatch, and Invoice sub-modules activate automatically. Custom sub-modules render a form the assignee fills in.</div>
     </div>
     <div class="qr-box">
       <div class="qr-label">Changing modules after creation</div>

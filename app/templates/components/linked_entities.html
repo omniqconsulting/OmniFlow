@@ -50,7 +50,7 @@
 
     {% if entity_options.get('MATERIAL') %}
     <div class="linked-entity-row">
-      <label class="form-label" style="font-size:12px;margin-bottom:3px">{{ L.Material }}</label>
+      <label class="form-label" style="font-size:12px;margin-bottom:3px">Raw Material</label>
       <select name="linked_material" class="form-input" style="font-size:13px"
               onchange="showEntityDetail(this, 'material-detail')">
         <option value="">— None —</option>
@@ -64,7 +64,7 @@
 
     {% if entity_options.get('VENDOR') %}
     <div class="linked-entity-row">
-      <label class="form-label" style="font-size:12px;margin-bottom:3px">{{ L.Supplier }}</label>
+      <label class="form-label" style="font-size:12px;margin-bottom:3px">Vendor</label>
       <select name="linked_vendor" class="form-input" style="font-size:13px">
         <option value="">— None —</option>
         {% for opt in entity_options['VENDOR'] %}

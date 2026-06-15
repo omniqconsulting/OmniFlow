@@ -17,8 +17,9 @@ from sqlalchemy.orm import Session
 from .database import (
     get_db, new_id,
     User, Tenant,
-    Customer, EndProduct, CustomReferenceList, CustomReferenceItem,
-    Material, LinkedEntityReference,
+    Customer, EndProduct, Vendor, RawMaterial,
+    CustomReferenceList, CustomReferenceItem,
+    LinkedEntityReference,
 )
 from .auth import get_current_user
 
@@ -64,31 +65,32 @@ def get_linked_entity_options(db: Session, tenant_id: str) -> dict:
             for p in products
         ]
 
-    materials = db.query(Material).filter(
-        Material.tenant_id == tenant_id,
-        Material.is_deleted == False,
-        Material.is_active == True,
-    ).order_by(Material.name).all()
-    if materials:
+    raw_materials = db.query(RawMaterial).filter(
+        RawMaterial.tenant_id == tenant_id,
+        RawMaterial.is_deleted == False,
+        RawMaterial.is_active == True,
+    ).order_by(RawMaterial.name).all()
+    if raw_materials:
         options["MATERIAL"] = [
             {
                 "id": m.id, "label": m.name,
-                "detail": _fmt([m.unit and f"Unit: {m.unit}", m.supplier and f"Supplier: {m.supplier}"]),
+                "detail": _fmt([m.unit and f"Unit: {m.unit}", m.description]),
             }
-            for m in materials
+            for m in raw_materials
         ]
 
-    # Vendors: distinct non-empty supplier values from the materials table
-    vendors = db.query(Material.supplier).filter(
-        Material.tenant_id == tenant_id,
-        Material.is_deleted == False,
-        Material.supplier != None,
-        Material.supplier != "",
-    ).distinct().all()
+    vendors = db.query(Vendor).filter(
+        Vendor.tenant_id == tenant_id,
+        Vendor.is_deleted == False,
+        Vendor.is_active == True,
+    ).order_by(Vendor.name).all()
     if vendors:
         options["VENDOR"] = [
-            {"id": v[0], "label": v[0], "detail": ""}
-            for v in vendors if v[0]
+            {
+                "id": v.id, "label": v.name,
+                "detail": _fmt([v.contact_person, v.phone, v.email]),
+            }
+            for v in vendors
         ]
 
     custom_lists = db.query(CustomReferenceList).filter(
@@ -157,16 +159,17 @@ def save_linked_entities_from_form(
         p = db.query(EndProduct).filter(EndProduct.id == prod_id, EndProduct.tenant_id == tenant_id).first()
         _add("END_PRODUCT", prod_id, p.name if p else prod_id)
 
-    # Material
+    # Raw Material
     mat_id = (form.get("linked_material") or "").strip()
     if mat_id:
-        m = db.query(Material).filter(Material.id == mat_id, Material.tenant_id == tenant_id).first()
+        m = db.query(RawMaterial).filter(RawMaterial.id == mat_id, RawMaterial.tenant_id == tenant_id).first()
         _add("MATERIAL", mat_id, m.name if m else mat_id)
 
-    # Vendor (stored as name string)
-    vendor = (form.get("linked_vendor") or "").strip()
-    if vendor:
-        _add("VENDOR", vendor, vendor)
+    # Vendor
+    vendor_id = (form.get("linked_vendor") or "").strip()
+    if vendor_id:
+        v = db.query(Vendor).filter(Vendor.id == vendor_id, Vendor.tenant_id == tenant_id).first()
+        _add("VENDOR", vendor_id, v.name if v else vendor_id)
 
     # Custom lists — keys like linked_custom_<list_id>
     for key, val in form.items():
