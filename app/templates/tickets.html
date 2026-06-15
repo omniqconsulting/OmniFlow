@@ -3,22 +3,22 @@
 <style>
 /* ── Kanban ─────────────────────────────────────────────────────────────────── */
 .kanban-board{display:flex;gap:12px;overflow-x:auto;padding-bottom:16px}
-.kanban-col{min-width:200px;max-width:220px;background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px;flex-shrink:0}
-.kanban-col-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
-.kanban-card{background:#1e293b;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:box-shadow 0.12s;text-decoration:none;display:block}
+.kanban-col{min-width:200px;max-width:220px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:12px;flex-shrink:0}
+.kanban-col-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-faint);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.kanban-card{background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:box-shadow 0.12s;text-decoration:none;display:block}
 .kanban-card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.4);border-color:rgba(59,130,246,0.3)}
 .kanban-col.drag-over{border-color:#3b82f6;background:rgba(59,130,246,0.06)}
 /* ── Status tabs ────────────────────────────────────────────────────────────── */
-.status-tabs{display:flex;gap:0;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:16px;overflow-x:auto}
-.status-tab{padding:8px 16px;font-size:12px;font-weight:600;color:#64748b;text-decoration:none;white-space:nowrap;border-bottom:2px solid transparent;transition:all 0.15s;display:flex;align-items:center;gap:6px}
-.status-tab:hover{color:#e2e8f0}
+.status-tabs{display:flex;gap:0;border-bottom:1px solid var(--border-subtle);margin-bottom:16px;overflow-x:auto}
+.status-tab{padding:8px 16px;font-size:12px;font-weight:600;color:var(--text-faint);text-decoration:none;white-space:nowrap;border-bottom:2px solid transparent;transition:all 0.15s;display:flex;align-items:center;gap:6px}
+.status-tab:hover{color:var(--text-primary)}
 .status-tab.active{color:#60a5fa;border-bottom-color:#3b82f6}
-.status-tab .cnt{background:rgba(255,255,255,0.1);border-radius:99px;padding:1px 7px;font-size:10px}
+.status-tab .cnt{background:var(--border-med);border-radius:99px;padding:1px 7px;font-size:10px}
 .status-tab.active .cnt{background:rgba(59,130,246,0.25);color:#93c5fd}
 /* ── Filter panel ───────────────────────────────────────────────────────────── */
-.filter-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding:12px 14px;background:#0d1424;border-radius:10px;border:1px solid rgba(255,255,255,0.07)}
-.filter-bar select,.filter-bar input{background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none}
-.filter-bar label{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;display:block;margin-bottom:3px}
+.filter-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding:12px 14px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-subtle)}
+.filter-bar select,.filter-bar input{background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none}
+.filter-bar label{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:3px}
 /* ── Toast ──────────────────────────────────────────────────────────────────── */
 #toast{position:fixed;bottom:24px;right:24px;background:#10b981;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;display:none;z-index:999;box-shadow:0 4px 20px rgba(0,0,0,0.4)}
 /* ── Evidence modal ─────────────────────────────────────────────────────────── */
