@@ -25,7 +25,7 @@
     <!-- Search -->
     <div style="margin-bottom:12px">
       <input type="text" id="searchInput" placeholder="Search by name…" oninput="filterTable()"
-             style="width:100%;max-width:320px;padding:8px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.05);color:inherit;font-size:13px">
+             style="width:100%;max-width:320px;padding:8px 12px;border-radius:6px;border:1px solid var(--border-med);background:var(--border-subtle);color:inherit;font-size:13px">
     </div>
 
     <!-- Table -->
@@ -62,14 +62,14 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6" style="text-align:center;color:#64748b;padding:32px">No customers yet. Add your first customer above.</td></tr>
+          <tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">No customers yet. Add your first customer above.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
 
     {% if total > page_size %}
-    <div style="margin-top:12px;display:flex;align-items:center;gap:8px;font-size:13px;color:#64748b">
+    <div style="margin-top:12px;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-faint)">
       {% if page > 1 %}<a href="?page={{ page-1 }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
       <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
       {% if page * page_size < total %}<a href="?page={{ page+1 }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
@@ -164,7 +164,7 @@
 <div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:420px;width:100%">
     <div class="modal-title">Import Customers via CSV</div>
-    <p style="font-size:13px;color:#94a3b8;margin-bottom:12px">
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">
       Download the template first, fill it in, then upload. Invalid rows are returned as an exception report.
     </p>
     <a href="/setup/customers/template" class="btn btn-sm btn-outline" style="margin-bottom:12px;display:inline-block">⬇ Download Template</a>

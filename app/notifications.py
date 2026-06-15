@@ -56,6 +56,25 @@ def notify_ticket_assigned(db, ticket, assignee):
     })
 
 
+def notify_ticket_reminder(db, ticket, assignee):
+    """P5-06: TICKET_REMINDER — audience: assignee only."""
+    due_str = ticket.due_at.strftime("%d %b") if ticket.due_at else "N/A"
+    create_notification(
+        db, ticket.tenant_id, assignee.id,
+        "TICKET_REMINDER",
+        f"Reminder: {ticket.title}",
+        f"Priority: {ticket.priority} · Due: {due_str}",
+        f"/tickets/{ticket.id}",
+    )
+    broadcast_sync(ticket.tenant_id, [assignee.id], TICKET_ASSIGNED, {
+        "ticket_id":    ticket.id,
+        "ticket_title": ticket.title,
+        "priority":     ticket.priority,
+        "link":         f"/tickets/{ticket.id}",
+        "reminder":     True,
+    })
+
+
 def notify_helper_added(db, ticket, helper):
     """Phase 0-C-1/2  |  1-6: TICKET_ASSIGNED variant for helpers"""
     create_notification(

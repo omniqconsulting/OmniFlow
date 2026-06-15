@@ -16,11 +16,11 @@
 
 <!-- ── Current Plan Banner ────────────────────────────────────────────────── -->
 <div style="background:{% if tenant.plan=='ENTERPRISE' %}linear-gradient(135deg,rgba(124,58,237,0.18),rgba(124,58,237,0.05)){% elif tenant.plan=='PROFESSIONAL' %}linear-gradient(135deg,rgba(59,130,246,0.18),rgba(59,130,246,0.05)){% else %}rgba(255,255,255,0.03){% endif %};
-     border:1px solid {% if tenant.plan=='ENTERPRISE' %}rgba(124,58,237,0.3){% elif tenant.plan=='PROFESSIONAL' %}rgba(59,130,246,0.3){% else %}rgba(255,255,255,0.08){% endif %};
+     border:1px solid {% if tenant.plan=='ENTERPRISE' %}rgba(124,58,237,0.3){% elif tenant.plan=='PROFESSIONAL' %}rgba(59,130,246,0.3){% else %}var(--border-subtle){% endif %};
      border-radius:12px;padding:24px 28px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px">
   <div>
-    <div style="font-size:11px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px">Current Plan</div>
-    <div style="font-size:26px;font-weight:800;color:#f1f5f9;letter-spacing:-0.3px">
+    <div style="font-size:11px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px">Current Plan</div>
+    <div style="font-size:26px;font-weight:800;color:var(--text-strong);letter-spacing:-0.3px">
       {{ plan_labels[tenant.plan or 'STARTER'] }}
     </div>
     <div class="muted" style="margin-top:4px">{{ tenant.name }}</div>
@@ -33,7 +33,7 @@
   {% endif %}
   {% if upgradeable %}
   <div style="text-align:right">
-    <div style="font-size:12px;color:#64748b;margin-bottom:8px">Want more features?</div>
+    <div style="font-size:12px;color:var(--text-faint);margin-bottom:8px">Want more features?</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
       {% for up in upgradeable %}
       <button onclick="openUpgradeModal('{{ up }}')"
@@ -54,14 +54,14 @@
     {% set current = usage[key] %}
     {% set limit   = plan_limits[tenant.plan or 'STARTER'][key] %}
     {% set pct     = ((current / limit * 100)|int) if limit else 0 %}
-    <div style="background:#0d1424;border-radius:8px;padding:16px">
-      <div style="font-size:11px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">{{ label }}</div>
+    <div style="background:var(--bg-input);border-radius:8px;padding:16px">
+      <div style="font-size:11px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">{{ label }}</div>
       <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px">
-        <span style="font-size:22px;font-weight:700;color:#f1f5f9">{{ current }}</span>
-        <span style="font-size:13px;color:#64748b">/ {% if limit %}{{ limit }}{% else %}∞{% endif %}</span>
+        <span style="font-size:22px;font-weight:700;color:var(--text-strong)">{{ current }}</span>
+        <span style="font-size:13px;color:var(--text-faint)">/ {% if limit %}{{ limit }}{% else %}∞{% endif %}</span>
       </div>
       {% if limit %}
-      <div style="height:4px;border-radius:2px;background:rgba(255,255,255,0.07);overflow:hidden">
+      <div style="height:4px;border-radius:2px;background:var(--border-subtle);overflow:hidden">
         <div style="height:100%;border-radius:2px;width:{{ [pct,100]|min }}%;
           background:{% if pct >= 90 %}#ef4444{% elif pct >= 70 %}#f59e0b{% else %}#10b981{% endif %};
           transition:width 0.3s"></div>
@@ -84,7 +84,7 @@
   <h2>Plan Comparison</h2>
 
   {% set plans = ['STARTER', 'PROFESSIONAL', 'ENTERPRISE'] %}
-  {% set plan_colors = {'STARTER': '#94a3b8', 'PROFESSIONAL': '#60a5fa', 'ENTERPRISE': '#a78bfa'} %}
+  {% set plan_colors = {'STARTER': 'var(--text-muted)', 'PROFESSIONAL': '#60a5fa', 'ENTERPRISE': '#a78bfa'} %}
   {% set plan_taglines = {
     'STARTER': 'For small teams getting started',
     'PROFESSIONAL': 'For growing operations that need more control',
@@ -125,9 +125,9 @@
       <!-- Plan header row -->
       <thead>
         <tr>
-          <th style="width:42%;padding:12px 16px;font-size:11px;color:#64748b;border-bottom:1px solid rgba(255,255,255,0.08);text-transform:uppercase;letter-spacing:0.07em">Feature</th>
+          <th style="width:42%;padding:12px 16px;font-size:11px;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);text-transform:uppercase;letter-spacing:0.07em">Feature</th>
           {% for p in plans %}
-          <th style="text-align:center;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);
+          <th style="text-align:center;padding:12px 16px;border-bottom:1px solid var(--border-subtle);
                background:{% if tenant.plan == p %}rgba({{ '59,130,246' if p=='PROFESSIONAL' else ('124,58,237' if p=='ENTERPRISE' else '255,255,255') }},0.06){% else %}transparent{% endif %}">
             <div style="font-size:14px;font-weight:700;color:{{ plan_colors[p] }}">{{ plan_labels[p] }}</div>
             <div style="font-size:10px;color:#4b5568;margin-top:3px;font-weight:400">{{ plan_taglines[p] }}</div>
@@ -142,7 +142,7 @@
 
         <!-- ── Capacity limits ────────────────────────────────────────── -->
         <tr>
-          <td colspan="4" style="padding:10px 16px 4px;background:rgba(255,255,255,0.02)">
+          <td colspan="4" style="padding:10px 16px 4px;background:var(--row-hover)">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#374151">Capacity</div>
           </td>
         </tr>
@@ -155,16 +155,16 @@
         } %}
 
         {% for key, label in limit_labels.items() %}
-        <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+        <tr style="border-bottom:1px solid var(--border-subtle)">
           <td style="padding:12px 16px;vertical-align:top">
-            <div style="font-size:13px;font-weight:500;color:#e2e8f0">{{ label }}</div>
+            <div style="font-size:13px;font-weight:500;color:var(--text-primary)">{{ label }}</div>
             <div style="font-size:11px;color:#4b5568;margin-top:2px;line-height:1.5">{{ limit_descriptions.get(key, '') }}</div>
           </td>
           {% for p in plans %}
           {% set lim = plan_limits[p][key] %}
           <td style="text-align:center;padding:12px 16px;vertical-align:middle;
                background:{% if tenant.plan == p %}rgba({{ '59,130,246' if p=='PROFESSIONAL' else ('124,58,237' if p=='ENTERPRISE' else '255,255,255') }},0.04){% else %}transparent{% endif %}">
-            <span style="font-size:16px;font-weight:700;color:{% if lim == None %}#10b981{% else %}#e2e8f0{% endif %}">
+            <span style="font-size:16px;font-weight:700;color:{% if lim == None %}#10b981{% else %}var(--text-primary){% endif %}">
               {% if lim == None %}∞{% else %}{{ lim }}{% endif %}
             </span>
           </td>
@@ -175,14 +175,14 @@
         <!-- ── Features by category ───────────────────────────────────── -->
         {% for category, features in by_category.items() %}
         <tr>
-          <td colspan="4" style="padding:10px 16px 4px;background:rgba(255,255,255,0.02)">
+          <td colspan="4" style="padding:10px 16px 4px;background:var(--row-hover)">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#374151">{{ category }}</div>
           </td>
         </tr>
         {% for f in features %}
-        <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+        <tr style="border-bottom:1px solid var(--border-subtle)">
           <td style="padding:12px 16px;vertical-align:top">
-            <div style="font-size:13px;font-weight:500;color:#e2e8f0">{{ f.label }}</div>
+            <div style="font-size:13px;font-weight:500;color:var(--text-primary)">{{ f.label }}</div>
             <div style="font-size:11px;color:#4b5568;margin-top:3px;line-height:1.5">{{ DESCRIPTIONS.get(f.name, '') }}</div>
           </td>
           {% for p in plans %}
@@ -192,7 +192,7 @@
             {% if plan_has %}
             <span style="color:#10b981;font-size:16px" title="Included">✓</span>
             {% else %}
-            <span style="color:#1e293b;font-size:16px" title="Not included on this plan">—</span>
+            <span style="color:var(--bg-elevated);font-size:16px" title="Not included on this plan">—</span>
             {% endif %}
           </td>
           {% endfor %}
@@ -229,13 +229,13 @@
 <!-- ── Upgrade Request Modal ──────────────────────────────────────────────── -->
 <div id="upgradeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100"
      onclick="if(event.target===this)this.style.display='none'">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:460px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6)">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:460px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <div id="modalTitle" style="font-size:15px;font-weight:600;color:#f1f5f9">Upgrade Plan</div>
+      <div id="modalTitle" style="font-size:15px;font-weight:600;color:var(--text-strong)">Upgrade Plan</div>
       <button onclick="document.getElementById('upgradeModal').style.display='none'"
-              style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+              style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
     </div>
-    <div style="font-size:13px;color:#94a3b8;margin-bottom:20px;line-height:1.7">
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.7">
       Your request will be sent directly to your OmniFlow account manager. They will contact you to confirm pricing and complete the upgrade — no external app needed.
     </div>
     <form method="post" action="/plan/upgrade-request">

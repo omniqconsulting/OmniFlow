@@ -15,7 +15,7 @@
 <!-- Quick industry presets -->
 <div class="card" style="margin-bottom:16px">
   <h2>Quick Industry Presets</h2>
-  <p style="color:#64748b;font-size:12px;margin-bottom:14px">
+  <p style="color:var(--text-faint);font-size:12px;margin-bottom:14px">
     Pick a preset to auto-fill labels for your industry. You can customise further after applying.
   </p>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -43,10 +43,10 @@
         ('Employee', L.Employee, L.Employees),
     ] %}
     {% for concept, s, p in concepts %}
-    <div style="background:#0d1424;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:14px">
-      <div style="font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">{{ concept }}</div>
-      <div style="color:#f1f5f9;font-weight:600">{{ s }}</div>
-      <div style="color:#64748b;font-size:12px;margin-top:2px">{{ p }}</div>
+    <div style="background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:8px;padding:14px">
+      <div style="font-size:10px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">{{ concept }}</div>
+      <div style="color:var(--text-strong);font-weight:600">{{ s }}</div>
+      <div style="color:var(--text-faint);font-size:12px;margin-top:2px">{{ p }}</div>
       {% if s != concept %}
       <div style="margin-top:6px">
         <span class="badge badge-purple" style="font-size:9px">Custom</span>
@@ -61,7 +61,7 @@
 <form method="post" action="/settings/labels">
 <div class="card">
   <h2>Customise Labels</h2>
-  <p style="color:#64748b;font-size:12px;margin-bottom:18px">
+  <p style="color:var(--text-faint);font-size:12px;margin-bottom:18px">
     For each concept, enter the singular and plural forms your organisation uses.
     Leave a field blank (or unchanged) to keep the system default.
   </p>
@@ -72,102 +72,102 @@
         <th style="width:120px">Concept</th>
         <th style="width:220px">Singular</th>
         <th style="width:220px">Plural</th>
-        <th style="color:#64748b;font-size:11px;font-weight:400">Example usage</th>
+        <th style="color:var(--text-faint);font-size:11px;font-weight:400">Example usage</th>
       </tr>
     </thead>
     <tbody>
 
     <tr>
-      <td style="color:#94a3b8;font-weight:600;padding:10px 12px">Ticket</td>
+      <td style="color:var(--text-muted);font-weight:600;padding:10px 12px">Ticket</td>
       <td style="padding:6px 12px">
         <input type="text" name="ticket_s"
                value="{{ row.ticket_s if row and row.ticket_s else '' }}"
                placeholder="{{ defaults.ticket_s }}"
-               class="form-group" style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:13px;color:#e2e8f0">
+               class="form-group" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
       </td>
       <td style="padding:6px 12px">
         <input type="text" name="ticket_p"
                value="{{ row.ticket_p if row and row.ticket_p else '' }}"
                placeholder="{{ defaults.ticket_p }}"
-               class="form-group" style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:13px;color:#e2e8f0">
+               class="form-group" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
       </td>
-      <td style="padding:10px 12px;color:#64748b;font-size:12px">
+      <td style="padding:10px 12px;color:var(--text-faint);font-size:12px">
         "Create a new {{ L.ticket }}" · "{{ L.Tickets }} list"
       </td>
     </tr>
 
     <tr>
-      <td style="color:#94a3b8;font-weight:600;padding:10px 12px">Checklist</td>
+      <td style="color:var(--text-muted);font-weight:600;padding:10px 12px">Checklist</td>
       <td style="padding:6px 12px">
         <input type="text" name="checklist_s"
                value="{{ row.checklist_s if row and row.checklist_s else '' }}"
                placeholder="{{ defaults.checklist_s }}"
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:13px;color:#e2e8f0">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
       </td>
       <td style="padding:6px 12px">
         <input type="text" name="checklist_p"
                value="{{ row.checklist_p if row and row.checklist_p else '' }}"
                placeholder="{{ defaults.checklist_p }}"
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:13px;color:#e2e8f0">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
       </td>
-      <td style="padding:10px 12px;color:#64748b;font-size:12px">
+      <td style="padding:10px 12px;color:var(--text-faint);font-size:12px">
         "My {{ L.checklists }}" · "{{ L.Checklist }} template"
       </td>
     </tr>
 
     <tr>
-      <td style="color:#94a3b8;font-weight:600;padding:10px 12px">Branch</td>
+      <td style="color:var(--text-muted);font-weight:600;padding:10px 12px">Branch</td>
       <td style="padding:6px 12px">
         <input type="text" name="branch_s"
                value="{{ row.branch_s if row and row.branch_s else '' }}"
                placeholder="{{ defaults.branch_s }}"
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:13px;color:#e2e8f0">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
       </td>
       <td style="padding:6px 12px">
         <input type="text" name="branch_p"
                value="{{ row.branch_p if row and row.branch_p else '' }}"
                placeholder="{{ defaults.branch_p }}"
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:13px;color:#e2e8f0">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
       </td>
-      <td style="padding:10px 12px;color:#64748b;font-size:12px">
+      <td style="padding:10px 12px;color:var(--text-faint);font-size:12px">
         "Add a {{ L.branch }}" · "All {{ L.branches }}"
       </td>
     </tr>
 
     <tr>
-      <td style="color:#94a3b8;font-weight:600;padding:10px 12px">Department</td>
+      <td style="color:var(--text-muted);font-weight:600;padding:10px 12px">Department</td>
       <td style="padding:6px 12px">
         <input type="text" name="department_s"
                value="{{ row.department_s if row and row.department_s else '' }}"
                placeholder="{{ defaults.department_s }}"
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:13px;color:#e2e8f0">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
       </td>
       <td style="padding:6px 12px">
         <input type="text" name="department_p"
                value="{{ row.department_p if row and row.department_p else '' }}"
                placeholder="{{ defaults.department_p }}"
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:13px;color:#e2e8f0">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
       </td>
-      <td style="padding:10px 12px;color:#64748b;font-size:12px">
+      <td style="padding:10px 12px;color:var(--text-faint);font-size:12px">
         "Assign to {{ L.department }}" · "{{ L.Departments }}"
       </td>
     </tr>
 
     <tr>
-      <td style="color:#94a3b8;font-weight:600;padding:10px 12px">Employee</td>
+      <td style="color:var(--text-muted);font-weight:600;padding:10px 12px">Employee</td>
       <td style="padding:6px 12px">
         <input type="text" name="employee_s"
                value="{{ row.employee_s if row and row.employee_s else '' }}"
                placeholder="{{ defaults.employee_s }}"
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:13px;color:#e2e8f0">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
       </td>
       <td style="padding:6px 12px">
         <input type="text" name="employee_p"
                value="{{ row.employee_p if row and row.employee_p else '' }}"
                placeholder="{{ defaults.employee_p }}"
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:13px;color:#e2e8f0">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
       </td>
-      <td style="padding:10px 12px;color:#64748b;font-size:12px">
+      <td style="padding:10px 12px;color:var(--text-faint);font-size:12px">
         "Add {{ L.employee }}" · "{{ L.Employees }} page"
       </td>
     </tr>
@@ -178,7 +178,7 @@
   <div style="margin-top:18px;display:flex;gap:10px;align-items:center">
     <button type="submit" class="btn btn-primary">Save Labels</button>
     <a href="/settings/labels/preset" style="display:none"></a>
-    <span style="font-size:11px;color:#64748b">
+    <span style="font-size:11px;color:var(--text-faint)">
       Tip: leave fields blank to revert to the system defaults.
     </span>
   </div>

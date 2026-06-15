@@ -25,17 +25,17 @@
 {% macro limit_bar(used, limit, label) %}
 {% if limit is none %}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
-  <span style="font-size:11px;color:#64748b">{{ label }}</span>
+  <span style="font-size:11px;color:var(--text-faint)">{{ label }}</span>
   <span style="font-size:11px;color:#6ee7b7">{{ used }} / ∞</span>
 </div>
 {% else %}
 {% set pct = ((used / limit) * 100)|int %}
 <div style="margin-bottom:8px">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-    <span style="font-size:11px;color:#64748b">{{ label }}</span>
+    <span style="font-size:11px;color:var(--text-faint)">{{ label }}</span>
     <span style="font-size:11px;color:{% if pct >= 100 %}#f87171{% elif pct >= 80 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ used }}/{{ limit }}</span>
   </div>
-  <div style="height:4px;background:rgba(255,255,255,0.08);border-radius:99px;overflow:hidden">
+  <div style="height:4px;background:var(--border-subtle);border-radius:99px;overflow:hidden">
     <div style="height:100%;width:{{ [pct,100]|min }}%;background:{% if pct >= 100 %}#ef4444{% elif pct >= 80 %}#f59e0b{% else %}#3b82f6{% endif %};border-radius:99px"></div>
   </div>
 </div>
@@ -45,7 +45,7 @@
 <div class="card" style="margin-bottom:16px">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
     <div>
-      <h2 style="margin:0">Plan: <span style="color:{% if current_plan=='ENTERPRISE' %}#a78bfa{% elif current_plan=='PROFESSIONAL' %}#60a5fa{% else %}#94a3b8{% endif %}">{{ plan_labels[current_plan] }}</span></h2>
+      <h2 style="margin:0">Plan: <span style="color:{% if current_plan=='ENTERPRISE' %}#a78bfa{% elif current_plan=='PROFESSIONAL' %}#60a5fa{% else %}var(--text-muted){% endif %}">{{ plan_labels[current_plan] }}</span></h2>
     </div>
     <a href="/plan" class="btn btn-sm btn-purple">Upgrade Plan →</a>
   </div>
@@ -70,7 +70,7 @@
       <div>
         <h2 style="margin:0">{{ L.Branches }}</h2>
         {% if plan_limits.max_branches is not none %}
-        <div style="font-size:11px;color:{% if plan_usage.max_branches >= plan_limits.max_branches %}#f87171{% else %}#64748b{% endif %};margin-top:2px">
+        <div style="font-size:11px;color:{% if plan_usage.max_branches >= plan_limits.max_branches %}#f87171{% else %}var(--text-faint){% endif %};margin-top:2px">
           {{ plan_usage.max_branches }}/{{ plan_limits.max_branches }} used
         </div>
         {% endif %}
@@ -108,13 +108,13 @@
     {% if can_bulk %}
     <div id="import-branches" style="display:none;margin-bottom:16px">
       <div class="form-panel">
-        <p style="font-size:11px;color:#64748b;margin-bottom:8px">
-          CSV columns: <code style="background:#1e293b;padding:2px 6px;border-radius:4px">name, address</code>
+        <p style="font-size:11px;color:var(--text-faint);margin-bottom:8px">
+          CSV columns: <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px">name, address</code>
           <a href="/employees/import/template?entity=branches" style="font-size:11px;color:#60a5fa;margin-left:8px">⬇ Template</a>
         </p>
         <form method="post" action="/branches/import" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
           <input type="hidden" name="redirect_to" value="/setup?open=branch">
-          <input type="file" name="file" accept=".csv" required style="flex:1;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0">
+          <input type="file" name="file" accept=".csv" required style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
           <button type="submit" class="btn btn-sm btn-primary">Import</button>
           <button type="button" onclick="toggleForm('import-branches')" class="btn btn-sm btn-gray">×</button>
         </form>
@@ -128,14 +128,14 @@
       <tbody>
       {% for b in branches %}
       <tr>
-        <td style="font-weight:500;color:#e2e8f0">{{ b.name }}</td>
-        <td style="color:#94a3b8">{{ b.address or '—' }}</td>
+        <td style="font-weight:500;color:var(--text-primary)">{{ b.name }}</td>
+        <td style="color:var(--text-muted)">{{ b.address or '—' }}</td>
       </tr>
       {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <p style="color:#64748b;font-size:13px">No branches yet. Add your first location.</p>
+    <p style="color:var(--text-faint);font-size:13px">No branches yet. Add your first location.</p>
     {% endif %}
   </div>
 
@@ -168,12 +168,12 @@
     {% if can_bulk %}
     <div id="import-depts" style="display:none;margin-bottom:16px">
       <div class="form-panel">
-        <p style="font-size:11px;color:#64748b;margin-bottom:8px">
-          CSV columns: <code style="background:#1e293b;padding:2px 6px;border-radius:4px">name, branch_name</code>
+        <p style="font-size:11px;color:var(--text-faint);margin-bottom:8px">
+          CSV columns: <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px">name, branch_name</code>
           <a href="/employees/import/template?entity=departments" style="font-size:11px;color:#60a5fa;margin-left:8px">⬇ Template</a>
         </p>
         <form method="post" action="/departments/import" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
-          <input type="file" name="file" accept=".csv" required style="flex:1;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0">
+          <input type="file" name="file" accept=".csv" required style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
           <button type="submit" class="btn btn-sm btn-primary">Import</button>
           <button type="button" onclick="toggleForm('import-depts')" class="btn btn-sm btn-gray">×</button>
         </form>
@@ -186,12 +186,12 @@
       <thead><tr><th>{{ L.Department }}</th></tr></thead>
       <tbody>
       {% for d in departments %}
-      <tr><td style="font-weight:500;color:#e2e8f0">{{ d.name }}</td></tr>
+      <tr><td style="font-weight:500;color:var(--text-primary)">{{ d.name }}</td></tr>
       {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <p style="color:#64748b;font-size:13px">No departments yet. Add your first department.</p>
+    <p style="color:var(--text-faint);font-size:13px">No departments yet. Add your first department.</p>
     {% endif %}
   </div>
 
@@ -202,65 +202,65 @@
   <span style="font-size:22px">🔒</span>
   <div>
     <div style="font-weight:600;color:#c4b5fd;font-size:13px">Bulk CSV Import — Professional Plan</div>
-    <div style="font-size:12px;color:#64748b;margin-top:3px">Upgrade to Professional to import branches and departments in bulk via CSV.</div>
+    <div style="font-size:12px;color:var(--text-faint);margin-top:3px">Upgrade to Professional to import branches and departments in bulk via CSV.</div>
   </div>
 </div>
 {% endif %}
 
 <!-- ── Plan Upgrade Comparison Modal ─────────────────────────────────────── -->
 <div id="upgrade-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;z-index:200">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:32px;width:740px;max-width:96vw;max-height:92vh;overflow-y:auto;box-shadow:0 32px 64px rgba(0,0,0,0.7)">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:16px;padding:32px;width:740px;max-width:96vw;max-height:92vh;overflow-y:auto;box-shadow:0 32px 64px rgba(0,0,0,0.7)">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
       <div>
         <h3 style="font-size:17px;font-weight:700;color:#f87171;margin:0">Plan Limit Reached</h3>
-        <div id="upgrade-reason" style="font-size:13px;color:#94a3b8;margin-top:4px"></div>
+        <div id="upgrade-reason" style="font-size:13px;color:var(--text-muted);margin-top:4px"></div>
       </div>
-      <button onclick="closeUpgradeModal()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#64748b;line-height:1">×</button>
+      <button onclick="closeUpgradeModal()" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:20px">
 
       <!-- Starter -->
       {% set sl = all_plan_limits['STARTER'] %}
-      <div style="background:#0d1424;border:2px solid {% if current_plan=='STARTER' %}#3b82f6{% else %}rgba(255,255,255,0.08){% endif %};border-radius:12px;padding:20px;position:relative">
+      <div style="background:var(--bg-input);border:2px solid {% if current_plan=='STARTER' %}#3b82f6{% else %}var(--border-subtle){% endif %};border-radius:12px;padding:20px;position:relative">
         {% if current_plan == 'STARTER' %}<div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:#3b82f6;color:#fff;font-size:10px;font-weight:700;padding:2px 10px;border-radius:99px">CURRENT</div>{% endif %}
-        <div style="font-size:15px;font-weight:700;color:#f1f5f9;margin-bottom:4px">Starter</div>
-        <div style="font-size:11px;color:#64748b;margin-bottom:14px">For small teams</div>
+        <div style="font-size:15px;font-weight:700;color:var(--text-strong);margin-bottom:4px">Starter</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-bottom:14px">For small teams</div>
         <div style="display:flex;flex-direction:column;gap:7px">
-          <div style="font-size:12px;color:#94a3b8">👤 <strong style="color:#e2e8f0">{{ sl.max_users }}</strong> team members</div>
-          <div style="font-size:12px;color:#94a3b8">🏭 <strong style="color:#e2e8f0">{{ sl.max_branches }}</strong> branch</div>
-          <div style="font-size:12px;color:#94a3b8">✅ <strong style="color:#e2e8f0">{{ sl.max_checklist_templates or '∞' }}</strong> checklists</div>
-          <div style="font-size:12px;color:#94a3b8">🔄 <strong style="color:#e2e8f0">{{ sl.max_fms_flows or '0' }}</strong> FMS flows</div>
+          <div style="font-size:12px;color:var(--text-muted)">👤 <strong style="color:var(--text-primary)">{{ sl.max_users }}</strong> team members</div>
+          <div style="font-size:12px;color:var(--text-muted)">🏭 <strong style="color:var(--text-primary)">{{ sl.max_branches }}</strong> branch</div>
+          <div style="font-size:12px;color:var(--text-muted)">✅ <strong style="color:var(--text-primary)">{{ sl.max_checklist_templates or '∞' }}</strong> checklists</div>
+          <div style="font-size:12px;color:var(--text-muted)">🔄 <strong style="color:var(--text-primary)">{{ sl.max_fms_flows or '0' }}</strong> FMS flows</div>
         </div>
       </div>
 
       <!-- Professional -->
       {% set pl = all_plan_limits['PROFESSIONAL'] %}
-      <div style="background:#0d1424;border:2px solid {% if current_plan=='PROFESSIONAL' %}#3b82f6{% else %}rgba(139,92,246,0.3){% endif %};border-radius:12px;padding:20px;position:relative">
+      <div style="background:var(--bg-input);border:2px solid {% if current_plan=='PROFESSIONAL' %}#3b82f6{% else %}rgba(139,92,246,0.3){% endif %};border-radius:12px;padding:20px;position:relative">
         {% if current_plan == 'PROFESSIONAL' %}<div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:#3b82f6;color:#fff;font-size:10px;font-weight:700;padding:2px 10px;border-radius:99px">CURRENT</div>{% endif %}
         <div style="position:absolute;top:-10px;right:14px;background:rgba(139,92,246,0.8);color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px">POPULAR</div>
         <div style="font-size:15px;font-weight:700;color:#a78bfa;margin-bottom:4px">Professional</div>
-        <div style="font-size:11px;color:#64748b;margin-bottom:14px">For growing factories</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-bottom:14px">For growing factories</div>
         <div style="display:flex;flex-direction:column;gap:7px">
-          <div style="font-size:12px;color:#94a3b8">👤 <strong style="color:#e2e8f0">{{ pl.max_users }}</strong> team members</div>
-          <div style="font-size:12px;color:#94a3b8">🏭 <strong style="color:#e2e8f0">{{ pl.max_branches }}</strong> branches</div>
-          <div style="font-size:12px;color:#94a3b8">✅ <strong style="color:#e2e8f0">Unlimited</strong> checklists</div>
-          <div style="font-size:12px;color:#94a3b8">🔄 <strong style="color:#e2e8f0">{{ pl.max_fms_flows }}</strong> FMS flows</div>
+          <div style="font-size:12px;color:var(--text-muted)">👤 <strong style="color:var(--text-primary)">{{ pl.max_users }}</strong> team members</div>
+          <div style="font-size:12px;color:var(--text-muted)">🏭 <strong style="color:var(--text-primary)">{{ pl.max_branches }}</strong> branches</div>
+          <div style="font-size:12px;color:var(--text-muted)">✅ <strong style="color:var(--text-primary)">Unlimited</strong> checklists</div>
+          <div style="font-size:12px;color:var(--text-muted)">🔄 <strong style="color:var(--text-primary)">{{ pl.max_fms_flows }}</strong> FMS flows</div>
           <div style="font-size:12px;color:#6ee7b7">+ Bulk import, Analytics, Multi-branch</div>
         </div>
       </div>
 
       <!-- Enterprise -->
       {% set el = all_plan_limits['ENTERPRISE'] %}
-      <div style="background:#0d1424;border:2px solid {% if current_plan=='ENTERPRISE' %}#3b82f6{% else %}rgba(255,255,255,0.08){% endif %};border-radius:12px;padding:20px;position:relative">
+      <div style="background:var(--bg-input);border:2px solid {% if current_plan=='ENTERPRISE' %}#3b82f6{% else %}var(--border-subtle){% endif %};border-radius:12px;padding:20px;position:relative">
         {% if current_plan == 'ENTERPRISE' %}<div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:#3b82f6;color:#fff;font-size:10px;font-weight:700;padding:2px 10px;border-radius:99px">CURRENT</div>{% endif %}
         <div style="font-size:15px;font-weight:700;color:#fcd34d;margin-bottom:4px">Enterprise</div>
-        <div style="font-size:11px;color:#64748b;margin-bottom:14px">No limits, full control</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-bottom:14px">No limits, full control</div>
         <div style="display:flex;flex-direction:column;gap:7px">
-          <div style="font-size:12px;color:#94a3b8">👤 <strong style="color:#e2e8f0">Unlimited</strong> team members</div>
-          <div style="font-size:12px;color:#94a3b8">🏭 <strong style="color:#e2e8f0">Unlimited</strong> branches</div>
-          <div style="font-size:12px;color:#94a3b8">✅ <strong style="color:#e2e8f0">Unlimited</strong> checklists</div>
-          <div style="font-size:12px;color:#94a3b8">🔄 <strong style="color:#e2e8f0">Unlimited</strong> FMS flows</div>
+          <div style="font-size:12px;color:var(--text-muted)">👤 <strong style="color:var(--text-primary)">Unlimited</strong> team members</div>
+          <div style="font-size:12px;color:var(--text-muted)">🏭 <strong style="color:var(--text-primary)">Unlimited</strong> branches</div>
+          <div style="font-size:12px;color:var(--text-muted)">✅ <strong style="color:var(--text-primary)">Unlimited</strong> checklists</div>
+          <div style="font-size:12px;color:var(--text-muted)">🔄 <strong style="color:var(--text-primary)">Unlimited</strong> FMS flows</div>
           <div style="font-size:12px;color:#6ee7b7">+ API, SSO, White-label, SLA, Audit log</div>
         </div>
       </div>

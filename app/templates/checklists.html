@@ -27,9 +27,9 @@
 {% if user.role in ('ADMIN','MANAGER') %}
 <form method="get" action="/checklists" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px">
   <div class="form-group" style="margin:0;min-width:160px">
-    <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;display:block;margin-bottom:4px">{{ L.Department }}</label>
+    <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:4px">{{ L.Department }}</label>
     <select name="dept_id" onchange="this.form.submit()"
-            style="background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:7px 10px;font-size:12px;color:#e2e8f0;outline:none">
+            style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none">
       <option value="">All Departments</option>
       {% for d in departments %}
       <option value="{{ d.id }}" {% if d.id == dept_id %}selected{% endif %}>{{ d.name }}</option>
@@ -37,9 +37,9 @@
     </select>
   </div>
   <div class="form-group" style="margin:0;min-width:160px">
-    <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;display:block;margin-bottom:4px">Manager</label>
+    <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:4px">Manager</label>
     <select name="manager_id" onchange="this.form.submit()"
-            style="background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:7px 10px;font-size:12px;color:#e2e8f0;outline:none">
+            style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none">
       <option value="">All Managers</option>
       {% for m in managers %}
       <option value="{{ m.id }}" {% if m.id == manager_id %}selected{% endif %}>{{ m.name }}</option>
@@ -61,16 +61,16 @@
     {% if upcoming %}
     <div style="display:flex;flex-direction:column;gap:6px">
       {% for a in upcoming %}
-      <div style="display:flex;align-items:center;justify-content:space-between;background:#0d1424;border-radius:7px;padding:9px 12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-input);border-radius:7px;padding:9px 12px">
         <div>
-          <div style="font-size:12px;font-weight:500;color:#f1f5f9">{{ a.template.title if a.template else '—' }}</div>
-          <div style="font-size:11px;color:#64748b;margin-top:2px">
+          <div style="font-size:12px;font-weight:500;color:var(--text-strong)">{{ a.template.title if a.template else '—' }}</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">
             {{ a.user.name if a.user else '—' }}
             {% if a.template and a.template.frequency %}<span class="badge badge-gray" style="font-size:9px;margin-left:4px">{{ a.template.frequency }}</span>{% endif %}
           </div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div style="font-size:11px;color:{% if a.due_at < now %}#f87171{% else %}#94a3b8{% endif %}">
+          <div style="font-size:11px;color:{% if a.due_at < now %}#f87171{% else %}var(--text-muted){% endif %}">
             {{ a.due_at.strftime('%d %b, %I:%M %p') if a.due_at else '—' }}
           </div>
           <span class="badge badge-{% if a.status=='OVERDUE' %}red{% elif a.status=='IN_PROGRESS' %}yellow{% else %}blue{% endif %}" style="font-size:9px;margin-top:3px">{{ a.status }}</span>
@@ -79,10 +79,10 @@
         <div style="margin-left:10px;display:flex;flex-direction:column;gap:4px">
           <button onclick="toggleForm('up-edit-{{ a.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 6px">Edit Due</button>
         </div>
-        <div id="up-edit-{{ a.id }}" class="form-panel" style="display:none;position:absolute;z-index:50;background:#131c2e;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:10px;min-width:220px">
+        <div id="up-edit-{{ a.id }}" class="form-panel" style="display:none;position:absolute;z-index:50;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:8px;padding:10px;min-width:220px">
           <form method="post" action="/checklists/assignments/{{ a.id }}/edit" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <input type="datetime-local" name="due_at" value="{{ a.due_at.strftime('%Y-%m-%dT%H:%M') if a.due_at else '' }}"
-                   style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;color-scheme:dark;outline:none" required>
+                   style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);color-scheme:dark;outline:none" required>
             <button type="submit" class="btn btn-sm btn-primary">Save</button>
             <button type="button" onclick="toggleForm('up-edit-{{ a.id }}')" class="btn btn-sm btn-gray">×</button>
           </form>
@@ -111,15 +111,15 @@
           {% endif %}
           <div style="background:#3b82f6;border-radius:{% if w.failed==0 %}3px 3px{% else %}0 0{% endif %} 0 0;height:{{ bar_h }}px" title="{{ w.done }} done"></div>
         </div>
-        <div style="font-size:9px;color:#475569;margin-top:3px">{{ w.label }}</div>
+        <div style="font-size:9px;color:var(--text-xfaint);margin-top:3px">{{ w.label }}</div>
       </div>
       {% endfor %}
     </div>
     <div style="display:flex;gap:12px;margin-top:10px">
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#64748b">
+      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-faint)">
         <div style="width:10px;height:10px;background:#3b82f6;border-radius:2px"></div>Done
       </div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#64748b">
+      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-faint)">
         <div style="width:10px;height:10px;background:#ef4444;border-radius:2px"></div>Failed
       </div>
     </div>
@@ -134,18 +134,18 @@
   {% if my_assignments %}
   <div style="display:flex;flex-direction:column;gap:10px">
   {% for a in my_assignments %}
-  <div style="border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:14px 16px">
+  <div style="border:1px solid var(--border-subtle);border-radius:8px;padding:14px 16px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">
       <div>
-        <div style="font-weight:600;font-size:13px;color:#f1f5f9">
+        <div style="font-weight:600;font-size:13px;color:var(--text-strong)">
           {{ a.template.title if a.template else '—' }}
           {% if a.template and a.template.evidence_required %}<span class="badge badge-amber" style="font-size:9px;margin-left:6px">Evidence Required</span>{% endif %}
         </div>
-        <div style="font-size:11px;color:#64748b;margin-top:3px">{{ a.template.description[:100] if a.template and a.template.description else '' }}</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ a.template.description[:100] if a.template and a.template.description else '' }}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
         <span class="badge {% if a.status=='OVERDUE' %}badge-red{% elif a.status=='IN_PROGRESS' %}badge-yellow{% else %}badge-blue{% endif %}">{{ a.status }}</span>
-        <span style="font-size:11px;{% if a.due_at and a.due_at < now %}color:#f87171{% else %}color:#64748b{% endif %}">
+        <span style="font-size:11px;{% if a.due_at and a.due_at < now %}color:#f87171{% else %}color:var(--text-faint){% endif %}">
           ⏰ {{ a.due_at.strftime('%d %b, %I:%M %p') if a.due_at else '—' }}
         </span>
       </div>
@@ -153,17 +153,17 @@
 
     {% if a.proof_url %}
     <div style="margin-bottom:8px">
-      <img src="{{ a.proof_url }}" style="max-height:80px;border-radius:6px;border:1px solid rgba(255,255,255,0.1)">
+      <img src="{{ a.proof_url }}" style="max-height:80px;border-radius:6px;border:1px solid var(--border-med)">
       <span style="font-size:11px;color:#6ee7b7;margin-left:8px">✓ Proof uploaded</span>
     </div>
     {% endif %}
 
     {% if a.comments %}
-    <div style="background:#0d1424;border-radius:6px;padding:8px 12px;margin-bottom:8px">
+    <div style="background:var(--bg-input);border-radius:6px;padding:8px 12px;margin-bottom:8px">
       {% for c in a.comments %}
-      <div style="font-size:12px;color:#94a3b8;padding:4px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.05){% else %}none{% endif %}">
-        <strong style="color:#e2e8f0">{{ c.user.name if c.user else '—' }}</strong>: {{ c.body }}
-        <span style="color:#475569;font-size:10px;margin-left:6px">{{ c.created_at.strftime('%d %b, %H:%M') }}</span>
+      <div style="font-size:12px;color:var(--text-muted);padding:4px 0;border-bottom:{% if not loop.last %}1px solid var(--border-subtle){% else %}none{% endif %}">
+        <strong style="color:var(--text-primary)">{{ c.user.name if c.user else '—' }}</strong>: {{ c.body }}
+        <span style="color:var(--text-xfaint);font-size:10px;margin-left:6px">{{ c.created_at.strftime('%d %b, %H:%M') }}</span>
       </div>
       {% endfor %}
     </div>
@@ -206,7 +206,7 @@
     <div id="fail-{{ a.id }}" class="form-panel" style="display:none;margin-top:10px">
       <form method="post" action="/checklists/fail/{{ a.id }}" style="display:flex;flex-direction:column;gap:8px">
         <textarea name="failure_note" placeholder="Reason for failure (optional)…"
-                  style="background:#0d1424;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:8px 12px;font-size:12px;color:#e2e8f0;outline:none;font-family:inherit;height:50px;resize:vertical"></textarea>
+                  style="background:var(--bg-input);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:8px 12px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit;height:50px;resize:vertical"></textarea>
         <div style="display:flex;gap:8px">
           <button type="submit" class="btn btn-sm btn-red">Confirm Failed</button>
           <button type="button" onclick="toggleForm('fail-{{ a.id }}')" class="btn btn-sm btn-gray">Cancel</button>
@@ -218,7 +218,7 @@
     <div id="comment-{{ a.id }}" class="form-panel" style="display:none;margin-top:10px">
       <form method="post" action="/checklists/comment/{{ a.id }}" style="display:flex;gap:8px;align-items:center">
         <input name="body" placeholder="Add a comment…" required
-               style="flex:1;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:8px 12px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit">
+               style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:8px 12px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit">
         <button type="submit" class="btn btn-sm btn-primary">Post</button>
         <button type="button" onclick="toggleForm('comment-{{ a.id }}')" class="btn btn-sm btn-outline">Cancel</button>
       </form>
@@ -227,7 +227,7 @@
   {% endfor %}
   </div>
   {% else %}
-  <p style="color:#64748b;font-size:13px;padding:8px 0">All caught up! No pending checklists.</p>
+  <p style="color:var(--text-faint);font-size:13px;padding:8px 0">All caught up! No pending checklists.</p>
   {% endif %}
 </div>
 
@@ -259,32 +259,32 @@
     {% set s = t._stats %}
     <tr>
       <td>
-        <div style="font-weight:500;color:#e2e8f0">{{ t.title }}</div>
-        <div style="font-size:10px;color:#64748b;margin-top:2px">{{ t.description[:60] }}{% if t.description|length > 60 %}…{% endif %}</div>
+        <div style="font-weight:500;color:var(--text-primary)">{{ t.title }}</div>
+        <div style="font-size:10px;color:var(--text-faint);margin-top:2px">{{ t.description[:60] }}{% if t.description|length > 60 %}…{% endif %}</div>
         {% if t.assigned_to_dept %}
-        <div style="font-size:10px;color:#475569;margin-top:1px">Dept: {{ t.assigned_to_dept.name }}</div>
+        <div style="font-size:10px;color:var(--text-xfaint);margin-top:1px">Dept: {{ t.assigned_to_dept.name }}</div>
         {% endif %}
         {% if t.evidence_required %}<span class="badge badge-amber" style="font-size:9px;margin-top:2px">Evidence Req</span>{% endif %}
         {% if not t.is_recurring %}<span class="badge badge-gray" style="font-size:9px;margin-top:3px">One-time</span>{% endif %}
       </td>
       <td><span class="badge badge-blue" style="font-size:10px">{{ t.frequency }}</span></td>
-      <td style="font-size:12px;color:#94a3b8">
+      <td style="font-size:12px;color:var(--text-muted)">
         {% if t.assigned_to_user %}
-          <div style="font-weight:500;color:#e2e8f0">{{ t.assigned_to_user.name }}</div>
-          <div style="font-size:10px;color:#475569">{{ t.assigned_to_user.role }}</div>
+          <div style="font-weight:500;color:var(--text-primary)">{{ t.assigned_to_user.name }}</div>
+          <div style="font-size:10px;color:var(--text-xfaint)">{{ t.assigned_to_user.role }}</div>
         {% elif t.assigned_to_dept %}
           All {{ t.assigned_to_role }} in {{ t.assigned_to_dept.name }}
         {% else %}
           All {{ t.assigned_to_role }}
         {% endif %}
       </td>
-      <td style="font-size:11px;color:#94a3b8">
+      <td style="font-size:11px;color:var(--text-muted)">
         {% if s.last_completed %}{{ s.last_completed.strftime('%d %b %Y') }}
         {% else %}<span class="muted">Never</span>{% endif %}
       </td>
       <td style="font-size:11px">
         {% if s.next_due %}
-        <span style="color:{% if s.next_due < now %}#f87171{% else %}#94a3b8{% endif %}">
+        <span style="color:{% if s.next_due < now %}#f87171{% else %}var(--text-muted){% endif %}">
           {{ s.next_due.strftime('%d %b, %I:%M %p') }}
         </span>
         {% else %}<span class="muted">—</span>{% endif %}
@@ -300,7 +300,7 @@
         <div style="font-size:13px;font-weight:600;color:{% if s.compliance >= 80 %}#6ee7b7{% elif s.compliance >= 50 %}#fcd34d{% else %}#f87171{% endif %}">
           {{ s.compliance }}%
         </div>
-        <div style="font-size:9px;color:#475569">{{ s.done }}/{{ s.total }}</div>
+        <div style="font-size:9px;color:var(--text-xfaint)">{{ s.done }}/{{ s.total }}</div>
       </td>
       <td>
         <span class="badge {% if t.is_active %}badge-green{% else %}badge-gray{% endif %}" style="font-size:10px">
@@ -324,7 +324,7 @@
         <div id="assign-{{ t.id }}" style="display:none;margin-top:8px;min-width:220px">
           <form method="post" action="/checklists/assign/{{ t.id }}" style="display:flex;flex-direction:column;gap:6px">
             <input type="datetime-local" name="due_at" required
-                   style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;color-scheme:dark;outline:none">
+                   style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);color-scheme:dark;outline:none">
             <div style="display:flex;gap:6px">
               <button type="submit" class="btn btn-sm btn-primary" style="flex:1">Send</button>
               <button type="button" onclick="toggleForm('assign-{{ t.id }}')" class="btn btn-sm btn-gray">×</button>
@@ -334,25 +334,25 @@
 
         {# P6-03: Edit template inline form #}
         {% if user.role == 'ADMIN' %}
-        <div id="edit-tmpl-{{ t.id }}" style="display:none;margin-top:8px;min-width:280px;background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:12px;z-index:50;position:relative">
+        <div id="edit-tmpl-{{ t.id }}" style="display:none;margin-top:8px;min-width:280px;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:8px;padding:12px;z-index:50;position:relative">
           <form method="post" action="/checklists/templates/{{ t.id }}/edit" style="display:flex;flex-direction:column;gap:8px">
-            <div><label style="font-size:10px;color:#64748b">Title</label>
-              <input name="title" value="{{ t.title }}" required style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box"></div>
-            <div><label style="font-size:10px;color:#64748b">Description</label>
-              <textarea name="description" rows="2" style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;font-family:inherit;resize:vertical;box-sizing:border-box">{{ t.description }}</textarea></div>
+            <div><label style="font-size:10px;color:var(--text-faint)">Title</label>
+              <input name="title" value="{{ t.title }}" required style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;box-sizing:border-box"></div>
+            <div><label style="font-size:10px;color:var(--text-faint)">Description</label>
+              <textarea name="description" rows="2" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box">{{ t.description }}</textarea></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div><label style="font-size:10px;color:#64748b">Frequency</label>
-                <select name="frequency" style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px;font-size:12px;color:#e2e8f0;outline:none">
+              <div><label style="font-size:10px;color:var(--text-faint)">Frequency</label>
+                <select name="frequency" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);outline:none">
                   {% for f in ['DAILY','WEEKLY','MONTHLY','PER_SHIFT'] %}
                   <option {% if f == t.frequency %}selected{% endif %}>{{ f }}</option>
                   {% endfor %}
                 </select>
               </div>
-              <div><label style="font-size:10px;color:#64748b">Remind hrs before</label>
+              <div><label style="font-size:10px;color:var(--text-faint)">Remind hrs before</label>
                 <input type="number" name="reminder_hours_before" value="{{ t.reminder_hours_before or 2 }}" min="0"
-                       style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box"></div>
+                       style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);outline:none;box-sizing:border-box"></div>
             </div>
-            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#94a3b8;cursor:pointer">
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);cursor:pointer">
               <input type="checkbox" name="evidence_required" value="true" {% if t.evidence_required %}checked{% endif %}>
               Evidence Required
             </label>
@@ -374,7 +374,7 @@
   </table>
   </div>
   {% else %}
-  <p style="color:#64748b;font-size:13px;padding:8px 0">No checklists yet.
+  <p style="color:var(--text-faint);font-size:13px;padding:8px 0">No checklists yet.
     {% if user.role == 'ADMIN' %}<button onclick="show('create-modal')" class="btn btn-sm btn-primary" style="margin-left:10px">Create one →</button>{% endif %}
   </p>
   {% endif %}
@@ -383,27 +383,27 @@
 
 <!-- ── Complete modal (delay reason + evidence) ─────────────────────── -->
 <div id="complete-modal" class="ev-modal-bg">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:24px;width:420px;max-width:95vw">
-    <div style="font-size:15px;font-weight:600;color:#f1f5f9;margin-bottom:16px">Mark as Complete</div>
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:12px;padding:24px;width:420px;max-width:95vw">
+    <div style="font-size:15px;font-weight:600;color:var(--text-strong);margin-bottom:16px">Mark as Complete</div>
     <form id="complete-form" method="post" enctype="multipart/form-data">
       <div id="delay-reason-section" style="display:none;margin-bottom:14px">
-        <label class="form-label" style="font-size:12px;color:#94a3b8">
+        <label class="form-label" style="font-size:12px;color:var(--text-muted)">
           Delay Reason <span style="color:#f87171">*</span>
           <span style="font-size:11px;font-weight:400">(required — this assignment is overdue)</span>
         </label>
         <textarea name="delay_reason" id="delay-reason-input" rows="3"
-                  style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:8px 12px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
+                  style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:8px 12px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
                   placeholder="Explain why this was completed late…"></textarea>
       </div>
       <div id="evidence-section" style="display:none;margin-bottom:14px">
-        <label class="form-label" style="font-size:12px;color:#94a3b8">
+        <label class="form-label" style="font-size:12px;color:var(--text-muted)">
           Evidence File <span style="color:#f87171">*</span>
         </label>
         <input type="file" name="evidence_file" id="evidence-input"
                accept="image/*,.pdf,.doc,.docx"
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);box-sizing:border-box">
       </div>
-      <p id="complete-simple-msg" style="font-size:13px;color:#94a3b8;margin-bottom:14px">Confirm completion of this checklist assignment?</p>
+      <p id="complete-simple-msg" style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Confirm completion of this checklist assignment?</p>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" onclick="document.getElementById('complete-modal').classList.remove('open')" class="btn btn-outline">Cancel</button>
         <button type="submit" class="btn btn-primary">✓ Confirm Complete</button>
@@ -415,12 +415,12 @@
 <!-- ── Bulk Upload Modal ──────────────────────────────────────────────── -->
 {% if user.role == 'ADMIN' %}
 <div id="bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;z-index:100">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:24px;width:440px;max-width:95vw">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:440px;max-width:95vw">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">Bulk Upload Checklists</h3>
-      <button onclick="hide('bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b">×</button>
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Bulk Upload Checklists</h3>
+      <button onclick="hide('bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint)">×</button>
     </div>
-    <p style="font-size:13px;color:#94a3b8;margin-bottom:14px">
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
       Upload a CSV file to create multiple checklist templates at once.
       <a href="/checklists/bulk-template" style="color:#3b82f6;text-decoration:none">Download template →</a>
     </p>
@@ -428,7 +428,7 @@
       <div class="form-group" style="margin-bottom:16px">
         <label class="form-label">Select CSV File</label>
         <input type="file" name="file" accept=".csv" required
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);box-sizing:border-box">
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" onclick="hide('bulk-modal')" class="btn btn-outline">Cancel</button>
@@ -440,10 +440,10 @@
 
 <!-- ── Create Checklist Modal ─────────────────────────────────────────── -->
 <div id="create-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:92vh;overflow-y:auto">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:92vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">New Checklist</h3>
-      <button onclick="hide('create-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">New Checklist</h3>
+      <button onclick="hide('create-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
     </div>
     <form method="post" action="/checklists/templates/create">
 
@@ -512,7 +512,7 @@
         </div>
       </div>
 
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#94a3b8;margin-bottom:12px;cursor:pointer">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);margin-bottom:12px;cursor:pointer">
         <input type="checkbox" name="evidence_required" value="true"> Evidence Required on completion
       </label>
 

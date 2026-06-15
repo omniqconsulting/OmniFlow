@@ -7,40 +7,40 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',system-ui,sans-serif;background:#0b0f1a;display:flex;align-items:center;justify-content:center;min-height:100vh;color:#e2e8f0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg-base);display:flex;align-items:center;justify-content:center;min-height:100vh;color:var(--text-primary)}
 .wrap{width:360px}
 .logo-row{text-align:center;margin-bottom:32px}
-.logo{font-size:22px;font-weight:700;color:#e2e8f0;letter-spacing:-0.4px}
-.logo-sub{font-size:13px;color:#64748b;margin-top:4px}
-.card{background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:32px}
-.card-title{font-size:16px;font-weight:600;color:#e2e8f0;margin-bottom:4px}
-.card-sub{font-size:12px;color:#64748b;margin-bottom:24px}
+.logo{font-size:22px;font-weight:700;color:var(--text-primary);letter-spacing:-0.4px}
+.logo-sub{font-size:13px;color:var(--text-faint);margin-top:4px}
+.card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:32px}
+.card-title{font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:4px}
+.card-sub{font-size:12px;color:var(--text-faint);margin-bottom:24px}
 .form-group{margin-bottom:14px}
-label{display:block;font-size:11px;font-weight:600;margin-bottom:5px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em}
-input{width:100%;background:#0b0f1a;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 12px;font-size:14px;color:#e2e8f0;outline:none;font-family:inherit;transition:border-color 0.12s}
+label{display:block;font-size:11px;font-weight:600;margin-bottom:5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.05em}
+input{width:100%;background:var(--bg-base);border:1px solid var(--border-med);border-radius:8px;padding:10px 12px;font-size:14px;color:var(--text-primary);outline:none;font-family:inherit;transition:border-color 0.12s}
 input:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,0.15)}
 input::placeholder{color:#4b5568}
 .btn{width:100%;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;font-family:inherit;transition:background 0.12s}
 .btn:hover{background:#2563eb}
 .error{background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:16px}
-.footer{text-align:center;font-size:12px;color:#64748b;margin-top:20px}
+.footer{text-align:center;font-size:12px;color:var(--text-faint);margin-top:20px}
 .footer a{color:#60a5fa}
 .footer a:hover{color:#93c5fd}
-.divider{border:none;border-top:1px solid rgba(255,255,255,0.06);margin:20px 0}
+.divider{border:none;border-top:1px solid var(--hover-bg);margin:20px 0}
 /* Forgot password modal */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;z-index:100}
 .modal-overlay.open{display:flex}
-.modal-box{background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:400px;max-width:95vw}
-.modal-title{font-size:15px;font-weight:600;color:#f1f5f9;margin-bottom:8px}
-.modal-body{font-size:13px;color:#94a3b8;line-height:1.7;margin-bottom:20px}
-.modal-body strong{color:#e2e8f0}
-.modal-step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06)}
+.modal-box{background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:400px;max-width:95vw}
+.modal-title{font-size:15px;font-weight:600;color:var(--text-strong);margin-bottom:8px}
+.modal-body{font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:20px}
+.modal-body strong{color:var(--text-primary)}
+.modal-step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--hover-bg)}
 .modal-step:last-child{border-bottom:none}
 .step-num{width:22px;height:22px;border-radius:50%;background:#1e3a5f;color:#60a5fa;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
-.step-text{font-size:12px;color:#94a3b8;line-height:1.6}
-.step-text strong{color:#e2e8f0;display:block;margin-bottom:2px}
-.modal-close-btn{width:100%;background:#1e293b;color:#94a3b8;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;margin-top:20px}
-.modal-close-btn:hover{background:#273549;color:#e2e8f0}
+.step-text{font-size:12px;color:var(--text-muted);line-height:1.6}
+.step-text strong{color:var(--text-primary);display:block;margin-bottom:2px}
+.modal-close-btn{width:100%;background:var(--bg-elevated);color:var(--text-muted);border:1px solid var(--border-med);border-radius:8px;padding:9px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;margin-top:20px}
+.modal-close-btn:hover{background:#273549;color:var(--text-primary)}
 </style>
 </head>
 <body>
@@ -71,7 +71,7 @@ input::placeholder{color:#4b5568}
     <hr class="divider">
     <div class="footer">
       <a href="#" onclick="document.getElementById('forgotModal').classList.add('open');return false;">Forgot password?</a>
-      <span style="margin:0 8px;color:#1e293b">·</span>
+      <span style="margin:0 8px;color:var(--bg-elevated)">·</span>
       <a href="#" onclick="return false;" style="opacity:.4;cursor:default;pointer-events:none">Contact your administrator</a>
     </div>
   </div>

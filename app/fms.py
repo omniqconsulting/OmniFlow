@@ -29,9 +29,23 @@ from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION
 
 
 def _next_fms_display_id(db: Session, tenant: Tenant) -> str:
-    """Generate the next sequential FMS ticket display ID for a tenant, e.g. F-0042."""
-    tenant.ticket_seq = (tenant.ticket_seq or 0) + 1
-    return f"F-{tenant.ticket_seq:04d}"
+    """
+    Generate the next FMS-only sequential display ID, e.g. F-0042.
+    Uses MAX over existing FMS display IDs so the sequence is independent
+    from the regular ticket T- counter.
+    """
+    max_id = db.query(func.max(FMSTicket.display_id)).filter(
+        FMSTicket.tenant_id == tenant.id,
+        FMSTicket.display_id.isnot(None),
+    ).scalar()
+    if max_id and max_id.startswith("F-"):
+        try:
+            next_num = int(max_id[2:]) + 1
+        except ValueError:
+            next_num = 1
+    else:
+        next_num = 1
+    return f"F-{next_num:04d}"
 
 
 def _check_fms_flow_limit(db: Session, tenant: Tenant) -> tuple[bool, int, object]:

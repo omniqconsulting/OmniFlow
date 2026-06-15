@@ -15,7 +15,7 @@
 <div class="card" style="padding:14px;margin-top:12px" id="linked-entities-section">
   <div style="font-weight:600;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
     🔗 Linked Entities
-    <span style="font-size:11px;font-weight:400;color:#64748b">Optional — link related records to this item</span>
+    <span style="font-size:11px;font-weight:400;color:var(--text-faint)">Optional — link related records to this item</span>
   </div>
 
   <div id="linked-entity-selections" style="display:flex;flex-direction:column;gap:8px">
@@ -132,11 +132,11 @@ function showEntityDetail(select, detailId) {
   <div style="font-weight:600;font-size:13px;margin-bottom:10px">🔗 Linked Entities</div>
   <div style="display:flex;flex-wrap:wrap;gap:8px">
     {% for ref in linked_refs %}
-    <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px">
-      <span style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:0.05em">
+    <div style="background:var(--border-subtle);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px">
+      <span style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:0.05em">
         {% if ref.entity_type == 'CUSTOM_LIST' %}Ref{% else %}{{ ref.entity_type.replace('_',' ') }}{% endif %}
       </span>
-      <div style="color:#e2e8f0;font-weight:500;margin-top:2px">{{ ref.entity_label or ref.custom_text or '—' }}</div>
+      <div style="color:var(--text-primary);font-weight:500;margin-top:2px">{{ ref.entity_label or ref.custom_text or '—' }}</div>
     </div>
     {% endfor %}
   </div>

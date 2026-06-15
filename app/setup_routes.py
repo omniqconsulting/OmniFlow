@@ -65,10 +65,10 @@ def _nav_ctx(db: Session, user: User) -> dict:
     from .constants import has_feature
     tenant = db.query(Tenant).get(user.tenant_id)
     return {
-        "has_inventory":  has_feature(tenant, "INVENTORY"),
-        "has_fms":        has_feature(tenant, "FMS"),
-        "has_checklists": has_feature(tenant, "CHECKLISTS"),
-        "has_ai":         has_feature(tenant, "ASK_AI"),
+        "has_inventory":  has_feature(tenant, "INVENTORY",  db),
+        "has_fms":        has_feature(tenant, "FMS",        db),
+        "has_checklists": has_feature(tenant, "CHECKLISTS", db),
+        "has_ai":         has_feature(tenant, "ASK_AI",     db),
     }
 
 

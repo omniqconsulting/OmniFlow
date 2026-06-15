@@ -39,15 +39,15 @@
   cursor:pointer; user-select:none;
 }
 .oc-card {
-  background:var(--card-bg,#1e293b); border:1px solid rgba(255,255,255,0.1);
+  background:var(--card-bg,var(--bg-elevated)); border:1px solid var(--border-med);
   border-radius:8px; padding:10px 14px; min-width:140px; max-width:180px;
   text-align:center; transition:border-color 0.15s;
 }
 .oc-card:hover { border-color:#3b82f6; }
-.oc-card .oc-name { font-size:13px; font-weight:600; color:#e2e8f0; }
-.oc-card .oc-id { font-size:10px; color:#64748b; margin-top:1px; }
+.oc-card .oc-name { font-size:13px; font-weight:600; color:var(--text-primary); }
+.oc-card .oc-id { font-size:10px; color:var(--text-faint); margin-top:1px; }
 .oc-card .oc-role { font-size:10px; font-weight:700; margin-top:4px; border-radius:4px; padding:1px 6px; display:inline-block; }
-.oc-card .oc-dept { font-size:11px; color:#94a3b8; margin-top:3px; }
+.oc-card .oc-dept { font-size:11px; color:var(--text-muted); margin-top:3px; }
 .oc-children { display:flex; gap:16px; margin-top:0; padding-top:0; position:relative; justify-content:center; }
 .oc-connector { width:2px; height:20px; background:rgba(255,255,255,0.15); margin:0 auto; }
 .oc-hline { position:absolute; top:0; height:2px; background:rgba(255,255,255,0.15); }
@@ -136,7 +136,7 @@ function renderChart() {
   root.innerHTML = '';
   const trees = buildTree(filtered);
   if (trees.length === 0) {
-    root.innerHTML = '<div style="color:#64748b;padding:32px;text-align:center">No employees match the selected filters.</div>';
+    root.innerHTML = '<div style="color:var(--text-faint);padding:32px;text-align:center">No employees match the selected filters.</div>';
     return;
   }
   const wrap = document.createElement('div');

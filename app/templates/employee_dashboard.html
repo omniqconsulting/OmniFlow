@@ -5,7 +5,7 @@
 <div class="page-header">
   <div>
     <h2 class="page-title">{{ user.name }}</h2>
-    <p style="font-size:13px;color:#64748b;margin-top:2px">
+    <p style="font-size:13px;color:var(--text-faint);margin-top:2px">
       {{ user.role | title }}
       {% if user.department %} · {{ user.department.name }}{% endif %}
       &nbsp;·&nbsp; {{ now.strftime('%d %b %Y') }}
@@ -21,27 +21,27 @@
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
 
   <div class="card" style="margin:0;text-align:center;padding:16px 12px">
-    <div style="font-size:26px;font-weight:700;color:#e2e8f0">{{ kpis.active_count }}</div>
-    <div style="font-size:11px;color:#64748b;margin-top:4px">Active Tickets</div>
+    <div style="font-size:26px;font-weight:700;color:var(--text-primary)">{{ kpis.active_count }}</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:4px">Active Tickets</div>
   </div>
 
   <div class="card" style="margin:0;text-align:center;padding:16px 12px">
     {% set otr = kpis.on_time_rate | round(0) | int %}
     <div style="font-size:26px;font-weight:700;color:{% if otr>=80 %}#10b981{% elif otr>=60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ otr }}%</div>
-    <div style="font-size:11px;color:#64748b;margin-top:4px">On-Time Rate</div>
-    <div style="font-size:10px;color:#475569;margin-top:2px">30d</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:4px">On-Time Rate</div>
+    <div style="font-size:10px;color:var(--text-xfaint);margin-top:2px">30d</div>
   </div>
 
   <div class="card" style="margin:0;text-align:center;padding:16px 12px">
     {% set cr = kpis.compliance_rate | round(0) | int %}
     <div style="font-size:26px;font-weight:700;color:{% if cr>=80 %}#10b981{% elif cr>=60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ cr }}%</div>
-    <div style="font-size:11px;color:#64748b;margin-top:4px">Checklist Compliance</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:4px">Checklist Compliance</div>
   </div>
 
   <div class="card" style="margin:0;text-align:center;padding:16px 12px">
     {% set tat = kpis.avg_tat_hours %}
-    <div style="font-size:26px;font-weight:700;color:#e2e8f0">{{ tat | round(1) }}h</div>
-    <div style="font-size:11px;color:#64748b;margin-top:4px">Avg TAT</div>
+    <div style="font-size:26px;font-weight:700;color:var(--text-primary)">{{ tat | round(1) }}h</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:4px">Avg TAT</div>
     {% if org_avg is not none %}
     <div style="font-size:10px;margin-top:2px;color:{% if tat <= org_avg %}#10b981{% else %}#f59e0b{% endif %}">
       Org avg {{ org_avg | round(1) }}h
@@ -72,8 +72,8 @@
     <tbody>
     {% for t in active_tickets %}
     <tr>
-      <td style="font-family:monospace;font-size:11px;color:#94a3b8">{{ t.display_id or '—' }}</td>
-      <td style="font-weight:500;color:#e2e8f0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+      <td style="font-family:monospace;font-size:11px;color:var(--text-muted)">{{ t.display_id or '—' }}</td>
+      <td style="font-weight:500;color:var(--text-primary);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
         {% if t.is_flagged %}<span style="color:#f87171">🚩</span> {% endif %}{{ t.title }}
       </td>
       <td>
@@ -86,7 +86,7 @@
           {{ t.status }}
         </span>
       </td>
-      <td style="font-size:12px;{% if t.due_at and t.due_at < now %}color:#f87171{% else %}color:#94a3b8{% endif %}">
+      <td style="font-size:12px;{% if t.due_at and t.due_at < now %}color:#f87171{% else %}color:var(--text-muted){% endif %}">
         {{ t.due_at.strftime('%d %b') if t.due_at else '—' }}
         {% if t.due_at and t.due_at < now %}<span style="font-size:10px"> OVERDUE</span>{% endif %}
       </td>
@@ -96,7 +96,7 @@
     </tbody>
   </table>
   {% else %}
-  <p style="color:#64748b;font-size:13px;padding:8px 0">No active tickets — all caught up!</p>
+  <p style="color:var(--text-faint);font-size:13px;padding:8px 0">No active tickets — all caught up!</p>
   {% endif %}
 </div>
 
@@ -120,9 +120,9 @@
     <tbody>
     {% for t in active_fms %}
     <tr>
-      <td style="font-family:monospace;font-size:11px;color:#94a3b8">{{ t.display_id or '—' }}</td>
-      <td style="font-weight:500;color:#e2e8f0">{{ t.title }}</td>
-      <td style="font-size:12px;color:#94a3b8">{{ t.current_stage.name if t.current_stage else '—' }}</td>
+      <td style="font-family:monospace;font-size:11px;color:var(--text-muted)">{{ t.display_id or '—' }}</td>
+      <td style="font-weight:500;color:var(--text-primary)">{{ t.title }}</td>
+      <td style="font-size:12px;color:var(--text-muted)">{{ t.current_stage.name if t.current_stage else '—' }}</td>
       <td>
         <span class="badge badge-blue" style="font-size:9px">{{ t.status }}</span>
       </td>
@@ -132,9 +132,9 @@
     {% if complete_fms %}
     {% for t in complete_fms %}
     <tr style="opacity:0.55">
-      <td style="font-family:monospace;font-size:11px;color:#94a3b8">{{ t.display_id or '—' }}</td>
-      <td style="font-weight:500;color:#e2e8f0">{{ t.title }}</td>
-      <td style="font-size:12px;color:#94a3b8">{{ t.current_stage.name if t.current_stage else '—' }}</td>
+      <td style="font-family:monospace;font-size:11px;color:var(--text-muted)">{{ t.display_id or '—' }}</td>
+      <td style="font-weight:500;color:var(--text-primary)">{{ t.title }}</td>
+      <td style="font-size:12px;color:var(--text-muted)">{{ t.current_stage.name if t.current_stage else '—' }}</td>
       <td>
         <span class="badge badge-green" style="font-size:9px">{{ t.status }}</span>
       </td>
@@ -157,12 +157,12 @@
   {% set overdue = my_checklists | selectattr('status','eq','OVERDUE') | list %}
   {% set pending = my_checklists | rejectattr('status','eq','OVERDUE') | list %}
   {% for a in overdue + pending %}
-  <div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;justify-content:space-between;align-items:center;gap:12px{% if a.status=='OVERDUE' %};background:rgba(248,113,113,0.04);border-radius:6px;padding-left:8px{% endif %}">
+  <div style="padding:12px 0;border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;gap:12px{% if a.status=='OVERDUE' %};background:rgba(248,113,113,0.04);border-radius:6px;padding-left:8px{% endif %}">
     <div style="min-width:0;flex:1">
-      <div style="font-weight:500;color:{% if a.status=='OVERDUE' %}#f87171{% else %}#e2e8f0{% endif %};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+      <div style="font-weight:500;color:{% if a.status=='OVERDUE' %}#f87171{% else %}var(--text-primary){% endif %};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
         {% if a.status=='OVERDUE' %}⚠ {% endif %}{{ a.template.title if a.template else '—' }}
       </div>
-      <div style="font-size:11px;color:#64748b;margin-top:3px">
+      <div style="font-size:11px;color:var(--text-faint);margin-top:3px">
         Due: {{ a.due_at.strftime('%d %b, %I:%M %p') if a.due_at else '—' }}
         {% if a.status == 'OVERDUE' %}<span style="color:#f87171;font-weight:600"> · OVERDUE</span>{% endif %}
       </div>
@@ -173,7 +173,7 @@
   </div>
   {% endfor %}
   {% else %}
-  <p style="color:#64748b;font-size:13px;padding:8px 0">All caught up — no pending checklists.</p>
+  <p style="color:var(--text-faint);font-size:13px;padding:8px 0">All caught up — no pending checklists.</p>
   {% endif %}
 </div>
 
@@ -202,8 +202,8 @@ new Chart(document.getElementById('complianceChart'), {
     responsive: true,
     plugins: { legend: { display: false } },
     scales: {
-      y: { min:0, max:100, ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' } },
-      x: { ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' } }
+      y: { min:0, max:100, ticks:{ color:'var(--text-faint)' }, grid:{ color:'var(--border-subtle)' } },
+      x: { ticks:{ color:'var(--text-faint)' }, grid:{ color:'var(--border-subtle)' } }
     }
   }
 });
@@ -226,14 +226,14 @@ new Chart(document.getElementById('complianceChart'), {
     <tbody>
     {% for t in recent_closed %}
     <tr style="opacity:0.7">
-      <td style="font-family:monospace;font-size:11px;color:#94a3b8">{{ t.display_id or '—' }}</td>
+      <td style="font-family:monospace;font-size:11px;color:var(--text-muted)">{{ t.display_id or '—' }}</td>
       <td style="color:#cbd5e1">{{ t.title }}</td>
       <td>
         <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}" style="font-size:9px;opacity:0.7">
           {{ t.priority }}
         </span>
       </td>
-      <td style="font-size:12px;color:#64748b">
+      <td style="font-size:12px;color:var(--text-faint)">
         {{ t.updated_at.strftime('%d %b') if t.updated_at else '—' }}
       </td>
       <td><a href="/tickets/{{ t.id }}" class="btn btn-sm btn-outline">View</a></td>

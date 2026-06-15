@@ -4,14 +4,14 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 .db-wrap{display:flex;min-height:calc(100vh - 52px)}
-.db-sidebar{width:196px;flex-shrink:0;background:#0d1220;border-right:1px solid var(--hover-bg);padding:14px 10px;display:flex;flex-direction:column;gap:2px;position:sticky;top:52px;height:calc(100vh - 52px);overflow-y:auto}
+.db-sidebar{width:196px;flex-shrink:0;background:var(--bg-input);border-right:1px solid var(--hover-bg);padding:14px 10px;display:flex;flex-direction:column;gap:2px;position:sticky;top:52px;height:calc(100vh - 52px);overflow-y:auto}
 .db-content{flex:1;padding:20px 24px;min-width:0;overflow-y:auto}
 .sb-section{font-size:10px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.09em;padding:10px 8px 4px;margin-top:4px}
 .sb-link{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;cursor:pointer;color:var(--text-faint);font-size:12px;text-decoration:none;transition:all 0.1s}
-.sb-link:hover{background:rgba(255,255,255,0.05);color:#cbd5e1}
+.sb-link:hover{background:var(--border-subtle);color:#cbd5e1}
 .sb-link.active{background:rgba(59,130,246,0.14);color:#60a5fa}
 .sb-link i{font-size:15px;flex-shrink:0}
-.sb-divider{height:1px;background:rgba(255,255,255,0.05);margin:8px 4px}
+.sb-divider{height:1px;background:var(--border-subtle);margin:8px 4px}
 .section-hdr{display:flex;align-items:center;gap:8px;margin:0 0 12px}
 .section-hdr-line{flex:1;height:1px;background:var(--hover-bg)}
 .section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.09em;display:flex;align-items:center;gap:6px}
@@ -34,9 +34,9 @@
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 .dt{width:100%;border-collapse:collapse;font-size:12px}
 .dt th{text-align:left;padding:7px 10px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#374151;border-bottom:1px solid var(--hover-bg)}
-.dt td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--text-muted);vertical-align:middle}
+.dt td{padding:9px 10px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);vertical-align:middle}
 .dt tr:last-child td{border-bottom:none}
-.dt tr:hover td{background:rgba(255,255,255,0.02)}
+.dt tr:hover td{background:var(--row-hover)}
 .dt .name{color:var(--text-primary);font-weight:500}
 .badge{display:inline-block;padding:2px 7px;border-radius:99px;font-size:9px;font-weight:600}
 .b-blue{background:rgba(59,130,246,0.15);color:#7dd3fc}
@@ -61,7 +61,7 @@
 .stage-pill{background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:5px;padding:3px 9px;font-size:10px;color:var(--text-faint);white-space:nowrap}
 .stage-pill.breach{border-color:rgba(239,68,68,0.3);color:#f87171}
 .stage-pill.ok{border-color:rgba(16,185,129,0.3);color:#6ee7b7}
-.module-divider{height:1px;background:rgba(255,255,255,0.05);margin:20px 0}
+.module-divider{height:1px;background:var(--border-subtle);margin:20px 0}
 .chart-wrap{position:relative;height:160px}
 .legend-row{display:flex;gap:12px;font-size:10px;color:var(--text-faint)}
 .legend-dot{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:3px}
@@ -97,12 +97,12 @@
     <div style="margin-bottom:6px">
       <label style="font-size:9px;color:#4b5568;display:block;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.07em">From</label>
       <input type="date" name="date_from" value="{{ date_from }}"
-             style="width:100%;background:#111827;border:1px solid rgba(255,255,255,0.12);border-radius:5px;padding:5px 7px;font-size:11px;color:#e2e8f0;outline:none;font-family:inherit;color-scheme:dark">
+             style="width:100%;background:var(--bg-card);border:1px solid var(--border-med);border-radius:5px;padding:5px 7px;font-size:11px;color:var(--text-primary);outline:none;font-family:inherit;color-scheme:dark">
     </div>
     <div style="margin-bottom:8px">
       <label style="font-size:9px;color:#4b5568;display:block;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.07em">To</label>
       <input type="date" name="date_to" value="{{ date_to }}"
-             style="width:100%;background:#111827;border:1px solid rgba(255,255,255,0.12);border-radius:5px;padding:5px 7px;font-size:11px;color:#e2e8f0;outline:none;font-family:inherit;color-scheme:dark">
+             style="width:100%;background:var(--bg-card);border:1px solid var(--border-med);border-radius:5px;padding:5px 7px;font-size:11px;color:var(--text-primary);outline:none;font-family:inherit;color-scheme:dark">
     </div>
     <button type="submit"
             style="width:100%;background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">
@@ -110,11 +110,11 @@
     </button>
     <div style="display:flex;gap:4px;margin-top:6px">
       <a href="?date_from={{ (now - timedelta(days=7)).strftime('%Y-%m-%d') }}&date_to={{ now.strftime('%Y-%m-%d') }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
-         style="flex:1;text-align:center;background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:3px 0;font-size:9px;color:#64748b;text-decoration:none">7d</a>
+         style="flex:1;text-align:center;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:4px;padding:3px 0;font-size:9px;color:var(--text-faint);text-decoration:none">7d</a>
       <a href="?date_from={{ (now - timedelta(days=30)).strftime('%Y-%m-%d') }}&date_to={{ now.strftime('%Y-%m-%d') }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
-         style="flex:1;text-align:center;background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:3px 0;font-size:9px;color:#64748b;text-decoration:none">30d</a>
+         style="flex:1;text-align:center;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:4px;padding:3px 0;font-size:9px;color:var(--text-faint);text-decoration:none">30d</a>
       <a href="?date_from={{ now.strftime('%Y-%m-01') }}&date_to={{ now.strftime('%Y-%m-%d') }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
-         style="flex:1;text-align:center;background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:4px;padding:3px 0;font-size:9px;color:#64748b;text-decoration:none">MTD</a>
+         style="flex:1;text-align:center;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:4px;padding:3px 0;font-size:9px;color:var(--text-faint);text-decoration:none">MTD</a>
     </div>
   </form>
   {% if departments %}
@@ -157,9 +157,9 @@
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
     <div style="display:flex;align-items:center;gap:10px">
       <a href="/dashboard?view=summary&date_from={{ date_from }}&date_to={{ date_to }}&dept_id={{ dept_id or '' }}&manager_id={{ manager_id or '' }}"
-         style="font-size:12px;color:#64748b;text-decoration:none;padding:4px 10px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;background:#1e293b"
+         style="font-size:12px;color:var(--text-faint);text-decoration:none;padding:4px 10px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-elevated)"
          title="Back to Summary">← Summary</a>
-      <div style="font-size:16px;font-weight:600;color:#f1f5f9">Detailed Analysis</div>
+      <div style="font-size:16px;font-weight:600;color:var(--text-strong)">Detailed Analysis</div>
     </div>
     <div style="font-size:11px;color:#374151">
       {{ date_from }} → {{ date_to }}
@@ -223,7 +223,7 @@
             <td>{% if r.avg_tat is not none %}{{ r.avg_tat }}h{% else %}<span style="color:#374151">—</span>{% endif %}</td>
             <td>{% if r.vs_org=='better' %}<span style="color:#10b981">↑ better</span>
                 {% elif r.vs_org=='slower' %}<span style="color:#f87171">↓ slower</span>
-                {% else %}<span style="color:#64748b">~ avg</span>{% endif %}</td>
+                {% else %}<span style="color:var(--text-faint)">~ avg</span>{% endif %}</td>
           </tr>{% endfor %}
           </tbody>
         </table>
@@ -240,7 +240,7 @@
           <tbody>{% for r in deleg_dept %}
           <tr><td class="name">{{ r.dept }}</td><td>{{ r.open }}</td>
             <td style="color:#10b981">{{ r.closed }}</td>
-            <td style="color:{% if r.overdue > 0 %}#f87171{% else %}#64748b{% endif %}">{{ r.overdue }}</td>
+            <td style="color:{% if r.overdue > 0 %}#f87171{% else %}var(--text-faint){% endif %}">{{ r.overdue }}</td>
           </tr>{% endfor %}
           </tbody>
         </table>
@@ -254,8 +254,8 @@
         {% for pri, cnt in deleg_pri.items() %}
           <div>
             <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
-              <span style="color:{{ pcolors.get(pri,'#94a3b8') }}">{{ pri }}</span>
-              <span style="color:#e2e8f0">{{ cnt }}</span>
+              <span style="color:{{ pcolors.get(pri,'var(--text-muted)') }}">{{ pri }}</span>
+              <span style="color:var(--text-primary)">{{ cnt }}</span>
             </div>
             <div class="prog"><div class="prog-fill" style="width:{{ ((cnt/total_pri*100)|int) if total_pri else 0 }}%;background:{{ pcolors.get(pri,'#4b5563') }}"></div></div>
           </div>
@@ -282,7 +282,7 @@
         <thead><tr><th>Title</th><th>Reason</th><th>Assignee</th><th>Due</th><th></th></tr></thead>
         <tbody>{% for t in flagged %}
         <tr>
-          <td><a href="/tickets/{{ t.id }}" style="color:#e2e8f0;font-weight:500">{{ t.title }}</a></td>
+          <td><a href="/tickets/{{ t.id }}" style="color:var(--text-primary);font-weight:500">{{ t.title }}</a></td>
           <td>{{ t.flagged_reason or '—' }}</td>
           <td>{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
           <td style="{% if t.due_at and t.due_at < now %}color:#f87171{% endif %}">{{ t.due_at.strftime('%d %b') if t.due_at else '—' }}</td>
@@ -463,7 +463,7 @@
             <div class="flow-expand">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
                 <div style="width:10px;height:10px;border-radius:50%;background:{{ flow.color }}"></div>
-                <span style="font-size:12px;font-weight:500;color:#f1f5f9">{{ flow.name }} — stage breakdown</span>
+                <span style="font-size:12px;font-weight:500;color:var(--text-strong)">{{ flow.name }} — stage breakdown</span>
                 <span class="badge b-blue">{{ flow.active }} active tickets</span>
               </div>
               <table class="dt">
@@ -475,7 +475,7 @@
                   <td>{% if s.avg_time_hrs is not none %}{{ s.avg_time_hrs }}h{% else %}<span style="color:#374151">—</span>{% endif %}</td>
                   <td>{% if s.target_tat %}{{ s.target_tat }}h{% else %}<span style="color:#374151">—</span>{% endif %}</td>
                   <td style="color:{% if s.breaches > 0 %}#f87171{% else %}#10b981{% endif %}">{{ s.breaches }}</td>
-                  <td>{% if s.oldest_hrs is not none %}<span style="color:{% if s.target_tat and s.oldest_hrs > s.target_tat %}#f87171{% else %}#94a3b8{% endif %}">{{ s.oldest_hrs }}h ago</span>{% else %}<span style="color:#374151">—</span>{% endif %}</td>
+                  <td>{% if s.oldest_hrs is not none %}<span style="color:{% if s.target_tat and s.oldest_hrs > s.target_tat %}#f87171{% else %}var(--text-muted){% endif %}">{{ s.oldest_hrs }}h ago</span>{% else %}<span style="color:#374151">—</span>{% endif %}</td>
                 </tr>{% endfor %}
                 </tbody>
               </table>
@@ -516,7 +516,7 @@
       </tr>{% endfor %}
       </tbody>
     </table>
-    {% else %}<p style="color:#64748b;font-size:13px;text-align:center;padding:20px">No tickets due in the next 24 hours.</p>{% endif %}
+    {% else %}<p style="color:var(--text-faint);font-size:13px;text-align:center;padding:20px">No tickets due in the next 24 hours.</p>{% endif %}
   </div>
 </div>
 
@@ -537,7 +537,7 @@
       </tr>{% endfor %}
       </tbody>
     </table>
-    {% else %}<p style="color:#64748b;font-size:13px;text-align:center;padding:20px">No checklists due in the next 24 hours.</p>{% endif %}
+    {% else %}<p style="color:var(--text-faint);font-size:13px;text-align:center;padding:20px">No checklists due in the next 24 hours.</p>{% endif %}
   </div>
 </div>
 
@@ -562,7 +562,7 @@
       </tr>{% endfor %}
       </tbody>
     </table>
-    {% else %}<p style="color:#64748b;font-size:13px;text-align:center;padding:20px">No FMS tickets due in the next 24 hours.</p>{% endif %}
+    {% else %}<p style="color:var(--text-faint);font-size:13px;text-align:center;padding:20px">No FMS tickets due in the next 24 hours.</p>{% endif %}
   </div>
 </div>
 {% endif %}
@@ -583,8 +583,8 @@ const CO = {
   responsive:true, maintainAspectRatio:false,
   plugins:{legend:{display:false}},
   scales:{
-    y:{ticks:{color:'#64748b',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}},
-    x:{ticks:{color:'#64748b',font:{size:10},maxRotation:30},grid:{color:'rgba(255,255,255,0.04)'}}
+    y:{ticks:{color:'var(--text-faint)',font:{size:10}},grid:{color:'var(--border-subtle)'}},
+    x:{ticks:{color:'var(--text-faint)',font:{size:10},maxRotation:30},grid:{color:'var(--border-subtle)'}}
   }
 };
 
@@ -601,8 +601,8 @@ new Chart(document.getElementById('clWkChart'),{type:'line',
     tension:0.4,fill:true,pointRadius:4,pointBackgroundColor:'#10b981'
   }]},
   options:{...CO,scales:{
-    y:{min:0,max:100,ticks:{color:'#64748b',font:{size:10}},grid:{color:'rgba(255,255,255,0.04)'}},
-    x:{ticks:{color:'#64748b',font:{size:10},maxRotation:30},grid:{color:'rgba(255,255,255,0.04)'}}
+    y:{min:0,max:100,ticks:{color:'var(--text-faint)',font:{size:10}},grid:{color:'var(--border-subtle)'}},
+    x:{ticks:{color:'var(--text-faint)',font:{size:10},maxRotation:30},grid:{color:'var(--border-subtle)'}}
   }}});
 
 {% if has_fms and fms_wk %}

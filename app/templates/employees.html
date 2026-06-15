@@ -48,7 +48,7 @@
 <div class="page-header">
   <h2 class="page-title">{{ L.Employees }}</h2>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-    <div style="display:flex;border:1px solid rgba(255,255,255,0.1);border-radius:8px;overflow:hidden">
+    <div style="display:flex;border:1px solid var(--border-med);border-radius:8px;overflow:hidden">
       <button class="view-btn active" id="btn-list" onclick="switchView('list')">List</button>
       <button class="view-btn" id="btn-org" onclick="switchView('org')">Org Chart</button>
     </div>
@@ -106,18 +106,18 @@
     <tbody>
     {% for emp in employees %}
     <tr>
-      <td style="font-weight:500;color:#f1f5f9">
+      <td style="font-weight:500;color:var(--text-strong)">
         {{ emp.name }}
-        {% if emp.employee_id %}<span style="font-size:10px;color:#475569;margin-left:6px">{{ emp.employee_id }}</span>{% endif %}
+        {% if emp.employee_id %}<span style="font-size:10px;color:var(--text-xfaint);margin-left:6px">{{ emp.employee_id }}</span>{% endif %}
       </td>
-      <td style="color:#94a3b8">{{ emp.phone }}</td>
+      <td style="color:var(--text-muted)">{{ emp.phone }}</td>
       <td>
         <span class="badge {% if emp.role=='ADMIN' %}badge-purple{% elif emp.role=='MANAGER' %}badge-blue{% elif emp.role=='STORE_MANAGER' %}badge-amber{% else %}badge-gray{% endif %}">
           {{ emp.role }}
         </span>
       </td>
-      <td style="color:#94a3b8">{{ emp.department.name if emp.department else '—' }}</td>
-      <td style="color:#94a3b8">{{ emp.manager.name if emp.manager else '—' }}</td>
+      <td style="color:var(--text-muted)">{{ emp.department.name if emp.department else '—' }}</td>
+      <td style="color:var(--text-muted)">{{ emp.manager.name if emp.manager else '—' }}</td>
       <td>
         <span class="badge {% if emp.status == 'TERMINATED' %}badge-red{% elif emp.is_active %}badge-green{% else %}badge-gray{% endif %}">
           {{ emp.status if emp.status else ('Active' if emp.is_active else 'Inactive') }}
@@ -145,11 +145,11 @@
       <td colspan="7" style="padding:10px 16px">
         <form method="post" action="/employees/{{ emp.id }}/assign-manager"
               style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:12px;color:#94a3b8;white-space:nowrap">
-            Manager for <strong style="color:#f1f5f9">{{ emp.name }}</strong>:
+          <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">
+            Manager for <strong style="color:var(--text-strong)">{{ emp.name }}</strong>:
           </span>
           <select name="manager_id"
-                  style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:200px">
+                  style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:200px">
             <option value="">— None —</option>
             {% for m in managers %}
             {% if m.id != emp.id %}
@@ -170,18 +170,18 @@
       <td colspan="7" style="padding:10px 16px">
         <form method="post" action="/employees/{{ emp.id }}/reset-password"
               style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:12px;color:#94a3b8;white-space:nowrap">
-            Set temp password for <strong style="color:#f1f5f9">{{ emp.name }}</strong>:
+          <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">
+            Set temp password for <strong style="color:var(--text-strong)">{{ emp.name }}</strong>:
           </span>
           <input type="text" name="temp_password" placeholder="Temporary password" minlength="6" required
-                 style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:200px">
+                 style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:200px">
           <button type="submit" class="btn btn-sm btn-red"
                   onclick="return confirm('Reset password for {{ emp.name }}? Share the new password with them directly.')">
             Set Password
           </button>
           <button type="button" onclick="toggleRow('pw-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
         </form>
-        <div style="font-size:11px;color:#64748b;margin-top:6px">
+        <div style="font-size:11px;color:var(--text-faint);margin-top:6px">
           Share this temporary password with the employee via WhatsApp. Ask them to change it after signing in.
         </div>
       </td>
@@ -257,7 +257,7 @@
 
     {% else %}
     <tr>
-      <td colspan="7" style="text-align:center;color:#64748b;padding:48px">
+      <td colspan="7" style="text-align:center;color:var(--text-faint);padding:48px">
         No employees yet.
         {% if user.role == 'ADMIN' %}
         <button onclick="show('create-modal')" class="btn btn-sm btn-primary" style="margin-left:10px">Add first employee</button>
@@ -273,10 +273,10 @@
 <!-- ══ ORG CHART VIEW ════════════════════════════════════════════════════ -->
 <div id="view-org" style="display:none">
   <!-- Filter bar -->
-  <div style="background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+  <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
     <div>
-      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">{{ L.Department }}</div>
-      <select id="orgDeptFilter" onchange="renderOrg()" style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:160px">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">{{ L.Department }}</div>
+      <select id="orgDeptFilter" onchange="renderOrg()" style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:160px">
         <option value="">All Departments</option>
         {% for d in departments %}
         <option value="{{ d.name }}">{{ d.name }}</option>
@@ -284,8 +284,8 @@
       </select>
     </div>
     <div>
-      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Show</div>
-      <select id="orgRoleFilter" onchange="renderOrg()" style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:140px">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Show</div>
+      <select id="orgRoleFilter" onchange="renderOrg()" style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:140px">
         <option value="">All Roles</option>
         <option value="ADMIN">Admins only</option>
         <option value="MANAGER">Managers only</option>
@@ -303,10 +303,10 @@
 <!-- ══ ADD EMPLOYEE MODAL ════════════════════════════════════════════════ -->
 {% if user.role == 'ADMIN' %}
 <div id="create-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:480px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:480px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">Add Employee</h3>
-      <button onclick="hide('create-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Add Employee</h3>
+      <button onclick="hide('create-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
     </div>
     <form method="post" action="/employees/create">
       <div class="form-group">
@@ -362,29 +362,29 @@
 
 <!-- ══ P8-02: TERMINATE MODAL ════════════════════════════════════════════ -->
 <div id="terminate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:200">
-  <div style="background:#131c2e;border:1px solid rgba(248,113,113,0.25);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.7);max-height:90vh;overflow-y:auto">
+  <div style="background:var(--bg-modal);border:1px solid rgba(248,113,113,0.25);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.7);max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h3 style="font-size:15px;font-weight:600;color:#f87171">Terminate Employee</h3>
-      <button onclick="closeTerminate()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+      <button onclick="closeTerminate()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
     </div>
-    <p id="term-emp-label" style="font-size:13px;color:#94a3b8;margin-bottom:16px"></p>
+    <p id="term-emp-label" style="font-size:13px;color:var(--text-muted);margin-bottom:16px"></p>
 
     <!-- Open work summary -->
-    <div id="term-loading" style="text-align:center;padding:20px;color:#64748b;font-size:13px">Loading open work...</div>
-    <div id="term-work-summary" style="display:none;background:#0d1424;border-radius:8px;padding:14px;margin-bottom:16px">
-      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Open Work Summary</div>
+    <div id="term-loading" style="text-align:center;padding:20px;color:var(--text-faint);font-size:13px">Loading open work...</div>
+    <div id="term-work-summary" style="display:none;background:var(--bg-input);border-radius:8px;padding:14px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Open Work Summary</div>
       <div style="display:flex;gap:16px;flex-wrap:wrap">
         <div style="text-align:center">
           <div id="tw-tickets" style="font-size:20px;font-weight:700;color:#f87171"></div>
-          <div style="font-size:10px;color:#64748b">Open Tickets</div>
+          <div style="font-size:10px;color:var(--text-faint)">Open Tickets</div>
         </div>
         <div style="text-align:center">
           <div id="tw-cls" style="font-size:20px;font-weight:700;color:#fbbf24"></div>
-          <div style="font-size:10px;color:#64748b">{{ L.Checklists }}</div>
+          <div style="font-size:10px;color:var(--text-faint)">{{ L.Checklists }}</div>
         </div>
         <div style="text-align:center">
           <div id="tw-fms" style="font-size:20px;font-weight:700;color:#7dd3fc"></div>
-          <div style="font-size:10px;color:#64748b">FMS Tickets</div>
+          <div style="font-size:10px;color:var(--text-faint)">FMS Tickets</div>
         </div>
       </div>
     </div>
@@ -452,28 +452,28 @@
 <!-- ══ BULK IMPORT MODAL ══════════════════════════════════════════════════ -->
 {% if can_bulk and user.role == 'ADMIN' %}
 <div id="bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">Bulk Import via CSV</h3>
-      <button onclick="hide('bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Bulk Import via CSV</h3>
+      <button onclick="hide('bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
     </div>
-    <p style="font-size:12px;color:#64748b;margin-bottom:14px">Download a template, fill it in, then upload. Rows with errors are returned as a downloadable report — valid rows are still imported.</p>
-    <div style="background:#0d1424;border-radius:8px;padding:12px 14px;margin-bottom:16px">
-      <p style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Step 1 — Download Template</p>
+    <p style="font-size:12px;color:var(--text-faint);margin-bottom:14px">Download a template, fill it in, then upload. Rows with errors are returned as a downloadable report — valid rows are still imported.</p>
+    <div style="background:var(--bg-input);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+      <p style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Step 1 — Download Template</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a href="/employees/import/template?entity=employees" class="btn btn-sm btn-outline">⬇ Employees CSV</a>
         <a href="/employees/import/template?entity=departments" class="btn btn-sm btn-outline">⬇ Departments CSV</a>
         <a href="/employees/import/template?entity=branches" class="btn btn-sm btn-outline">⬇ Branches CSV</a>
       </div>
-      <div style="font-size:11px;color:#475569;margin-top:8px">Row 2 in each CSV is a description row — do not edit or delete it. Add your data from row 3 onwards.</div>
+      <div style="font-size:11px;color:var(--text-xfaint);margin-top:8px">Row 2 in each CSV is a description row — do not edit or delete it. Add your data from row 3 onwards.</div>
     </div>
-    <p style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Step 2 — Upload Filled CSV</p>
+    <p style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Step 2 — Upload Filled CSV</p>
     {% for label, icon, action in [('Employees','👤','/employees/import'),('Departments','🏢','/departments/import'),('Branches','📍','/branches/import')] %}
-    <div style="border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px 14px;margin-bottom:10px">
-      <p style="font-size:12px;font-weight:600;color:#e2e8f0;margin-bottom:8px">{{ icon }} {{ label }}</p>
+    <div style="border:1px solid var(--border-subtle);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+      <p style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px">{{ icon }} {{ label }}</p>
       <form method="post" action="{{ action }}" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
         <input type="file" name="file" accept=".csv" required
-               style="flex:1;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0">
+               style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
         <button type="submit" class="btn btn-sm btn-primary">Import</button>
       </form>
     </div>
@@ -488,7 +488,7 @@
   <span style="font-size:22px">🔒</span>
   <div>
     <div style="font-weight:600;color:#c4b5fd;font-size:13px">Bulk Import — Professional Plan Feature</div>
-    <div style="font-size:12px;color:#64748b;margin-top:3px">Import employees, departments and branches in bulk via CSV with row-level validation and error reports.</div>
+    <div style="font-size:12px;color:var(--text-faint);margin-top:3px">Import employees, departments and branches in bulk via CSV with row-level validation and error reports.</div>
   </div>
 </div>
 {% endif %}

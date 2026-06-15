@@ -13,7 +13,7 @@
   <!-- What is OmniFlow -->
   <div class="card" style="grid-column:1/-1">
     <h2>What is OmniFlow?</h2>
-    <p style="font-size:13px;color:#94a3b8;line-height:1.8;margin-bottom:14px">
+    <p style="font-size:13px;color:var(--text-muted);line-height:1.8;margin-bottom:14px">
       OmniFlow is a workforce accountability platform built for factory operations.
       It helps factory owners and managers track who is doing what, catch problems early,
       and keep the whole team aligned — without phone calls and WhatsApp chaos.
@@ -27,10 +27,10 @@
         ('📊', 'Analytics', 'KPIs, TaT tracking, compliance rates for your team'),
       ] %}
       {% for icon, name, desc in features %}
-      <div style="background:#0d1424;border-radius:8px;padding:12px 14px">
+      <div style="background:var(--bg-input);border-radius:8px;padding:12px 14px">
         <div style="font-size:18px;margin-bottom:6px">{{ icon }}</div>
-        <div style="font-size:12px;font-weight:600;color:#f1f5f9;margin-bottom:3px">{{ name }}</div>
-        <div style="font-size:11px;color:#64748b;line-height:1.5">{{ desc }}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-strong);margin-bottom:3px">{{ name }}</div>
+        <div style="font-size:11px;color:var(--text-faint);line-height:1.5">{{ desc }}</div>
       </div>
       {% endfor %}
     </div>
@@ -39,9 +39,9 @@
   <!-- Contact support -->
   <div class="card">
     <h2>Contact Support</h2>
-    <p style="font-size:12px;color:#64748b;margin-bottom:16px;line-height:1.7">
+    <p style="font-size:12px;color:var(--text-faint);margin-bottom:16px;line-height:1.7">
       Have a question or something isn't working as expected?
-      Send us a message and someone from our team will get back to you within <strong style="color:#f1f5f9">24 hours</strong>.
+      Send us a message and someone from our team will get back to you within <strong style="color:var(--text-strong)">24 hours</strong>.
     </p>
     <div style="display:flex;flex-direction:column;gap:10px">
       <a href="https://wa.me/919999999999?text=Hi%2C+I+use+OmniFlow+at+{{ user.tenant.name|urlencode if user.tenant else '' }}+and+need+help."
@@ -52,9 +52,9 @@
       </a>
       <div style="font-size:11px;color:#374151;text-align:center">Opens pre-filled message · Response within 24 hours</div>
     </div>
-    <div style="margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.07)">
-      <div style="font-size:11px;color:#64748b;margin-bottom:4px">Support hours</div>
-      <div style="font-size:12px;color:#94a3b8">Monday – Saturday · 9 AM – 7 PM IST</div>
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border-subtle)">
+      <div style="font-size:11px;color:var(--text-faint);margin-bottom:4px">Support hours</div>
+      <div style="font-size:12px;color:var(--text-muted)">Monday – Saturday · 9 AM – 7 PM IST</div>
     </div>
   </div>
 
@@ -70,11 +70,11 @@
         ('/plan', '📦 Your plan', 'See what features are available on your plan'),
       ] %}
       {% for href, label, desc in links %}
-      <a href="{{ href }}" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#0d1424;border-radius:7px;text-decoration:none;transition:background 0.1s"
-         onmouseover="this.style.background='#111827'" onmouseout="this.style.background='#0d1424'">
+      <a href="{{ href }}" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-input);border-radius:7px;text-decoration:none;transition:background 0.1s"
+         onmouseover="this.style.background='var(--bg-card)'" onmouseout="this.style.background='var(--bg-input)'">
         <div>
-          <div style="font-size:12px;font-weight:500;color:#f1f5f9">{{ label }}</div>
-          <div style="font-size:11px;color:#64748b">{{ desc }}</div>
+          <div style="font-size:12px;font-weight:500;color:var(--text-strong)">{{ label }}</div>
+          <div style="font-size:11px;color:var(--text-faint)">{{ desc }}</div>
         </div>
         <span style="color:#374151">›</span>
       </a>

@@ -22,7 +22,7 @@ from .auth import (
     get_current_user, require_admin, require_manager,
 )
 from .notifications import (
-    notify_ticket_assigned, notify_helper_added,
+    notify_ticket_assigned, notify_ticket_reminder, notify_helper_added,
     notify_ticket_status_changed, notify_ticket_commented,
     notify_ticket_flagged, notify_ticket_help_requested,
     notify_checklist_completed,
@@ -577,7 +577,7 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manage
         Ticket.tenant_id == tid, Ticket.is_deleted == False)
     if dept_id:
         dept_users = [u.id for u in db.query(User).filter(
-            User.tenant_id == tid, User.dept_id == dept_id,
+            User.tenant_id == tid, User.department_id == dept_id,
             User.is_deleted == False).all()]
         q = q.filter(Ticket.current_assignee_id.in_(dept_users))
     if manager_id:
@@ -589,22 +589,22 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manage
     open_statuses   = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
     closed_statuses = ("DONE", "CLOSED")
 
-    total_open   = q.filter(Ticket.status.in_(open_statuses)).count()
-    prev_open    = total_open  # no prev-period comparison for now
     in_period    = q.filter(Ticket.created_at >= df, Ticket.created_at <= dt).all()
+    total_open   = sum(1 for t in in_period if t.status in open_statuses)
+    prev_open    = total_open  # no prev-period comparison for now
     closed_in_p  = [t for t in in_period if t.status in closed_statuses]
     total_closed = len(closed_in_p)
 
-    # On-time: closed before or at due_at
-    on_time = [t for t in closed_in_p if t.due_at and t.updated_at and t.updated_at <= t.due_at]
+    # On-time: closed at or before due_at (use closed_at, not updated_at)
+    on_time = [t for t in closed_in_p if t.due_at and t.closed_at and t.closed_at <= t.due_at]
     on_time_pct   = round(len(on_time) / max(len(closed_in_p), 1) * 100)
     closed_count  = len(closed_in_p)
 
-    # Avg TaT in hours
+    # Avg TaT in hours (created → closed, not created → updated)
     tats = []
     for t in closed_in_p:
-        if t.created_at and t.updated_at:
-            tats.append((t.updated_at - t.created_at).total_seconds() / 3600)
+        if t.created_at and t.closed_at:
+            tats.append((t.closed_at - t.created_at).total_seconds() / 3600)
     avg_tat_hours = round(sum(tats) / max(len(tats), 1), 1) if tats else 0
 
     # Help tickets open
@@ -621,7 +621,7 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manage
             _CA.tenant_id == tid, _CA.due_at >= df, _CA.due_at <= dt).count()
         cl_done = db.query(_CA).filter(
             _CA.tenant_id == tid, _CA.due_at >= df, _CA.due_at <= dt,
-            _CA.status == "COMPLETED").count()
+            _CA.status == "DONE").count()
         cl_compliance_pct = round(cl_done / max(cl_due, 1) * 100)
     except Exception:
         cl_due = cl_done = cl_compliance_pct = 0
@@ -669,7 +669,7 @@ def _calc_dept_health(db, tid, date_from_str, date_to_str):
     result = []
     for d in depts:
         dept_users = [u.id for u in db.query(User).filter(
-            User.tenant_id == tid, User.dept_id == d.id,
+            User.tenant_id == tid, User.department_id == d.id,
             User.is_deleted == False).all()]
         if not dept_users:
             continue
@@ -680,7 +680,7 @@ def _calc_dept_health(db, tid, date_from_str, date_to_str):
             Ticket.created_at >= df, Ticket.created_at <= dt).all()
         if not closed:
             continue
-        on_time = sum(1 for t in closed if t.due_at and t.updated_at and t.updated_at <= t.due_at)
+        on_time = sum(1 for t in closed if t.due_at and t.closed_at and t.closed_at <= t.due_at)
         rate = round(on_time / len(closed) * 100)
         result.append({"dept_id": d.id, "name": d.name, "rate": rate})
     return sorted(result, key=lambda x: x["rate"])
@@ -716,7 +716,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             **_nav_ctx(db, user),
             "my_tickets": my_tickets,
             "my_checklists": my_checklists,
-            "has_inventory": has_feature(tenant, "INVENTORY") if hasattr(tenant, "plan") else True,
+            "has_inventory": has_feature(tenant, "INVENTORY", db) if hasattr(tenant, "plan") else True,
         })
 
     if user.role in ("ADMIN", "MANAGER"):
@@ -823,7 +823,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             "user": user, "unread": unread, "L": _L(db, user),
             "now": datetime.utcnow(),
             "timedelta": timedelta,
-            "can_export": has_feature(tenant, "CSV_EXPORT"),
+            "can_export": has_feature(tenant, "CSV_EXPORT", db),
             **_nav_ctx(db, user, tenant=tenant),
             # Filters
             "date_from": date_from, "date_to": date_to,
@@ -1202,7 +1202,7 @@ def ticket_remind(ticket_id: str, user: User = Depends(require_manager),
         raise HTTPException(404)
     assignee = db.query(User).get(ticket.current_assignee_id)
     if assignee:
-        notify_ticket_assigned(db, ticket, assignee)
+        notify_ticket_reminder(db, ticket, assignee)
     log_event(db, ticket_id, user.id, "REMINDER_SENT", f"Manual reminder to {assignee.name if assignee else '?'}")
     db.commit()
     return redirect(f"/tickets/{ticket_id}?reminded=1")
@@ -2085,7 +2085,7 @@ def employees_page(request: Request, user: User = Depends(require_manager),
         User.tenant_id == tid, User.is_deleted == False,
         User.role.in_(["ADMIN","MANAGER"])).all()]
     tenant = db.query(Tenant).get(tid)
-    can_bulk = has_feature(tenant, "BULK_IMPORT")
+    can_bulk = has_feature(tenant, "BULK_IMPORT", db)
     # P8-04: KPI strip
     all_for_kpi = db.query(User).filter(User.tenant_id == tid, User.is_deleted == False).all()
     kpi_total      = len(all_for_kpi)
@@ -2155,7 +2155,7 @@ def download_csv_template(entity: str = "employees",
                            db: Session = Depends(get_db)):
     """Phase 0-A-6: download CSV template for bulk import."""
     tenant = db.query(Tenant).get(user.tenant_id)
-    if not has_feature(tenant, "BULK_IMPORT"):
+    if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
 
     headers = {
@@ -2188,7 +2188,7 @@ async def bulk_import_employees(file: UploadFile = File(...),
                                 db: Session = Depends(get_db)):
     """Phase 0-A-3: bulk import employees with validation + exception report."""
     tenant = db.query(Tenant).get(user.tenant_id)
-    if not has_feature(tenant, "BULK_IMPORT"):
+    if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
 
     content = (await file.read()).decode("utf-8", errors="replace")
@@ -2596,7 +2596,7 @@ async def bulk_import_departments(file: UploadFile = File(...),
                                    db: Session = Depends(get_db)):
     """Phase 0-A-4: bulk import departments."""
     tenant = db.query(Tenant).get(user.tenant_id)
-    if not has_feature(tenant, "BULK_IMPORT"):
+    if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
     content = (await file.read()).decode("utf-8", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
@@ -2616,7 +2616,7 @@ async def bulk_import_branches(file: UploadFile = File(...),
                                 db: Session = Depends(get_db)):
     """Phase 0-A-5: bulk import branches."""
     tenant = db.query(Tenant).get(user.tenant_id)
-    if not has_feature(tenant, "BULK_IMPORT"):
+    if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
     content = (await file.read()).decode("utf-8", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
@@ -2657,7 +2657,7 @@ def setup(request: Request, user: User = Depends(require_admin),
         **_nav_ctx(db, user),
         "branches": branches, "departments": departments,
         "tenant": tenant, "employee_count": emp_count,
-        "can_bulk": has_feature(tenant, "BULK_IMPORT"),
+        "can_bulk": has_feature(tenant, "BULK_IMPORT", db),
         "plan_limits": limits, "plan_usage": usage,
         "all_plan_limits": PLAN_LIMITS, "plan_labels": PLAN_LABELS,
         "current_plan": plan,
@@ -2782,7 +2782,7 @@ def kpi_page(request: Request, user: User = Depends(get_current_user),
     tenant = db.query(Tenant).get(tid)
 
     admin_kpis = None
-    if user.role in ("ADMIN", "MANAGER") and has_feature(tenant, "KPI_CHARTS_ADMIN"):
+    if user.role in ("ADMIN", "MANAGER") and has_feature(tenant, "KPI_CHARTS_ADMIN", db):
         admin_kpis = get_all_employee_kpis(db, tid)
 
     return templates.TemplateResponse(request, "kpi.html", {
@@ -2790,7 +2790,7 @@ def kpi_page(request: Request, user: User = Depends(get_current_user),
         **_nav_ctx(db, user),
         "kpis": kpis, "org_avg_tat": org_avg,
         "admin_kpis": admin_kpis,
-        "can_export": has_feature(tenant, "CSV_EXPORT"),
+        "can_export": has_feature(tenant, "CSV_EXPORT", db),
     })
 
 @app.get("/analytics/export")
@@ -2800,7 +2800,7 @@ def export_csv(export_type: str = "tickets",
     """Phase 0-E-5: CSV export from dashboard."""
     tid = user.tenant_id
     tenant = db.query(Tenant).get(tid)
-    if not has_feature(tenant, "CSV_EXPORT"):
+    if not has_feature(tenant, "CSV_EXPORT", db):
         raise HTTPException(403, "CSV export requires Professional plan")
 
     buf = io.StringIO()

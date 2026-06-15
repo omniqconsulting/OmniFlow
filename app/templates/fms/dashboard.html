@@ -39,7 +39,7 @@
 select option{background:var(--bg-card);color:var(--text-primary)}
 .list-table{width:100%;border-collapse:collapse;font-size:12px}
 .list-table th{padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);white-space:nowrap}
-.list-table td{padding:10px 10px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-align:middle;color:#cbd5e1}
+.list-table td{padding:10px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;color:#cbd5e1}
 .list-table tr:hover td{background:var(--row-hover);cursor:pointer}
 .list-table tr:last-child td{border-bottom:none}
 
@@ -64,7 +64,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .fms-modal-body{display:flex;flex:1;overflow:hidden}
 
 /* ── Modal left panel (flow info + stage selector) ───────────────────────────── */
-.fml{width:280px;flex-shrink:0;background:#0d1220;border-right:1px solid rgba(255,255,255,.07);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.fml{width:280px;flex-shrink:0;background:var(--bg-input);border-right:1px solid rgba(255,255,255,.07);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
 .fml-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint);margin-bottom:6px}
 
 .flow-sel-btn{width:100%;text-align:left;background:var(--bg-input);border:1.5px solid rgba(255,255,255,.1);border-radius:8px;padding:9px 12px;font-size:13px;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:8px}
@@ -110,12 +110,12 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     <div class="val">{{ active_tickets }}</div>
     <div class="lbl">Active Tickets</div>
   </div>
-  <div class="fms-kpi" style="border-color:{% if tat_breaches > 0 %}rgba(239,68,68,0.3){% else %}rgba(255,255,255,0.08){% endif %}">
-    <div class="val" style="color:{% if tat_breaches > 0 %}#f87171{% else %}#f1f5f9{% endif %}">{{ tat_breaches }}</div>
+  <div class="fms-kpi" style="border-color:{% if tat_breaches > 0 %}rgba(239,68,68,0.3){% else %}var(--border-subtle){% endif %}">
+    <div class="val" style="color:{% if tat_breaches > 0 %}#f87171{% else %}var(--text-strong){% endif %}">{{ tat_breaches }}</div>
     <div class="lbl">TaT Breaches</div>
   </div>
-  <div class="fms-kpi" style="border-color:{% if flagged_count > 0 %}rgba(245,158,11,0.3){% else %}rgba(255,255,255,0.08){% endif %}">
-    <div class="val" style="color:{% if flagged_count > 0 %}#fcd34d{% else %}#f1f5f9{% endif %}">{{ flagged_count }}</div>
+  <div class="fms-kpi" style="border-color:{% if flagged_count > 0 %}rgba(245,158,11,0.3){% else %}var(--border-subtle){% endif %}">
+    <div class="val" style="color:{% if flagged_count > 0 %}#fcd34d{% else %}var(--text-strong){% endif %}">{{ flagged_count }}</div>
     <div class="lbl">Flagged</div>
   </div>
   <div class="fms-kpi">
@@ -132,7 +132,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 {% if flows %}
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#475569">Flows</span>
+    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint)">Flows</span>
     <div class="flow-tabs">
       {% for f in flows %}
       {% set is_active = active_flow and active_flow.id == f.id %}
@@ -141,7 +141,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
         <span class="dot" style="background:{{ f.color }}"></span>
         <span>{{ f.name }}</span>
         {% if flow_counts.get(f.id, 0) %}
-        <span class="cnt" style="background:{{ f.color + '25' }};color:#e2e8f0">{{ flow_counts[f.id] }}</span>
+        <span class="cnt" style="background:{{ f.color + '25' }};color:var(--text-primary)">{{ flow_counts[f.id] }}</span>
         {% endif %}
       </a>
       {% endfor %}
@@ -171,22 +171,22 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 ══════════════════════════════════════════════════════════════════════════ -->
 {% if view == 'stage_table' %}
 {% if active_flow and stage_table_stages %}
-<div style="display:grid;grid-template-columns:220px 1fr;gap:0;border:1px solid rgba(255,255,255,0.08);border-radius:10px;overflow:hidden;background:#111827">
+<div style="display:grid;grid-template-columns:220px 1fr;gap:0;border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden;background:var(--bg-card)">
 
   <!-- Left: stage list -->
-  <div style="border-right:1px solid rgba(255,255,255,0.07);background:#0d1220;padding:12px 0">
-    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;padding:0 14px;margin-bottom:8px">Stages</div>
+  <div style="border-right:1px solid var(--border-subtle);background:var(--bg-input);padding:12px 0">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint);padding:0 14px;margin-bottom:8px">Stages</div>
     {% for s in stage_table_stages %}
     {% set cnt = stage_ticket_counts.get(s.id, 0) %}
     {% set is_sel = active_stage and active_stage.id == s.id %}
     <a href="/fms/dashboard?flow_id={{ active_flow.id }}&view=stage_table&stage_id={{ s.id }}"
        style="display:flex;align-items:center;gap:9px;padding:8px 14px;text-decoration:none;transition:background .12s;
-              background:{{ 'rgba(255,255,255,0.05)' if is_sel else 'transparent' }};
+              background:{{ 'var(--border-subtle)' if is_sel else 'transparent' }};
               border-left:3px solid {{ s.color or '#3b82f6' if is_sel else 'transparent' }}">
       <span style="width:8px;height:8px;border-radius:50%;background:{{ s.color or '#3b82f6' }};flex-shrink:0"></span>
-      <span style="flex:1;font-size:12px;font-weight:{{ '600' if is_sel else '400' }};color:{{ '#f1f5f9' if is_sel else '#94a3b8' }}">{{ s.name }}</span>
+      <span style="flex:1;font-size:12px;font-weight:{{ '600' if is_sel else '400' }};color:{{ 'var(--text-strong)' if is_sel else 'var(--text-muted)' }}">{{ s.name }}</span>
       {% if cnt %}
-      <span style="font-size:10px;padding:1px 6px;border-radius:99px;background:{{ (s.color or '#3b82f6') + '28' }};color:#e2e8f0">{{ cnt }}</span>
+      <span style="font-size:10px;padding:1px 6px;border-radius:99px;background:{{ (s.color or '#3b82f6') + '28' }};color:var(--text-primary)">{{ cnt }}</span>
       {% endif %}
       {% if s.evidence_required %}<span title="Evidence required" style="font-size:9px;color:#fbbf24">🔒</span>{% endif %}
       {% if s.is_terminal %}<span title="Terminal stage" style="font-size:9px;color:#6ee7b7">✓</span>{% endif %}
@@ -199,8 +199,8 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     {% if active_stage %}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div>
-        <div style="font-size:14px;font-weight:600;color:#f1f5f9">{{ active_stage.name }}</div>
-        <div style="font-size:11px;color:#64748b;margin-top:2px">
+        <div style="font-size:14px;font-weight:600;color:var(--text-strong)">{{ active_stage.name }}</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px">
           {{ stage_tickets|length }} ticket{{ 's' if stage_tickets|length != 1 }}
           {% if active_stage.target_tat_hours %} · TaT target: {{ active_stage.target_tat_hours }}h{% endif %}
           {% if active_stage.sub_module_tag %} · <span style="color:#c4b5fd">{{ active_stage.sub_module_tag }}</span>{% endif %}
@@ -212,7 +212,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     {% if stage_tickets %}
     <table class="list-table">
       <thead>
-        <tr style="background:#0d1220">
+        <tr style="background:var(--bg-input)">
           <th>ID</th><th>Title</th><th>Assignee</th><th>Priority</th><th>TaT</th><th>Due</th>
           {# P7-04: dynamic sub-module columns #}
           {% if active_stage.sub_module_tag == 'PMS' %}
@@ -230,55 +230,55 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       <tr>
         <td><span style="font-family:monospace;font-size:11px;color:#60a5fa">{{ t.display_id or t.id[:8] }}</span></td>
         <td>
-          <a href="/fms/tickets/{{ t.id }}" style="font-weight:600;font-size:12px;color:#e2e8f0;text-decoration:none">
+          <a href="/fms/tickets/{{ t.id }}" style="font-weight:600;font-size:12px;color:var(--text-primary);text-decoration:none">
             {{ t.title[:40] }}{% if t.title|length > 40 %}…{% endif %}
           </a>
           {% if t.is_flagged %} 🚩{% endif %}
-          {% if t.wo_number %}<div style="font-size:10px;color:#64748b">{{ t.wo_number }}</div>{% endif %}
+          {% if t.wo_number %}<div style="font-size:10px;color:var(--text-faint)">{{ t.wo_number }}</div>{% endif %}
         </td>
-        <td style="font-size:12px;color:#94a3b8">{{ row.assignee_name }}</td>
+        <td style="font-size:12px;color:var(--text-muted)">{{ row.assignee_name }}</td>
         <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
         <td>
           {% if row.tat_pct is not none %}
           {% set tc = '#10b981' if row.tat_color == 'green' else ('#f59e0b' if row.tat_color == 'amber' else '#ef4444') %}
           <div class="tat-mini"><div style="height:100%;border-radius:2px;width:{{ [row.tat_pct,100]|min }}%;background:{{ tc }}"></div></div>
-          <div style="font-size:10px;color:#64748b;margin-top:2px">{{ row.tat_pct }}%</div>
+          <div style="font-size:10px;color:var(--text-faint);margin-top:2px">{{ row.tat_pct }}%</div>
           {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
         </td>
         <td>
           {% if t.due_at %}
-          <span style="font-size:12px;color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}#94a3b8{% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
+          <span style="font-size:12px;color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-muted){% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
           {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
         </td>
         {# sub-module data columns #}
         {% if active_stage.sub_module_tag == 'PMS' %}
         {% set sub = row.sub %}
-        <td style="font-size:12px;color:#94a3b8">{{ sub.target_qty or '—' }}</td>
-        <td style="font-size:12px;color:#94a3b8">{{ sub.cum_qty or 0 }}</td>
+        <td style="font-size:12px;color:var(--text-muted)">{{ sub.target_qty or '—' }}</td>
+        <td style="font-size:12px;color:var(--text-muted)">{{ sub.cum_qty or 0 }}</td>
         <td>
           {% if sub.pct is defined %}
           <div style="display:flex;align-items:center;gap:6px">
-            <div style="width:60px;height:5px;background:rgba(255,255,255,0.07);border-radius:3px;overflow:hidden">
+            <div style="width:60px;height:5px;background:var(--border-subtle);border-radius:3px;overflow:hidden">
               <div style="height:100%;background:{% if sub.pct >= 80 %}#10b981{% elif sub.pct >= 40 %}#f59e0b{% else %}#ef4444{% endif %};width:{{ sub.pct }}%"></div>
             </div>
-            <span style="font-size:11px;color:#94a3b8">{{ sub.pct }}%</span>
+            <span style="font-size:11px;color:var(--text-muted)">{{ sub.pct }}%</span>
           </div>
           {% else %}—{% endif %}
         </td>
         <td><span style="font-size:11px;color:{% if sub.blockers %}#f87171{% else %}#6ee7b7{% endif %}">{{ 'Yes' if sub.blockers else 'No' }}</span></td>
-        <td style="font-size:11px;color:#64748b">{{ sub.last_entry.strftime('%d %b') if sub.last_entry else '—' }}</td>
+        <td style="font-size:11px;color:var(--text-faint)">{{ sub.last_entry.strftime('%d %b') if sub.last_entry else '—' }}</td>
         {% elif active_stage.sub_module_tag == 'DISPATCH' %}
         {% set sub = row.sub %}
-        <td style="font-size:12px;color:#94a3b8">{{ sub.total_dispatched or 0 }}</td>
+        <td style="font-size:12px;color:var(--text-muted)">{{ sub.total_dispatched or 0 }}</td>
         <td style="font-size:12px;color:{% if (sub.remaining or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.remaining or 0 }}</td>
-        <td style="font-size:11px;color:#64748b">{{ sub.last_dispatch.strftime('%d %b') if sub.last_dispatch else '—' }}</td>
+        <td style="font-size:11px;color:var(--text-faint)">{{ sub.last_dispatch.strftime('%d %b') if sub.last_dispatch else '—' }}</td>
         <td><span style="font-size:11px;color:{% if sub.pod_uploaded %}#6ee7b7{% else %}#f87171{% endif %}">{{ 'Yes' if sub.pod_uploaded else 'No' }}</span></td>
         {% elif active_stage.sub_module_tag == 'INVOICE' %}
         {% set sub = row.sub %}
-        <td style="font-size:12px;color:#94a3b8">{{ sub.total_invoiced|round(0)|int if sub.total_invoiced else 0 }}</td>
+        <td style="font-size:12px;color:var(--text-muted)">{{ sub.total_invoiced|round(0)|int if sub.total_invoiced else 0 }}</td>
         <td style="font-size:12px;color:#6ee7b7">{{ sub.total_received|round(0)|int if sub.total_received else 0 }}</td>
         <td style="font-size:12px;color:{% if (sub.outstanding or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.outstanding|round(0)|int if sub.outstanding else 0 }}</td>
-        <td style="font-size:11px;color:{% if sub.oldest_due and sub.oldest_due < now.date() %}#f87171{% else %}#64748b{% endif %}">{{ sub.oldest_due.strftime('%d %b') if sub.oldest_due else '—' }}</td>
+        <td style="font-size:11px;color:{% if sub.oldest_due and sub.oldest_due < now.date() %}#f87171{% else %}var(--text-faint){% endif %}">{{ sub.oldest_due.strftime('%d %b') if sub.oldest_due else '—' }}</td>
         {% endif %}
         <td>
           <div style="display:flex;gap:6px">
@@ -295,24 +295,24 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 
           {# Inline edit form #}
           {% if user.role in ('ADMIN','MANAGER') %}
-          <div id="fms-edit-{{ t.id }}" style="display:none;margin-top:8px;min-width:260px;background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:12px;position:relative;z-index:50">
+          <div id="fms-edit-{{ t.id }}" style="display:none;margin-top:8px;min-width:260px;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:8px;padding:12px;position:relative;z-index:50">
             <form method="post" action="/fms/tickets/{{ t.id }}/edit" style="display:flex;flex-direction:column;gap:8px">
-              <div><label style="font-size:10px;color:#64748b">Title</label>
-                <input name="title" value="{{ t.title }}" required style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box"></div>
+              <div><label style="font-size:10px;color:var(--text-faint)">Title</label>
+                <input name="title" value="{{ t.title }}" required style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;box-sizing:border-box"></div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-                <div><label style="font-size:10px;color:#64748b">Priority</label>
-                  <select name="priority" style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px;font-size:12px;color:#e2e8f0;outline:none">
+                <div><label style="font-size:10px;color:var(--text-faint)">Priority</label>
+                  <select name="priority" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);outline:none">
                     {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
                     <option {% if p == t.priority %}selected{% endif %}>{{ p }}</option>
                     {% endfor %}
                   </select>
                 </div>
-                <div><label style="font-size:10px;color:#64748b">WO Number</label>
-                  <input name="wo_number" value="{{ t.wo_number or '' }}" style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box"></div>
+                <div><label style="font-size:10px;color:var(--text-faint)">WO Number</label>
+                  <input name="wo_number" value="{{ t.wo_number or '' }}" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);outline:none;box-sizing:border-box"></div>
               </div>
-              <div><label style="font-size:10px;color:#64748b">Due Date</label>
+              <div><label style="font-size:10px;color:var(--text-faint)">Due Date</label>
                 <input type="datetime-local" name="due_at" value="{{ t.due_at.strftime('%Y-%m-%dT%H:%M') if t.due_at else '' }}"
-                       style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px;font-size:12px;color:#e2e8f0;color-scheme:dark;outline:none;box-sizing:border-box">
+                       style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);color-scheme:dark;outline:none;box-sizing:border-box">
               </div>
               <input type="hidden" name="description" value="{{ t.description or '' }}">
               <div style="display:flex;gap:6px">
@@ -336,7 +336,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     {% else %}
     <div style="text-align:center;padding:50px 0;color:#374151">
       <div style="font-size:28px;margin-bottom:8px">📭</div>
-      <div style="font-size:13px;color:#64748b">No tickets at this stage</div>
+      <div style="font-size:13px;color:var(--text-faint)">No tickets at this stage</div>
     </div>
     {% endif %}
     {% endif %}
@@ -345,7 +345,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 {% else %}
 <div style="text-align:center;padding:60px 0">
   <div style="font-size:32px;margin-bottom:10px">📋</div>
-  <div style="font-size:14px;font-weight:500;color:#64748b;margin-bottom:4px">No active flows deployed</div>
+  <div style="font-size:14px;font-weight:500;color:var(--text-faint);margin-bottom:4px">No active flows deployed</div>
   <div style="font-size:12px;color:#374151">Contact your OmniFlow account manager to get started.</div>
 </div>
 {% endif %}
@@ -363,8 +363,8 @@ select option{background:var(--bg-card);color:var(--text-primary)}
   {% set sc = stage.color or '#3b82f6' %}
   <div class="swim-col">
     <div class="swim-col-hdr" style="background:{{ sc }}16;border-left:3px solid {{ sc }};border-radius:8px 8px 0 0">
-      <span style="font-size:12px;font-weight:600;color:#f1f5f9">{{ stage.name }}</span>
-      <span style="font-size:10px;padding:2px 7px;border-radius:99px;background:{{ sc }}30;color:#e2e8f0">
+      <span style="font-size:12px;font-weight:600;color:var(--text-strong)">{{ stage.name }}</span>
+      <span style="font-size:10px;padding:2px 7px;border-radius:99px;background:{{ sc }}30;color:var(--text-primary)">
         {{ tickets_by_stage.get(stage.id, [])|length }}
       </span>
     </div>
@@ -398,7 +398,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
         </div>
         {% endif %}
         {% if t.due_at %}
-        <div style="font-size:10px;margin-top:3px;color:{% if t.due_at < now %}#f87171{% else %}#64748b{% endif %}">
+        <div style="font-size:10px;margin-top:3px;color:{% if t.due_at < now %}#f87171{% else %}var(--text-faint){% endif %}">
           Due {{ t.due_at.strftime('%d %b') }}
         </div>
         {% endif %}
@@ -414,14 +414,14 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 {% else %}
 <div style="text-align:center;padding:60px 0">
   <div style="font-size:32px;margin-bottom:10px">⚙</div>
-  <div style="font-size:14px;font-weight:500;color:#64748b;margin-bottom:4px">No stages configured for this flow</div>
+  <div style="font-size:14px;font-weight:500;color:var(--text-faint);margin-bottom:4px">No stages configured for this flow</div>
   <div style="font-size:12px;color:#374151">Contact your OmniFlow account manager to set up stages.</div>
 </div>
 {% endif %}
 {% else %}
 <div style="text-align:center;padding:60px 0">
   <div style="font-size:32px;margin-bottom:10px">📋</div>
-  <div style="font-size:14px;font-weight:500;color:#64748b;margin-bottom:4px">No active flows deployed</div>
+  <div style="font-size:14px;font-weight:500;color:var(--text-faint);margin-bottom:4px">No active flows deployed</div>
   <div style="font-size:12px;color:#374151">Contact your OmniFlow account manager to get started.</div>
 </div>
 {% endif %}
@@ -483,13 +483,13 @@ select option{background:var(--bg-card);color:var(--text-primary)}
   </div>
 </form>
 
-<div style="font-size:11px;color:#64748b;margin-bottom:10px">{{ list_tickets|length }} ticket{{ 's' if list_tickets|length != 1 }}</div>
+<div style="font-size:11px;color:var(--text-faint);margin-bottom:10px">{{ list_tickets|length }} ticket{{ 's' if list_tickets|length != 1 }}</div>
 
 {% if list_tickets %}
 <div class="card" style="padding:0;overflow:hidden">
   <div style="overflow-x:auto">
     <table class="list-table">
-      <thead><tr style="background:#0d1424">
+      <thead><tr style="background:var(--bg-input)">
         <th>ID</th><th>Title</th><th>Flow</th><th>Stage</th>
         <th>Assignee</th><th>Priority</th><th>Status</th><th>TaT</th><th>Days Open</th><th>Due</th>
       </tr></thead>
@@ -498,16 +498,16 @@ select option{background:var(--bg-card);color:var(--text-primary)}
         <tr onclick="location.href='/fms/tickets/{{ t.id }}'">
           <td><span style="font-family:monospace;font-size:11px;color:#60a5fa">{{ t.display_id or t.id[:8] }}</span></td>
           <td>
-            <div style="font-weight:600;font-size:12px;color:#e2e8f0">{{ t.title[:44] }}{% if t.title|length > 44 %}…{% endif %}</div>
-            {% if t.wo_number %}<div style="font-size:10px;color:#64748b">{{ t.wo_number }}</div>{% endif %}
+            <div style="font-weight:600;font-size:12px;color:var(--text-primary)">{{ t.title[:44] }}{% if t.title|length > 44 %}…{% endif %}</div>
+            {% if t.wo_number %}<div style="font-size:10px;color:var(--text-faint)">{{ t.wo_number }}</div>{% endif %}
           </td>
           <td><span style="display:inline-flex;align-items:center;gap:5px">
             <span style="width:7px;height:7px;border-radius:50%;background:{{ row.flow_color }}"></span>
-            <span style="color:#94a3b8;font-size:11px">{{ row.flow_name }}</span>
+            <span style="color:var(--text-muted);font-size:11px">{{ row.flow_name }}</span>
           </span></td>
           <td>
-            <div style="font-size:12px;color:#e2e8f0">{{ row.stage_name }}</div>
-            {% if row.stage_entered_at %}<div style="font-size:10px;color:#64748b">since {{ row.stage_entered_at.strftime('%d %b') }}</div>{% endif %}
+            <div style="font-size:12px;color:var(--text-primary)">{{ row.stage_name }}</div>
+            {% if row.stage_entered_at %}<div style="font-size:10px;color:var(--text-faint)">since {{ row.stage_entered_at.strftime('%d %b') }}</div>{% endif %}
           </td>
           <td style="font-size:12px">{{ row.assignee_name }}</td>
           <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
@@ -516,13 +516,13 @@ select option{background:var(--bg-card);color:var(--text-primary)}
             {% if row.tat_pct is not none %}
             {% set tc = '#10b981' if row.tat_color == 'green' else ('#f59e0b' if row.tat_color == 'amber' else '#ef4444') %}
             <div class="tat-mini"><div style="height:100%;border-radius:2px;width:{{ [row.tat_pct,100]|min }}%;background:{{ tc }}"></div></div>
-            <div style="font-size:10px;color:#64748b;margin-top:2px">{{ row.tat_pct }}%</div>
+            <div style="font-size:10px;color:var(--text-faint);margin-top:2px">{{ row.tat_pct }}%</div>
             {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
           </td>
-          <td><span style="font-size:12px;color:{% if row.days_open > 7 %}#f87171{% else %}#64748b{% endif %}">{{ row.days_open }}d</span></td>
+          <td><span style="font-size:12px;color:{% if row.days_open > 7 %}#f87171{% else %}var(--text-faint){% endif %}">{{ row.days_open }}d</span></td>
           <td>
             {% if t.due_at %}
-            <span style="font-size:12px;color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}#94a3b8{% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
+            <span style="font-size:12px;color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-muted){% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
             {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
           </td>
         </tr>
@@ -533,7 +533,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 </div>
 {% else %}
 <div style="text-align:center;padding:50px 0;color:#374151">
-  <div style="font-size:14px;color:#64748b;margin-bottom:4px">No tickets match the selected filters</div>
+  <div style="font-size:14px;color:var(--text-faint);margin-bottom:4px">No tickets match the selected filters</div>
 </div>
 {% endif %}
 {% endif %}
@@ -541,17 +541,17 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 
 <!-- ── Escalations panel ──────────────────────────────────────────────────── -->
 {% if flagged_tickets and user.role in ('ADMIN','MANAGER') %}
-<div style="background:#111827;border:1px solid rgba(239,68,68,0.25);border-radius:10px;margin-top:20px">
+<div style="background:var(--bg-card);border:1px solid rgba(239,68,68,0.25);border-radius:10px;margin-top:20px">
   <div style="padding:10px 16px;border-bottom:1px solid rgba(239,68,68,0.15);font-size:12px;font-weight:600;color:#fca5a5">
     🚩 Escalations — {{ flagged_tickets|length }} Flagged Ticket{{ 's' if flagged_tickets|length != 1 }}
   </div>
   {% for t in flagged_tickets %}
-  <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border-subtle)">
     <div>
-      <a href="/fms/tickets/{{ t.id }}" style="font-size:13px;font-weight:600;color:#e2e8f0">{{ t.title[:50] }}</a>
-      {% if t.flagged_reason %}<div style="font-size:11px;color:#64748b;margin-top:2px">{{ t.flagged_reason[:80] }}</div>{% endif %}
+      <a href="/fms/tickets/{{ t.id }}" style="font-size:13px;font-weight:600;color:var(--text-primary)">{{ t.title[:50] }}</a>
+      {% if t.flagged_reason %}<div style="font-size:11px;color:var(--text-faint);margin-top:2px">{{ t.flagged_reason[:80] }}</div>{% endif %}
     </div>
-    <span style="font-size:11px;color:#64748b;background:#1e293b;padding:2px 8px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-left:12px">
+    <span style="font-size:11px;color:var(--text-faint);background:var(--bg-elevated);padding:2px 8px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-left:12px">
       {{ t.current_stage.name if t.current_stage else '—' }}
     </span>
   </div>
@@ -591,7 +591,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
               <span class="flow-dot" style="background:{{ f.color }}"></span>
               <span style="flex:1">{{ f.name }}</span>
               {% if f.description %}
-              <span style="font-size:9px;color:#475569">ℹ</span>
+              <span style="font-size:9px;color:var(--text-xfaint)">ℹ</span>
               {% endif %}
             </button>
             {% endfor %}
@@ -601,8 +601,8 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 
         <!-- Flow info box -->
         <div class="flow-info-box" id="flowInfoBox">
-          <div id="flowInfoName" style="font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:4px"></div>
-          <div id="flowInfoDesc" style="font-size:11px;color:#64748b;margin-bottom:8px;line-height:1.5"></div>
+          <div id="flowInfoName" style="font-size:13px;font-weight:700;color:var(--text-strong);margin-bottom:4px"></div>
+          <div id="flowInfoDesc" style="font-size:11px;color:var(--text-faint);margin-bottom:8px;line-height:1.5"></div>
           <div class="fml-label" style="margin-bottom:4px">Stage Pipeline</div>
           <div class="flow-pipeline" id="flowPipeline"></div>
         </div>
@@ -620,7 +620,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       <div class="fmr">
         <div id="noFlowMsg" style="text-align:center;padding:40px 0;color:#374151">
           <div style="font-size:24px;margin-bottom:8px">←</div>
-          <div style="font-size:13px;color:#64748b">Select a workflow to continue</div>
+          <div style="font-size:13px;color:var(--text-faint)">Select a workflow to continue</div>
         </div>
 
         <div id="ticketFields" style="display:none">
@@ -683,7 +683,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
           </div>
 
           <!-- Stage hint -->
-          <div id="stageHint" style="display:none;margin-top:10px;padding:8px 12px;background:#0d1424;border:1px solid rgba(255,255,255,.08);border-radius:7px;font-size:11px;color:#64748b;line-height:1.6"></div>
+          <div id="stageHint" style="display:none;margin-top:10px;padding:8px 12px;background:var(--bg-input);border:1px solid rgba(255,255,255,.08);border-radius:7px;font-size:11px;color:var(--text-faint);line-height:1.6"></div>
 
         </div>
       </div>
@@ -702,11 +702,11 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 
 <!-- ── P7-05: Mark Stage Complete modal ──────────────────────────────────── -->
 <div id="stageCompleteModal" class="fms-modal-overlay" onclick="if(event.target===this)closeSCModal()">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;width:420px;max-width:95vw;padding:24px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;width:420px;max-width:95vw;padding:24px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
       <div>
-        <div style="font-size:15px;font-weight:600;color:#f1f5f9" id="scModalTitle">Mark Stage Complete</div>
-        <div style="font-size:11px;color:#64748b;margin-top:2px" id="scModalSubtitle"></div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)" id="scModalTitle">Mark Stage Complete</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="scModalSubtitle"></div>
       </div>
       <button class="fms-modal-close" onclick="closeSCModal()">✕</button>
     </div>
@@ -717,7 +717,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       <div class="fm-group" id="scNextStageGroup">
         <label>Move to Next Stage</label>
         <select name="next_stage_id" id="scNextStageId" required
-                style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:#e2e8f0;outline:none">
+                style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none">
         </select>
       </div>
 
@@ -725,7 +725,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       <div class="fm-group">
         <label>Assign to (next stage)</label>
         <select name="new_assignee_id" id="scAssignee" required
-                style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:#e2e8f0;outline:none">
+                style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none">
           <option value="">— select assignee —</option>
           {% for emp in employees %}
           <option value="{{ emp.id }}">{{ emp.name }} · {{ emp.role }}</option>
@@ -737,7 +737,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       <div class="fm-group" id="scNoteGroup">
         <label id="scNoteLabel">Completion Note</label>
         <textarea name="completion_note" id="scNote" rows="2"
-                  style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit;resize:vertical"></textarea>
+                  style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical"></textarea>
       </div>
 
       <!-- Evidence upload (shown when evidence_required) -->
@@ -745,7 +745,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
         <label>Evidence File <span style="color:#f87171">*</span></label>
         <input type="file" name="evidence_file" id="scEvidenceFile"
                accept="image/*,.pdf,.doc,.docx"
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
       </div>
 
       <input type="hidden" name="qty_completed" value="0">
@@ -762,19 +762,19 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 <!-- ── P7-07: Bulk upload modal ──────────────────────────────────────────── -->
 {% if user.role in ('ADMIN','MANAGER') %}
 <div id="fms-bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;z-index:300">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:24px;width:440px;max-width:95vw">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:440px;max-width:95vw">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">Bulk Upload FMS Tickets</h3>
-      <button onclick="hide('fms-bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b">×</button>
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Bulk Upload FMS Tickets</h3>
+      <button onclick="hide('fms-bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint)">×</button>
     </div>
-    <p style="font-size:13px;color:#94a3b8;margin-bottom:14px">
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
       Upload CSV to create multiple FMS tickets at once.
       <a href="/fms/tickets/bulk-template" style="color:#3b82f6;text-decoration:none">Download template →</a>
     </p>
     <form method="post" action="/fms/tickets/bulk-upload" enctype="multipart/form-data">
       <div style="margin-bottom:16px">
         <input type="file" name="file" accept=".csv" required
-               style="width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box">
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);box-sizing:border-box">
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" onclick="hide('fms-bulk-modal')" class="btn btn-outline">Cancel</button>
@@ -893,7 +893,7 @@ function selectFlow(fid) {
     const chip = document.createElement('div');
     chip.className = 'pip-step';
     chip.innerHTML = `
-      <span class="pip-chip" style="background:${s.color}22;border:1px solid ${s.color}44;color:#e2e8f0">
+      <span class="pip-chip" style="background:${s.color}22;border:1px solid ${s.color}44;color:var(--text-primary)">
         ${s.name}${s.is_terminal ? ' ✓' : ''}
       </span>
       ${i < f.stages.length - 1 ? '<span class="pip-arrow">›</span>' : ''}
@@ -919,7 +919,7 @@ function selectFlow(fid) {
       btn.setAttribute('data-sub', s.sub_module_tag || '');
       btn.setAttribute('data-note', s.completion_note_required ? '1' : '0');
       btn.innerHTML = `
-        <span class="stage-num" style="background:${s.color}33;color:#e2e8f0">${s.order + 1}</span>
+        <span class="stage-num" style="background:${s.color}33;color:var(--text-primary)">${s.order + 1}</span>
         <span style="flex:1;font-weight:500">${s.name}</span>
         ${s.sub_module_tag ? `<span class="stage-tag">${SM_LABELS[s.sub_module_tag] || s.sub_module_tag}</span>` : ''}
         ${s.is_terminal ? '<span style="font-size:9px;color:#6ee7b7;margin-left:auto">terminal</span>' : ''}
@@ -967,7 +967,7 @@ function selectStage(sid, color) {
     const tat = btn.getAttribute('data-tat');
     const sub = btn.getAttribute('data-sub');
     const note = btn.getAttribute('data-note');
-    if (tat)        parts.push(`⏱ TaT target: <strong style="color:#e2e8f0">${tat}h</strong>`);
+    if (tat)        parts.push(`⏱ TaT target: <strong style="color:var(--text-primary)">${tat}h</strong>`);
     if (sub)        parts.push(`🔧 Sub-module: <strong style="color:#c4b5fd">${SM_LABELS[sub] || sub}</strong>`);
     if (note==='1') parts.push(`📝 Completion note required`);
     if (parts.length) { hint.innerHTML = parts.join(' &nbsp;·&nbsp; '); hint.style.display=''; }

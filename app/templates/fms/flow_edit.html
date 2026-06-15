@@ -36,18 +36,18 @@
     <h2>Flow Settings</h2>
     <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
       <div>
-        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Name</div>
-        <div style="color:#f1f5f9;font-weight:600">{{ flow.name }}</div>
+        <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Name</div>
+        <div style="color:var(--text-strong);font-weight:600">{{ flow.name }}</div>
       </div>
       {% if flow.description %}
       <div>
-        <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Description</div>
-        <div style="color:#94a3b8">{{ flow.description }}</div>
+        <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Description</div>
+        <div style="color:var(--text-muted)">{{ flow.description }}</div>
       </div>
       {% endif %}
       <div style="display:flex;align-items:center;gap:8px">
         <div style="width:24px;height:24px;border-radius:6px;background:{{ flow.color }}"></div>
-        <div style="color:#94a3b8;font-size:11px">Flow colour</div>
+        <div style="color:var(--text-muted);font-size:11px">Flow colour</div>
       </div>
       <div>
         <span class="badge {% if flow.is_active %}badge-green{% else %}badge-gray{% endif %}">
@@ -63,11 +63,11 @@
     <div style="display:flex;flex-direction:column;gap:8px">
       {% set active_stages = flow.stages|selectattr('is_deleted','equalto',False)|list|sort(attribute='order') %}
       {% for stage in active_stages %}
-      <div style="background:#0d1424;border-radius:8px;padding:12px 14px;border-left:3px solid {{ stage.color }}">
+      <div style="background:var(--bg-input);border-radius:8px;padding:12px 14px;border-left:3px solid {{ stage.color }}">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
           <div style="display:flex;align-items:center;gap:8px">
-            <span style="background:{{ stage.color }}33;color:#e2e8f0;border-radius:99px;padding:2px 8px;font-size:11px;font-weight:700">{{ loop.index }}</span>
-            <span style="font-size:13px;font-weight:600;color:#f1f5f9">{{ stage.name }}</span>
+            <span style="background:{{ stage.color }}33;color:var(--text-primary);border-radius:99px;padding:2px 8px;font-size:11px;font-weight:700">{{ loop.index }}</span>
+            <span style="font-size:13px;font-weight:600;color:var(--text-strong)">{{ stage.name }}</span>
           </div>
           <div style="display:flex;gap:5px">
             {% if stage.is_terminal %}<span class="badge badge-green" style="font-size:9px">Terminal</span>{% endif %}
@@ -76,7 +76,7 @@
             {% if stage.evidence_required %}<span class="badge badge-amber" style="font-size:9px">📎 Evidence req'd</span>{% endif %}
           </div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:#64748b">
+        <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--text-faint)">
           {% if stage.target_tat_hours %}
           <span>⏱ {{ stage.target_tat_hours }}h TaT target</span>
           {% endif %}

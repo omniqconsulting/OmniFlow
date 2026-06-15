@@ -5,38 +5,38 @@
   <div style="display:inline-block;background:rgba(245,158,11,0.12);color:#fcd34d;border:1px solid rgba(245,158,11,0.25);border-radius:99px;padding:4px 14px;font-size:11px;font-weight:700;letter-spacing:0.06em;margin-bottom:16px">
     PENDING APPROVAL
   </div>
-  <h2 style="font-size:20px;font-weight:700;color:#f1f5f9;margin-bottom:10px">
+  <h2 style="font-size:20px;font-weight:700;color:var(--text-strong);margin-bottom:10px">
     Your account is under review
   </h2>
-  <p style="color:#64748b;font-size:14px;line-height:1.7;margin-bottom:28px">
-    Hi <strong style="color:#e2e8f0">{{ user.name }}</strong> — your factory
-    <strong style="color:#e2e8f0">{{ tenant.name }}</strong> is registered and
+  <p style="color:var(--text-faint);font-size:14px;line-height:1.7;margin-bottom:28px">
+    Hi <strong style="color:var(--text-primary)">{{ user.name }}</strong> — your factory
+    <strong style="color:var(--text-primary)">{{ tenant.name }}</strong> is registered and
     waiting for approval. Our team usually reviews new accounts within a few hours.
   </p>
 
-  <div style="background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px;text-align:left;margin-bottom:24px">
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#64748b;margin-bottom:14px">What happens next</div>
+  <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:24px;text-align:left;margin-bottom:24px">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-faint);margin-bottom:14px">What happens next</div>
     <div style="display:flex;flex-direction:column;gap:12px">
       <div style="display:flex;gap:12px;align-items:flex-start">
         <div style="width:22px;height:22px;border-radius:50%;background:rgba(59,130,246,0.2);color:#60a5fa;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">1</div>
-        <div style="font-size:13px;color:#94a3b8;line-height:1.5">Our team reviews your registration details</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.5">Our team reviews your registration details</div>
       </div>
       <div style="display:flex;gap:12px;align-items:flex-start">
         <div style="width:22px;height:22px;border-radius:50%;background:rgba(59,130,246,0.2);color:#60a5fa;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">2</div>
-        <div style="font-size:13px;color:#94a3b8;line-height:1.5">Once approved, your account is activated on the Starter plan — no action needed from you</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.5">Once approved, your account is activated on the Starter plan — no action needed from you</div>
       </div>
       <div style="display:flex;gap:12px;align-items:flex-start">
         <div style="width:22px;height:22px;border-radius:50%;background:rgba(59,130,246,0.2);color:#60a5fa;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">3</div>
-        <div style="font-size:13px;color:#94a3b8;line-height:1.5">Log in again and your full dashboard will be ready</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.5">Log in again and your full dashboard will be ready</div>
       </div>
     </div>
   </div>
 
   <div style="display:flex;gap:10px;justify-content:center">
-    <a href="/logout" style="display:inline-flex;align-items:center;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:500;background:#1e293b;color:#94a3b8;border:1px solid rgba(255,255,255,0.1);text-decoration:none">
+    <a href="/logout" style="display:inline-flex;align-items:center;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:500;background:var(--bg-elevated);color:var(--text-muted);border:1px solid var(--border-med);text-decoration:none">
       Sign Out
     </a>
-    <a href="/dashboard" style="display:inline-flex;align-items:center;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:500;background:#1e293b;color:#94a3b8;border:1px solid rgba(255,255,255,0.1);text-decoration:none">
+    <a href="/dashboard" style="display:inline-flex;align-items:center;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:500;background:var(--bg-elevated);color:var(--text-muted);border:1px solid var(--border-med);text-decoration:none">
       Check Again
     </a>
   </div>

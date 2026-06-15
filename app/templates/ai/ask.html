@@ -17,7 +17,7 @@
   padding: 40px 40px 36px;
   background: linear-gradient(135deg, #0f0c29 0%, #1a0533 40%, #0d1b4b 100%);
   border: 1px solid rgba(139,92,246,0.25);
-  box-shadow: 0 0 60px rgba(99,102,241,0.12), inset 0 1px 0 rgba(255,255,255,0.06);
+  box-shadow: 0 0 60px rgba(99,102,241,0.12), inset 0 1px 0 var(--hover-bg);
 }
 /* animated grid overlay */
 .ai-hero::before {
@@ -71,7 +71,7 @@
 .ai-hero h1 {
   font-size: 32px;
   font-weight: 800;
-  color: #f1f5f9;
+  color: var(--text-strong);
   letter-spacing: -0.5px;
   line-height: 1.2;
   margin-bottom: 12px;
@@ -84,7 +84,7 @@
 }
 .ai-hero p {
   font-size: 14px;
-  color: #94a3b8;
+  color: var(--text-muted);
   max-width: 560px;
   line-height: 1.65;
   margin-bottom: 24px;
@@ -100,8 +100,8 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--border-subtle);
+  border: 1px solid var(--border-med);
   border-radius: 8px;
   padding: 5px 11px;
   font-size: 12px;
@@ -133,10 +133,10 @@
 }
 .ask-textarea {
   flex: 1;
-  background: rgba(255,255,255,0.04);
-  border: 1.5px solid rgba(255,255,255,0.1);
+  background: var(--border-subtle);
+  border: 1.5px solid var(--border-med);
   border-radius: 12px;
-  color: #e2e8f0;
+  color: var(--text-primary);
   font-size: 14px;
   font-family: inherit;
   padding: 14px 16px;
@@ -210,7 +210,7 @@
 /* ── Answer panel ────────────────────────────────────────────── */
 .answer-panel {
   background: rgba(17,24,39,0.6);
-  border: 1px solid rgba(255,255,255,0.07);
+  border: 1px solid var(--border-subtle);
   border-radius: 16px;
   overflow: hidden;
   display: none;   /* shown by JS when stream starts */
@@ -223,7 +223,7 @@
   justify-content: space-between;
   padding: 14px 22px;
   background: rgba(99,102,241,0.08);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--hover-bg);
 }
 .answer-who {
   display: flex;
@@ -253,15 +253,15 @@
 }
 
 /* Markdown rendering inside answer */
-.answer-body strong { color: #f1f5f9; font-weight: 700; }
+.answer-body strong { color: var(--text-strong); font-weight: 700; }
 .answer-body em     { color: #a5b4fc; }
 .answer-body code   { background: rgba(99,102,241,0.15); color:#a5b4fc; border-radius:4px; padding:1px 5px; font-size:12px; }
 .answer-body ul, .answer-body ol { margin: 10px 0 10px 20px; }
 .answer-body li { margin-bottom: 5px; }
-.answer-body h2, .answer-body h3 { color:#e2e8f0; font-weight:700; margin:14px 0 6px; font-size:14px; }
+.answer-body h2, .answer-body h3 { color:var(--text-primary); font-weight:700; margin:14px 0 6px; font-size:14px; }
 .answer-body table { width:100%; border-collapse:collapse; margin:12px 0; }
-.answer-body th { text-align:left; padding:7px 12px; background:rgba(255,255,255,0.05); font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; border-bottom:1px solid rgba(255,255,255,0.08); }
-.answer-body td { padding:7px 12px; border-bottom:1px solid rgba(255,255,255,0.04); }
+.answer-body th { text-align:left; padding:7px 12px; background:var(--border-subtle); font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; border-bottom:1px solid var(--border-subtle); }
+.answer-body td { padding:7px 12px; border-bottom:1px solid var(--border-subtle); }
 .answer-body p  { margin-bottom:10px; }
 
 /* typing cursor */
@@ -295,7 +295,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 22px;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid var(--border-subtle);
   background: rgba(0,0,0,0.15);
 }
 .context-note {
@@ -307,7 +307,7 @@
 }
 .copy-btn {
   background: none;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   color: #4b5563;
   font-size: 11px;
@@ -315,7 +315,7 @@
   cursor: pointer;
   transition: all 0.12s;
 }
-.copy-btn:hover { border-color: rgba(255,255,255,0.2); color: #94a3b8; }
+.copy-btn:hover { border-color: rgba(255,255,255,0.2); color: var(--text-muted); }
 
 /* ── No-API warning ──────────────────────────────────────────── */
 .api-warning {
@@ -339,8 +339,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: var(--hover-bg);
+  border: 1px solid var(--hover-bg);
   border-radius: 14px;
   overflow: hidden;
 }
@@ -352,7 +352,7 @@
   gap: 4px;
 }
 .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: #4b5563; font-weight: 600; }
-.stat-value { font-size: 22px; font-weight: 800; color: #e2e8f0; line-height: 1; }
+.stat-value { font-size: 22px; font-weight: 800; color: var(--text-primary); line-height: 1; }
 .stat-sub   { font-size: 11px; color: #374151; }
 </style>
 
@@ -361,7 +361,7 @@
   <!-- ═══════════════════════════════════════════════════════════
        P9-01: Sub-tab navigation
   ════════════════════════════════════════════════════════════ -->
-  <div style="display:flex;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:4px;gap:0">
+  <div style="display:flex;border-bottom:1px solid var(--border-subtle);margin-bottom:4px;gap:0">
     <button id="tab-btn-chat" onclick="switchAiTab('chat')"
       style="padding:10px 22px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;
              border-bottom:2px solid #818cf8;color:#a5b4fc;margin-bottom:-1px">
@@ -369,7 +369,7 @@
     </button>
     <button id="tab-btn-report" onclick="switchAiTab('report')"
       style="padding:10px 22px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;
-             border-bottom:2px solid transparent;color:#64748b;margin-bottom:-1px">
+             border-bottom:2px solid transparent;color:var(--text-faint);margin-bottom:-1px">
       📊 Report Generator
     </button>
   </div>
@@ -407,11 +407,11 @@
   <!-- ── AI Usage Tracker ─────────────────────────────────────── -->
   {% set limit_pct = ((ai_calls_today / ai_daily_limit * 100) | int) if ai_daily_limit else 0 %}
   {% set limit_color = '#f87171' if limit_pct >= 90 else ('#fbbf24' if limit_pct >= 70 else '#6ee7b7') %}
-  <div style="background:#0d1220;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+  <div style="background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap">
     <div style="flex:1;min-width:180px">
-      <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Daily AI Calls Used</div>
+      <div style="font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Daily AI Calls Used</div>
       {% if ai_daily_limit %}
-      <div style="background:rgba(255,255,255,0.07);border-radius:99px;height:6px;overflow:hidden;margin-bottom:5px">
+      <div style="background:var(--border-subtle);border-radius:99px;height:6px;overflow:hidden;margin-bottom:5px">
         <div style="height:100%;border-radius:99px;background:{{ limit_color }};width:{{ [limit_pct, 100]|min }}%;transition:width .3s"></div>
       </div>
       <div style="font-size:12px;color:{{ limit_color }};font-weight:600">
@@ -419,11 +419,11 @@
         {% if limit_pct >= 90 %}<span style="color:#f87171;margin-left:8px">⚠ Limit nearly reached</span>{% endif %}
       </div>
       {% else %}
-      <div style="font-size:13px;color:#6ee7b7;font-weight:600">{{ ai_calls_today }} calls today &nbsp;·&nbsp; <span style="color:#64748b">Unlimited</span></div>
+      <div style="font-size:13px;color:#6ee7b7;font-weight:600">{{ ai_calls_today }} calls today &nbsp;·&nbsp; <span style="color:var(--text-faint)">Unlimited</span></div>
       {% endif %}
     </div>
     <div style="text-align:right;flex-shrink:0">
-      <div style="font-size:10px;color:#475569">Plan limit resets daily at midnight UTC</div>
+      <div style="font-size:10px;color:var(--text-xfaint)">Plan limit resets daily at midnight UTC</div>
       {% if ai_daily_limit and ai_calls_today >= ai_daily_limit %}
       <div style="font-size:11px;color:#f87171;margin-top:3px;font-weight:600">Limit reached — contact SA or upgrade plan</div>
       {% endif %}
@@ -511,9 +511,9 @@
     <!-- Usage tracker (shared) -->
     {% set limit_pct2 = ((ai_calls_today / ai_daily_limit * 100) | int) if ai_daily_limit else 0 %}
     {% set limit_color2 = '#f87171' if limit_pct2 >= 90 else ('#fbbf24' if limit_pct2 >= 70 else '#6ee7b7') %}
-    <div style="background:#0d1220;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:20px">
+    <div style="background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:12px;padding:12px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:20px">
       <div style="flex:1">
-        <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">AI Calls Remaining Today</div>
+        <div style="font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">AI Calls Remaining Today</div>
         {% if ai_daily_limit %}
         {% set remaining = ai_daily_limit - ai_calls_today %}
         <div style="font-size:14px;font-weight:700;color:{{ limit_color2 }}">
@@ -534,7 +534,7 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
         <div class="form-group" style="margin:0">
           <label style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:8px">Section</label>
-          <select id="rpt-section" style="background:rgba(255,255,255,0.04);border:1.5px solid rgba(255,255,255,0.1);border-radius:10px;color:#e2e8f0;font-size:13px;padding:11px 14px;width:100%;outline:none">
+          <select id="rpt-section" style="background:var(--border-subtle);border:1.5px solid var(--border-med);border-radius:10px;color:var(--text-primary);font-size:13px;padding:11px 14px;width:100%;outline:none">
             {% for val, label in report_sections %}
             <option value="{{ val }}">{{ label }}</option>
             {% endfor %}
@@ -542,7 +542,7 @@
         </div>
         <div class="form-group" style="margin:0">
           <label style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:8px">Date Range</label>
-          <select id="rpt-range" style="background:rgba(255,255,255,0.04);border:1.5px solid rgba(255,255,255,0.1);border-radius:10px;color:#e2e8f0;font-size:13px;padding:11px 14px;width:100%;outline:none">
+          <select id="rpt-range" style="background:var(--border-subtle);border:1.5px solid var(--border-med);border-radius:10px;color:var(--text-primary);font-size:13px;padding:11px 14px;width:100%;outline:none">
             {% for val, label in report_date_ranges %}
             <option value="{{ val }}" {% if val == '30d' %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -550,9 +550,9 @@
         </div>
       </div>
       <div class="form-group" style="margin:0 0 16px">
-        <label style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:8px">Focus Area <span style="font-weight:400;color:#475569;text-transform:none;letter-spacing:0">(optional)</span></label>
+        <label style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:8px">Focus Area <span style="font-weight:400;color:var(--text-xfaint);text-transform:none;letter-spacing:0">(optional)</span></label>
         <textarea id="rpt-focus" rows="2" placeholder="e.g. Identify bottlenecks in the dispatch stage, or highlight top performers"
-          style="background:rgba(255,255,255,0.04);border:1.5px solid rgba(255,255,255,0.1);border-radius:10px;color:#e2e8f0;font-size:13px;padding:11px 14px;width:100%;resize:vertical;outline:none;font-family:inherit;box-sizing:border-box"></textarea>
+          style="background:var(--border-subtle);border:1.5px solid var(--border-med);border-radius:10px;color:var(--text-primary);font-size:13px;padding:11px 14px;width:100%;resize:vertical;outline:none;font-family:inherit;box-sizing:border-box"></textarea>
       </div>
       {% set at_limit = ai_daily_limit and ai_calls_today >= ai_daily_limit %}
       <button id="rpt-btn" onclick="generateReport()" class="ask-btn"
@@ -572,8 +572,8 @@
       <!-- Header with export button -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
         <div>
-          <div style="font-size:16px;font-weight:700;color:#f1f5f9" id="rpt-title"></div>
-          <div style="font-size:11px;color:#475569;margin-top:2px" id="rpt-subtitle"></div>
+          <div style="font-size:16px;font-weight:700;color:var(--text-strong)" id="rpt-title"></div>
+          <div style="font-size:11px;color:var(--text-xfaint);margin-top:2px" id="rpt-subtitle"></div>
         </div>
         <button onclick="exportReport()" class="copy-btn" style="padding:8px 16px;font-size:12px">
           📋 Copy as Text
@@ -611,8 +611,8 @@
         <table style="width:100%;border-collapse:collapse">
           <thead>
             <tr>
-              <th style="text-align:left;padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:1px solid rgba(255,255,255,0.08)">Metric</th>
-              <th style="text-align:right;padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#475569;border-bottom:1px solid rgba(255,255,255,0.08)">Value</th>
+              <th style="text-align:left;padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-xfaint);border-bottom:1px solid var(--border-subtle)">Metric</th>
+              <th style="text-align:right;padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-xfaint);border-bottom:1px solid var(--border-subtle)">Value</th>
             </tr>
           </thead>
           <tbody id="rpt-metrics"></tbody>
@@ -856,9 +856,9 @@ function switchAiTab(tab) {
   const chatBtn   = document.getElementById('tab-btn-chat');
   const reportBtn = document.getElementById('tab-btn-report');
   chatBtn.style.borderBottomColor   = isChat ? '#818cf8' : 'transparent';
-  chatBtn.style.color               = isChat ? '#a5b4fc' : '#64748b';
+  chatBtn.style.color               = isChat ? '#a5b4fc' : 'var(--text-faint)';
   reportBtn.style.borderBottomColor = isChat ? 'transparent' : '#818cf8';
-  reportBtn.style.color             = isChat ? '#64748b' : '#a5b4fc';
+  reportBtn.style.color             = isChat ? 'var(--text-faint)' : '#a5b4fc';
 }
 
 // ── P9-03 / P9-04: Report generation ────────────────────────────────────────
@@ -953,8 +953,8 @@ function renderReport(r, section, dateRange) {
   (r.key_metrics || []).forEach(m => {
     const tr = document.createElement('tr');
     tr.innerHTML =
-      `<td style="padding:9px 12px;font-size:13px;color:#e2e8f0;border-bottom:1px solid rgba(255,255,255,0.04)">${m.metric}</td>` +
-      `<td style="padding:9px 12px;font-size:13px;font-weight:700;color:#7dd3fc;text-align:right;border-bottom:1px solid rgba(255,255,255,0.04)">${m.value}</td>`;
+      `<td style="padding:9px 12px;font-size:13px;color:var(--text-primary);border-bottom:1px solid var(--border-subtle)">${m.metric}</td>` +
+      `<td style="padding:9px 12px;font-size:13px;font-weight:700;color:#7dd3fc;text-align:right;border-bottom:1px solid var(--border-subtle)">${m.value}</td>`;
     mt.appendChild(tr);
   });
 
@@ -967,14 +967,14 @@ function renderReport(r, section, dateRange) {
     top.innerHTML = '';
     (eh.top || []).forEach(e => {
       const li = document.createElement('li');
-      li.innerHTML = `<strong style="color:#f1f5f9">${e.name}</strong> — ${e.metric}`;
+      li.innerHTML = `<strong style="color:var(--text-strong)">${e.name}</strong> — ${e.metric}`;
       top.appendChild(li);
     });
     const bot = document.getElementById('rpt-bottom');
     bot.innerHTML = '';
     (eh.bottom || []).forEach(e => {
       const li = document.createElement('li');
-      li.innerHTML = `<strong style="color:#f1f5f9">${e.name}</strong> — ${e.metric}`;
+      li.innerHTML = `<strong style="color:var(--text-strong)">${e.name}</strong> — ${e.metric}`;
       bot.appendChild(li);
     });
     document.getElementById('rpt-patterns').textContent = eh.patterns || '';

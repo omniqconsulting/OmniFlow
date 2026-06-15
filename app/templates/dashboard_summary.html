@@ -51,7 +51,7 @@
   <form id="filterForm" class="sum-filters" method="get" action="/dashboard">
     <input type="hidden" name="view" value="summary">
 
-    <div style="font-size:13px;font-weight:600;color:#e2e8f0;margin-bottom:4px">Filters</div>
+    <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Filters</div>
 
     <div class="filter-group">
       <div class="filter-label">Branch / Unit</div>
@@ -101,7 +101,7 @@
     </div>
 
     <button type="submit" class="btn btn-sm btn-primary" style="margin-top:4px">Apply</button>
-    <a href="/dashboard?view=summary" style="font-size:11px;color:#64748b;text-align:center;margin-top:2px">Reset</a>
+    <a href="/dashboard?view=summary" style="font-size:11px;color:var(--text-faint);text-align:center;margin-top:2px">Reset</a>
   </form>
 
   <!-- Main Content -->
@@ -111,7 +111,7 @@
     <div class="sum-header">
       <div>
         <h2 style="margin:0;font-size:18px">Overview</h2>
-        <div style="font-size:12px;color:#64748b;margin-top:2px">{{ date_from }} → {{ date_to }}</div>
+        <div style="font-size:12px;color:var(--text-faint);margin-top:2px">{{ date_from }} → {{ date_to }}</div>
       </div>
       <a href="/dashboard?view=detailed&date_from={{ date_from }}&date_to={{ date_to }}&dept_id={{ dept_id or '' }}&manager_id={{ manager_id or '' }}"
          class="btn btn-sm btn-primary">Detailed Analysis →</a>
@@ -205,7 +205,7 @@
 
     <!-- Department Health Strip -->
     <div class="card" style="padding:14px;margin-bottom:0">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#64748b;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-faint);margin-bottom:10px">
         {{ L.Department }} Health
       </div>
       <div class="dept-strip">
@@ -216,7 +216,7 @@
           {{ dh.name }} <span style="font-size:10px;opacity:0.7">{{ dh.rate }}%</span>
         </a>
         {% else %}
-        <div style="color:#64748b;font-size:13px">No department data for this period.</div>
+        <div style="color:var(--text-faint);font-size:13px">No department data for this period.</div>
         {% endfor %}
       </div>
     </div>

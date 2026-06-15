@@ -41,9 +41,9 @@
     <tbody>
     {% for a in history %}
     <tr>
-      <td style="color:#e2e8f0;font-weight:500">{{ a.user.name if a.user else '—' }}</td>
-      <td style="font-size:12px;color:#94a3b8">{{ a.due_at.strftime('%d %b %Y, %I:%M %p') if a.due_at else '—' }}</td>
-      <td style="font-size:12px;color:#94a3b8">
+      <td style="color:var(--text-primary);font-weight:500">{{ a.user.name if a.user else '—' }}</td>
+      <td style="font-size:12px;color:var(--text-muted)">{{ a.due_at.strftime('%d %b %Y, %I:%M %p') if a.due_at else '—' }}</td>
+      <td style="font-size:12px;color:var(--text-muted)">
         {% if a.completed_at %}{{ a.completed_at.strftime('%d %b %Y, %I:%M %p') }}
         {% else %}<span class="muted">—</span>{% endif %}
       </td>
@@ -52,7 +52,7 @@
           {{ a.status }}
         </span>
       </td>
-      <td style="font-size:11px;color:#64748b;max-width:200px">{{ a.failure_note or '—' }}</td>
+      <td style="font-size:11px;color:var(--text-faint);max-width:200px">{{ a.failure_note or '—' }}</td>
     </tr>
     {% endfor %}
     </tbody>

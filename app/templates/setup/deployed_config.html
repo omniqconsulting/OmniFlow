@@ -6,7 +6,7 @@
   {% include "setup/nav.html" %}
   <div class="setup-content">
     <h2 style="margin:0 0 4px">Deployed Configuration</h2>
-    <p style="font-size:13px;color:#94a3b8;margin-bottom:16px">Read-only view of all FMS flows and sub-modules deployed for your organisation.</p>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Read-only view of all FMS flows and sub-modules deployed for your organisation.</p>
 
     {% if flows %}
     <div style="display:flex;flex-direction:column;gap:12px">
@@ -17,7 +17,7 @@
             <strong style="font-size:14px">{{ f.name }}</strong>
             <span class="badge badge-green" style="margin-left:8px">Active</span>
           </div>
-          <div style="font-size:12px;color:#64748b">
+          <div style="font-size:12px;color:var(--text-faint)">
             {{ f.stages|length }} stage{{ 's' if f.stages|length != 1 }} ·
             {{ f.active_tickets }} active ticket{{ 's' if f.active_tickets != 1 }} ·
             Deployed {{ f.created_at.strftime('%d %b %Y') if f.created_at else '—' }}
@@ -26,8 +26,8 @@
         {% if f.stages %}
         <div style="display:flex;flex-wrap:wrap;gap:6px">
           {% for s in f.stages %}
-          <div style="background:rgba(255,255,255,0.05);border-radius:6px;padding:5px 10px;font-size:12px">
-            <span style="color:#94a3b8">{{ loop.index }}.</span> {{ s.name }}
+          <div style="background:var(--border-subtle);border-radius:6px;padding:5px 10px;font-size:12px">
+            <span style="color:var(--text-muted)">{{ loop.index }}.</span> {{ s.name }}
             {% if s.sub_module_tag %}
             <span class="badge badge-blue" style="font-size:10px;margin-left:4px">{{ s.sub_module_tag }}</span>
             {% endif %}
@@ -42,7 +42,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <div class="card" style="text-align:center;padding:40px;color:#64748b">
+    <div class="card" style="text-align:center;padding:40px;color:var(--text-faint)">
       No FMS flows deployed yet. Contact your Super Admin to deploy a flow.
     </div>
     {% endif %}
