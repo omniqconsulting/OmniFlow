@@ -147,18 +147,51 @@
     <i class="ti ti-download"></i> Export CSV
   </a>
   {% endif %}
-  <a class="sb-link" href="/setup/wizard">
-    <i class="ti ti-wand"></i> Setup Wizard
-  </a>
 </aside>
 
 <!-- ── CONTENT ────────────────────────────────────────────────────────────── -->
 <main class="db-content">
+  <!-- ── Overall Performance Score ─────────────────────────────────────── -->
+  {% if perf_components %}
+  <div style="display:grid;grid-template-columns:160px 1fr;gap:14px;margin-bottom:20px;align-items:stretch">
+    <!-- Gauge -->
+    <div class="card" style="text-align:center;padding:20px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:120px">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Overall Score</div>
+      <div style="
+        width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+        background:conic-gradient(
+          {% if perf_score >= 80 %}#10b981{% elif perf_score >= 60 %}#f59e0b{% else %}#ef4444{% endif %}
+          {{ perf_score * 3.6 }}deg, var(--bg-elevated) 0deg);
+        font-size:22px;font-weight:700;
+        color:{% if perf_score >= 80 %}#6ee7b7{% elif perf_score >= 60 %}#fbbf24{% else %}#f87171{% endif %}">
+        {{ perf_score }}%
+      </div>
+      <div style="font-size:11px;color:var(--text-faint);margin-top:8px">
+        {% if perf_score >= 80 %}Excellent{% elif perf_score >= 60 %}Good{% elif perf_score > 0 %}Needs Attention{% else %}No Data{% endif %}
+      </div>
+    </div>
+    <!-- Components -->
+    <div class="card" style="padding:18px 20px;display:flex;flex-direction:column;justify-content:center;gap:10px">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Score Breakdown</div>
+      {% for c in perf_components %}
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+          <span style="color:{{ c.color }};font-weight:500">{{ c.label }}</span>
+          <span style="color:{% if c.value >= 80 %}#10b981{% elif c.value >= 60 %}#fbbf24{% else %}#f87171{% endif %};font-weight:600">{{ c.value }}%</span>
+        </div>
+        <div style="height:5px;border-radius:3px;background:var(--hover-bg);overflow:hidden">
+          <div style="height:100%;border-radius:3px;width:{{ c.value }}%;background:{{ c.color }};transition:width 0.6s"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
     <div style="display:flex;align-items:center;gap:10px">
-      <a href="/dashboard?view=summary&date_from={{ date_from }}&date_to={{ date_to }}&dept_id={{ dept_id or '' }}&manager_id={{ manager_id or '' }}"
-         style="font-size:12px;color:var(--text-faint);text-decoration:none;padding:4px 10px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-elevated)"
-         title="Back to Summary">← Summary</a>
+      <a href="/dashboard?view=summary&date_from={{ date_from }}&date_to={{ date_to }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id %}&manager_id={{ manager_id }}{% endif %}"
+         class="btn btn-sm btn-outline">← Summary</a>
       <div style="font-size:16px;font-weight:600;color:var(--text-strong)">Detailed Analysis</div>
     </div>
     <div style="font-size:11px;color:#374151">
@@ -176,12 +209,12 @@
     <div class="sc-row">
       <div class="sc b-blue">
         <div class="sc-label">Open tickets</div>
-        <div class="sc-val {% if deleg_sc.open > 0 %}amber{% else %}green{% endif %}">{{ deleg_sc.open }}</div>
+        <div class="sc-val {% if deleg_sc.open > 0 %}amber{% else %}green{% endif %}" id="sc-open-tickets">{{ deleg_sc.open }}</div>
         <div class="sc-sub">currently open &amp; assigned</div>
       </div>
       <div class="sc b-blue">
         <div class="sc-label">Tickets closed</div>
-        <div class="sc-val green">{{ deleg_sc.closed }}</div>
+        <div class="sc-val green" id="sc-closed-tickets">{{ deleg_sc.closed }}</div>
         <div class="sc-sub">in selected period</div>
       </div>
       <div class="sc b-blue">
@@ -315,7 +348,7 @@
       </div>
       <div class="sc b-green">
         <div class="sc-label">Compliance rate</div>
-        <div class="sc-val {% if cl_sc.compliance >= 80 %}green{% elif cl_sc.compliance >= 50 %}amber{% else %}red{% endif %}">{{ cl_sc.compliance }}%</div>
+        <div class="sc-val {% if cl_sc.compliance >= 80 %}green{% elif cl_sc.compliance >= 50 %}amber{% else %}red{% endif %}" id="sc-cl-compliance">{{ cl_sc.compliance }}%</div>
         <div class="sc-sub">in selected period</div>
       </div>
       <div class="sc b-green">
@@ -588,13 +621,13 @@ const CO = {
   }
 };
 
-new Chart(document.getElementById('delegWkChart'),{type:'bar',
+window._delegChart = new Chart(document.getElementById('delegWkChart'),{type:'bar',
   data:{labels:{{ deleg_wk.labels|tojson }},datasets:[
     {label:'Created',data:{{ deleg_wk.created|tojson }},backgroundColor:'rgba(59,130,246,0.6)',borderRadius:3},
     {label:'Closed', data:{{ deleg_wk.closed|tojson }}, backgroundColor:'rgba(16,185,129,0.6)',borderRadius:3}
   ]},options:CO});
 
-new Chart(document.getElementById('clWkChart'),{type:'line',
+window._clChart = new Chart(document.getElementById('clWkChart'),{type:'line',
   data:{labels:{{ cl_wk.labels|tojson }},datasets:[{
     label:'Compliance %',data:{{ cl_wk.rates|tojson }},
     borderColor:'#10b981',backgroundColor:'rgba(16,185,129,0.08)',
@@ -606,11 +639,51 @@ new Chart(document.getElementById('clWkChart'),{type:'line',
   }}});
 
 {% if has_fms and fms_wk %}
-new Chart(document.getElementById('fmsWkChart'),{type:'bar',
+window._fmsChart = new Chart(document.getElementById('fmsWkChart'),{type:'bar',
   data:{labels:{{ fms_wk.labels|tojson }},datasets:[
     {label:'Created',  data:{{ fms_wk.created|tojson }},   backgroundColor:'rgba(139,92,246,0.6)',borderRadius:3},
     {label:'Completed',data:{{ fms_wk.completed|tojson }},backgroundColor:'rgba(16,185,129,0.6)',borderRadius:3}
   ]},options:CO});
 {% endif %}
+
+// ── Real-time polling: refresh chart data every 30 s ─────────────────────────
+(function() {
+  var _params = new URLSearchParams(window.location.search);
+  var _qs = ['dept_id','manager_id','date_from','date_to']
+    .map(k => _params.get(k) ? k+'='+encodeURIComponent(_params.get(k)) : '')
+    .filter(Boolean).join('&');
+
+  function _setEl(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = val;
+  }
+  function _updateChart(chart, labels, datasets) {
+    if (!chart) return;
+    chart.data.labels = labels;
+    datasets.forEach(function(d, i) { if (chart.data.datasets[i]) chart.data.datasets[i].data = d; });
+    chart.update('none'); // 'none' = skip animation for live updates
+  }
+
+  function _poll() {
+    fetch('/api/charts/live' + (_qs ? '?' + _qs : ''))
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d) {
+        if (!d) return;
+        // Delegation charts
+        if (d.deleg_wk) _updateChart(window._delegChart, d.deleg_wk.labels, [d.deleg_wk.created, d.deleg_wk.closed]);
+        if (d.cl_wk)    _updateChart(window._clChart,    d.cl_wk.labels,    [d.cl_wk.rates]);
+        if (d.fms_wk && window._fmsChart) _updateChart(window._fmsChart, d.fms_wk.labels, [d.fms_wk.created, d.fms_wk.completed]);
+        // Scorecard tiles
+        if (d.kpis) {
+          _setEl('sc-open-tickets',  d.kpis.open_tickets);
+          _setEl('sc-closed-tickets', d.kpis.closed_tickets);
+          _setEl('sc-cl-compliance', d.kpis.cl_compliance + '%');
+        }
+      })
+      .catch(function(){});
+  }
+
+  setInterval(_poll, 30000);
+})();
 </script>
 {% endblock %}

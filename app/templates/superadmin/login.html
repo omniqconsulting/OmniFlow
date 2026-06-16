@@ -1,5 +1,24 @@
 {% extends "superadmin/base.html" %}
 {% block content %}
+<div style="position:fixed;top:14px;right:18px;z-index:100">
+  <button id="sa-theme-btn" class="sa-theme-btn" onclick="saMToggleTheme()" title="Toggle light/dark">🌙</button>
+</div>
+<script>
+(function(){
+  if(localStorage.getItem('sa_theme')==='light'){
+    document.getElementById('sa-html').classList.add('sa-light');
+    document.addEventListener('DOMContentLoaded',function(){
+      var b=document.getElementById('sa-theme-btn');if(b)b.textContent='☀️';
+    });
+  }
+})();
+function saMToggleTheme(){
+  var h=document.getElementById('sa-html');
+  var b=document.getElementById('sa-theme-btn');
+  if(h.classList.toggle('sa-light')){localStorage.setItem('sa_theme','light');if(b)b.textContent='☀️';}
+  else{localStorage.setItem('sa_theme','dark');if(b)b.textContent='🌙';}
+}
+</script>
 <div style="max-width:380px;margin:80px auto">
   <div style="text-align:center;margin-bottom:32px">
     <div style="font-size:32px;font-weight:800;color:#f1f5f9;letter-spacing:-0.5px">OmniFlow <span style="color:#a78bfa">SA</span></div>

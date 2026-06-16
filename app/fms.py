@@ -367,6 +367,8 @@ def fms_dashboard(
     branch_id: Optional[str] = None,
     month: Optional[str] = None,      # "YYYY-MM"
     status_filter: Optional[str] = None,
+    f_priority: Optional[str] = None,
+    f_assignee_id: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -652,6 +654,10 @@ def fms_dashboard(
                 )
             elif user.role == "EMPLOYEE":
                 q = q.filter(FMSTicket.current_assignee_id == user.id)
+            if f_priority:
+                q = q.filter(FMSTicket.priority == f_priority)
+            if f_assignee_id:
+                q = q.filter(FMSTicket.current_assignee_id == f_assignee_id)
 
             raw = q.order_by(FMSTicket.created_at.desc()).all()
             for t in raw:
@@ -676,6 +682,9 @@ def fms_dashboard(
     for i, s in enumerate(stage_table_stages):
         if i + 1 < len(stage_table_stages):
             next_stage_map[s.id] = stage_table_stages[i + 1]
+
+    from .linked_entities import get_linked_entity_options as _geo
+    entity_options = _geo(db, tid)
 
     return templates.TemplateResponse(request, "fms/dashboard.html", _ctx(
         request, user, db,
@@ -705,6 +714,7 @@ def fms_dashboard(
         f_month=month or "",
         f_status=status_filter or "",
         employees=employees,
+        entity_options=entity_options,
         # summary strip
         active_tickets=active_tickets,
         tat_breaches=tat_breaches,

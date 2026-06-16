@@ -135,7 +135,7 @@ def _exception_report(errors: list[dict], filename: str) -> StreamingResponse:
 # CUSTOMERS
 # ══════════════════════════════════════════════════════════════════════════════
 
-PAGE_SIZE = 50
+PAGE_SIZE = 20
 
 
 @router.get("/setup/customers", response_class=HTMLResponse)
@@ -449,6 +449,14 @@ def custom_lists_page(
         "lists": lists,
         "msg": request.query_params.get("msg", ""),
         "err": request.query_params.get("err", ""),
+    })
+
+
+@router.get("/setup/how-to", response_class=HTMLResponse)
+def howto_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "setup/howto.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
     })
 
 

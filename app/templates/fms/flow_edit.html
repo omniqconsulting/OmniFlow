@@ -76,13 +76,12 @@
             {% if stage.evidence_required %}<span class="badge badge-amber" style="font-size:9px">📎 Evidence req'd</span>{% endif %}
           </div>
         </div>
+        {% if stage.description %}
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;line-height:1.5">{{ stage.description }}</div>
+        {% endif %}
         <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--text-faint)">
           {% if stage.target_tat_hours %}
           <span>⏱ {{ stage.target_tat_hours }}h TaT target</span>
-          {% endif %}
-          {% if stage.sub_module_tag %}
-          {% set sm_labels = {'PMS':'📊 Production Log','DISPATCH':'🚛 Dispatch','INVOICE':'🧾 Invoice','MATERIAL_REQ':'📦 Material Req','CUSTOM':'📋 Custom Form'} %}
-          <span style="color:#c4b5fd">{{ sm_labels.get(stage.sub_module_tag, stage.sub_module_tag) }}</span>
           {% endif %}
         </div>
       </div>

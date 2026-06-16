@@ -91,6 +91,7 @@ class Tenant(Base):
     trial_started_at = Column(DateTime)                   # When self-registration happened
     ticket_seq    = Column(Integer,  default=0)                # Auto-increment counter for display IDs
     ai_custom_limit = Column(Integer, nullable=True)           # SA override for daily AI call limit (None = use plan default)
+    checklist_notif_hours = Column(String, nullable=True)      # Comma-separated UTC hours for checklist notifications e.g. "8,13,18"
     created_at    = Column(DateTime, default=datetime.utcnow)
 
     users = relationship("User", back_populates="tenant")
@@ -583,6 +584,7 @@ class FMSStage(Base):
     flow_id                 = Column(String,  ForeignKey("fms_flows.id"), nullable=False)
     tenant_id               = Column(String,  ForeignKey("tenants.id"), nullable=False)
     name                    = Column(String,  nullable=False)
+    description             = Column(Text,    nullable=True)
     order                   = Column(Integer, default=0)
     color                   = Column(String,  default="#3b82f6")
     target_tat_hours        = Column(Integer, nullable=True)         # None = no TaT target

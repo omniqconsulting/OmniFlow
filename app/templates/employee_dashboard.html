@@ -17,6 +17,39 @@
   </div>
 </div>
 
+<!-- ── Performance Score ──────────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:148px 1fr;gap:14px;margin-bottom:20px;align-items:stretch">
+  <div class="card" style="text-align:center;padding:20px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0">
+    <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">My Score</div>
+    <div style="
+      width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+      background:conic-gradient(
+        {% if perf_score >= 80 %}#10b981{% elif perf_score >= 60 %}#f59e0b{% else %}#ef4444{% endif %}
+        {{ perf_score * 3.6 }}deg, var(--bg-elevated) 0deg);
+      font-size:22px;font-weight:700;
+      color:{% if perf_score >= 80 %}#6ee7b7{% elif perf_score >= 60 %}#fbbf24{% else %}#f87171{% endif %}">
+      {{ perf_score }}%
+    </div>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:8px">
+      {% if perf_score >= 80 %}Excellent{% elif perf_score >= 60 %}Good{% elif perf_score > 0 %}Needs Attention{% else %}No Data{% endif %}
+    </div>
+  </div>
+  <div class="card" style="padding:16px 20px;display:flex;flex-direction:column;justify-content:center;gap:10px;margin:0">
+    <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Score Breakdown (30 days)</div>
+    {% for c in perf_components %}
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+        <span style="color:{{ c.color }};font-weight:500">{{ c.label }}</span>
+        <span style="color:{% if c.value >= 80 %}#10b981{% elif c.value >= 60 %}#fbbf24{% else %}#f87171{% endif %};font-weight:600">{{ c.value }}%</span>
+      </div>
+      <div style="height:5px;border-radius:3px;background:var(--hover-bg);overflow:hidden">
+        <div style="height:100%;border-radius:3px;width:{{ c.value }}%;background:{{ c.color }};transition:width 0.6s"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
 <!-- ── KPI strip ───────────────────────────────────────────────── -->
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
 

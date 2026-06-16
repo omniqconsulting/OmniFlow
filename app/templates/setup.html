@@ -17,7 +17,6 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
 
 <div class="page-header">
   <h2 class="page-title">Setup</h2>
-  <a href="/setup/wizard" class="btn btn-sm btn-purple">🧭 Setup Guide</a>
 </div>
 
 <div class="setup-layout">
@@ -281,6 +280,55 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
   </div>
 </div>
 {% endif %}
+
+<!-- ── Checklist Notification Schedule ───────────────────────────────────── -->
+<div class="card" id="notifications" style="margin-bottom:16px">
+  <h2 style="margin-bottom:4px">Checklist Notification Schedule</h2>
+  <p style="font-size:12px;color:var(--text-faint);margin-bottom:16px;line-height:1.6">
+    Employees receive a consolidated list of their pending checklists at each configured time.
+    Times are in <strong>IST</strong>. Default: 08:00, 13:00, 18:00 IST.
+  </p>
+
+  {% if request.query_params.get('saved') %}
+  <div class="alert alert-green" style="margin-bottom:12px">✓ Notification schedule saved.</div>
+  {% endif %}
+
+  <form method="post" action="/setup/checklist-notifications" style="max-width:480px">
+    <div class="form-group" style="margin-bottom:14px">
+      <label style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:6px">
+        Notification hours (IST, comma-separated, 0–23)
+      </label>
+      <input type="text" name="notif_hours" value="{{ checklist_notif_hours or '8,13,18' }}"
+             placeholder="e.g. 8,13,18"
+             pattern="^(\d{1,2})(,\s*\d{1,2})*$"
+             style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:9px 12px;font-size:13px;color:var(--text-primary);outline:none;width:100%;box-sizing:border-box;font-family:monospace">
+      <div style="font-size:11px;color:var(--text-faint);margin-top:5px">
+        Preview:
+        {% set hours = (checklist_notif_hours or '8,13,18').split(',') %}
+        {% for h in hours %}
+        <span style="display:inline-block;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:5px;padding:1px 8px;font-size:11px;font-weight:600;color:var(--text-muted);margin-left:4px">
+          {{ '%02d:00'|format(h|int) }} IST
+        </span>
+        {% endfor %}
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary btn-sm">Save Schedule</button>
+  </form>
+
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border-subtle)">
+    <div style="font-size:11px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">How it works</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      {% set hours = (checklist_notif_hours or '8,13,18').split(',') %}
+      {% for h in hours %}
+      <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+        <span style="width:7px;height:7px;border-radius:50%;background:#3b82f6;flex-shrink:0"></span>
+        <span style="color:var(--text-muted)">{{ '%02d:00'|format(h|int) }} IST</span>
+        <span style="color:var(--text-faint)">— each employee receives their full pending checklist for the day</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
 
 <!-- ── Plan Upgrade Comparison Modal ─────────────────────────────────────── -->
 <div id="upgrade-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;z-index:200">

@@ -344,6 +344,75 @@ def api_poll(request: Request, since: Optional[str] = None,
     })
 
 
+# ── Live chart data API (for real-time polling) ───────────────────────────────
+@app.get("/api/charts/live")
+def api_charts_live(
+    request: Request,
+    dept_id: str = "", manager_id: str = "",
+    date_from: str = "", date_to: str = "",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Returns all chart datasets as JSON. Polled every 30 s by chart pages."""
+    tid = user.tenant_id
+    tenant = db.query(Tenant).get(tid)
+    now = datetime.utcnow()
+
+    # delegation
+    deleg_wk = get_delegation_weekly(db, tid, dept_id or None, manager_id or None)
+    deleg_sc = get_delegation_scorecards(db, tid, date_from or None, date_to or None,
+                                          dept_id or None, manager_id or None)
+    # checklists
+    cl_wk = get_checklist_weekly(db, tid, dept_id or None, manager_id or None)
+    cl_sc = get_checklist_scorecards(db, tid, date_from or None, date_to or None,
+                                      dept_id or None, manager_id or None)
+    # checklist weekly bar chart (done/failed)
+    checklist_bars = []
+    for i in range(7, -1, -1):
+        week_start = (now - timedelta(weeks=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start -= timedelta(days=week_start.weekday())
+        week_end = week_start + timedelta(days=7)
+        done_c = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.status == "DONE",
+            ChecklistAssignment.completed_at >= week_start,
+            ChecklistAssignment.completed_at < week_end,
+        ).count()
+        fail_c = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.status == "FAILED",
+            ChecklistAssignment.completed_at >= week_start,
+            ChecklistAssignment.completed_at < week_end,
+        ).count()
+        checklist_bars.append({"label": week_start.strftime("W%W"), "done": done_c, "failed": fail_c})
+
+    # FMS
+    has_fms = has_feature(tenant, "FMS", db)
+    fms_wk = get_fms_weekly(db, tid) if has_fms else None
+    fms_sc = get_fms_scorecards(db, tid, date_from or None, date_to or None) if has_fms else None
+
+    # KPI scorecard numbers for live tile updates
+    open_tickets = deleg_sc.get("open", 0)
+    closed_tickets = deleg_sc.get("closed", 0)
+    cl_compliance = cl_sc.get("compliance", 0) if cl_sc else 0
+
+    return JSONResponse({
+        "ts": now.isoformat(),
+        "deleg_wk": deleg_wk,
+        "deleg_sc": {k: v for k, v in deleg_sc.items() if not isinstance(v, list)},
+        "cl_wk": cl_wk,
+        "cl_sc": {k: v for k, v in cl_sc.items() if not isinstance(v, list)} if cl_sc else {},
+        "checklist_bars": checklist_bars,
+        "fms_wk": fms_wk,
+        "fms_sc": {k: v for k, v in fms_sc.items() if not isinstance(v, list)} if fms_sc else {},
+        "kpis": {
+            "open_tickets": open_tickets,
+            "closed_tickets": closed_tickets,
+            "cl_compliance": cl_compliance,
+        },
+    })
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -797,6 +866,17 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_id, manager_id, dept_name)
             dept_health= _calc_dept_health(db, tid, date_from, date_to)
 
+            # ── Summary Performance Score ─────────────────────────────────────
+            sum_perf_components: list = []
+            if kpis.total_count > 0:
+                sum_perf_components.append({"label": "Ticket On-Time Rate", "value": kpis.on_time_pct, "color": "#3b82f6"})
+            if kpis.cl_due > 0:
+                sum_perf_components.append({"label": "Checklist Compliance", "value": kpis.cl_compliance_pct, "color": "#10b981"})
+            if has_fms:
+                fms_on_time_pct = round(kpis.fms_on_time / kpis.fms_completed * 100) if kpis.fms_completed > 0 else 0
+                sum_perf_components.append({"label": "FMS On-Time Rate", "value": fms_on_time_pct, "color": "#8b5cf6"})
+            sum_perf_score = round(sum(c["value"] for c in sum_perf_components) / len(sum_perf_components)) if sum_perf_components else 0
+
             return templates.TemplateResponse(request, "dashboard_summary.html", {
                 "user": user, "unread": unread, "L": _L(db, user),
                 "now": datetime.utcnow(),
@@ -808,6 +888,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
                 "date_presets": date_presets, "active_preset": active_preset,
                 "kpis": kpis, "dept_health": dept_health,
                 "has_fms": has_fms, "has_checklists": has_checklists,
+                "perf_score": sum_perf_score, "perf_components": sum_perf_components,
             })
 
         # ── Detailed View ─────────────────────────────────────────────────────
@@ -848,6 +929,17 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         fms_stage_bd= get_fms_stage_breakdown(db, expand_flow, tid) \
                       if (has_fms and expand_flow) else None
 
+        # ── Overall Performance Score (same metrics as summary page) ─────────
+        _sk = _calc_summary_kpis(db, tid, date_from, date_to, dept_id, manager_id)
+        perf_components: list = []
+        if _sk.total_count > 0:
+            perf_components.append({"label": "Ticket On-Time Rate",   "value": _sk.on_time_pct,       "color": "#3b82f6"})
+        if _sk.cl_due > 0:
+            perf_components.append({"label": "Checklist Compliance",  "value": _sk.cl_compliance_pct, "color": "#10b981"})
+        if has_fms:
+            perf_components.append({"label": "FMS On-Time Rate", "value": round(_sk.fms_on_time / _sk.fms_completed * 100) if _sk.fms_completed > 0 else 0, "color": "#8b5cf6"})
+        perf_score = round(sum(c["value"] for c in perf_components) / len(perf_components)) if perf_components else 0
+
         return templates.TemplateResponse(request, "dashboard.html", {
             "user": user, "unread": unread, "L": _L(db, user),
             "now": datetime.utcnow(),
@@ -869,6 +961,8 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             # FMS
             "has_fms": has_fms, "fms_sc": fms_sc,
             "fms_flows": fms_flows, "fms_wk": fms_wk, "fms_stage_bd": fms_stage_bd,
+            # Performance score
+            "perf_score": perf_score, "perf_components": perf_components,
         })
     else:  # EMPLOYEE
         # ── KPIs ───────────────────────────────────────────────────────────────
@@ -922,6 +1016,17 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
         ).order_by(ChecklistAssignment.due_at).all()
 
+        # ── Employee Performance Score ────────────────────────────────────────
+        _has_fms = has_feature(tenant, "FMS", db) if hasattr(tenant, "plan") else True
+        emp_perf_components: list = []
+        emp_perf_components.append({"label": "Ticket On-Time Rate",  "value": int(kpis.get("on_time_rate", 0)),  "color": "#3b82f6"})
+        emp_perf_components.append({"label": "Checklist Compliance", "value": int(kpis.get("compliance_rate", 0)), "color": "#10b981"})
+        if _has_fms:
+            _fms_ontime = sum(1 for t in complete_fms if t.due_at and t.updated_at and t.updated_at <= t.due_at) if complete_fms else 0
+            _fms_pct = round(_fms_ontime / len(complete_fms) * 100) if complete_fms else 0
+            emp_perf_components.append({"label": "FMS On-Time Rate", "value": _fms_pct, "color": "#8b5cf6"})
+        emp_perf_score = round(sum(c["value"] for c in emp_perf_components) / len(emp_perf_components))
+
         return templates.TemplateResponse(request, "employee_dashboard.html", {
             "user": user, "unread": unread, "L": _L(db, user),
             "now": datetime.utcnow(),
@@ -934,15 +1039,18 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             # FMS
             "active_fms": active_fms,
             "complete_fms": complete_fms,
+            "has_fms": _has_fms,
             # Checklists
             "my_checklists": my_checklists,
+            # Performance score
+            "perf_score": emp_perf_score, "perf_components": emp_perf_components,
         })
 
 
 # ── Tickets ───────────────────────────────────────────────────────────────────
 
 @app.get("/tickets", response_class=HTMLResponse)
-def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
+def tickets_list(request: Request, status: str = "OPEN", view: str = "table",  # view kept for compat but unused
                  dept_id: str = "", manager_id: str = "", branch_id: str = "",
                  priority: str = "", ticket_category: str = "",
                  date_from: str = "", date_to: str = "", assignee_id: str = "",
@@ -1029,18 +1137,14 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
     employees = db.query(User).filter(
         User.tenant_id == tid, User.is_deleted == False,
         User.is_active == True).all()
-    departments = db.query(Department).filter(
+    _all_depts = db.query(Department).filter(
         Department.tenant_id == tid, Department.is_deleted == False).all()
+    # Deduplicate departments by name (same dept can exist per-branch)
+    departments = list({d.name: d for d in sorted(_all_depts, key=lambda d: d.name)}.values())
     managers = [e for e in employees if e.role in ("MANAGER", "ADMIN")]
-    branches = db.query(Branch).filter(Branch.tenant_id == tid).all() \
-        if hasattr(Branch, "is_deleted") else \
-        db.query(Branch).filter(Branch.tenant_id == tid).all()
+    branches = db.query(Branch).filter(Branch.tenant_id == tid).all()
 
     statuses = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "HELP_REQUESTED", "DONE", "CLOSED"]
-    kanban_columns = {s: [] for s in statuses}
-    for t in tickets:
-        if t.status in kanban_columns:
-            kanban_columns[t.status].append(t)
 
     from .linked_entities import get_linked_entity_options
     entity_options = get_linked_entity_options(db, tid)
@@ -1052,8 +1156,7 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
         "departments": departments, "managers": managers, "branches": branches,
         "status_filter": status, "statuses": statuses, "tab_statuses": tab_statuses,
         "status_counts": status_counts,
-        "kanban_columns": kanban_columns,
-        "view": view,
+        "view": "table",
         "dept_id": dept_id, "manager_id": manager_id, "branch_id": branch_id,
         "priority": priority, "ticket_category": ticket_category,
         "assignee_id": assignee_id, "date_from": date_from, "date_to": date_to,
@@ -1610,7 +1713,9 @@ def _next_due_from(freq: str, from_dt: datetime) -> datetime:
 def _checklist_stats(db: Session, tmpl) -> dict:
     """Compute live stats for one ChecklistTemplate."""
     all_a = db.query(ChecklistAssignment).filter(
-        ChecklistAssignment.template_id == tmpl.id).all()
+        ChecklistAssignment.template_id == tmpl.id,
+        ChecklistAssignment.is_deleted == False,
+    ).all()
     total = len(all_a)
     done = sum(1 for a in all_a if a.status == "DONE")
     failed = sum(1 for a in all_a if a.status == "FAILED")
@@ -1620,6 +1725,7 @@ def _checklist_stats(db: Session, tmpl) -> dict:
         default=None)
     next_pending = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.template_id == tmpl.id,
+        ChecklistAssignment.is_deleted == False,
         ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
     ).order_by(ChecklistAssignment.due_at).first()
     return {
@@ -1705,8 +1811,10 @@ def checklists(request: Request, user: User = Depends(get_current_user),
             "failed": fail_count,
         })
 
-    departments = db.query(Department).filter(
+    _raw_depts = db.query(Department).filter(
         Department.tenant_id == tid, Department.is_deleted == False).all()
+    # Deduplicate by name — same dept name can exist per-branch
+    departments = list({d.name: d for d in sorted(_raw_depts, key=lambda d: d.name)}.values())
     employees = db.query(User).filter(
         User.tenant_id == tid, User.is_deleted == False, User.is_active == True,
     ).order_by(User.name).all()
@@ -1725,6 +1833,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         "dept_id": dept_id, "manager_id": manager_id,
         "entity_options": entity_options,
         "now": now,
+        "checklist_notif_hours": getattr(user.tenant, "checklist_notif_hours", None) or "8,13,18",
     })
 
 @app.post("/checklists/templates/create")
@@ -1849,11 +1958,15 @@ async def checklists_bulk_complete(
 def start_checklist(assignment_id: str, user: User = Depends(get_current_user),
                     db: Session = Depends(get_db)):
     """P6-01: PENDING → IN_PROGRESS."""
-    a = db.query(ChecklistAssignment).filter(
+    q = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.id == assignment_id,
-        ChecklistAssignment.user_id == user.id,
         ChecklistAssignment.is_deleted == False,
-    ).first()
+    )
+    if user.role not in ("ADMIN", "MANAGER"):
+        q = q.filter(ChecklistAssignment.user_id == user.id)
+    else:
+        q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id)
+    a = q.first()
     if not a:
         raise HTTPException(404)
     if a.status == "PENDING":
@@ -1869,11 +1982,15 @@ async def complete_checklist(assignment_id: str, request: Request,
                               user: User = Depends(get_current_user),
                               db: Session = Depends(get_db)):
     """P6-01/P6-06: Mark assignment complete; gate evidence upload and delay reason."""
-    a = db.query(ChecklistAssignment).filter(
+    q = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.id == assignment_id,
-        ChecklistAssignment.user_id == user.id,
         ChecklistAssignment.is_deleted == False,
-    ).first()
+    )
+    if user.role not in ("ADMIN", "MANAGER"):
+        q = q.filter(ChecklistAssignment.user_id == user.id)
+    else:
+        q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id)
+    a = q.first()
     if not a:
         raise HTTPException(404)
     # P6-01: delay_reason required for OVERDUE
@@ -2115,10 +2232,6 @@ def checklist_bulk_template(user: User = Depends(require_admin)):
     w.writerow(["title","description","frequency","assigned_to_role",
                 "assigned_to_department","assigned_to_phone",
                 "evidence_required","reminder_hours_before","reminder_repeat_hours"])
-    w.writerow(["Mandatory. Max 200 chars","Mandatory. Instructions",
-                "DAILY|WEEKLY|MONTHLY|PER_SHIFT","EMPLOYEE|MANAGER|ADMIN (opt)",
-                "Department name (opt)","Phone number of specific user (opt)",
-                "TRUE|FALSE (default FALSE)","Integer hours (default 2)","Integer hours (default 4)"])
     w.writerow(["Daily Machine Check","Inspect all machines before shift","DAILY","EMPLOYEE",
                 "","","FALSE","2","4"])
     buf.seek(0)
@@ -2139,8 +2252,6 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
     errors = []
     created = 0
     for i, row in enumerate(reader, start=1):
-        if i == 2:  # skip description row
-            continue
         title = (row.get("title") or "").strip()
         desc  = (row.get("description") or "").strip()
         freq  = (row.get("frequency") or "DAILY").strip().upper()
@@ -2534,12 +2645,24 @@ def emp_open_work(emp_id: str, user: User = Depends(require_admin),
     ).first()
     if not target:
         raise HTTPException(404)
+    from sqlalchemy import or_
+    _open_statuses = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "HELP_REQUESTED", "DONE"]
+    # primary assignee OR helper assignee
+    _helper_tids = [
+        row.ticket_id for row in
+        db.query(TicketAssignee.ticket_id).filter(TicketAssignee.user_id == emp_id).all()
+    ]
     ticket_rows = (
         db.query(Ticket)
-        .join(TicketAssignee, TicketAssignee.ticket_id == Ticket.id)
-        .filter(TicketAssignee.user_id == emp_id,
-                Ticket.tenant_id == tid, Ticket.is_deleted == False,
-                Ticket.status.in_(["OPEN", "ACKNOWLEDGED", "IN_PROGRESS"]))
+        .filter(
+            Ticket.tenant_id == tid,
+            Ticket.is_deleted == False,
+            Ticket.status.in_(_open_statuses),
+            or_(
+                Ticket.current_assignee_id == emp_id,
+                Ticket.id.in_(_helper_tids),
+            ),
+        )
         .all()
     )
     cl_rows = db.query(ChecklistAssignment).filter(
@@ -2932,7 +3055,32 @@ def setup(request: Request, user: User = Depends(require_admin),
         "plan_limits": limits, "plan_usage": usage,
         "all_plan_limits": PLAN_LIMITS, "plan_labels": PLAN_LABELS,
         "current_plan": plan,
+        "checklist_notif_hours": getattr(tenant, "checklist_notif_hours", None) or "8,13,18",
     })
+
+
+@app.post("/setup/checklist-notifications")
+def setup_checklist_notifications(
+    notif_hours: str = Form("8,13,18"),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Save the comma-separated UTC hours for consolidated checklist notifications."""
+    import re as _re
+    # Sanitise: keep only valid hours 0-23
+    raw = [h.strip() for h in notif_hours.replace(";", ",").split(",")]
+    valid = []
+    for h in raw:
+        if _re.fullmatch(r"\d{1,2}", h) and 0 <= int(h) <= 23:
+            valid.append(str(int(h)))
+    if not valid:
+        valid = ["8", "13", "18"]
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if tenant:
+        tenant.checklist_notif_hours = ",".join(valid)
+        db.commit()
+    return redirect("/setup?open=notifications&saved=1")
+
 
 @app.post("/setup/branch")
 def add_branch(name: str = Form(...), location: str = Form(""),

@@ -233,6 +233,30 @@ html.light .omniq-link:hover { background: rgba(99,102,241,0.45); }
         </tr>
       </thead>
       <tbody>
+        {# ── Capacity limits rows ── #}
+        {% set capacity_rows = [
+          ('max_users',               '👤', 'Team Members'),
+          ('max_branches',            '🏭', 'Locations / Branches'),
+          ('max_fms_flows',           '🔄', 'Flow Board Processes'),
+          ('max_checklist_templates', '✅', 'Checklist Templates'),
+        ] %}
+        {% for key, icon, label in capacity_rows %}
+        <tr style="border-bottom:1px solid var(--border-subtle);background:var(--bg-input)">
+          <td style="padding:10px 16px;vertical-align:middle">
+            <div style="font-size:13px;font-weight:500;color:var(--text-primary)">{{ icon }} {{ label }}</div>
+          </td>
+          {% for p in plans %}
+          {% set lim = plan_limits[p][key] %}
+          <td style="text-align:center;padding:10px 14px;vertical-align:middle;
+               background:{% if tenant.plan == p %}rgba({{ '59,130,246' if p=='PROFESSIONAL' else ('124,58,237' if p=='ENTERPRISE' else '255,255,255') }},0.04){% else %}transparent{% endif %}">
+            <span style="font-size:13px;font-weight:700;color:{% if lim is none %}#10b981{% else %}var(--text-primary){% endif %}">
+              {% if lim is none %}∞{% else %}{{ lim }}{% endif %}
+            </span>
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+        {# ── Feature availability rows ── #}
         {% for fname, finfo in FRIENDLY.items() %}
         {# Check if this feature exists in our plan data at all #}
         {% set ficon = finfo[0] %}
@@ -295,7 +319,7 @@ html.light .omniq-link:hover { background: rgba(99,102,241,0.45); }
 </div>
 
 <!-- ── Contact Support ────────────────────────────────────────────────────── -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;align-items:stretch">
 
   <div class="card">
     <h2>Contact Support</h2>

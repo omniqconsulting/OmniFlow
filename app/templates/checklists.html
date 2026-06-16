@@ -54,7 +54,7 @@
 
 <!-- ── Upcoming Checklists + Compliance Chart ─────────────────────────── -->
 {% if user.role in ('ADMIN','MANAGER') %}
-<div style="display:grid;grid-template-columns:1fr 320px;gap:16px;margin-bottom:16px">
+<div style="margin-bottom:16px">
 
   <div class="card" style="margin:0">
     <h2 style="margin-bottom:12px">Upcoming — Next 7 Days</h2>
@@ -96,37 +96,24 @@
     {% endif %}
   </div>
 
-  <div class="card" style="margin:0">
-    <h2 style="margin-bottom:14px">Weekly Completions</h2>
-    {% set max_val = chart_weeks|map(attribute='done')|max if chart_weeks else 1 %}
-    {% set max_val = [max_val, 1]|max %}
-    <div style="display:flex;align-items:flex-end;gap:5px;height:90px">
-      {% for w in chart_weeks %}
-      {% set bar_h = ((w.done / max_val) * 80)|int %}
-      {% set fail_h = ((w.failed / max_val) * 80)|int %}
-      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
-        <div style="width:100%;display:flex;flex-direction:column;justify-content:flex-end;height:80px;gap:1px">
-          {% if w.failed > 0 %}
-          <div style="background:#ef4444;border-radius:3px 3px 0 0;height:{{ fail_h }}px" title="{{ w.failed }} failed"></div>
-          {% endif %}
-          <div style="background:#3b82f6;border-radius:{% if w.failed==0 %}3px 3px{% else %}0 0{% endif %} 0 0;height:{{ bar_h }}px" title="{{ w.done }} done"></div>
-        </div>
-        <div style="font-size:9px;color:var(--text-xfaint);margin-top:3px">{{ w.label }}</div>
-      </div>
-      {% endfor %}
-    </div>
-    <div style="display:flex;gap:12px;margin-top:10px">
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-faint)">
-        <div style="width:10px;height:10px;background:#3b82f6;border-radius:2px"></div>Done
-      </div>
-      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-faint)">
-        <div style="width:10px;height:10px;background:#ef4444;border-radius:2px"></div>Failed
-      </div>
-    </div>
-  </div>
 
 </div>
 {% endif %}
+
+<!-- ── Notification schedule info bar ───────────────────────────────────── -->
+{% set notif_hours_list = checklist_notif_hours.split(',') if checklist_notif_hours else ['8','13','18'] %}
+<div style="display:flex;align-items:center;gap:10px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:8px;padding:9px 14px;margin-bottom:14px;flex-wrap:wrap">
+  <span style="font-size:11px;color:var(--text-faint)">🔔 Checklist notifications sent at:</span>
+  {% for h in notif_hours_list %}
+  {% set hh = h|int %}
+  <span style="background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:6px;padding:2px 10px;font-size:11px;font-weight:600;color:var(--text-muted)">
+    {{ '%02d:00'|format(hh) }} IST
+  </span>
+  {% endfor %}
+  {% if user.role == 'ADMIN' %}
+  <a href="/setup?open=notifications" style="margin-left:auto;font-size:11px;color:#3b82f6;text-decoration:none">✏ Edit schedule →</a>
+  {% endif %}
+</div>
 
 <!-- ── My Pending Assignments ────────────────────────────────────────────── -->
 <div class="card">
@@ -196,11 +183,11 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       {% if a.status == 'PENDING' %}
       <form method="post" action="/checklists/start/{{ a.id }}">
-        <button type="submit" class="btn btn-sm btn-cyan">▶ Mark as Started</button>
+        <button type="submit" class="btn btn-sm btn-cyan">▶ Start</button>
       </form>
       {% endif %}
 
-      {% if a.status == 'IN_PROGRESS' %}
+      {% if a.status in ('PENDING', 'IN_PROGRESS') %}
         {% set ev_req = a.evidence_required or (a.template and a.template.evidence_required) %}
         {% if ev_req %}
         <button onclick="openCompleteModal('{{ a.id }}', false)" class="btn btn-sm btn-green">📎 Mark as Complete</button>
@@ -307,9 +294,12 @@
       </td>
       <td style="font-size:11px">
         {% if s.next_due %}
-        <span style="color:{% if s.next_due < now %}#f87171{% else %}var(--text-muted){% endif %}">
-          {{ s.next_due.strftime('%d %b, %I:%M %p') }}
-        </span>
+          {% if s.next_due < now %}
+          <span style="color:#f87171;font-weight:600">OVERDUE</span><br>
+          <span style="color:#f87171;font-size:10px">since {{ s.next_due.strftime('%d %b, %I:%M %p') }}</span>
+          {% else %}
+          <span style="color:var(--text-muted)">{{ s.next_due.strftime('%d %b, %I:%M %p') }}</span>
+          {% endif %}
         {% else %}<span class="muted">—</span>{% endif %}
       </td>
       <td style="text-align:center">
@@ -332,7 +322,21 @@
       </td>
       <td>
         <div style="display:flex;gap:4px;flex-direction:column">
-          <button onclick="toggleForm('assign-{{ t.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">Assign</button>
+          {% if s.next_assignment %}
+            {% set na = s.next_assignment %}
+            {% set ev_req = na.evidence_required or (na.template and na.template.evidence_required) %}
+            {% if ev_req %}
+            <button onclick="openCompleteModal('{{ na.id }}', {{ 'true' if na.status == 'OVERDUE' else 'false' }})"
+                    class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px">📎 Complete</button>
+            {% else %}
+            <form method="post" action="/checklists/complete/{{ na.id }}" enctype="multipart/form-data">
+              <button type="submit" class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px;width:100%">✓ Complete</button>
+            </form>
+            {% endif %}
+          {% else %}
+            <div style="font-size:10px;color:var(--text-faint);margin-bottom:2px">No pending assignment</div>
+          {% endif %}
+          <button onclick="toggleForm('assign-{{ t.id }}')" class="btn btn-sm btn-primary" style="font-size:10px;padding:3px 8px">+ Assign</button>
           <a href="/checklists/history/{{ t.id }}" class="btn btn-sm btn-gray" style="font-size:10px;padding:3px 8px;text-decoration:none;text-align:center">History</a>
           {% if user.role == 'ADMIN' %}
           <button onclick="toggleForm('edit-tmpl-{{ t.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">✏ Edit</button>
@@ -363,17 +367,12 @@
               <input name="title" value="{{ t.title }}" required style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;box-sizing:border-box"></div>
             <div><label style="font-size:10px;color:var(--text-faint)">Description</label>
               <textarea name="description" rows="2" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box">{{ t.description }}</textarea></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div><label style="font-size:10px;color:var(--text-faint)">Frequency</label>
-                <select name="frequency" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);outline:none">
-                  {% for f in ['DAILY','WEEKLY','MONTHLY','PER_SHIFT'] %}
-                  <option {% if f == t.frequency %}selected{% endif %}>{{ f }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <div><label style="font-size:10px;color:var(--text-faint)">Remind hrs before</label>
-                <input type="number" name="reminder_hours_before" value="{{ t.reminder_hours_before or 2 }}" min="0"
-                       style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);outline:none;box-sizing:border-box"></div>
+            <div><label style="font-size:10px;color:var(--text-faint)">Frequency</label>
+              <select name="frequency" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);outline:none">
+                {% for f in ['DAILY','WEEKLY','MONTHLY','PER_SHIFT'] %}
+                <option {% if f == t.frequency %}selected{% endif %}>{{ f }}</option>
+                {% endfor %}
+              </select>
             </div>
             <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);cursor:pointer">
               <input type="checkbox" name="evidence_required" value="true" {% if t.evidence_required %}checked{% endif %}>
@@ -382,7 +381,6 @@
             <input type="hidden" name="assigned_to_role" value="{{ t.assigned_to_role or 'EMPLOYEE' }}">
             <input type="hidden" name="assigned_to_dept_id" value="{{ t.assigned_to_dept_id or '' }}">
             <input type="hidden" name="assigned_to_user_id" value="{{ t.assigned_to_user_id or '' }}">
-            <input type="hidden" name="reminder_repeat_hours" value="{{ t.reminder_repeat_hours or 4 }}">
             <div style="display:flex;gap:6px">
               <button type="submit" class="btn btn-sm btn-primary" style="flex:1">Save</button>
               <button type="button" onclick="toggleForm('edit-tmpl-{{ t.id }}')" class="btn btn-sm btn-gray">Cancel</button>
@@ -524,17 +522,6 @@
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group">
-          <label>Remind N hours before due</label>
-          <input type="number" name="reminder_hours_before" value="2" min="0" max="48">
-        </div>
-        <div class="form-group">
-          <label>Repeat reminder every N hours if overdue</label>
-          <input type="number" name="reminder_repeat_hours" value="4" min="1" max="24">
-        </div>
-      </div>
-
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);margin-bottom:12px;cursor:pointer">
         <input type="checkbox" name="evidence_required" value="true"> Evidence Required on completion
       </label>
@@ -631,4 +618,5 @@ function clearClSelection() {
   updateClBulkBar();
 }
 </script>
+
 {% endblock %}

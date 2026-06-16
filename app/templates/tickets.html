@@ -1,13 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-/* ── Kanban ─────────────────────────────────────────────────────────────────── */
-.kanban-board{display:flex;gap:12px;overflow-x:auto;padding-bottom:16px}
-.kanban-col{min-width:200px;max-width:220px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:12px;flex-shrink:0}
-.kanban-col-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-faint);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
-.kanban-card{background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:box-shadow 0.12s;text-decoration:none;display:block}
-.kanban-card:hover{box-shadow:0 4px 16px rgba(0,0,0,0.4);border-color:rgba(59,130,246,0.3)}
-.kanban-col.drag-over{border-color:#3b82f6;background:rgba(59,130,246,0.06)}
 /* ── Status tabs ────────────────────────────────────────────────────────────── */
 .status-tabs{display:flex;gap:0;border-bottom:1px solid var(--border-subtle);margin-bottom:16px;overflow-x:auto}
 .status-tab{padding:8px 16px;font-size:12px;font-weight:600;color:var(--text-faint);text-decoration:none;white-space:nowrap;border-bottom:2px solid transparent;transition:all 0.15s;display:flex;align-items:center;gap:6px}
@@ -34,10 +27,6 @@
 <div class="page-header">
   <h2 class="page-title">{{ L.Tickets }}</h2>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <a href="/tickets?status={{ status_filter }}&view=table{% for k,v in request.query_params.items() %}{% if k not in ('view','status') %}&{{ k }}={{ v }}{% endif %}{% endfor %}"
-       class="btn btn-sm {% if view=='table' %}btn-primary{% else %}btn-outline{% endif %}">☰ Table</a>
-    <a href="/tickets?status={{ status_filter }}&view=kanban{% for k,v in request.query_params.items() %}{% if k not in ('view','status') %}&{{ k }}={{ v }}{% endif %}{% endfor %}"
-       class="btn btn-sm {% if view=='kanban' %}btn-cyan{% else %}btn-outline{% endif %}">🗂 Kanban</a>
     {% if user.role in ('ADMIN','MANAGER') %}
     <a href="/tickets/bulk-template" class="btn btn-sm btn-outline">⬇ CSV Template</a>
     <button onclick="document.getElementById('bulk-modal').style.display='flex'" class="btn btn-sm btn-outline">⬆ Bulk Upload</button>
@@ -63,7 +52,7 @@
 <!-- ── Status Tabs (P5-01) ──────────────────────────────────────────────────── -->
 <div class="status-tabs">
   {% for s in tab_statuses %}
-  <a href="/tickets?status={{ s }}&view={{ view }}&dept_id={{ dept_id }}&manager_id={{ manager_id }}&branch_id={{ branch_id }}&priority={{ priority }}&ticket_category={{ ticket_category }}&assignee_id={{ assignee_id }}&date_from={{ date_from }}&date_to={{ date_to }}"
+  <a href="/tickets?status={{ s }}&dept_id={{ dept_id }}&manager_id={{ manager_id }}&branch_id={{ branch_id }}&priority={{ priority }}&ticket_category={{ ticket_category }}&assignee_id={{ assignee_id }}&date_from={{ date_from }}&date_to={{ date_to }}"
      class="status-tab {% if status_filter == s %}active{% endif %}">
     {{ s.replace('_',' ')|title }}
     <span class="cnt">{{ status_counts[s] }}</span>
@@ -75,7 +64,6 @@
 {% if user.role in ('ADMIN','MANAGER') %}
 <form method="get" action="/tickets" class="filter-bar" id="filterForm">
   <input type="hidden" name="status" value="{{ status_filter }}">
-  <input type="hidden" name="view" value="{{ view }}">
   <div>
     <label>{{ L.Branch }}</label>
     <select name="branch_id" onchange="this.form.submit()">
@@ -145,53 +133,6 @@
 </form>
 {% endif %}
 
-{% if view == 'kanban' %}
-<!-- ═══ KANBAN VIEW ═══ -->
-<div class="kanban-board" id="kanban-board">
-  {% for col_status in statuses %}
-  {% if not status_filter or col_status == status_filter %}
-  <div class="kanban-col" data-status="{{ col_status }}" id="col-{{ col_status }}"
-       ondragover="event.preventDefault();this.classList.add('drag-over')"
-       ondragleave="this.classList.remove('drag-over')"
-       ondrop="dropCard(event,this)">
-    <div class="kanban-col-hdr">
-      <span>{{ col_status.replace('_',' ') }}</span>
-      <span style="background:var(--border-med);border-radius:99px;padding:2px 7px;font-size:10px">{{ kanban_columns[col_status]|length }}</span>
-    </div>
-    {% for t in kanban_columns[col_status] %}
-    <a class="kanban-card" href="/tickets/{{ t.id }}"
-       draggable="true" data-ticket-id="{{ t.id }}"
-       ondragstart="dragStart(event)"
-       onclick="if(window._dragging){event.preventDefault();window._dragging=false}">
-      {% if t.is_flagged %}<span style="color:#f87171;font-size:10px">🚩 Flagged</span><br>{% endif %}
-      {% if t.display_id %}<div style="font-size:9px;color:#3b82f6;font-weight:700;letter-spacing:.04em;margin-bottom:2px">{{ t.display_id }}</div>{% endif %}
-      <div style="font-weight:600;font-size:12px;color:var(--text-strong);margin-bottom:6px;line-height:1.4">{{ t.title }}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px">
-        <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}" style="font-size:9px">{{ t.priority }}</span>
-        {% if t.ticket_category is defined and t.ticket_category == 'HELP' %}
-        <span class="badge badge-amber" style="font-size:9px">HELP</span>
-        {% endif %}
-      </div>
-      <div style="font-size:11px;color:var(--text-faint)">👤 {{ t.current_assignee.name if t.current_assignee else '—' }}</div>
-      {% if t.due_at %}
-      <div style="font-size:10px;margin-top:4px;{% if t.due_at < now and col_status not in ('CLOSED','DONE') %}color:#f87171{% else %}color:var(--text-xfaint){% endif %}">⏰ {{ t.due_at.strftime('%d %b') }}</div>
-      {% endif %}
-    </a>
-    {% endfor %}
-  </div>
-  {% endif %}
-  {% endfor %}
-</div>
-
-<div id="move-forms" style="display:none">
-  {% for t in tickets %}
-  <form id="move-form-{{ t.id }}" method="post" action="/tickets/{{ t.id }}/move">
-    <input name="new_status" id="move-status-{{ t.id }}">
-  </form>
-  {% endfor %}
-</div>
-
-{% else %}
 <!-- ═══ TABLE VIEW ═══ -->
 <!-- Bulk form lives OUTSIDE the table to avoid nested-form breakage -->
 <form id="bulk-form" method="post" action="/tickets/bulk-action" style="display:none">
@@ -309,7 +250,6 @@
   <button type="button" onclick="submitBulk('close')"   class="btn btn-xs btn-gray">Close All</button>
   <button type="button" onclick="clearSelection()"      class="btn btn-xs" style="color:var(--text-faint)">✕ Cancel</button>
 </div>
-{% endif %}
 {% endif %}
 
 <!-- ── Evidence Upload Modal (P5-03) ─────────────────────────────────────────── -->
@@ -430,24 +370,6 @@
 {% endif %}
 
 <script>
-/* Kanban drag-drop */
-let draggingId = null;
-function dragStart(e) {
-  window._dragging = true;
-  draggingId = e.currentTarget.dataset.ticketId;
-  e.currentTarget.style.opacity = '0.4';
-  e.dataTransfer.effectAllowed = 'move';
-}
-function dropCard(e, col) {
-  e.preventDefault();
-  col.classList.remove('drag-over');
-  const newStatus = col.dataset.status;
-  document.querySelectorAll('.kanban-card').forEach(c => c.style.opacity = '1');
-  if (!draggingId) return;
-  document.getElementById('move-status-' + draggingId).value = newStatus;
-  document.getElementById('move-form-' + draggingId).submit();
-}
-
 /* Toast */
 function showToast(msg) {
   const t = document.getElementById('toast');

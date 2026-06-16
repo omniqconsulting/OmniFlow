@@ -236,57 +236,6 @@
 </div>
 {% endif %}
 
-<!-- Phase 0-K-8: Deployed Library Items & Update Indicators -->
-{% if deployed_items %}
-<div class="card">
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-    <h2 style="margin:0">Deployed Library Items</h2>
-    {% if updates_available %}
-    <span class="badge badge-yellow">{{ updates_available|length }} update(s) available</span>
-    {% else %}
-    <span class="badge badge-green">All up to date</span>
-    {% endif %}
-  </div>
-  <table>
-    <thead><tr><th>Type</th><th>Item</th><th style="text-align:center">Deployed v</th><th style="text-align:center">Library v</th><th>Deployed</th><th>Status</th><th></th></tr></thead>
-    <tbody>
-    {% for d in deployed_items %}
-    {% set r = d.record %}
-    <tr>
-      <td><span class="badge badge-gray" style="font-size:10px">{{ r.item_type|replace('_',' ')|upper }}</span></td>
-      <td style="color:#e2e8f0">{{ r.item_name or r.library_item_id[:8] }}</td>
-      <td style="text-align:center"><span class="badge badge-blue">v{{ r.deployed_version }}</span></td>
-      <td style="text-align:center">
-        {% if d.current_library_version %}
-        <span class="badge badge-{% if d.update_available %}yellow{% else %}green{% endif %}">v{{ d.current_library_version }}</span>
-        {% else %}<span class="muted">—</span>{% endif %}
-      </td>
-      <td class="muted">{{ r.deployed_at.strftime('%d %b %Y') if r.deployed_at else '—' }}</td>
-      <td>
-        {% if d.update_available %}
-        {% if r.item_type == 'flow' %}
-        <a href="/superadmin/library/flows/{{ r.library_item_id }}/diff/{{ tenant.id }}"
-           class="btn btn-sm btn-amber">View Diff</a>
-        {% else %}
-        <span class="badge badge-yellow" style="font-size:10px">Update Available</span>
-        {% endif %}
-        {% else %}
-        <span class="badge badge-green" style="font-size:10px">Current</span>
-        {% endif %}
-      </td>
-      <td>
-        <form method="post" action="/superadmin/tenants/{{ tenant.id }}/undeploy-item/{{ r.id }}"
-              onsubmit="return confirm('Undeploy {{ r.item_name or r.item_type }} from {{ tenant.name }}? This will also remove any associated FMS flow.')">
-          <button type="submit" class="btn btn-sm btn-red" style="font-size:10px;padding:3px 8px">Undeploy</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
-
 <!-- FMS Flow Deployment Section -->
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
@@ -332,7 +281,7 @@
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px">
           {% for stage in f.stages if not stage.is_deleted %}
           <span style="background:{{ stage.color or f.color or '#3b82f6' }}22;border:1px solid {{ stage.color or f.color or '#3b82f6' }}44;border-radius:99px;padding:1px 7px;font-size:9px;color:#94a3b8">
-            {{ stage.name }}{% if stage.sub_module_tag %} · {{ stage.sub_module_tag }}{% endif %}
+            {{ stage.name }}
           </span>
           {% endfor %}
         </div>

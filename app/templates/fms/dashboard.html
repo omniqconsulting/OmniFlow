@@ -128,23 +128,24 @@ select option{background:var(--bg-card);color:var(--text-primary)}
   </div>
 </div>
 
-<!-- ── Flow tabs + actions ────────────────────────────────────────────────────── -->
+<!-- ── Flow selector + actions ───────────────────────────────────────────────── -->
 {% if flows %}
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint)">Flows</span>
-    <div class="flow-tabs">
-      {% for f in flows %}
-      {% set is_active = active_flow and active_flow.id == f.id %}
-      <a href="/fms/dashboard?flow_id={{ f.id }}&view={{ view }}" class="flow-tab {% if is_active %}active{% endif %}"
-         style="border-color:{{ f.color if is_active else f.color + '44' }};background:{{ f.color + '14' if is_active else 'transparent' }}">
-        <span class="dot" style="background:{{ f.color }}"></span>
-        <span>{{ f.name }}</span>
-        {% if flow_counts.get(f.id, 0) %}
-        <span class="cnt" style="background:{{ f.color + '25' }};color:var(--text-primary)">{{ flow_counts[f.id] }}</span>
-        {% endif %}
-      </a>
-      {% endfor %}
+    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint)">FLOWS</span>
+    <div style="position:relative">
+      <select onchange="window.location='/fms/dashboard?flow_id='+this.value+'&view={{ view }}'"
+              style="background:var(--bg-input);border:1.5px solid {{ active_flow.color + '88' if active_flow else 'var(--border-med)' }};border-radius:8px;padding:7px 32px 7px 12px;font-size:13px;font-weight:600;color:var(--text-strong);outline:none;appearance:none;cursor:pointer;min-width:200px">
+        {% for f in flows %}
+        <option value="{{ f.id }}" {% if active_flow and active_flow.id == f.id %}selected{% endif %}>
+          {{ f.name }}{% if flow_counts.get(f.id, 0) %} ({{ flow_counts[f.id] }}){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      {% if active_flow %}
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%) translateX(-20px);width:8px;height:8px;border-radius:50%;background:{{ active_flow.color }};pointer-events:none"></span>
+      {% endif %}
+      <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--text-faint);pointer-events:none;font-size:10px">▼</span>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
@@ -158,7 +159,6 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     {% endif %}
     <div class="view-toggle">
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=stage_table" class="{{ 'active' if view == 'stage_table' else '' }}">Stages</a>
-      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=swimlane" class="{{ 'active' if view == 'swimlane' else '' }}">Board</a>
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=list"     class="{{ 'active' if view == 'list' else '' }}">List</a>
     </div>
   </div>
@@ -173,40 +173,66 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 {% if active_flow and stage_table_stages %}
 <div style="display:grid;grid-template-columns:220px 1fr;gap:0;border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden;background:var(--bg-card)">
 
-  <!-- Left: stage list -->
-  <div style="border-right:1px solid var(--border-subtle);background:var(--bg-input);padding:12px 0">
-    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint);padding:0 14px;margin-bottom:8px">Stages</div>
+  <!-- Left: stage list with descriptions -->
+  <div style="border-right:1px solid var(--border-subtle);background:var(--bg-input);padding:12px 0;overflow-y:auto;max-height:70vh">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint);padding:0 14px;margin-bottom:8px">Flow Stages</div>
     {% for s in stage_table_stages %}
     {% set cnt = stage_ticket_counts.get(s.id, 0) %}
     {% set is_sel = active_stage and active_stage.id == s.id %}
     <a href="/fms/dashboard?flow_id={{ active_flow.id }}&view=stage_table&stage_id={{ s.id }}"
-       style="display:flex;align-items:center;gap:9px;padding:8px 14px;text-decoration:none;transition:background .12s;
-              background:{{ 'var(--border-subtle)' if is_sel else 'transparent' }};
+       style="display:block;padding:8px 14px;text-decoration:none;transition:background .12s;
+              background:{{ 'rgba(255,255,255,0.06)' if is_sel else 'transparent' }};
               border-left:3px solid {{ s.color or '#3b82f6' if is_sel else 'transparent' }}">
-      <span style="width:8px;height:8px;border-radius:50%;background:{{ s.color or '#3b82f6' }};flex-shrink:0"></span>
-      <span style="flex:1;font-size:12px;font-weight:{{ '600' if is_sel else '400' }};color:{{ 'var(--text-strong)' if is_sel else 'var(--text-muted)' }}">{{ s.name }}</span>
-      {% if cnt %}
-      <span style="font-size:10px;padding:1px 6px;border-radius:99px;background:{{ (s.color or '#3b82f6') + '28' }};color:var(--text-primary)">{{ cnt }}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:8px;height:8px;border-radius:50%;background:{{ s.color or '#3b82f6' }};flex-shrink:0"></span>
+        <span style="flex:1;font-size:12px;font-weight:{{ '600' if is_sel else '500' }};color:{{ 'var(--text-strong)' if is_sel else 'var(--text-muted)' }}">{{ s.name }}</span>
+        {% if cnt %}<span style="font-size:10px;padding:1px 6px;border-radius:99px;background:{{ (s.color or '#3b82f6') + '28' }};color:var(--text-primary);flex-shrink:0">{{ cnt }}</span>{% endif %}
+        {% if s.is_terminal %}<span title="Terminal" style="font-size:9px;color:#6ee7b7;flex-shrink:0">✓</span>{% endif %}
+      </div>
+      {% if s.description %}
+      <div style="font-size:10px;color:{{ 'var(--text-faint)' if is_sel else '#374151' }};margin-top:3px;margin-left:16px;line-height:1.45">{{ s.description }}</div>
       {% endif %}
-      {% if s.evidence_required %}<span title="Evidence required" style="font-size:9px;color:#fbbf24">🔒</span>{% endif %}
-      {% if s.is_terminal %}<span title="Terminal stage" style="font-size:9px;color:#6ee7b7">✓</span>{% endif %}
     </a>
+    {% if not loop.last %}<div style="margin:0 14px;border-top:1px solid var(--border-subtle);opacity:.4"></div>{% endif %}
     {% endfor %}
   </div>
 
   <!-- Right: ticket table for selected stage -->
   <div style="padding:16px;overflow-x:auto">
     {% if active_stage %}
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <div>
         <div style="font-size:14px;font-weight:600;color:var(--text-strong)">{{ active_stage.name }}</div>
         <div style="font-size:11px;color:var(--text-faint);margin-top:2px">
           {{ stage_tickets|length }} ticket{{ 's' if stage_tickets|length != 1 }}
           {% if active_stage.target_tat_hours %} · TaT target: {{ active_stage.target_tat_hours }}h{% endif %}
-          {% if active_stage.sub_module_tag %} · <span style="color:#c4b5fd">{{ active_stage.sub_module_tag }}</span>{% endif %}
-          {% if active_stage.evidence_required %} · <span style="color:#fbbf24">Evidence Required</span>{% endif %}
+          {% if active_stage.evidence_required %} · <span style="color:#fbbf24">📎 Evidence Required</span>{% endif %}
         </div>
       </div>
+      <!-- Inline filters -->
+      <form method="get" action="/fms/dashboard" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="hidden" name="flow_id" value="{{ active_flow.id }}">
+        <input type="hidden" name="view" value="stage_table">
+        <input type="hidden" name="stage_id" value="{{ active_stage.id }}">
+        <select name="f_priority" onchange="this.form.submit()"
+                style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--text-muted);outline:none">
+          <option value="">All Priorities</option>
+          {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+          <option {% if request.query_params.get('f_priority') == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+        <select name="f_assignee_id" onchange="this.form.submit()"
+                style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--text-muted);outline:none">
+          <option value="">All Assignees</option>
+          {% for emp in employees %}
+          <option value="{{ emp.id }}" {% if request.query_params.get('f_assignee_id') == emp.id %}selected{% endif %}>{{ emp.name }}</option>
+          {% endfor %}
+        </select>
+        {% if request.query_params.get('f_priority') or request.query_params.get('f_assignee_id') %}
+        <a href="/fms/dashboard?flow_id={{ active_flow.id }}&view=stage_table&stage_id={{ active_stage.id }}"
+           style="font-size:11px;color:#f87171;text-decoration:none">✕ Clear</a>
+        {% endif %}
+      </form>
     </div>
 
     {% if stage_tickets %}
@@ -227,14 +253,18 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       </thead>
       <tbody>
       {% for row in stage_tickets %}{% set t = row.ticket %}
-      <tr>
-        <td><span style="font-family:monospace;font-size:11px;color:#60a5fa">{{ t.display_id or t.id[:8] }}</span></td>
+      <tr onclick="window.location='/fms/tickets/{{ t.id }}'" style="cursor:pointer">
         <td>
-          <a href="/fms/tickets/{{ t.id }}" style="font-weight:600;font-size:12px;color:var(--text-primary);text-decoration:none">
-            {{ t.title[:40] }}{% if t.title|length > 40 %}…{% endif %}
+          <a href="/fms/tickets/{{ t.id }}" onclick="event.stopPropagation()"
+             style="font-family:monospace;font-size:11px;color:#60a5fa;text-decoration:none;font-weight:600">
+            {{ t.display_id or t.id[:8] }}
           </a>
-          {% if t.is_flagged %} 🚩{% endif %}
-          {% if t.wo_number %}<div style="font-size:10px;color:var(--text-faint)">{{ t.wo_number }}</div>{% endif %}
+        </td>
+        <td>
+          <div style="font-weight:600;font-size:12px;color:var(--text-primary)">
+            {{ t.title[:40] }}{% if t.title|length > 40 %}…{% endif %}
+            {% if t.is_flagged %} 🚩{% endif %}
+          </div>
         </td>
         <td style="font-size:12px;color:var(--text-muted)">{{ row.assignee_name }}</td>
         <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
@@ -280,53 +310,12 @@ select option{background:var(--bg-card);color:var(--text-primary)}
         <td style="font-size:12px;color:{% if (sub.outstanding or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.outstanding|round(0)|int if sub.outstanding else 0 }}</td>
         <td style="font-size:11px;color:{% if sub.oldest_due and sub.oldest_due < now.date() %}#f87171{% else %}var(--text-faint){% endif %}">{{ sub.oldest_due.strftime('%d %b') if sub.oldest_due else '—' }}</td>
         {% endif %}
-        <td>
-          <div style="display:flex;gap:6px">
-            {% if not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
-            <button onclick="openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ active_stage.evidence_required|lower }}','{{ active_stage.completion_note_required|lower }}')"
-                    class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px;white-space:nowrap">
-              ✓ Mark Done
-            </button>
-            {% endif %}
-            {% if user.role in ('ADMIN','MANAGER') %}
-            <button onclick="toggleForm('fms-edit-{{ t.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">✏</button>
-            {% endif %}
-          </div>
-
-          {# Inline edit form #}
-          {% if user.role in ('ADMIN','MANAGER') %}
-          <div id="fms-edit-{{ t.id }}" style="display:none;margin-top:8px;min-width:260px;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:8px;padding:12px;position:relative;z-index:50">
-            <form method="post" action="/fms/tickets/{{ t.id }}/edit" style="display:flex;flex-direction:column;gap:8px">
-              <div><label style="font-size:10px;color:var(--text-faint)">Title</label>
-                <input name="title" value="{{ t.title }}" required style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;box-sizing:border-box"></div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-                <div><label style="font-size:10px;color:var(--text-faint)">Priority</label>
-                  <select name="priority" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);outline:none">
-                    {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
-                    <option {% if p == t.priority %}selected{% endif %}>{{ p }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div><label style="font-size:10px;color:var(--text-faint)">WO Number</label>
-                  <input name="wo_number" value="{{ t.wo_number or '' }}" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);outline:none;box-sizing:border-box"></div>
-              </div>
-              <div><label style="font-size:10px;color:var(--text-faint)">Due Date</label>
-                <input type="datetime-local" name="due_at" value="{{ t.due_at.strftime('%Y-%m-%dT%H:%M') if t.due_at else '' }}"
-                       style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px;font-size:12px;color:var(--text-primary);color-scheme:dark;outline:none;box-sizing:border-box">
-              </div>
-              <input type="hidden" name="description" value="{{ t.description or '' }}">
-              <div style="display:flex;gap:6px">
-                <button type="submit" class="btn btn-sm btn-primary" style="flex:1">Save</button>
-                <button type="button" onclick="toggleForm('fms-edit-{{ t.id }}')" class="btn btn-sm btn-gray">Cancel</button>
-                {% if user.role == 'ADMIN' %}
-                <form method="post" action="/fms/tickets/{{ t.id }}/delete"
-                      onsubmit="return confirm('Delete this ticket? Only allowed if no stage history.')" style="display:inline">
-                  <button type="submit" class="btn btn-sm btn-red" style="padding:4px 8px">🗑</button>
-                </form>
-                {% endif %}
-              </div>
-            </form>
-          </div>
+        <td onclick="event.stopPropagation()">
+          {% if not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
+          <button onclick="openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ active_stage.evidence_required|lower }}','{{ active_stage.completion_note_required|lower }}')"
+                  class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px;white-space:nowrap">
+            ✓ Mark Done
+          </button>
           {% endif %}
         </td>
       </tr>
@@ -695,10 +684,6 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 
           <div class="fmr-grid2">
             <div class="fm-group" style="margin-bottom:0">
-              <label>WO / PO Number</label>
-              <input type="text" name="wo_number" placeholder="e.g. WO-4521">
-            </div>
-            <div class="fm-group" style="margin-bottom:0">
               <label>Priority</label>
               <select name="priority">
                 <option value="LOW">LOW</option>
@@ -706,19 +691,6 @@ select option{background:var(--bg-card);color:var(--text-primary)}
                 <option value="HIGH">HIGH</option>
                 <option value="CRITICAL">CRITICAL</option>
               </select>
-            </div>
-          </div>
-
-          <div style="height:12px"></div>
-
-          <div class="fmr-grid3">
-            <div class="fm-group" style="margin-bottom:0">
-              <label>Target Qty</label>
-              <input type="number" name="target_qty" min="0" placeholder="100">
-            </div>
-            <div class="fm-group" style="margin-bottom:0">
-              <label>Unit</label>
-              <input type="text" name="qty_unit" placeholder="pcs / kg / m">
             </div>
             <div class="fm-group" style="margin-bottom:0">
               <label>Due Date</label>
@@ -739,6 +711,58 @@ select option{background:var(--bg-card);color:var(--text-primary)}
               {% endfor %}
             </select>
           </div>
+
+          <!-- Linked entities -->
+          {% if entity_options %}
+          <div style="height:14px"></div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint);margin-bottom:8px">🔗 Linked Records <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+          {% if entity_options.get('CUSTOMER') %}
+          <div class="fm-group" style="margin-bottom:10px">
+            <label>Customer</label>
+            <select name="linked_customer">
+              <option value="">— None —</option>
+              {% for opt in entity_options['CUSTOMER'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          {% if entity_options.get('VENDOR') %}
+          <div class="fm-group" style="margin-bottom:10px">
+            <label>Vendor</label>
+            <select name="linked_vendor">
+              <option value="">— None —</option>
+              {% for opt in entity_options['VENDOR'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          {% if entity_options.get('END_PRODUCT') %}
+          <div class="fm-group" style="margin-bottom:10px">
+            <label>End Product</label>
+            <select name="linked_end_product">
+              <option value="">— None —</option>
+              {% for opt in entity_options['END_PRODUCT'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          {% if entity_options.get('MATERIAL') %}
+          <div class="fm-group" style="margin-bottom:10px">
+            <label>Raw Material</label>
+            <select name="linked_material">
+              <option value="">— None —</option>
+              {% for opt in entity_options['MATERIAL'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          {% for key, items in entity_options.items() %}{% if key.startswith('CUSTOM_LIST:') %}
+          {% set parts = key.split(':') %}
+          <div class="fm-group" style="margin-bottom:10px">
+            <label>{{ parts[2] }}</label>
+            <select name="linked_custom_{{ parts[1] }}">
+              <option value="">— None —</option>
+              {% for opt in items %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endif %}{% endfor %}
+          {% endif %}
 
           <!-- Stage hint -->
           <div id="stageHint" style="display:none;margin-top:10px;padding:8px 12px;background:var(--bg-input);border:1px solid rgba(255,255,255,.08);border-radius:7px;font-size:11px;color:var(--text-faint);line-height:1.6"></div>
@@ -974,13 +998,15 @@ function selectFlow(fid) {
       btn.setAttribute('data-stage-id', s.id);
       btn.setAttribute('data-assignee', s.default_assignee_id || '');
       btn.setAttribute('data-tat', s.target_tat_hours || '');
-      btn.setAttribute('data-sub', s.sub_module_tag || '');
       btn.setAttribute('data-note', s.completion_note_required ? '1' : '0');
+      btn.setAttribute('data-desc', s.description || '');
       btn.innerHTML = `
         <span class="stage-num" style="background:${s.color}33;color:var(--text-primary)">${s.order + 1}</span>
-        <span style="flex:1;font-weight:500">${s.name}</span>
-        ${s.sub_module_tag ? `<span class="stage-tag">${SM_LABELS[s.sub_module_tag] || s.sub_module_tag}</span>` : ''}
-        ${s.is_terminal ? '<span style="font-size:9px;color:#6ee7b7;margin-left:auto">terminal</span>' : ''}
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500">${s.name}</div>
+          ${s.description ? `<div style="font-size:10px;color:var(--text-faint);margin-top:2px;line-height:1.4;white-space:normal">${s.description}</div>` : ''}
+        </div>
+        ${s.is_terminal ? '<span style="font-size:9px;color:#6ee7b7;flex-shrink:0">terminal</span>' : ''}
       `;
       btn.onclick = () => selectStage(s.id, s.color);
       stageList.appendChild(btn);
@@ -1022,11 +1048,9 @@ function selectStage(sid, color) {
     // Stage hint
     const hint = document.getElementById('stageHint');
     const parts = [];
-    const tat = btn.getAttribute('data-tat');
-    const sub = btn.getAttribute('data-sub');
+    const tat  = btn.getAttribute('data-tat');
     const note = btn.getAttribute('data-note');
     if (tat)        parts.push(`⏱ TaT target: <strong style="color:var(--text-primary)">${tat}h</strong>`);
-    if (sub)        parts.push(`🔧 Sub-module: <strong style="color:#c4b5fd">${SM_LABELS[sub] || sub}</strong>`);
     if (note==='1') parts.push(`📝 Completion note required`);
     if (parts.length) { hint.innerHTML = parts.join(' &nbsp;·&nbsp; '); hint.style.display=''; }
     else hint.style.display = 'none';

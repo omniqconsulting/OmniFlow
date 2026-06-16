@@ -459,7 +459,7 @@ def get_checklist_weekly(db: Session, tenant_id: str,
         if uids: q = q.filter(ChecklistAssignment.user_id.in_(uids))
         total = q.count()
         done  = q.filter(ChecklistAssignment.status=="DONE").count()
-        rates.append(round(done/total*100) if total else 100)
+        rates.append(round(done/total*100) if total else 0)
         labels.append(w0.strftime("%d %b"))
     return {"labels": labels, "rates": rates}
 
