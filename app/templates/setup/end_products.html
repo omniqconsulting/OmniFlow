@@ -51,7 +51,7 @@
               </span>
             </td>
             <td>
-              <button onclick="openEdit({{ p|tojson }})" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
+              <button data-obj='{{ p|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
               <form method="post" action="/setup/end-products/{{ p.id }}/delete" style="display:inline"
                     onsubmit="return confirm('Delete {{ p.name }}?')">
                 <button type="submit" class="btn btn-xs btn-red">Del</button>

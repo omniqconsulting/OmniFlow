@@ -11,12 +11,17 @@
   text-decoration: none; border-left: 3px solid transparent;
   transition: all 0.15s;
 }
-.setup-sidenav a:hover { color: var(--text-primary); background: var(--border-subtle); }
-.setup-sidenav a.active { color: #60a5fa; border-left-color: #3b82f6; background: rgba(59,130,246,0.08); font-weight: 600; }
+.setup-sidenav a:hover { color: var(--text-primary); background: var(--hover-bg); }
+.setup-sidenav a.active { color: #60a5fa; border-left-color: #3b82f6; background: rgba(59,130,246,0.10); font-weight: 600; }
 .setup-sidenav .nav-section-label {
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--text-xfaint); padding: 14px 18px 4px; margin-top: 6px;
 }
+html.light .setup-sidenav { border-right-color: rgba(0,0,0,0.10); }
+html.light .setup-sidenav a { color: #334155; }
+html.light .setup-sidenav a:hover { color: #0f172a; background: rgba(0,0,0,0.05); }
+html.light .setup-sidenav a.active { color: #1d4ed8; border-left-color: #2563eb; background: rgba(29,78,216,0.08); }
+html.light .setup-sidenav .nav-section-label { color: #94a3b8; }
 .setup-content { flex: 1; padding: 0 0 0 20px; min-width: 0; }
 @media (max-width: 640px) {
   .setup-layout { flex-direction: column; }
@@ -54,14 +59,4 @@
     📋 Custom Lists
   </a>
 
-  <div class="nav-section-label">Configuration</div>
-  <a href="/setup/deployed-config" class="{{ 'active' if active_section == 'deployed_config' else '' }}">
-    ⚙️ Deployed Config
-  </a>
-  <a href="/settings/labels" class="{{ 'active' if active_section == 'labels' else '' }}">
-    🏷️ Label Config
-  </a>
-  <a href="/setup/org-chart" class="{{ 'active' if active_section == 'org_chart' else '' }}">
-    🌳 Org Chart
-  </a>
 </div>

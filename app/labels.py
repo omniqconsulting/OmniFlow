@@ -95,9 +95,15 @@ def _build_L(**overrides) -> dict[str, str]:
         L[concept]     = s.lower()
         L[concept + "s"] = p.lower()
 
-    # Friendly aliases used in templates
-    L["Ticket"]   = L.get("Ticket",  DEFAULTS["ticket"][0])
-    L["Tickets"]  = L.get("Tickets", DEFAULTS["ticket"][1])
+    # Friendly aliases — fix irregular plurals ("Branchs" → "Branches")
+    L["Ticket"]      = L.get("Ticket",      DEFAULTS["ticket"][0])
+    L["Tickets"]     = L.get("Tickets",     DEFAULTS["ticket"][1])
+    L["Branch"]      = L.get("Branch",      DEFAULTS["branch"][0])
+    L["Branches"]    = L.get("Branchs",     DEFAULTS["branch"][1])
+    L["Department"]  = L.get("Department",  DEFAULTS["department"][0])
+    L["Departments"] = L.get("Departments", DEFAULTS["department"][1])
+    L["Employee"]    = L.get("Employee",    DEFAULTS["employee"][0])
+    L["Employees"]   = L.get("Employees",   DEFAULTS["employee"][1])
     return L
 
 

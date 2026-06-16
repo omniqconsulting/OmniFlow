@@ -559,7 +559,7 @@ def pending_approval(request: Request, user: User = Depends(get_current_user),
                                        "L": _L(db, user)})
 
 
-def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manager_id=None):
+def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manager_id=None, dept_name=None):
     """Compute lightweight KPIs for the Summary dashboard view."""
     from datetime import date as _date, datetime as _dt
     try:
@@ -572,9 +572,26 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manage
 
     q = db.query(Ticket).filter(
         Ticket.tenant_id == tid, Ticket.is_deleted == False)
-    if dept_id:
+    if dept_name:
+        # Filter across ALL branches with matching dept name
+        dept_ids = [d.id for d in db.query(Department).filter(
+            Department.tenant_id == tid, Department.name == dept_name,
+            Department.is_deleted == False).all()]
         dept_users = [u.id for u in db.query(User).filter(
-            User.tenant_id == tid, User.department_id == dept_id,
+            User.tenant_id == tid, User.department_id.in_(dept_ids),
+            User.is_deleted == False).all()]
+        q = q.filter(Ticket.current_assignee_id.in_(dept_users))
+    elif dept_id:
+        # Legacy single-ID filter; expand to name-based match
+        dept = db.query(Department).filter(Department.id == dept_id).first()
+        if dept:
+            dept_ids = [d.id for d in db.query(Department).filter(
+                Department.tenant_id == tid, Department.name == dept.name,
+                Department.is_deleted == False).all()]
+        else:
+            dept_ids = [dept_id]
+        dept_users = [u.id for u in db.query(User).filter(
+            User.tenant_id == tid, User.department_id.in_(dept_ids),
             User.is_deleted == False).all()]
         q = q.filter(Ticket.current_assignee_id.in_(dept_users))
     if manager_id:
@@ -639,6 +656,7 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manage
     k.total_open = total_open
     k.prev_open  = prev_open
     k.total_closed = total_closed
+    k.total_count  = total_open + total_closed
     k.on_time_pct = on_time_pct
     k.on_time_count = len(on_time)
     k.closed_count = closed_count
@@ -647,8 +665,35 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manage
     k.cl_compliance_pct = cl_compliance_pct
     k.cl_done = cl_done
     k.cl_due  = cl_due
+    k.cl_missed = max(0, cl_due - cl_done)
+    # Checklist on-time: assignments completed before their due_at
+    try:
+        from .database import ChecklistAssignment as _CA2
+        cl_on_time = db.query(_CA2).filter(
+            _CA2.tenant_id == tid, _CA2.due_at >= df, _CA2.due_at <= dt,
+            _CA2.status == "DONE", _CA2.completed_at <= _CA2.due_at).count()
+    except Exception:
+        cl_on_time = 0
+    k.cl_on_time = cl_on_time
     k.fms_active = fms_active
     k.fms_tat_breaches = fms_tat_breaches
+    # FMS completed in period
+    try:
+        from .database import FMSTicket as _FT2
+        fms_completed = db.query(_FT2).filter(
+            _FT2.tenant_id == tid, _FT2.is_deleted == False,
+            _FT2.status.in_(["COMPLETED", "CLOSED"]),
+            _FT2.updated_at >= df, _FT2.updated_at <= dt).count()
+        fms_on_time = db.query(_FT2).filter(
+            _FT2.tenant_id == tid, _FT2.is_deleted == False,
+            _FT2.status.in_(["COMPLETED", "CLOSED"]),
+            _FT2.updated_at >= df, _FT2.updated_at <= dt,
+            _FT2.due_at != None, _FT2.updated_at <= _FT2.due_at).count()
+    except Exception:
+        fms_completed = fms_on_time = 0
+    k.fms_completed = fms_completed
+    k.fms_on_time = fms_on_time
+    k.fms_total = fms_active + fms_completed
     return k
 
 
@@ -700,6 +745,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         date_from  = request.query_params.get("date_from") or (_today - timedelta(days=30)).isoformat()
         date_to    = request.query_params.get("date_to") or _today.isoformat()
         dept_id    = request.query_params.get("dept_id", None) or None
+        dept_name  = request.query_params.get("dept_name", None) or None
         manager_id = request.query_params.get("manager_id", None) or None
         expand_flow= request.query_params.get("expand_flow", None) or None
         view       = request.query_params.get("view", "summary")
@@ -708,8 +754,16 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         if user.role == "MANAGER":
             manager_id = user.id
 
-        departments = db.query(Department).filter(
+        # Distinct department names (avoid duplicates across branches)
+        all_depts = db.query(Department).filter(
             Department.tenant_id == tid, Department.is_deleted == False).all()
+        _seen_names: set = set()
+        departments: list = []
+        for _d in sorted(all_depts, key=lambda x: x.name):
+            if _d.name not in _seen_names:
+                _seen_names.add(_d.name)
+                departments.append(_d)
+
         managers = db.query(User).filter(
             User.tenant_id == tid, User.role.in_(["ADMIN", "MANAGER"]),
             User.is_deleted == False).all() if user.role == "ADMIN" else []
@@ -740,7 +794,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
                     active_preset = label
                     break
 
-            kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_id, manager_id)
+            kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_id, manager_id, dept_name)
             dept_health= _calc_dept_health(db, tid, date_from, date_to)
 
             return templates.TemplateResponse(request, "dashboard_summary.html", {
@@ -748,7 +802,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
                 "now": datetime.utcnow(),
                 **_nav_ctx(db, user, tenant=tenant),
                 "date_from": date_from, "date_to": date_to,
-                "dept_id": dept_id, "manager_id": manager_id,
+                "dept_id": dept_id, "dept_name": dept_name, "manager_id": manager_id,
                 "branch_id": branch_id,
                 "departments": departments, "managers": managers, "branches": branches,
                 "date_presets": date_presets, "active_preset": active_preset,
@@ -969,7 +1023,7 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
             (Ticket.current_assignee_id == user.id) |
             (Ticket.id.in_(helper_ticket_ids))
         )
-    tab_statuses = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "DONE", "CLOSED"]
+    tab_statuses = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "HELP_REQUESTED", "DONE", "CLOSED"]
     status_counts = {s: base_q.filter(Ticket.status == s).count() for s in tab_statuses}
 
     employees = db.query(User).filter(
@@ -1129,7 +1183,8 @@ async def ticket_advance(ticket_id: str, request: Request,
     if not ticket:
         raise HTTPException(404)
     _status_seq = {"OPEN": "ACKNOWLEDGED", "ACKNOWLEDGED": "IN_PROGRESS",
-                   "IN_PROGRESS": "DONE", "DONE": "CLOSED"}
+                   "IN_PROGRESS": "DONE", "DONE": "CLOSED",
+                   "HELP_REQUESTED": "IN_PROGRESS"}
     next_status = _status_seq.get(ticket.status)
     if not next_status:
         return redirect(f"/tickets")
@@ -1164,6 +1219,69 @@ async def ticket_advance(ticket_id: str, request: Request,
         "old_status": old_status, "new_status": next_status,
     })
     return redirect(f"/tickets?status={old_status}&advanced=1")
+
+
+@app.post("/tickets/{ticket_id}/revert")
+async def ticket_revert(ticket_id: str, user: User = Depends(require_manager),
+                        db: Session = Depends(get_db)):
+    """Revert ticket one stage back. Admin/Manager only."""
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id,
+        Ticket.is_deleted == False).first()
+    if not ticket:
+        raise HTTPException(404)
+    _prev_seq = {
+        "ACKNOWLEDGED":   "OPEN",
+        "IN_PROGRESS":    "ACKNOWLEDGED",
+        "HELP_REQUESTED": "IN_PROGRESS",
+        "DONE":           "IN_PROGRESS",
+        "CLOSED":         "DONE",
+    }
+    prev_status = _prev_seq.get(ticket.status)
+    if not prev_status:
+        return redirect("/tickets")
+    old_status = ticket.status
+    ticket.status = prev_status
+    db.commit()
+    return redirect(f"/tickets?status={old_status}&advanced=1")
+
+
+@app.post("/tickets/bulk-action")
+async def tickets_bulk_action(
+    request: Request,
+    user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """Bulk advance / close / revert selected tickets."""
+    form = await request.form()
+    action = form.get("action", "")
+    ids = form.getlist("ticket_ids")
+    if not ids or action not in ("advance", "close", "revert"):
+        return redirect("/tickets")
+
+    _next = {"OPEN": "ACKNOWLEDGED", "ACKNOWLEDGED": "IN_PROGRESS",
+             "IN_PROGRESS": "DONE", "DONE": "CLOSED", "HELP_REQUESTED": "IN_PROGRESS"}
+    _prev = {"ACKNOWLEDGED": "OPEN", "IN_PROGRESS": "ACKNOWLEDGED",
+             "HELP_REQUESTED": "IN_PROGRESS", "DONE": "IN_PROGRESS", "CLOSED": "DONE"}
+
+    tickets = db.query(Ticket).filter(
+        Ticket.id.in_(ids), Ticket.tenant_id == user.tenant_id,
+        Ticket.is_deleted == False).all()
+
+    for t in tickets:
+        if action == "advance":
+            ns = _next.get(t.status)
+            if ns:
+                t.status = ns
+        elif action == "close":
+            if t.status not in ("CLOSED",):
+                t.status = "CLOSED"
+        elif action == "revert":
+            ps = _prev.get(t.status)
+            if ps:
+                t.status = ps
+    db.commit()
+    return redirect("/tickets?advanced=1")
 
 
 @app.post("/tickets/{ticket_id}/remind")
@@ -1683,6 +1801,50 @@ def assign_checklist(template_id: str, due_at: str = Form(...),
     db.commit()
     return redirect("/checklists")
 
+
+@app.post("/checklists/bulk-start")
+async def checklists_bulk_start(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Bulk mark selected checklist assignments as IN_PROGRESS."""
+    form = await request.form()
+    ids = form.getlist("assignment_ids")
+    if ids:
+        assignments = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.id.in_(ids),
+            ChecklistAssignment.user_id == user.id,
+            ChecklistAssignment.status == "PENDING",
+        ).all()
+        for a in assignments:
+            a.status = "IN_PROGRESS"
+        db.commit()
+    return redirect("/checklists")
+
+
+@app.post("/checklists/bulk-complete")
+async def checklists_bulk_complete(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Bulk mark selected checklist assignments as DONE (no evidence gate)."""
+    form = await request.form()
+    ids = form.getlist("assignment_ids")
+    if ids:
+        assignments = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.id.in_(ids),
+            ChecklistAssignment.user_id == user.id,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+        ).all()
+        for a in assignments:
+            a.status = "DONE"
+            a.completed_at = datetime.utcnow()
+        db.commit()
+    return redirect("/checklists")
+
+
 @app.post("/checklists/start/{assignment_id}")
 def start_checklist(assignment_id: str, user: User = Depends(get_current_user),
                     db: Session = Depends(get_db)):
@@ -2052,8 +2214,15 @@ def employees_page(request: Request, user: User = Depends(require_manager),
     else:
         all_users = db.query(User).filter(
             User.tenant_id == tid, User.is_deleted == False).all()
-    departments = db.query(Department).filter(
+    all_depts = db.query(Department).filter(
         Department.tenant_id == tid, Department.is_deleted == False).all()
+    # Deduplicate departments by name for dropdowns (keep first row per name)
+    _seen_dnames = set()
+    departments_unique = []
+    for d in sorted(all_depts, key=lambda x: x.name):
+        if d.name not in _seen_dnames:
+            _seen_dnames.add(d.name)
+            departments_unique.append(d)
     branches = db.query(Branch).filter(
         Branch.tenant_id == tid, Branch.is_deleted == False).all()
     managers = [u for u in db.query(User).filter(
@@ -2066,11 +2235,11 @@ def employees_page(request: Request, user: User = Depends(require_manager),
     kpi_total      = len(all_for_kpi)
     kpi_active     = sum(1 for u in all_for_kpi if getattr(u, "status", "ACTIVE") == "ACTIVE")
     kpi_terminated = sum(1 for u in all_for_kpi if getattr(u, "status", "ACTIVE") == "TERMINATED")
-    kpi_departments = db.query(Department).filter(Department.tenant_id == tid, Department.is_deleted == False).count()
+    kpi_departments = len(departments_unique)
     return templates.TemplateResponse(request, "employees.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
-        "employees": all_users, "departments": departments,
+        "employees": all_users, "departments": departments_unique,
         "branches": branches, "managers": managers,
         "can_bulk": can_bulk,
         "kpi_total": kpi_total, "kpi_active": kpi_active,
@@ -2081,7 +2250,7 @@ def employees_page(request: Request, user: User = Depends(require_manager),
 def create_employee(
     name: str = Form(...), phone: str = Form(...), password: str = Form(...),
     role: str = Form("EMPLOYEE"), department_id: str = Form(""),
-    manager_id: str = Form(""),
+    manager_id: str = Form(""), branch_id: str = Form(""),
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -2104,6 +2273,7 @@ def create_employee(
         password_hash=hash_password(password), role=role,
         department_id=department_id or None,
         manager_id=manager_id or None,
+        branch_id=branch_id or None,
         employee_id=_next_employee_id(db, user.tenant_id),
         status="ACTIVE",
     )
@@ -2134,22 +2304,21 @@ def download_csv_template(entity: str = "employees",
         raise HTTPException(403, "Bulk import requires Professional plan")
 
     headers = {
-        "employees": ["name", "phone", "password", "role", "department_name", "manager_phone", "email", "joining_date", "address"],
+        "employees": ["name", "phone", "password", "role", "department_name", "branch_name", "manager_phone", "email", "joining_date", "address"],
         "departments": ["name", "branch_name"],
         "branches": ["name", "address"],
     }
-    descriptions = {
-        "employees": ["Full name", "10-digit phone", "Temp password (min 6)", "EMPLOYEE/MANAGER/ADMIN", "Exact dept name or blank", "Manager phone or blank", "Email or blank", "YYYY-MM-DD or blank", "Address or blank"],
-        "departments": ["Department name", "Branch name or blank"],
-        "branches": ["Branch name", "Address or blank"],
-    }
     cols = headers.get(entity, headers["employees"])
-    desc = descriptions.get(entity, descriptions["employees"])
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(cols)
-    w.writerow(desc)
-    w.writerow(["Ravi Kumar", "9876543210", "Pass@123", "EMPLOYEE", "Sales", "", "ravi@example.com", "2024-01-15", "Mumbai"] if entity == "employees" else (["Example Dept", "Main Branch"] if entity == "departments" else ["Main Branch", "123 Main St"]))
+    # One example row — no description row so any row from row 2 onwards is treated as data
+    if entity == "employees":
+        w.writerow(["Ravi Kumar", "9876543210", "Pass@123", "EMPLOYEE", "Sales", "Main Branch", "", "ravi@example.com", "2024-01-15", "Mumbai"])
+    elif entity == "departments":
+        w.writerow(["Example Dept", "Main Branch"])
+    else:
+        w.writerow(["Main Branch", "123 Main St"])
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]),
@@ -2169,14 +2338,42 @@ async def bulk_import_employees(file: UploadFile = File(...),
     content = (await file.read()).decode("utf-8", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
 
+    from datetime import date as _date
+
+    def _parse_date(s: str):
+        """Accept YYYY-MM-DD, M/D/YYYY, MM/DD/YYYY, D-M-YYYY etc."""
+        s = s.strip()
+        if not s:
+            return None
+        # ISO first
+        try:
+            return _date.fromisoformat(s)
+        except ValueError:
+            pass
+        # slash-separated (M/D/YYYY or MM/DD/YYYY)
+        for fmt in ("%m/%d/%Y", "%d/%m/%Y", "%d-%m-%Y", "%m-%d-%Y"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                pass
+        return None
+
+    # Build branch lookup for optional branch_name column
+    _branch_lkp = {b.name.strip().lower(): b.id
+                   for b in db.query(Branch).filter(
+                       Branch.tenant_id == user.tenant_id,
+                       Branch.is_deleted == False).all()}
+
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
-        if i == 2:  # skip description row
-            continue
         name = (row.get("name") or "").strip()
         phone = (row.get("phone") or "").strip()
         password = (row.get("password") or "").strip()
         role = (row.get("role") or "EMPLOYEE").strip().upper()
+
+        # Skip rows that look like the template description row
+        if name.lower() in ("full name", "name") and phone.lower() in ("10-digit phone", "phone"):
+            continue
 
         if not name:
             errors.append({"row": i, "error": "name is required", "data": dict(row)})
@@ -2209,6 +2406,12 @@ async def bulk_import_employees(file: UploadFile = File(...),
             if dept:
                 dept_id = dept.id
 
+        # Resolve optional branch
+        branch_id = None
+        branch_name = (row.get("branch_name") or "").strip()
+        if branch_name:
+            branch_id = _branch_lkp.get(branch_name.lower())
+
         # Resolve optional manager
         mgr_id = None
         mgr_phone = (row.get("manager_phone") or "").strip()
@@ -2220,20 +2423,14 @@ async def bulk_import_employees(file: UploadFile = File(...),
             if mgr:
                 mgr_id = mgr.id
 
-        from datetime import date as _date
-        jdate = None
-        jdate_str = (row.get("joining_date") or "").strip()
-        if jdate_str:
-            try:
-                jdate = _date.fromisoformat(jdate_str)
-            except ValueError:
-                pass
+        jdate = _parse_date(row.get("joining_date") or "")
 
         db.add(User(
             tenant_id=user.tenant_id, name=name, phone=phone,
             email=(row.get("email") or "").strip() or None,
             password_hash=hash_password(password), role=role,
             department_id=dept_id,
+            branch_id=branch_id,
             manager_id=mgr_id,
             address=(row.get("address") or "").strip() or None,
             joining_date=jdate,
@@ -2295,6 +2492,7 @@ def edit_employee(
     email: str = Form(""), role: str = Form(...),
     department_id: str = Form(""), manager_id: str = Form(""),
     joining_date: str = Form(""), address: str = Form(""),
+    branch_id: str = Form(""),
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
     phone_err = _validate_phone(phone)
@@ -2314,6 +2512,7 @@ def edit_employee(
     emp.role = role
     emp.department_id = department_id or None
     emp.manager_id = manager_id or None
+    emp.branch_id = branch_id or None
     emp.address = address or None
     from datetime import date as _date
     if joining_date:
@@ -2335,29 +2534,36 @@ def emp_open_work(emp_id: str, user: User = Depends(require_admin),
     ).first()
     if not target:
         raise HTTPException(404)
-    open_tickets = (
-        db.query(TicketAssignee)
-        .filter(TicketAssignee.user_id == emp_id)
-        .join(Ticket, Ticket.id == TicketAssignee.ticket_id)
-        .filter(Ticket.tenant_id == tid, Ticket.is_deleted == False,
+    ticket_rows = (
+        db.query(Ticket)
+        .join(TicketAssignee, TicketAssignee.ticket_id == Ticket.id)
+        .filter(TicketAssignee.user_id == emp_id,
+                Ticket.tenant_id == tid, Ticket.is_deleted == False,
                 Ticket.status.in_(["OPEN", "ACKNOWLEDGED", "IN_PROGRESS"]))
-        .count()
+        .all()
     )
-    open_cls = db.query(ChecklistAssignment).filter(
+    cl_rows = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.user_id == emp_id,
         ChecklistAssignment.is_deleted == False,
         ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
-    ).count()
+    ).all()
     from .database import FMSTicketHelper as _FTH
-    open_fms = (
-        db.query(_FTH)
-        .filter(_FTH.user_id == emp_id)
-        .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
-        .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
+    fms_rows = (
+        db.query(FMSTicket)
+        .join(_FTH, _FTH.ticket_id == FMSTicket.id)
+        .filter(_FTH.user_id == emp_id,
+                FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
                 FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
-        .count()
+        .all()
     )
-    return JSONResponse({"tickets": open_tickets, "checklists": open_cls, "fms": open_fms})
+    return JSONResponse({
+        "tickets": len(ticket_rows),
+        "checklists": len(cl_rows),
+        "fms": len(fms_rows),
+        "ticket_items": [{"id": t.id, "title": t.title, "status": t.status} for t in ticket_rows],
+        "checklist_items": [{"id": c.id, "title": c.checklist.title if c.checklist else str(c.id), "status": c.status} for c in cl_rows],
+        "fms_items": [{"id": f.id, "title": f.title or f"FMS #{f.id[:8]}", "status": f.status} for f in fms_rows],
+    })
 
 
 # ── P8-02: Terminate employee with migration flow ─────────────────────────────
@@ -2539,15 +2745,58 @@ def employee_performance(
                 FMSTicket.status.in_(["COMPLETED", "CLOSED"]))
         .count()
     )
+    fms_on_time = (
+        db.query(_FTH)
+        .filter(_FTH.user_id == emp_id)
+        .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
+        .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
+                FMSTicket.created_at >= since,
+                FMSTicket.status.in_(["COMPLETED", "CLOSED"]),
+                FMSTicket.due_at != None,
+                FMSTicket.completed_at != None,
+                FMSTicket.completed_at <= FMSTicket.due_at)
+        .count()
+    )
+    fms_on_time_pct  = round(fms_on_time / fms_done * 100) if fms_done > 0 else 0
+    fms_complete_pct = round(fms_done / fms_total * 100)   if fms_total > 0 else 0
 
-    scores = []
-    if ticket_kpis.get("closed_30d", 0) > 0:
-        scores.append(ticket_kpis.get("on_time_rate", 100))
-    if cl_total > 0:
-        scores.append(cl_compliance)
-    if fms_total > 0:
-        scores.append(round(fms_done / fms_total * 100))
-    overall_score = round(sum(scores) / len(scores)) if scores else 0
+    # ── Score components (transparent calculation) ──────────────────────────
+    ticket_score = ticket_kpis.get("on_time_rate", 0) if ticket_kpis.get("closed_30d", 0) > 0 else None
+    cl_score     = cl_compliance if cl_total > 0 else None
+    # FMS score: prefer on-time rate if due_at data exists, fall back to completion rate
+    fms_score    = fms_on_time_pct if (fms_done > 0 and fms_on_time > 0) else (fms_complete_pct if fms_total > 0 else None)
+
+    score_components = []
+    if ticket_score is not None:
+        score_components.append({
+            "label": "Tickets",
+            "metric": "On-Time Rate",
+            "value": ticket_score,
+            "detail": f"{ticket_kpis.get('on_time_rate',0)}% of {ticket_kpis.get('closed_30d',0)} closed",
+            "color": "#3b82f6",
+        })
+    if cl_score is not None:
+        score_components.append({
+            "label": "Checklists",
+            "metric": "Compliance Rate",
+            "value": cl_score,
+            "detail": f"{cl_done} of {cl_total} completed",
+            "color": "#10b981",
+        })
+    if fms_score is not None:
+        fms_metric  = "On-Time Rate" if (fms_done > 0 and fms_on_time > 0) else "Completion Rate"
+        fms_detail  = (f"{fms_on_time} of {fms_done} on time" if (fms_done > 0 and fms_on_time > 0)
+                       else f"{fms_done} of {fms_total} completed")
+        score_components.append({
+            "label": "Flow Tickets",
+            "metric": fms_metric,
+            "value": fms_score,
+            "detail": fms_detail,
+            "color": "#8b5cf6",
+        })
+
+    active_components = [c for c in score_components]
+    overall_score = round(sum(c["value"] for c in active_components) / len(active_components)) if active_components else 0
 
     return templates.TemplateResponse(request, "employee_performance.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
@@ -2557,7 +2806,10 @@ def employee_performance(
         "cl_total": cl_total, "cl_done": cl_done,
         "cl_overdue": cl_overdue, "cl_compliance": cl_compliance,
         "fms_total": fms_total, "fms_done": fms_done,
+        "fms_on_time": fms_on_time, "fms_on_time_pct": fms_on_time_pct,
+        "fms_complete_pct": fms_complete_pct,
         "overall_score": overall_score,
+        "score_components": score_components,
         "managers": db.query(User).filter(
             User.tenant_id == tid, User.is_deleted == False,
             User.role.in_(["ADMIN", "MANAGER"]),
@@ -2576,11 +2828,25 @@ async def bulk_import_departments(file: UploadFile = File(...),
     content = (await file.read()).decode("utf-8", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
     count = 0
+    # Build branch name → id lookup for this tenant
+    _branch_lookup = {b.name.strip().lower(): b.id for b in db.query(Branch).filter(
+        Branch.tenant_id == user.tenant_id, Branch.is_deleted == False).all()}
     for row in reader:
         name = (row.get("name") or "").strip()
         if not name:
             continue
-        db.add(Department(tenant_id=user.tenant_id, name=name))
+        branch_name = (row.get("branch_name") or "").strip()
+        branch_id = _branch_lookup.get(branch_name.lower()) if branch_name else None
+        # Skip exact duplicates (same name + branch_id already exists)
+        exists = db.query(Department).filter(
+            Department.tenant_id == user.tenant_id,
+            Department.name == name,
+            Department.branch_id == branch_id,
+            Department.is_deleted == False,
+        ).first()
+        if exists:
+            continue
+        db.add(Department(tenant_id=user.tenant_id, name=name, branch_id=branch_id))
         count += 1
     db.commit()
     return redirect(f"/setup?imported_depts={count}")
@@ -2627,10 +2893,40 @@ def setup(request: Request, user: User = Depends(require_admin),
         "max_users": emp_count,
         "max_branches": len(branches),
     }
+    # Group departments by name, collecting branch names per group
+    from collections import defaultdict as _dd
+    _branch_map = {b.id: b for b in branches}
+    _dept_by_name = _dd(list)
+    for d in departments:
+        _dept_by_name[d.name].append(d)
+    departments_grouped = []
+    for dname, dlist in sorted(_dept_by_name.items()):
+        # Deduplicate branch names within the group
+        seen_bnames = set()
+        dept_branches = []
+        first_bid = ""
+        for d in dlist:
+            if d.branch_id and d.branch_id in _branch_map:
+                bname = _branch_map[d.branch_id].name
+                if bname not in seen_bnames:
+                    seen_bnames.add(bname)
+                    dept_branches.append(bname)
+                if not first_bid:
+                    first_bid = d.branch_id
+        departments_grouped.append({
+            "name": dname,
+            "branches": dept_branches,
+            "branch_id": first_bid,
+            "ids": [d.id for d in dlist],
+            "id": dlist[0].id,
+        })
+
     return templates.TemplateResponse(request, "setup.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "branches": branches, "departments": departments,
+        "departments_grouped": departments_grouped,
+        "distinct_dept_count": len(departments_grouped),
         "tenant": tenant, "employee_count": emp_count,
         "can_bulk": has_feature(tenant, "BULK_IMPORT", db),
         "plan_limits": limits, "plan_usage": usage,
@@ -2652,13 +2948,61 @@ def add_branch(name: str = Form(...), location: str = Form(""),
     db.commit()
     return redirect(redirect_to)
 
+@app.post("/setup/branch/{branch_id}/edit")
+def edit_branch(branch_id: str, name: str = Form(...), location: str = Form(""),
+                user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    b = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
+    if b:
+        b.name = name.strip()
+        b.address = location.strip()
+        db.commit()
+    return redirect("/setup")
+
+@app.post("/setup/branch/{branch_id}/delete")
+def delete_branch(branch_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    b = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
+    if b:
+        b.is_deleted = True
+        db.commit()
+    return redirect("/setup")
+
 @app.post("/setup/department")
 def add_department(name: str = Form(...),
+                   branch_id: str = Form(""),
                    redirect_to: str = Form("/setup?open=dept"),
                    user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    db.add(Department(tenant_id=user.tenant_id, name=name))
+    db.add(Department(tenant_id=user.tenant_id, name=name.strip(),
+                      branch_id=branch_id.strip() or None))
     db.commit()
     return redirect(redirect_to)
+
+@app.post("/setup/department/{dept_id}/edit")
+def edit_department(dept_id: str, name: str = Form(...), branch_id: str = Form(""),
+                    user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    d = db.query(Department).filter(Department.id == dept_id, Department.tenant_id == user.tenant_id).first()
+    if d:
+        old_name = d.name
+        new_bid = branch_id.strip() or None
+        db.query(Department).filter(
+            Department.tenant_id == user.tenant_id,
+            Department.name == old_name,
+            Department.is_deleted == False
+        ).update({"name": name.strip(), "branch_id": new_bid})
+        db.commit()
+    return redirect("/setup")
+
+@app.post("/setup/department/{dept_id}/delete")
+def delete_department(dept_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    d = db.query(Department).filter(Department.id == dept_id, Department.tenant_id == user.tenant_id).first()
+    if d:
+        # Delete all departments with this name across branches
+        db.query(Department).filter(
+            Department.tenant_id == user.tenant_id,
+            Department.name == d.name,
+            Department.is_deleted == False
+        ).update({"is_deleted": True})
+        db.commit()
+    return redirect("/setup")
 
 @app.get("/setup/wizard", response_class=HTMLResponse)
 def onboarding_wizard(request: Request, step: Optional[int] = None,

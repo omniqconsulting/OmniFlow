@@ -236,10 +236,19 @@
               </select>
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
             <div class="form-group" style="margin:0">
               <label>Joining Date</label>
               <input type="date" name="joining_date" value="{{ emp.joining_date.isoformat() if emp.joining_date else '' }}">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>{{ L.Branch }}</label>
+              <select name="branch_id">
+                <option value="">— None —</option>
+                {% for b in branches %}
+                <option value="{{ b.id }}" {% if emp.branch_id == b.id %}selected{% endif %}>{{ b.name }}</option>
+                {% endfor %}
+              </select>
             </div>
             <div class="form-group" style="margin:0">
               <label>Address</label>
@@ -322,7 +331,7 @@
         <label>Password</label>
         <input type="password" name="password" required minlength="6">
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
         <div class="form-group">
           <label>Role</label>
           <select name="role">
@@ -337,6 +346,15 @@
             <option value="">— None —</option>
             {% for d in departments %}
             <option value="{{ d.id }}">{{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>{{ L.Branch }}</label>
+          <select name="branch_id">
+            <option value="">— None —</option>
+            {% for b in branches %}
+            <option value="{{ b.id }}">{{ b.name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -367,71 +385,70 @@
     </div>
     <p id="term-emp-label" style="font-size:13px;color:var(--text-muted);margin-bottom:16px"></p>
 
-    <!-- Open work summary -->
-    <div id="term-loading" style="text-align:center;padding:20px;color:var(--text-faint);font-size:13px">Loading open work...</div>
-    <div id="term-work-summary" style="display:none;background:var(--bg-input);border-radius:8px;padding:14px;margin-bottom:16px">
-      <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Open Work Summary</div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap">
-        <div style="text-align:center">
-          <div id="tw-tickets" style="font-size:20px;font-weight:700;color:#f87171"></div>
-          <div style="font-size:10px;color:var(--text-faint)">Open Tickets</div>
+    <!-- Loading state -->
+    <div id="term-loading" style="text-align:center;padding:20px;color:var(--text-faint);font-size:13px">Loading open work…</div>
+
+    <!-- No open work — fast path -->
+    <div id="term-no-work" style="display:none;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:#6ee7b7">
+      ✓ No open tickets, checklists, or flow tickets — safe to terminate.
+    </div>
+
+    <!-- Open work item list -->
+    <div id="term-work-list" style="display:none;margin-bottom:14px">
+      <div id="term-ticket-section" style="display:none;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+          Open Tickets (<span id="tw-ticket-count">0</span>)
         </div>
-        <div style="text-align:center">
-          <div id="tw-cls" style="font-size:20px;font-weight:700;color:#fbbf24"></div>
-          <div style="font-size:10px;color:var(--text-faint)">{{ L.Checklists }}</div>
+        <div id="tw-ticket-items" style="background:var(--bg-input);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--text-muted);max-height:100px;overflow-y:auto"></div>
+      </div>
+      <div id="term-cl-section" style="display:none;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+          Pending Checklists (<span id="tw-cl-count">0</span>)
         </div>
-        <div style="text-align:center">
-          <div id="tw-fms" style="font-size:20px;font-weight:700;color:#7dd3fc"></div>
-          <div style="font-size:10px;color:var(--text-faint)">FMS Tickets</div>
+        <div id="tw-cl-items" style="background:var(--bg-input);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--text-muted);max-height:100px;overflow-y:auto"></div>
+      </div>
+      <div id="term-fms-section" style="display:none;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+          Open Flow Tickets (<span id="tw-fms-count">0</span>)
         </div>
+        <div id="tw-fms-items" style="background:var(--bg-input);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--text-muted);max-height:100px;overflow-y:auto"></div>
       </div>
     </div>
 
     <form id="terminate-form" method="post" style="display:none">
-      <div class="form-group">
-        <label>Reassign Open Tickets To</label>
-        <select name="ticket_reassign_to">
-          <option value="">— Don't reassign —</option>
-          {% for m in managers %}
-          <option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>
-          {% endfor %}
-          {% for emp in employees %}
-          {% if emp.role not in ['ADMIN','MANAGER'] %}
-          <option value="{{ emp.id }}">{{ emp.name }}</option>
-          {% endif %}
-          {% endfor %}
-        </select>
+      <!-- Reassignment selects — only shown when there's something to reassign -->
+      <div id="term-ticket-reassign" style="display:none">
+        <div class="form-group">
+          <label>Reassign Open Tickets To</label>
+          <select name="ticket_reassign_to">
+            <option value="">— Leave unassigned —</option>
+            {% for m in managers %}<option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>{% endfor %}
+            {% for emp in employees %}{% if emp.role not in ['ADMIN','MANAGER'] %}<option value="{{ emp.id }}">{{ emp.name }}</option>{% endif %}{% endfor %}
+          </select>
+        </div>
       </div>
-      <div class="form-group">
-        <label>Reassign Pending Checklists To</label>
-        <select name="checklist_reassign_to">
-          <option value="">— Don't reassign —</option>
-          {% for m in managers %}
-          <option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>
-          {% endfor %}
-          {% for emp in employees %}
-          {% if emp.role not in ['ADMIN','MANAGER'] %}
-          <option value="{{ emp.id }}">{{ emp.name }}</option>
-          {% endif %}
-          {% endfor %}
-        </select>
+      <div id="term-cl-reassign" style="display:none">
+        <div class="form-group">
+          <label>Reassign Pending Checklists To</label>
+          <select name="checklist_reassign_to">
+            <option value="">— Leave unassigned —</option>
+            {% for m in managers %}<option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>{% endfor %}
+            {% for emp in employees %}{% if emp.role not in ['ADMIN','MANAGER'] %}<option value="{{ emp.id }}">{{ emp.name }}</option>{% endif %}{% endfor %}
+          </select>
+        </div>
       </div>
-      <div class="form-group">
-        <label>Reassign FMS Tickets To</label>
-        <select name="fms_reassign_to">
-          <option value="">— Don't reassign —</option>
-          {% for m in managers %}
-          <option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>
-          {% endfor %}
-          {% for emp in employees %}
-          {% if emp.role not in ['ADMIN','MANAGER'] %}
-          <option value="{{ emp.id }}">{{ emp.name }}</option>
-          {% endif %}
-          {% endfor %}
-        </select>
+      <div id="term-fms-reassign" style="display:none">
+        <div class="form-group">
+          <label>Reassign Open Flow Tickets To</label>
+          <select name="fms_reassign_to">
+            <option value="">— Leave unassigned —</option>
+            {% for m in managers %}<option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>{% endfor %}
+            {% for emp in employees %}{% if emp.role not in ['ADMIN','MANAGER'] %}<option value="{{ emp.id }}">{{ emp.name }}</option>{% endif %}{% endfor %}
+          </select>
+        </div>
       </div>
       <div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:#fca5a5">
-        ⚠ This action marks the employee as TERMINATED and disables their account. It cannot be undone without admin database access.
+        ⚠ This action marks the employee as TERMINATED and disables their login. This cannot be undone from the UI.
       </div>
       <div style="display:flex;gap:10px">
         <button type="button" onclick="closeTerminate()" class="btn btn-outline" style="flex:1">Cancel</button>
@@ -460,22 +477,18 @@
       <p style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Step 1 — Download Template</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a href="/employees/import/template?entity=employees" class="btn btn-sm btn-outline">⬇ Employees CSV</a>
-        <a href="/employees/import/template?entity=departments" class="btn btn-sm btn-outline">⬇ Departments CSV</a>
-        <a href="/employees/import/template?entity=branches" class="btn btn-sm btn-outline">⬇ Branches CSV</a>
       </div>
-      <div style="font-size:11px;color:var(--text-xfaint);margin-top:8px">Row 2 in each CSV is a description row — do not edit or delete it. Add your data from row 3 onwards.</div>
+      <div style="font-size:11px;color:var(--text-xfaint);margin-top:8px">Row 2 in the CSV is a description row — do not edit or delete it. Add your data from row 3 onwards.</div>
     </div>
     <p style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Step 2 — Upload Filled CSV</p>
-    {% for label, icon, action in [('Employees','👤','/employees/import'),('Departments','🏢','/departments/import'),('Branches','📍','/branches/import')] %}
-    <div style="border:1px solid var(--border-subtle);border-radius:8px;padding:12px 14px;margin-bottom:10px">
-      <p style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px">{{ icon }} {{ label }}</p>
-      <form method="post" action="{{ action }}" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
+    <div style="border:1px solid var(--border-subtle);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+      <p style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px">👤 Employees</p>
+      <form method="post" action="/employees/import" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
         <input type="file" name="file" accept=".csv" required
                style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
         <button type="submit" class="btn btn-sm btn-primary">Import</button>
       </form>
     </div>
-    {% endfor %}
     <button onclick="hide('bulk-modal')" class="btn btn-gray" style="width:100%">Close</button>
   </div>
 </div>
@@ -523,18 +536,31 @@ function openTerminate(empId, empName) {
   _terminateEmpId = empId;
   document.getElementById('term-emp-label').textContent = 'You are about to terminate: ' + empName;
   document.getElementById('term-loading').style.display = '';
-  document.getElementById('term-work-summary').style.display = 'none';
+  document.getElementById('term-no-work').style.display = 'none';
+  document.getElementById('term-work-list').style.display = 'none';
   document.getElementById('terminate-form').style.display = 'none';
   document.getElementById('terminate-modal').style.display = 'flex';
 
   fetch('/employees/' + empId + '/open-work')
     .then(r => r.json())
     .then(data => {
-      document.getElementById('tw-tickets').textContent = data.tickets;
-      document.getElementById('tw-cls').textContent = data.checklists;
-      document.getElementById('tw-fms').textContent = data.fms;
       document.getElementById('term-loading').style.display = 'none';
-      document.getElementById('term-work-summary').style.display = '';
+
+      const hasWork = data.tickets > 0 || data.checklists > 0 || data.fms > 0;
+
+      if (!hasWork) {
+        document.getElementById('term-no-work').style.display = '';
+      } else {
+        document.getElementById('term-work-list').style.display = '';
+        _renderItems('term-ticket-section','tw-ticket-count','tw-ticket-items', data.ticket_items||[], data.tickets, '#f87171');
+        _renderItems('term-cl-section','tw-cl-count','tw-cl-items', data.checklist_items||[], data.checklists, '#fbbf24');
+        _renderItems('term-fms-section','tw-fms-count','tw-fms-items', data.fms_items||[], data.fms, '#7dd3fc');
+        // show relevant reassign dropdowns
+        document.getElementById('term-ticket-reassign').style.display = data.tickets > 0 ? '' : 'none';
+        document.getElementById('term-cl-reassign').style.display = data.checklists > 0 ? '' : 'none';
+        document.getElementById('term-fms-reassign').style.display = data.fms > 0 ? '' : 'none';
+      }
+
       var f = document.getElementById('terminate-form');
       f.action = '/employees/' + empId + '/terminate';
       f.style.display = '';
@@ -542,6 +568,24 @@ function openTerminate(empId, empName) {
     .catch(() => {
       document.getElementById('term-loading').textContent = 'Failed to load open work. Please refresh and try again.';
     });
+}
+
+function _renderItems(sectionId, countId, listId, items, total, color) {
+  if (total === 0) { document.getElementById(sectionId).style.display = 'none'; return; }
+  document.getElementById(sectionId).style.display = '';
+  document.getElementById(countId).textContent = total;
+  const el = document.getElementById(listId);
+  if (items.length === 0) {
+    el.innerHTML = '<span style="color:var(--text-xfaint)">—</span>';
+  } else {
+    el.innerHTML = items.map(it =>
+      '<div style="padding:3px 0;border-bottom:1px solid var(--border-subtle);display:flex;gap:8px;align-items:center">'
+      + '<span style="width:6px;height:6px;border-radius:50%;background:' + color + ';flex-shrink:0;display:inline-block"></span>'
+      + '<span>' + it.title.replace(/</g,'&lt;') + '</span>'
+      + '<span style="font-size:10px;color:var(--text-xfaint);margin-left:auto">' + it.status + '</span>'
+      + '</div>'
+    ).join('');
+  }
 }
 
 function closeTerminate() {

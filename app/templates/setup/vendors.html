@@ -48,7 +48,7 @@
               </span>
             </td>
             <td>
-              <button onclick="openEdit({{ v|tojson }})" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
+              <button data-obj='{{ v|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
               <form method="post" action="/setup/vendors/{{ v.id }}/delete" style="display:inline"
                     onsubmit="return confirm('Delete {{ v.name }}?')">
                 <button type="submit" class="btn btn-xs btn-red">Del</button>
@@ -88,7 +88,8 @@
       </div>
       <div class="form-group">
         <label class="form-label">Phone</label>
-        <input name="phone" class="form-input" placeholder="Contact phone">
+        <input name="phone" class="form-input" placeholder="e.g. +91 98765 43210"
+               pattern="[0-9+\-\s()]{7,20}" title="Numbers, +, -, spaces and () only — 7 to 20 characters">
       </div>
       <div class="form-group">
         <label class="form-label">Email</label>
@@ -125,7 +126,8 @@
       </div>
       <div class="form-group">
         <label class="form-label">Phone</label>
-        <input name="phone" id="edit_phone" class="form-input">
+        <input name="phone" id="edit_phone" class="form-input"
+               pattern="[0-9+\-\s()]{7,20}" title="Numbers, +, -, spaces and () only — 7 to 20 characters">
       </div>
       <div class="form-group">
         <label class="form-label">Email</label>

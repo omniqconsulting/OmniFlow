@@ -581,6 +581,12 @@ def fms_dashboard(
                 tat_color = "green" if pct < 50 else "amber" if pct < 90 else "red"
             else:
                 pct, tat_color = None, "gray"
+            # Determine previous stage via history (most recent exited row)
+            prev_h = db.query(FMSStageHistory).filter(
+                FMSStageHistory.ticket_id == t.id,
+                FMSStageHistory.exited_at != None,
+            ).order_by(FMSStageHistory.exited_at.desc()).first()
+            prev_stage = prev_h.stage if prev_h else None
             list_tickets.append({
                 "ticket": t,
                 "days_open": days_open,
@@ -591,6 +597,8 @@ def fms_dashboard(
                 "tat_pct": pct,
                 "tat_color": tat_color,
                 "stage_entered_at": h.entered_at if h else None,
+                "prev_stage_id": prev_stage.id if prev_stage else None,
+                "prev_stage_name": prev_stage.name if prev_stage else None,
             })
 
     # Flagged tickets for escalations panel (admin/manager)
@@ -1215,6 +1223,62 @@ async def fms_transition(
     })
 
     return _redirect(f"/fms/tickets/{ticket_id}")
+
+
+@router.post("/tickets/bulk-action")
+async def fms_bulk_action(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Bulk send-back or bulk close for FMS tickets from list view."""
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403)
+    form = await request.form()
+    action = form.get("action", "")
+    ids = form.getlist("ticket_ids")
+    if not ids or action not in ("send_back", "close"):
+        return _redirect("/fms/dashboard?view=list")
+
+    tid = user.tenant_id
+    tickets = db.query(FMSTicket).filter(
+        FMSTicket.id.in_(ids), FMSTicket.tenant_id == tid,
+        FMSTicket.is_deleted == False).all()
+
+    for t in tickets:
+        if action == "close":
+            if t.status not in ("COMPLETED", "CLOSED"):
+                t.status = "CLOSED"
+                t.updated_at = datetime.utcnow()
+                _log(db, t.id, user.id, "CLOSED", "Bulk closed from list view")
+        elif action == "send_back":
+            # Find the last exited stage and send back to it
+            prev_h = db.query(FMSStageHistory).filter(
+                FMSStageHistory.ticket_id == t.id,
+                FMSStageHistory.exited_at != None,
+            ).order_by(FMSStageHistory.exited_at.desc()).first()
+            if prev_h and prev_h.stage_id and t.status not in ("COMPLETED", "CLOSED"):
+                # Close current open history row
+                open_h = _open_history(db, t.id)
+                if open_h:
+                    open_h.exited_at = datetime.utcnow()
+                # Open new history row for prev stage
+                db.add(FMSStageHistory(
+                    id=new_id(), ticket_id=t.id,
+                    stage_id=prev_h.stage_id,
+                    assignee_id=t.current_assignee_id,
+                    entered_at=datetime.utcnow(),
+                    direction="BACKWARD",
+                    return_reason="Bulk send-back from list view",
+                ))
+                t.current_stage_id = prev_h.stage_id
+                t.status = "ACTIVE"
+                t.updated_at = datetime.utcnow()
+                _log(db, t.id, user.id, "RETURNED",
+                     f"Bulk send-back to {prev_h.stage.name if prev_h.stage else '?'}")
+
+    db.commit()
+    return _redirect("/fms/dashboard?view=list&advanced=1")
 
 
 @router.post("/tickets/{ticket_id}/action")

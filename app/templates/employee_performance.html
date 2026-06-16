@@ -17,9 +17,8 @@
     <!-- Period filter -->
     <div style="display:flex;border:1px solid var(--border-med);border-radius:8px;overflow:hidden">
       {% for p, lbl in [('7d','7D'),('30d','30D'),('90d','90D'),('all','All')] %}
-      <a href="?period={{ p }}" style="padding:6px 12px;font-size:12px;font-weight:500;text-decoration:none;
-         {% if period == p %}background:rgba(59,130,246,0.2);color:#7dd3fc;{% else %}color:var(--text-faint);{% endif %}
-         border-right:1px solid var(--hover-bg)">{{ lbl }}</a>
+      <a href="?period={{ p }}" class="preset-btn{% if period == p %} active{% endif %}"
+         style="padding:6px 12px;font-size:12px;font-weight:500;text-decoration:none;border-right:1px solid var(--hover-bg)">{{ lbl }}</a>
       {% endfor %}
     </div>
   </div>
@@ -141,51 +140,124 @@
 
   <!-- FMS -->
   <div class="card" style="padding:20px">
-    <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">FMS Tickets ({{ period }})</div>
+    <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">Flow Tickets ({{ period }})</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
       <div style="background:var(--bg-input);border-radius:8px;padding:12px;text-align:center">
         <div style="font-size:22px;font-weight:700;color:#7dd3fc">{{ fms_total }}</div>
         <div style="font-size:10px;color:var(--text-faint)">Assigned</div>
       </div>
       <div style="background:var(--bg-input);border-radius:8px;padding:12px;text-align:center">
-        <div style="font-size:22px;font-weight:700;color:#6ee7b7">{{ fms_done }}</div>
+        <div style="font-size:22px;font-weight:700;color:#a78bfa">{{ fms_done }}</div>
         <div style="font-size:10px;color:var(--text-faint)">Completed</div>
+      </div>
+      <div style="background:var(--bg-input);border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#6ee7b7">{{ fms_on_time }}</div>
+        <div style="font-size:10px;color:var(--text-faint)">Completed On Time</div>
+      </div>
+      <div style="background:var(--bg-input);border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if fms_on_time_pct >= 80 %}#6ee7b7{% elif fms_on_time_pct >= 60 %}#fbbf24{% else %}#f87171{% endif %}">{{ fms_on_time_pct }}%</div>
+        <div style="font-size:10px;color:var(--text-faint)">On-Time Rate</div>
       </div>
     </div>
     {% if fms_total > 0 %}
-    {% set fms_pct = (fms_done / fms_total * 100) | round | int %}
     <div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-xfaint);margin-bottom:4px">
-        <span>Completion Rate</span><span>{{ fms_pct }}%</span>
+        <span>Completion Rate</span><span>{{ fms_complete_pct }}%</span>
       </div>
       <div style="background:var(--bg-elevated);border-radius:99px;height:6px;overflow:hidden">
-        <div style="height:100%;border-radius:99px;width:{{ fms_pct }}%;background:{% if fms_pct >= 80 %}#10b981{% elif fms_pct >= 60 %}#f59e0b{% else %}#ef4444{% endif %}"></div>
+        <div style="height:100%;border-radius:99px;width:{{ fms_complete_pct }}%;background:{% if fms_complete_pct >= 80 %}#10b981{% elif fms_complete_pct >= 60 %}#f59e0b{% else %}#ef4444{% endif %}"></div>
       </div>
     </div>
     {% else %}
-    <div style="text-align:center;color:var(--text-xfaint);font-size:12px;padding:16px 0">No FMS tickets in this period</div>
+    <div style="text-align:center;color:var(--text-xfaint);font-size:12px;padding:16px 0">No flow tickets in this period</div>
     {% endif %}
   </div>
 </div>
 
-<!-- ── 8-Week Checklist Compliance Trend ──────────────────────────────────── -->
-{% if ticket_kpis.weekly_compliance %}
-<div class="card" style="padding:20px;margin-bottom:20px">
-  <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px">8-Week Checklist Compliance Trend</div>
-  <div style="display:flex;gap:6px;align-items:flex-end;height:80px">
-    {% for pct in ticket_kpis.weekly_compliance %}
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
-      <div style="font-size:9px;color:var(--text-xfaint)">{{ pct }}%</div>
-      <div style="width:100%;border-radius:3px 3px 0 0;
-           background:{% if pct >= 80 %}rgba(16,185,129,0.6){% elif pct >= 60 %}rgba(245,158,11,0.6){% else %}rgba(239,68,68,0.6){% endif %};
-           height:{{ [pct, 4] | max }}%"></div>
+<!-- ── Score Breakdown ────────────────────────────────────────────────────── -->
+{% if not score_components %}
+<div class="card" style="padding:24px;margin-bottom:20px;background:transparent;border:1px solid var(--border-subtle)">
+  <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px">How This Score Is Calculated</div>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+    <div style="background:var(--bg-input);border-radius:10px;padding:14px 18px;text-align:center;min-width:110px">
+      <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:6px">Tickets</div>
+      <div style="font-size:18px;font-weight:700;color:#3b82f6">On-Time %</div>
+      <div style="font-size:10px;color:var(--text-faint);margin-top:4px">e.g. 80%</div>
     </div>
-    {% endfor %}
+    <div style="font-size:20px;color:var(--text-xfaint)">+</div>
+    <div style="background:var(--bg-input);border-radius:10px;padding:14px 18px;text-align:center;min-width:110px">
+      <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:6px">Checklists</div>
+      <div style="font-size:18px;font-weight:700;color:#10b981">Compliance %</div>
+      <div style="font-size:10px;color:var(--text-faint);margin-top:4px">e.g. 90%</div>
+    </div>
+    <div style="font-size:20px;color:var(--text-xfaint)">+</div>
+    <div style="background:var(--bg-input);border-radius:10px;padding:14px 18px;text-align:center;min-width:110px">
+      <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:6px">Flow Tickets</div>
+      <div style="font-size:18px;font-weight:700;color:#8b5cf6">On-Time %</div>
+      <div style="font-size:10px;color:var(--text-faint);margin-top:4px">e.g. 70%</div>
+    </div>
+    <div style="font-size:20px;color:var(--text-xfaint)">÷ 3 =</div>
+    <div style="border:2px solid #3b82f6;border-radius:10px;padding:14px 20px;text-align:center;min-width:110px">
+      <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:6px">Final Score</div>
+      <div style="font-size:28px;font-weight:800;color:#3b82f6">80%</div>
+      <div style="font-size:10px;color:var(--text-faint);margin-top:4px">example</div>
+    </div>
   </div>
-  <div style="display:flex;gap:6px;margin-top:4px">
-    {% for lbl in ticket_kpis.weekly_labels %}
-    <div style="flex:1;text-align:center;font-size:9px;color:#374151">{{ lbl }}</div>
+  <div style="background:var(--bg-input);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--text-faint);line-height:1.7">
+    <strong style="color:var(--text-muted);display:block;margin-bottom:4px">No activity data for this period yet.</strong>
+    Once this employee is assigned and completes work across active modules (Tickets, Checklists, Flow Tickets),
+    their score will appear here — calculated as the average on-time / compliance rate across all active modules.
+    Only modules with at least one completed item count towards the score.
+  </div>
+</div>
+{% else %}
+<div class="card" style="padding:24px;margin-bottom:20px;background:transparent;border:1px solid var(--border-subtle)">
+  <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:20px">How This Score Is Calculated</div>
+
+  <div style="display:flex;align-items:stretch;gap:0">
+    {% for comp in score_components %}
+    <!-- Component block -->
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;padding:16px 12px;
+         background:var(--bg-input);border-radius:10px;
+         {% if not loop.last %}margin-right:0;{% endif %}">
+      <div style="width:10px;height:10px;border-radius:50%;background:{{ comp.color }};margin-bottom:8px"></div>
+      <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:2px">{{ comp.label }}</div>
+      <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:12px">{{ comp.metric }}</div>
+      <div style="font-size:28px;font-weight:800;color:{{ comp.color }};line-height:1">{{ comp.value }}%</div>
+      <div style="font-size:10px;color:var(--text-faint);margin-top:6px">{{ comp.detail }}</div>
+      <!-- mini bar -->
+      <div style="width:100%;background:var(--bg-elevated);border-radius:99px;height:4px;margin-top:10px;overflow:hidden">
+        <div style="height:100%;border-radius:99px;width:{{ comp.value }}%;background:{{ comp.color }};opacity:0.8"></div>
+      </div>
+    </div>
+
+    {% if not loop.last %}
+    <!-- Plus connector -->
+    <div style="display:flex;align-items:center;padding:0 10px;color:var(--text-faint);font-size:20px;font-weight:300;flex-shrink:0">+</div>
+    {% endif %}
     {% endfor %}
+
+    <!-- Divider + equals -->
+    <div style="display:flex;align-items:center;padding:0 10px;color:var(--text-faint);font-size:20px;font-weight:300;flex-shrink:0">÷ {{ score_components|length }} =</div>
+
+    <!-- Final Score -->
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px 20px;
+         border-radius:10px;border:2px solid
+         {% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% else %}#ef4444{% endif %};
+         min-width:110px;flex-shrink:0">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Final Score</div>
+      <div style="font-size:36px;font-weight:800;line-height:1;
+           color:{% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% else %}#ef4444{% endif %}">
+        {{ overall_score }}%
+      </div>
+      <div style="font-size:11px;color:var(--text-xfaint);margin-top:6px">
+        {% if overall_score >= 80 %}Excellent{% elif overall_score >= 60 %}Good{% elif overall_score > 0 %}Needs Improvement{% else %}No Data{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:14px;font-size:11px;color:var(--text-xfaint);text-align:center">
+    Score = average of on-time rates across active modules · matches the dial above
   </div>
 </div>
 {% endif %}

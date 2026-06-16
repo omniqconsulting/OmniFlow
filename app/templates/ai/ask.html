@@ -2,386 +2,230 @@
 {% block content %}
 <style>
 /* ════════════════════════════════════════════════════════════════
-   AI Assistant — Ask AI page styles
-   Design language: dark-glass, gradient-accented, premium feel
+   AI Assistant — themed for both dark + light modes
    ════════════════════════════════════════════════════════════════ */
 
-/* ── Page chrome ─────────────────────────────────────────────── */
-.ai-page { display: flex; flex-direction: column; gap: 28px; }
+.ai-page { display:flex;flex-direction:column;gap:20px }
 
-/* ── Hero header ─────────────────────────────────────────────── */
+/* ── Hero ─────────────────────────────────────────────────────── */
 .ai-hero {
-  position: relative;
-  border-radius: 20px;
-  overflow: hidden;
-  padding: 40px 40px 36px;
-  background: linear-gradient(135deg, #0f0c29 0%, #1a0533 40%, #0d1b4b 100%);
-  border: 1px solid rgba(139,92,246,0.25);
-  box-shadow: 0 0 60px rgba(99,102,241,0.12), inset 0 1px 0 var(--hover-bg);
+  position:relative;border-radius:16px;overflow:hidden;
+  padding:32px 36px 28px;
+  background:linear-gradient(135deg,#0f0c29 0%,#1a0533 40%,#0d1b4b 100%);
+  border:1px solid rgba(139,92,246,0.25);
 }
-/* animated grid overlay */
 .ai-hero::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(99,102,241,0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(99,102,241,0.06) 1px, transparent 1px);
-  background-size: 40px 40px;
-  pointer-events: none;
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background-image:linear-gradient(rgba(99,102,241,0.07) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(99,102,241,0.07) 1px,transparent 1px);
+  background-size:40px 40px;
 }
-/* radial glow */
 .ai-hero::after {
-  content: '';
-  position: absolute;
-  top: -60px; right: -60px;
-  width: 300px; height: 300px;
-  background: radial-gradient(circle, rgba(139,92,246,0.18) 0%, transparent 70%);
-  pointer-events: none;
+  content:'';position:absolute;top:-60px;right:-60px;
+  width:260px;height:260px;pointer-events:none;
+  background:radial-gradient(circle,rgba(139,92,246,0.2) 0%,transparent 70%);
 }
-.ai-hero-content { position: relative; z-index: 1; }
-
+.ai-hero-content { position:relative;z-index:1 }
 .ai-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: rgba(99,102,241,0.18);
-  border: 1px solid rgba(139,92,246,0.4);
-  border-radius: 20px;
-  padding: 5px 14px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: #a5b4fc;
-  margin-bottom: 18px;
+  display:inline-flex;align-items:center;gap:7px;
+  background:rgba(99,102,241,0.18);border:1px solid rgba(139,92,246,0.4);
+  border-radius:20px;padding:4px 12px;font-size:10px;font-weight:700;
+  letter-spacing:1.2px;text-transform:uppercase;color:#a5b4fc;margin-bottom:14px;
 }
 .ai-badge-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: #818cf8;
-  box-shadow: 0 0 6px #818cf8;
-  animation: pulse-dot 2s ease-in-out infinite;
+  width:6px;height:6px;border-radius:50%;background:#818cf8;
+  box-shadow:0 0 6px #818cf8;animation:pulse-dot 2s ease-in-out infinite;
 }
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; box-shadow: 0 0 6px #818cf8; }
-  50%       { opacity: 0.5; box-shadow: 0 0 12px #6366f1; }
-}
-
+@keyframes pulse-dot{0%,100%{opacity:1;box-shadow:0 0 6px #818cf8}50%{opacity:.5;box-shadow:0 0 12px #6366f1}}
 .ai-hero h1 {
-  font-size: 32px;
-  font-weight: 800;
-  color: var(--text-strong);
-  letter-spacing: -0.5px;
-  line-height: 1.2;
-  margin-bottom: 12px;
+  font-size:26px;font-weight:800;color:#f1f5f9;letter-spacing:-.4px;
+  line-height:1.2;margin-bottom:10px;
 }
 .ai-hero h1 span {
-  background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  background:linear-gradient(135deg,#818cf8,#c084fc,#f472b6);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
 }
-.ai-hero p {
-  font-size: 14px;
-  color: var(--text-muted);
-  max-width: 560px;
-  line-height: 1.65;
-  margin-bottom: 24px;
-}
-
-/* capability chips under the hero description */
-.capability-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
+.ai-hero p { font-size:13px;color:#94a3b8;max-width:520px;line-height:1.6;margin-bottom:18px }
+.capability-chips { display:flex;flex-wrap:wrap;gap:7px }
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: var(--border-subtle);
-  border: 1px solid var(--border-med);
-  border-radius: 8px;
-  padding: 5px 11px;
-  font-size: 12px;
-  color: #cbd5e1;
-}
-.chip-icon { font-size: 13px; }
-
-/* ── Input card ──────────────────────────────────────────────── */
-.ask-card {
-  background: rgba(17,24,39,0.7);
-  border: 1px solid rgba(99,102,241,0.2);
-  border-radius: 16px;
-  padding: 28px;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-}
-.ask-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: #6366f1;
-  margin-bottom: 10px;
-}
-.ask-input-row {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-}
-.ask-textarea {
-  flex: 1;
-  background: var(--border-subtle);
-  border: 1.5px solid var(--border-med);
-  border-radius: 12px;
-  color: var(--text-primary);
-  font-size: 14px;
-  font-family: inherit;
-  padding: 14px 16px;
-  resize: none;
-  line-height: 1.5;
-  transition: border-color 0.15s, box-shadow 0.15s;
-  min-height: 56px;
-  max-height: 160px;
-  overflow-y: auto;
-}
-.ask-textarea:focus {
-  outline: none;
-  border-color: rgba(99,102,241,0.6);
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
-}
-.ask-textarea::placeholder { color: #4b5563; }
-
-.ask-btn {
-  flex-shrink: 0;
-  height: 56px;
-  padding: 0 24px;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  color: #fff;
-  border: none;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.15s;
-  white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(99,102,241,0.35);
-}
-.ask-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(99,102,241,0.5);
-}
-.ask-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  transform: none;
-}
-.ask-btn-icon { font-size: 16px; }
-
-/* ── Example prompts ──────────────────────────────────────────── */
-.prompts-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
-}
-.prompt-chip {
-  background: rgba(99,102,241,0.08);
-  border: 1px solid rgba(99,102,241,0.2);
-  border-radius: 20px;
-  padding: 5px 13px;
-  font-size: 12px;
-  color: #818cf8;
-  cursor: pointer;
-  transition: all 0.12s;
-  white-space: nowrap;
-}
-.prompt-chip:hover {
-  background: rgba(99,102,241,0.18);
-  border-color: rgba(99,102,241,0.4);
-  color: #a5b4fc;
+  display:inline-flex;align-items:center;gap:5px;
+  background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);
+  border-radius:8px;padding:4px 10px;font-size:11px;color:#cbd5e1;
 }
 
-/* ── Answer panel ────────────────────────────────────────────── */
+/* ── Tab nav ──────────────────────────────────────────────────── */
+.ai-tabs {
+  display:flex;border-bottom:1px solid var(--border-subtle);gap:0;
+}
+.ai-tab-btn {
+  padding:9px 20px;font-size:13px;font-weight:600;
+  border:none;border-bottom:2px solid transparent;
+  background:none;cursor:pointer;color:var(--text-faint);
+  margin-bottom:-1px;transition:color .12s,border-color .12s;
+}
+.ai-tab-btn.active { border-bottom-color:#818cf8;color:#818cf8 }
+html.light .ai-tab-btn.active { color:#4f46e5;border-bottom-color:#4f46e5 }
+
+/* ── Usage strip ──────────────────────────────────────────────── */
+.usage-strip {
+  background:var(--bg-input);border:1px solid var(--border-subtle);
+  border-radius:10px;padding:12px 16px;
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;
+}
+
+/* ── Card base (works in both themes) ────────────────────────── */
+.ai-card {
+  background:var(--bg-modal);border:1px solid var(--border-med);
+  border-radius:14px;padding:22px;
+}
+html.light .ai-card { background:#fff;border-color:rgba(0,0,0,0.1) }
+
+/* ── Select / textarea inside ai-card ────────────────────────── */
+.ai-select {
+  background:var(--bg-input);border:1.5px solid var(--border-med);
+  border-radius:9px;color:var(--text-primary);font-size:13px;
+  padding:10px 13px;width:100%;outline:none;
+  transition:border-color .14s;
+}
+.ai-select:focus { border-color:rgba(99,102,241,.6) }
+html.light .ai-select { background:#f8fafc;border-color:rgba(0,0,0,0.18);color:#1e293b }
+
+.ai-textarea {
+  background:var(--bg-input);border:1.5px solid var(--border-med);
+  border-radius:9px;color:var(--text-primary);font-size:13px;
+  padding:10px 13px;width:100%;resize:vertical;outline:none;
+  font-family:inherit;box-sizing:border-box;line-height:1.5;
+  transition:border-color .14s;
+}
+.ai-textarea:focus { border-color:rgba(99,102,241,.6);box-shadow:0 0 0 3px rgba(99,102,241,.1) }
+.ai-textarea::placeholder { color:var(--text-xfaint) }
+html.light .ai-textarea { background:#f8fafc;border-color:rgba(0,0,0,0.18);color:#1e293b }
+
+/* ── Primary AI button ────────────────────────────────────────── */
+.ai-btn {
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  padding:12px 24px;border:none;border-radius:10px;cursor:pointer;
+  font-size:14px;font-weight:700;color:#fff;white-space:nowrap;
+  background:linear-gradient(135deg,#6366f1,#8b5cf6);
+  box-shadow:0 4px 14px rgba(99,102,241,.3);transition:all .14s;
+}
+.ai-btn:hover:not(:disabled) { transform:translateY(-1px);box-shadow:0 6px 20px rgba(99,102,241,.45) }
+.ai-btn:disabled { opacity:.5;cursor:not-allowed;transform:none }
+
+/* ── Field label inside ai-card ──────────────────────────────── */
+.ai-field-label {
+  display:block;font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:#6366f1;margin-bottom:7px;
+}
+html.light .ai-field-label { color:#4f46e5 }
+
+/* ── Report output cards ──────────────────────────────────────── */
+.rpt-card {
+  background:var(--bg-modal);border:1px solid var(--border-subtle);
+  border-radius:12px;padding:18px 20px;margin-bottom:10px;
+}
+html.light .rpt-card { background:#fff;border-color:rgba(0,0,0,0.09) }
+.rpt-card-title {
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+  margin-bottom:10px;
+}
+.rpt-body { font-size:13px;color:var(--text-muted);line-height:1.75 }
+html.light .rpt-body { color:#334155 }
+.rpt-list { margin:0;padding-left:18px }
+.rpt-list li { margin-bottom:6px;font-size:13px;color:var(--text-muted);line-height:1.65 }
+html.light .rpt-list li { color:#334155 }
+
+/* ── Metric table ─────────────────────────────────────────────── */
+.metric-val { font-size:13px;font-weight:700;color:#7dd3fc;text-align:right }
+html.light .metric-val { color:#1d4ed8 }
+
+/* ── Answer panel (chat) ─────────────────────────────────────── */
 .answer-panel {
-  background: rgba(17,24,39,0.6);
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  overflow: hidden;
-  display: none;   /* shown by JS when stream starts */
+  background:var(--bg-modal);border:1px solid var(--border-subtle);
+  border-radius:14px;overflow:hidden;display:none;
 }
-.answer-panel.visible { display: block; }
-
+.answer-panel.visible { display:block }
+html.light .answer-panel { background:#fff;border-color:rgba(0,0,0,0.1) }
 .answer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 22px;
-  background: rgba(99,102,241,0.08);
-  border-bottom: 1px solid var(--hover-bg);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 20px;
+  background:rgba(99,102,241,.08);border-bottom:1px solid var(--border-subtle);
 }
+html.light .answer-header { background:rgba(99,102,241,.06) }
 .answer-who {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #a5b4fc;
+  display:flex;align-items:center;gap:9px;
+  font-size:13px;font-weight:600;color:#a5b4fc;
 }
+html.light .answer-who { color:#4f46e5 }
 .answer-avatar {
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  background: linear-gradient(135deg,#6366f1,#8b5cf6);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 14px;
+  width:26px;height:26px;border-radius:50%;
+  background:linear-gradient(135deg,#6366f1,#8b5cf6);
+  display:flex;align-items:center;justify-content:center;font-size:13px;
 }
-.answer-meta {
-  font-size: 11px;
-  color: #4b5563;
-}
+.answer-meta { font-size:11px;color:var(--text-faint) }
 .answer-body {
-  padding: 24px 26px;
-  font-size: 13.5px;
-  line-height: 1.75;
-  color: #cbd5e1;
-  min-height: 60px;
+  padding:20px 24px;font-size:13.5px;line-height:1.75;
+  color:var(--text-muted);min-height:48px;
 }
-
-/* Markdown rendering inside answer */
-.answer-body strong { color: var(--text-strong); font-weight: 700; }
-.answer-body em     { color: #a5b4fc; }
-.answer-body code   { background: rgba(99,102,241,0.15); color:#a5b4fc; border-radius:4px; padding:1px 5px; font-size:12px; }
-.answer-body ul, .answer-body ol { margin: 10px 0 10px 20px; }
-.answer-body li { margin-bottom: 5px; }
-.answer-body h2, .answer-body h3 { color:var(--text-primary); font-weight:700; margin:14px 0 6px; font-size:14px; }
-.answer-body table { width:100%; border-collapse:collapse; margin:12px 0; }
-.answer-body th { text-align:left; padding:7px 12px; background:var(--border-subtle); font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; border-bottom:1px solid var(--border-subtle); }
-.answer-body td { padding:7px 12px; border-bottom:1px solid var(--border-subtle); }
-.answer-body p  { margin-bottom:10px; }
-
-/* typing cursor */
+html.light .answer-body { color:#334155 }
+.answer-body strong { color:var(--text-strong);font-weight:700 }
+.answer-body em     { color:#818cf8 }
+.answer-body code   { background:rgba(99,102,241,.12);color:#a5b4fc;border-radius:4px;padding:1px 5px;font-size:12px }
+html.light .answer-body code { background:rgba(99,102,241,.1);color:#4338ca }
+.answer-body ul,.answer-body ol { margin:8px 0 8px 20px }
+.answer-body li { margin-bottom:4px }
+.answer-body h2,.answer-body h3 { color:var(--text-primary);font-weight:700;margin:12px 0 5px;font-size:14px }
+.answer-body table { width:100%;border-collapse:collapse;margin:10px 0 }
+.answer-body th { text-align:left;padding:6px 10px;background:var(--border-subtle);font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-faint);border-bottom:1px solid var(--border-subtle) }
+.answer-body td { padding:6px 10px;border-bottom:1px solid var(--border-subtle) }
+.answer-body p  { margin-bottom:9px }
 .cursor {
-  display: inline-block;
-  width: 2px;
-  height: 14px;
-  background: #6366f1;
-  border-radius: 2px;
-  margin-left: 2px;
-  vertical-align: middle;
-  animation: blink 0.9s step-end infinite;
+  display:inline-block;width:2px;height:13px;background:#6366f1;
+  border-radius:2px;margin-left:2px;vertical-align:middle;
+  animation:blink .9s step-end infinite;
 }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-
-/* ── Error state ──────────────────────────────────────────────── */
-.answer-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 16px 22px;
-  background: rgba(239,68,68,0.08);
-  border-top: 1px solid rgba(239,68,68,0.2);
-  color: #fca5a5;
-  font-size: 13px;
-}
-
-/* ── Context badge (bottom-right of answer) ────────────────────── */
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
 .answer-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 22px;
-  border-top: 1px solid var(--border-subtle);
-  background: rgba(0,0,0,0.15);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:9px 20px;border-top:1px solid var(--border-subtle);
+  background:var(--bg-input);
 }
-.context-note {
-  font-size: 11px;
-  color: #374151;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
+.context-note { font-size:11px;color:var(--text-faint);display:flex;align-items:center;gap:5px }
 .copy-btn {
-  background: none;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  color: #4b5563;
-  font-size: 11px;
-  padding: 4px 10px;
-  cursor: pointer;
-  transition: all 0.12s;
+  background:none;border:1px solid var(--border-subtle);border-radius:6px;
+  color:var(--text-faint);font-size:11px;padding:4px 10px;cursor:pointer;transition:all .12s;
 }
-.copy-btn:hover { border-color: rgba(255,255,255,0.2); color: var(--text-muted); }
+.copy-btn:hover { border-color:var(--border-med);color:var(--text-muted) }
+.answer-error {
+  display:flex;align-items:flex-start;gap:10px;padding:14px 20px;
+  background:rgba(239,68,68,.08);border-top:1px solid rgba(239,68,68,.18);
+  color:#f87171;font-size:13px;
+}
+html.light .answer-error { color:#dc2626;background:rgba(239,68,68,.05) }
 
-/* ── No-API warning ──────────────────────────────────────────── */
+/* ── Prompt chips ─────────────────────────────────────────────── */
+.prompts-row { display:flex;flex-wrap:wrap;gap:7px;margin-top:14px }
+.prompt-chip {
+  background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.18);
+  border-radius:20px;padding:4px 12px;font-size:12px;color:#818cf8;
+  cursor:pointer;transition:all .12s;white-space:nowrap;
+}
+.prompt-chip:hover { background:rgba(99,102,241,.16);border-color:rgba(99,102,241,.36);color:#a5b4fc }
+html.light .prompt-chip { color:#4f46e5;border-color:rgba(99,102,241,.3);background:rgba(99,102,241,.06) }
+html.light .prompt-chip:hover { background:rgba(99,102,241,.12);color:#3730a3 }
+
+/* ── Error / warning boxes ────────────────────────────────────── */
 .api-warning {
-  background: rgba(245,158,11,0.08);
-  border: 1px solid rgba(245,158,11,0.25);
-  border-radius: 12px;
-  padding: 18px 22px;
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  font-size: 13px;
-  color: #fcd34d;
-  line-height: 1.6;
+  background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);
+  border-radius:12px;padding:16px 20px;display:flex;align-items:flex-start;gap:12px;
+  font-size:13px;color:#fcd34d;line-height:1.6;
 }
-.api-warning-icon { font-size: 22px; flex-shrink: 0; }
-.api-warning strong { display: block; margin-bottom: 4px; font-size: 14px; }
-.api-warning code  { background: rgba(245,158,11,0.15); border-radius: 4px; padding: 1px 6px; font-size: 12px; color: #fbbf24; }
-
-/* ── Stats strip ─────────────────────────────────────────────── */
-.stats-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1px;
-  background: var(--hover-bg);
-  border: 1px solid var(--hover-bg);
-  border-radius: 14px;
-  overflow: hidden;
-}
-.stat-cell {
-  background: rgba(17,24,39,0.8);
-  padding: 18px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: #4b5563; font-weight: 600; }
-.stat-value { font-size: 22px; font-weight: 800; color: var(--text-primary); line-height: 1; }
-.stat-sub   { font-size: 11px; color: #374151; }
+html.light .api-warning { color:#92400e;background:rgba(245,158,11,.06);border-color:rgba(245,158,11,.3) }
 </style>
 
 <div class="ai-page">
 
-  <!-- ═══════════════════════════════════════════════════════════
-       P9-01: Sub-tab navigation
-  ════════════════════════════════════════════════════════════ -->
-  <div style="display:flex;border-bottom:1px solid var(--border-subtle);margin-bottom:4px;gap:0">
-    <button id="tab-btn-chat" onclick="switchAiTab('chat')"
-      style="padding:10px 22px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;
-             border-bottom:2px solid #818cf8;color:#a5b4fc;margin-bottom:-1px">
-      💬 Chat
-    </button>
-    <button id="tab-btn-report" onclick="switchAiTab('report')"
-      style="padding:10px 22px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;
-             border-bottom:2px solid transparent;color:var(--text-faint);margin-bottom:-1px">
-      📊 Report Generator
-    </button>
-  </div>
-
-  <!-- ═══════════════════════════════════════════════════════════
-       TAB: CHAT (existing interface, unchanged)
-  ════════════════════════════════════════════════════════════ -->
-  <div id="tab-chat">
-
-  <!-- ═══════════════════════════════════════════════════════════
-       HERO
-  ════════════════════════════════════════════════════════════ -->
+  <!-- Hero — always dark glass, looks good in both themes -->
   <div class="ai-hero">
     <div class="ai-hero-content">
       <div class="ai-badge">
@@ -390,635 +234,444 @@
       </div>
       <h1>Your operations,<br><span>understood by AI.</span></h1>
       <p>
-        Ask anything about your team's performance, open tickets, compliance rates,
-        or workload — in plain English. The AI reads your live data and answers
-        with facts, not guesses.
+        Select a module and time period, then generate a structured report — or
+        ask any question in natural language. All answers are grounded in your live data.
       </p>
       <div class="capability-chips">
-        <span class="chip"><span class="chip-icon">📊</span> Live dashboard data</span>
-        <span class="chip"><span class="chip-icon">👥</span> Per-employee KPIs</span>
-        <span class="chip"><span class="chip-icon">⚡</span> Streaming responses</span>
-        <span class="chip"><span class="chip-icon">🔒</span> Your data stays yours</span>
-        <span class="chip"><span class="chip-icon">🌐</span> Domain-agnostic</span>
+        <span class="chip">📊 Live data</span>
+        <span class="chip">👥 Per-employee KPIs</span>
+        <span class="chip">📈 Structured reports</span>
+        <span class="chip">🔒 Your data stays yours</span>
       </div>
     </div>
   </div>
 
-  <!-- ── AI Usage Tracker ─────────────────────────────────────── -->
+  <!-- ── Tab nav ─────────────────────────────────────────────── -->
+  <div class="ai-tabs">
+    <button id="tab-btn-report" class="ai-tab-btn active" onclick="switchAiTab('report')">
+      📊 Report Generator
+    </button>
+    <button id="tab-btn-chat" class="ai-tab-btn" onclick="switchAiTab('chat')">
+      💬 Ask a Question
+    </button>
+  </div>
+
+  <!-- ── Usage strip ─────────────────────────────────────────── -->
   {% set limit_pct = ((ai_calls_today / ai_daily_limit * 100) | int) if ai_daily_limit else 0 %}
-  {% set limit_color = '#f87171' if limit_pct >= 90 else ('#fbbf24' if limit_pct >= 70 else '#6ee7b7') %}
-  <div style="background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap">
-    <div style="flex:1;min-width:180px">
-      <div style="font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Daily AI Calls Used</div>
+  {% set limit_color = '#ef4444' if limit_pct >= 90 else ('#f59e0b' if limit_pct >= 70 else '#10b981') %}
+  <div class="usage-strip">
+    <div style="flex:1;min-width:160px">
+      <div style="font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Daily AI calls used</div>
       {% if ai_daily_limit %}
-      <div style="background:var(--border-subtle);border-radius:99px;height:6px;overflow:hidden;margin-bottom:5px">
-        <div style="height:100%;border-radius:99px;background:{{ limit_color }};width:{{ [limit_pct, 100]|min }}%;transition:width .3s"></div>
+      <div style="background:var(--border-subtle);border-radius:99px;height:5px;overflow:hidden;margin-bottom:4px">
+        <div style="height:100%;border-radius:99px;background:{{ limit_color }};width:{{ [limit_pct,100]|min }}%;transition:width .3s"></div>
       </div>
-      <div style="font-size:12px;color:{{ limit_color }};font-weight:600">
-        {{ ai_calls_today }} / {{ ai_daily_limit }} calls today
-        {% if limit_pct >= 90 %}<span style="color:#f87171;margin-left:8px">⚠ Limit nearly reached</span>{% endif %}
+      <div style="font-size:12px;font-weight:600;color:{{ limit_color }}">
+        {{ ai_calls_today }} / {{ ai_daily_limit }} today
+        {% if limit_pct >= 90 %}<span style="margin-left:6px">⚠ Limit nearly reached</span>{% endif %}
       </div>
       {% else %}
-      <div style="font-size:13px;color:#6ee7b7;font-weight:600">{{ ai_calls_today }} calls today &nbsp;·&nbsp; <span style="color:var(--text-faint)">Unlimited</span></div>
+      <div style="font-size:13px;font-weight:600;color:#10b981">{{ ai_calls_today }} calls today · <span style="color:var(--text-faint)">Unlimited</span></div>
       {% endif %}
     </div>
-    <div style="text-align:right;flex-shrink:0">
-      <div style="font-size:10px;color:var(--text-xfaint)">Plan limit resets daily at midnight UTC</div>
-      {% if ai_daily_limit and ai_calls_today >= ai_daily_limit %}
-      <div style="font-size:11px;color:#f87171;margin-top:3px;font-weight:600">Limit reached — contact SA or upgrade plan</div>
-      {% endif %}
-    </div>
+    <div style="font-size:10px;color:var(--text-xfaint);text-align:right">Resets daily at midnight UTC</div>
   </div>
 
   {% if not api_configured %}
-  <!-- ── API not configured warning ───────────────────────────── -->
   <div class="api-warning">
-    <div class="api-warning-icon">⚠</div>
+    <span style="font-size:20px;flex-shrink:0">⚠</span>
     <div>
-      <strong>AI service not configured</strong>
-      Set the <code>ANTHROPIC_API_KEY</code> environment variable on your server to
-      enable the AI assistant. Once set, restart the application — no other changes needed.
-      <br><br>
-      <span style="color:#92400e; font-size:12px;">
-        Get your key at <strong>console.anthropic.com</strong>
-      </span>
+      <strong style="display:block;margin-bottom:3px">AI service not configured</strong>
+      Set the <code style="background:rgba(245,158,11,.15);border-radius:4px;padding:1px 6px;font-size:11px">ANTHROPIC_API_KEY</code>
+      environment variable on your server, then restart the application.
     </div>
   </div>
   {% endif %}
 
-  <!-- ═══════════════════════════════════════════════════════════
-       ASK INPUT
-  ════════════════════════════════════════════════════════════ -->
-  <div class="ask-card">
-    <div class="ask-label">✦ Ask a question</div>
-    <div class="ask-input-row">
-      <textarea
-        id="question-input"
-        class="ask-textarea"
-        rows="2"
-        placeholder="e.g. Who has the most overdue tickets? What's our on-time rate this month?"
-        {% if not api_configured %}disabled{% endif %}
-        maxlength="1000"
-      ></textarea>
-      <button class="ask-btn" id="ask-btn" onclick="submitQuestion()"
-              {% if not api_configured %}disabled{% endif %}>
-        <span class="ask-btn-icon">✦</span>
-        Ask AI
-      </button>
-    </div>
-
-    <!-- Example prompts -->
-    <div class="prompts-row" id="prompts-row">
-      <span class="prompt-chip" onclick="setPrompt(this)">Who has the most overdue tickets?</span>
-      <span class="prompt-chip" onclick="setPrompt(this)">What's our on-time closure rate this month?</span>
-      <span class="prompt-chip" onclick="setPrompt(this)">Which team member has the lowest compliance rate?</span>
-      <span class="prompt-chip" onclick="setPrompt(this)">Summarise today's ticket backlog</span>
-      <span class="prompt-chip" onclick="setPrompt(this)">Who needs the most support right now?</span>
-      <span class="prompt-chip" onclick="setPrompt(this)">What are the top risks I should act on today?</span>
-      <span class="prompt-chip" onclick="setPrompt(this)">Compare team workload across all employees</span>
-      <span class="prompt-chip" onclick="setPrompt(this)">What's the average resolution time?</span>
-    </div>
-  </div>
 
   <!-- ═══════════════════════════════════════════════════════════
-       ANSWER PANEL
+       TAB: REPORT GENERATOR (default)
   ════════════════════════════════════════════════════════════ -->
-  <div class="answer-panel" id="answer-panel">
-    <div class="answer-header">
-      <div class="answer-who">
-        <div class="answer-avatar">✦</div>
-        AI Assistant
+  <div id="tab-report">
+
+    <div class="ai-card">
+      <div style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.07em;margin-bottom:16px">
+        📊 Generate Structured Report
       </div>
-      <div class="answer-meta" id="answer-meta"></div>
-    </div>
-    <div class="answer-body" id="answer-body"></div>
-    <div class="answer-footer">
-      <div class="context-note">
-        <span>🔒</span>
-        Answers are grounded in your live data — no hallucination, no external sources
-      </div>
-      <button class="copy-btn" onclick="copyAnswer()">Copy</button>
-    </div>
-  </div>
 
-  </div><!-- /#tab-chat -->
-
-  <!-- ═══════════════════════════════════════════════════════════
-       TAB: REPORT GENERATOR (P9-02, P9-04)
-  ════════════════════════════════════════════════════════════ -->
-  <div id="tab-report" style="display:none">
-
-    <!-- Usage tracker (shared) -->
-    {% set limit_pct2 = ((ai_calls_today / ai_daily_limit * 100) | int) if ai_daily_limit else 0 %}
-    {% set limit_color2 = '#f87171' if limit_pct2 >= 90 else ('#fbbf24' if limit_pct2 >= 70 else '#6ee7b7') %}
-    <div style="background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:12px;padding:12px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:20px">
-      <div style="flex:1">
-        <div style="font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">AI Calls Remaining Today</div>
-        {% if ai_daily_limit %}
-        {% set remaining = ai_daily_limit - ai_calls_today %}
-        <div style="font-size:14px;font-weight:700;color:{{ limit_color2 }}">
-          {{ [remaining, 0]|max }} / {{ ai_daily_limit }} remaining
-        </div>
-        {% if remaining <= 0 %}
-        <div style="font-size:11px;color:#f87171;margin-top:2px">Limit reached — resets at midnight UTC</div>
-        {% endif %}
-        {% else %}
-        <div style="font-size:14px;font-weight:700;color:#6ee7b7">Unlimited</div>
-        {% endif %}
-      </div>
-    </div>
-
-    <!-- P9-02: Input controls -->
-    <div class="ask-card" style="margin-bottom:20px">
-      <div class="ask-label">📊 Generate Structured Report</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-        <div class="form-group" style="margin:0">
-          <label style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:8px">Section</label>
-          <select id="rpt-section" style="background:var(--border-subtle);border:1.5px solid var(--border-med);border-radius:10px;color:var(--text-primary);font-size:13px;padding:11px 14px;width:100%;outline:none">
+        <div>
+          <label class="ai-field-label">Section</label>
+          <select id="rpt-section" class="ai-select">
             {% for val, label in report_sections %}
             <option value="{{ val }}">{{ label }}</option>
             {% endfor %}
           </select>
         </div>
-        <div class="form-group" style="margin:0">
-          <label style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:8px">Date Range</label>
-          <select id="rpt-range" style="background:var(--border-subtle);border:1.5px solid var(--border-med);border-radius:10px;color:var(--text-primary);font-size:13px;padding:11px 14px;width:100%;outline:none">
+        <div>
+          <label class="ai-field-label">Time Period</label>
+          <select id="rpt-range" class="ai-select">
             {% for val, label in report_date_ranges %}
             <option value="{{ val }}" {% if val == '30d' %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </div>
       </div>
-      <div class="form-group" style="margin:0 0 16px">
-        <label style="font-size:11px;font-weight:700;color:#6366f1;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:8px">Focus Area <span style="font-weight:400;color:var(--text-xfaint);text-transform:none;letter-spacing:0">(optional)</span></label>
-        <textarea id="rpt-focus" rows="2" placeholder="e.g. Identify bottlenecks in the dispatch stage, or highlight top performers"
-          style="background:var(--border-subtle);border:1.5px solid var(--border-med);border-radius:10px;color:var(--text-primary);font-size:13px;padding:11px 14px;width:100%;resize:vertical;outline:none;font-family:inherit;box-sizing:border-box"></textarea>
+
+      <div style="margin-bottom:16px">
+        <label class="ai-field-label">
+          Specific Focus
+          <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-xfaint)"> — optional</span>
+        </label>
+        <textarea id="rpt-focus" class="ai-textarea" rows="2"
+          placeholder="e.g. Identify bottlenecks in dispatch, or highlight employees who need support"></textarea>
       </div>
+
       {% set at_limit = ai_daily_limit and ai_calls_today >= ai_daily_limit %}
-      <button id="rpt-btn" onclick="generateReport()" class="ask-btn"
+      <button id="rpt-btn" onclick="generateReport()" class="ai-btn"
               {% if not api_configured or at_limit %}disabled{% endif %}
-              style="width:100%;justify-content:center">
+              style="width:100%">
         <span id="rpt-btn-icon">📊</span>
-        <span id="rpt-btn-text">{% if at_limit %}Limit Reached{% else %}Generate Report{% endif %}</span>
+        <span id="rpt-btn-text">{% if at_limit %}Daily Limit Reached{% else %}Generate Report{% endif %}</span>
       </button>
-      {% if not api_configured %}
-      <div style="font-size:12px;color:#f87171;margin-top:8px;text-align:center">AI service not configured — set ANTHROPIC_API_KEY</div>
-      {% endif %}
     </div>
 
-    <!-- P9-04: Report output -->
+    <!-- Report output -->
     <div id="rpt-output" style="display:none">
-
-      <!-- Header with export button -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
         <div>
-          <div style="font-size:16px;font-weight:700;color:var(--text-strong)" id="rpt-title"></div>
-          <div style="font-size:11px;color:var(--text-xfaint);margin-top:2px" id="rpt-subtitle"></div>
+          <div style="font-size:15px;font-weight:700;color:var(--text-strong)" id="rpt-title"></div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="rpt-subtitle"></div>
         </div>
-        <button onclick="exportReport()" class="copy-btn" style="padding:8px 16px;font-size:12px">
-          📋 Copy as Text
-        </button>
+        <button onclick="exportReport()" class="copy-btn" style="padding:7px 14px;font-size:12px">📋 Copy as Text</button>
       </div>
 
       <!-- Executive Summary -->
-      <div class="card" style="padding:20px;margin-bottom:12px;border-left:3px solid #818cf8">
-        <div style="font-size:10px;font-weight:700;color:#818cf8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Executive Summary</div>
-        <div id="rpt-summary" style="font-size:13.5px;color:#cbd5e1;line-height:1.7"></div>
+      <div class="rpt-card" style="border-left:3px solid #818cf8">
+        <div class="rpt-card-title" style="color:#818cf8">Executive Summary</div>
+        <div id="rpt-summary" class="rpt-body"></div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-        <!-- What's Working Well -->
-        <div class="card" style="padding:20px;border-left:3px solid #10b981">
-          <div style="font-size:10px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">✓ What is Working Well</div>
-          <ul id="rpt-working" style="margin:0;padding-left:18px;font-size:13px;color:#cbd5e1;line-height:1.7"></ul>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div class="rpt-card" style="border-left:3px solid #10b981">
+          <div class="rpt-card-title" style="color:#10b981">✓ What is Working Well</div>
+          <ul class="rpt-list" id="rpt-working"></ul>
         </div>
-        <!-- Needs Attention -->
-        <div class="card" style="padding:20px;border-left:3px solid #ef4444">
-          <div style="font-size:10px;font-weight:700;color:#f87171;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">⚠ What Needs Attention</div>
-          <ul id="rpt-attention" style="margin:0;padding-left:18px;font-size:13px;color:#cbd5e1;line-height:1.7"></ul>
+        <div class="rpt-card" style="border-left:3px solid #ef4444">
+          <div class="rpt-card-title" style="color:#ef4444">⚠ What Needs Attention</div>
+          <ul class="rpt-list" id="rpt-attention"></ul>
         </div>
       </div>
 
-      <!-- Where to Focus -->
-      <div class="card" style="padding:20px;margin-bottom:12px;border-left:3px solid #f59e0b">
-        <div style="font-size:10px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">🎯 Where to Focus</div>
-        <ol id="rpt-focus-out" style="margin:0;padding-left:20px;font-size:13px;color:#cbd5e1;line-height:1.8"></ol>
+      <div class="rpt-card" style="border-left:3px solid #f59e0b">
+        <div class="rpt-card-title" style="color:#f59e0b">🎯 Where to Focus Next</div>
+        <ol class="rpt-list" id="rpt-focus-out"></ol>
       </div>
 
-      <!-- Key Metrics Table -->
-      <div class="card" style="padding:20px;margin-bottom:12px">
-        <div style="font-size:10px;font-weight:700;color:#7dd3fc;text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">📈 Key Metrics</div>
+      <div class="rpt-card">
+        <div class="rpt-card-title" style="color:#7dd3fc">📈 Key Metrics</div>
         <table style="width:100%;border-collapse:collapse">
           <thead>
             <tr>
-              <th style="text-align:left;padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-xfaint);border-bottom:1px solid var(--border-subtle)">Metric</th>
-              <th style="text-align:right;padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-xfaint);border-bottom:1px solid var(--border-subtle)">Value</th>
+              <th style="text-align:left;padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Metric</th>
+              <th style="text-align:right;padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Value</th>
             </tr>
           </thead>
           <tbody id="rpt-metrics"></tbody>
         </table>
       </div>
 
-      <!-- Employee Highlights (only for Employees section) -->
+      <!-- Employee highlights -->
       <div id="rpt-emp-highlights" style="display:none">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-          <div class="card" style="padding:20px;border-left:3px solid #6ee7b7">
-            <div style="font-size:10px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">🏆 Top Performers</div>
-            <ul id="rpt-top" style="margin:0;padding-left:18px;font-size:13px;color:#cbd5e1;line-height:1.7"></ul>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div class="rpt-card" style="border-left:3px solid #10b981">
+            <div class="rpt-card-title" style="color:#10b981">🏆 Top Performers</div>
+            <ul class="rpt-list" id="rpt-top"></ul>
           </div>
-          <div class="card" style="padding:20px;border-left:3px solid #f87171">
-            <div style="font-size:10px;font-weight:700;color:#f87171;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">📉 Need Support</div>
-            <ul id="rpt-bottom" style="margin:0;padding-left:18px;font-size:13px;color:#cbd5e1;line-height:1.7"></ul>
+          <div class="rpt-card" style="border-left:3px solid #f87171">
+            <div class="rpt-card-title" style="color:#f87171">📉 Need Support</div>
+            <ul class="rpt-list" id="rpt-bottom"></ul>
           </div>
         </div>
-        <div class="card" style="padding:20px;margin-bottom:12px">
-          <div style="font-size:10px;font-weight:700;color:#c084fc;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">🔄 Team Patterns</div>
-          <div id="rpt-patterns" style="font-size:13px;color:#cbd5e1;line-height:1.7"></div>
-          <div style="font-size:10px;font-weight:700;color:#c084fc;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">💡 Recommended Focus for Next Period</div>
-          <div id="rpt-recommendation" style="font-size:13px;color:#cbd5e1;line-height:1.7"></div>
+        <div class="rpt-card">
+          <div class="rpt-card-title" style="color:#c084fc">🔄 Team Patterns</div>
+          <div id="rpt-patterns" class="rpt-body" style="margin-bottom:12px"></div>
+          <div class="rpt-card-title" style="color:#c084fc;margin-top:0">💡 Recommended Focus for Next Period</div>
+          <div id="rpt-recommendation" class="rpt-body"></div>
         </div>
       </div>
+    </div>
 
-    </div><!-- /#rpt-output -->
-
-    <!-- Error state -->
-    <div id="rpt-error" style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:16px 18px;color:#fca5a5;font-size:13px"></div>
+    <div id="rpt-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:14px 16px;color:#f87171;font-size:13px"></div>
 
   </div><!-- /#tab-report -->
+
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TAB: CHAT
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-chat" style="display:none">
+
+    <div class="ai-card">
+      <label class="ai-field-label">✦ Ask a question</label>
+      <div style="display:flex;gap:10px;align-items:flex-end">
+        <textarea id="question-input" class="ai-textarea" rows="2"
+          placeholder="e.g. Who has the most overdue tickets? What's our on-time rate this month?"
+          {% if not api_configured %}disabled{% endif %}
+          maxlength="1000" style="min-height:52px;max-height:140px;overflow-y:auto"></textarea>
+        <button class="ai-btn" id="ask-btn" onclick="submitQuestion()"
+                {% if not api_configured %}disabled{% endif %}
+                style="height:52px;flex-shrink:0;padding:0 20px">
+          <span id="ask-btn-icon">✦</span> Ask AI
+        </button>
+      </div>
+      <div class="prompts-row" id="prompts-row">
+        <span class="prompt-chip" onclick="setPrompt(this)">Who has the most overdue tickets?</span>
+        <span class="prompt-chip" onclick="setPrompt(this)">What's our on-time closure rate this month?</span>
+        <span class="prompt-chip" onclick="setPrompt(this)">Which team member has the lowest compliance rate?</span>
+        <span class="prompt-chip" onclick="setPrompt(this)">Summarise today's ticket backlog</span>
+        <span class="prompt-chip" onclick="setPrompt(this)">Who needs the most support right now?</span>
+        <span class="prompt-chip" onclick="setPrompt(this)">Compare team workload across all employees</span>
+      </div>
+    </div>
+
+    <div class="answer-panel" id="answer-panel">
+      <div class="answer-header">
+        <div class="answer-who">
+          <div class="answer-avatar">✦</div>
+          AI Assistant
+        </div>
+        <div class="answer-meta" id="answer-meta"></div>
+      </div>
+      <div class="answer-body" id="answer-body"></div>
+      <div class="answer-footer">
+        <div class="context-note"><span>🔒</span> Answers grounded in your live data</div>
+        <button class="copy-btn" onclick="copyAnswer()">Copy</button>
+      </div>
+    </div>
+
+  </div><!-- /#tab-chat -->
 
 </div><!-- /.ai-page -->
 
 
-<!-- ════════════════════════════════════════════════════════════
-     JavaScript — SSE streaming, markdown rendering
-════════════════════════════════════════════════════════════ -->
 <script>
-// ── Very-light Markdown → HTML renderer ──────────────────────────────────────
-// Handles: bold, italic, inline-code, h2/h3, ul/ol, table, paragraphs
+// ── Tab switching ──────────────────────────────────────────────────────────────
+function switchAiTab(tab) {
+  const isReport = tab === 'report';
+  document.getElementById('tab-report').style.display = isReport ? '' : 'none';
+  document.getElementById('tab-chat').style.display   = isReport ? 'none' : '';
+  document.getElementById('tab-btn-report').className = 'ai-tab-btn' + (isReport ? ' active' : '');
+  document.getElementById('tab-btn-chat').className   = 'ai-tab-btn' + (isReport ? '' : ' active');
+}
+
+// ── Markdown renderer ──────────────────────────────────────────────────────────
 function renderMarkdown(raw) {
   let s = raw
-    // code blocks (``` ... ```)
     .replace(/```[\s\S]*?```/g, m => `<pre><code>${esc(m.slice(3,-3).trim())}</code></pre>`)
-    // inline code
-    .replace(/`([^`]+)`/g, (_, c) => `<code>${esc(c)}</code>`)
-    // h3
+    .replace(/`([^`]+)`/g, (_,c) => `<code>${esc(c)}</code>`)
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    // h2
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    // bold
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    // italic
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // ⚠ warning lines — red tint
     .replace(/^(⚠[^\n]+)$/gm, '<span style="color:#f87171">$1</span>')
-    // ✓ positive lines — green tint
     .replace(/^(✓[^\n]+)$/gm, '<span style="color:#34d399">$1</span>')
-    // unordered list
     .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
-    // ordered list
     .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
-    // wrap consecutive <li> in <ul>
     .replace(/(<li>[\s\S]+?<\/li>)(?=\n<li>|$)/g, m => '<ul>' + m + '</ul>')
-    // tables: simplistic header + rows
     .replace(/\|(.+)\|\n\|[-| ]+\|\n((?:\|.+\|\n?)+)/g, buildTable)
-    // double newlines → paragraphs
-    .split(/\n{2,}/).map(block => {
-      if (/^<(h[23]|ul|ol|li|pre|table)/.test(block.trim())) return block;
-      if (!block.trim()) return '';
-      return `<p>${block.replace(/\n/g,' ')}</p>`;
+    .split(/\n{2,}/).map(b => {
+      if (/^<(h[23]|ul|ol|li|pre|table)/.test(b.trim())) return b;
+      if (!b.trim()) return '';
+      return `<p>${b.replace(/\n/g,' ')}</p>`;
     }).join('\n');
   return s;
 }
-
-function esc(str) {
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+function buildTable(_, hdr, body) {
+  const heads = hdr.split('|').map(c=>c.trim()).filter(Boolean);
+  const rows  = body.trim().split('\n').map(r=>r.split('|').map(c=>c.trim()).filter(Boolean));
+  return `<table><thead><tr>${heads.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${
+    rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('')
+  }</tbody></table>`;
 }
 
-function buildTable(_, header, body) {
-  const heads = header.split('|').map(c=>c.trim()).filter(Boolean);
-  const rows = body.trim().split('\n').map(r =>
-    r.split('|').map(c=>c.trim()).filter(Boolean)
-  );
-  const thead = '<tr>' + heads.map(h=>`<th>${h}</th>`).join('') + '</tr>';
-  const tbody = rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
-  return `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
-}
+// ── Chat / Ask ─────────────────────────────────────────────────────────────────
+let rawAnswer = '', streaming = false;
 
-// ── State ─────────────────────────────────────────────────────────────────────
-let rawAnswer = '';
-let streaming  = false;
-
-// ── Prompt chips ──────────────────────────────────────────────────────────────
 function setPrompt(el) {
   const ta = document.getElementById('question-input');
-  ta.value = el.textContent;
-  ta.focus();
+  ta.value = el.textContent; ta.focus();
   ta.style.height = 'auto';
-  ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+  ta.style.height = Math.min(ta.scrollHeight,140)+'px';
 }
 
-// Auto-resize textarea
-document.getElementById('question-input').addEventListener('input', function() {
-  this.style.height = 'auto';
-  this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+document.getElementById('question-input').addEventListener('input', function(){
+  this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,140)+'px';
+});
+document.getElementById('question-input').addEventListener('keydown', function(e){
+  if ((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); submitQuestion(); }
 });
 
-// Submit on Ctrl+Enter / Cmd+Enter
-document.getElementById('question-input').addEventListener('keydown', function(e) {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-    e.preventDefault();
-    submitQuestion();
-  }
-});
-
-// ── Main streaming function ───────────────────────────────────────────────────
 async function submitQuestion() {
   const input = document.getElementById('question-input');
   const question = input.value.trim();
   if (!question || streaming) return;
+  streaming = true; rawAnswer = '';
 
-  streaming  = true;
-  rawAnswer  = '';
-
-  // UI state
   const btn = document.getElementById('ask-btn');
   btn.disabled = true;
-  btn.innerHTML = '<span class="ask-btn-icon" style="animation:spin 1s linear infinite;display:inline-block">◌</span> Thinking…';
+  btn.innerHTML = '<span style="animation:spin 1s linear infinite;display:inline-block">◌</span> Thinking…';
 
-  // Show answer panel
   const panel = document.getElementById('answer-panel');
   panel.classList.add('visible');
   const body = document.getElementById('answer-body');
   body.innerHTML = '<span class="cursor"></span>';
-
-  // Remove any previous error
   const prevErr = panel.querySelector('.answer-error');
   if (prevErr) prevErr.remove();
+  document.getElementById('answer-meta').textContent = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  panel.scrollIntoView({behavior:'smooth',block:'start'});
 
-  // Timestamp
-  const meta = document.getElementById('answer-meta');
-  meta.textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-
-  // Scroll to panel
-  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-  // Build form data
-  const fd = new FormData();
-  fd.append('question', question);
-
+  const fd = new FormData(); fd.append('question', question);
   try {
-    const resp = await fetch('/ai/ask', { method: 'POST', body: fd });
-
+    const resp = await fetch('/ai/ask',{method:'POST',body:fd});
     if (!resp.ok) {
-      const err = await resp.json().catch(() => ({detail: resp.statusText}));
-      showError(err.detail || 'Request failed');
-      return;
+      const err = await resp.json().catch(()=>({detail:resp.statusText}));
+      showChatError(err.detail||'Request failed'); return;
     }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-
-      // Process all complete SSE events in buffer
-      const lines = buf.split('\n\n');
-      buf = lines.pop(); // keep incomplete chunk
-
-      for (const block of lines) {
-        const dataLine = block.split('\n').find(l => l.startsWith('data:'));
-        if (!dataLine) continue;
-        const json = dataLine.slice(5).trim();
-        let event;
-        try { event = JSON.parse(json); } catch { continue; }
-
-        if (event.type === 'text') {
-          rawAnswer += event.text;
-          body.innerHTML = renderMarkdown(rawAnswer) + '<span class="cursor"></span>';
-        } else if (event.type === 'done') {
-          body.innerHTML = renderMarkdown(rawAnswer);
-        } else if (event.type === 'error') {
-          showError(event.text);
-        }
+    const reader=resp.body.getReader(); const decoder=new TextDecoder(); let buf='';
+    while(true) {
+      const {done,value}=await reader.read(); if(done)break;
+      buf+=decoder.decode(value,{stream:true});
+      const lines=buf.split('\n\n'); buf=lines.pop();
+      for(const block of lines){
+        const dl=block.split('\n').find(l=>l.startsWith('data:')); if(!dl)continue;
+        let ev; try{ev=JSON.parse(dl.slice(5).trim())}catch{continue}
+        if(ev.type==='text'){rawAnswer+=ev.text; body.innerHTML=renderMarkdown(rawAnswer)+'<span class="cursor"></span>'}
+        else if(ev.type==='done'){body.innerHTML=renderMarkdown(rawAnswer)}
+        else if(ev.type==='error'){showChatError(ev.text)}
       }
     }
-
-    // Final render — remove cursor
-    body.innerHTML = renderMarkdown(rawAnswer);
-
-  } catch (err) {
-    showError('Network error — please check your connection and try again.');
+    body.innerHTML=renderMarkdown(rawAnswer);
+  } catch(err) {
+    showChatError('Network error — check your connection and try again.');
   } finally {
-    streaming = false;
-    btn.disabled = false;
-    btn.innerHTML = '<span class="ask-btn-icon">✦</span> Ask AI';
+    streaming=false; btn.disabled=false;
+    btn.innerHTML='<span>✦</span> Ask AI';
   }
 }
 
-function showError(msg) {
-  const panel = document.getElementById('answer-panel');
+function showChatError(msg) {
+  const panel=document.getElementById('answer-panel');
   panel.classList.add('visible');
-  // Remove existing errors
-  const prev = panel.querySelector('.answer-error');
-  if (prev) prev.remove();
-  const div = document.createElement('div');
-  div.className = 'answer-error';
-  div.innerHTML = `<span>⚠</span><span>${msg}</span>`;
+  const prev=panel.querySelector('.answer-error'); if(prev)prev.remove();
+  const div=document.createElement('div'); div.className='answer-error';
+  div.innerHTML=`<span>⚠</span><span>${msg}</span>`;
   panel.querySelector('.answer-footer').before(div);
-  const body = document.getElementById('answer-body');
-  if (body.innerHTML.includes('cursor')) body.innerHTML = '';
+  const body=document.getElementById('answer-body');
+  if(body.innerHTML.includes('cursor'))body.innerHTML='';
 }
 
 function copyAnswer() {
-  navigator.clipboard.writeText(rawAnswer).then(() => {
-    const btn = document.querySelector('.copy-btn');
-    btn.textContent = 'Copied!';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+  navigator.clipboard.writeText(rawAnswer).then(()=>{
+    const btn=document.querySelector('.copy-btn');
+    const orig=btn.textContent; btn.textContent='Copied!';
+    setTimeout(()=>{btn.textContent=orig},2000);
   });
 }
 
-// Spin animation for loading icon
-const styleEl = document.createElement('style');
-styleEl.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
-document.head.appendChild(styleEl);
-</script>
-
-<script>
-// ── P9-01: Tab switching ─────────────────────────────────────────────────────
-function switchAiTab(tab) {
-  const isChat = tab === 'chat';
-  document.getElementById('tab-chat').style.display   = isChat ? '' : 'none';
-  document.getElementById('tab-report').style.display = isChat ? 'none' : '';
-
-  const chatBtn   = document.getElementById('tab-btn-chat');
-  const reportBtn = document.getElementById('tab-btn-report');
-  chatBtn.style.borderBottomColor   = isChat ? '#818cf8' : 'transparent';
-  chatBtn.style.color               = isChat ? '#a5b4fc' : 'var(--text-faint)';
-  reportBtn.style.borderBottomColor = isChat ? 'transparent' : '#818cf8';
-  reportBtn.style.color             = isChat ? 'var(--text-faint)' : '#a5b4fc';
-}
-
-// ── P9-03 / P9-04: Report generation ────────────────────────────────────────
+// ── Report generator ───────────────────────────────────────────────────────────
 let _reportData = null;
 
 async function generateReport() {
   const section   = document.getElementById('rpt-section').value;
   const dateRange = document.getElementById('rpt-range').value;
   const focusArea = document.getElementById('rpt-focus').value;
+  const btn=document.getElementById('rpt-btn');
+  const btnText=document.getElementById('rpt-btn-text');
+  const btnIcon=document.getElementById('rpt-btn-icon');
+  const output=document.getElementById('rpt-output');
+  const errDiv=document.getElementById('rpt-error');
 
-  const btn     = document.getElementById('rpt-btn');
-  const btnText = document.getElementById('rpt-btn-text');
-  const btnIcon = document.getElementById('rpt-btn-icon');
-  const output  = document.getElementById('rpt-output');
-  const errDiv  = document.getElementById('rpt-error');
-
-  btn.disabled  = true;
-  btnText.textContent = 'Generating…';
-  btnIcon.style.animation = 'spin 1s linear infinite';
-  btnIcon.style.display = 'inline-block';
-  output.style.display = 'none';
-  errDiv.style.display = 'none';
+  btn.disabled=true; btnText.textContent='Generating…';
+  btnIcon.style.animation='spin 1s linear infinite'; btnIcon.style.display='inline-block';
+  output.style.display='none'; errDiv.style.display='none';
 
   try {
-    const fd = new FormData();
-    fd.append('section',    section);
-    fd.append('date_range', dateRange);
-    fd.append('focus_area', focusArea);
-
-    const resp = await fetch('/ai/report', { method: 'POST', body: fd });
-    const data = await resp.json();
-
-    if (!resp.ok) {
-      errDiv.textContent = '⚠ ' + (data.detail || 'Report generation failed');
-      errDiv.style.display = '';
-      return;
-    }
-
-    _reportData = data.report;
-    renderReport(data.report, section, dateRange);
-    output.style.display = '';
-    output.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-  } catch (e) {
-    errDiv.textContent = '⚠ Network error — please check your connection.';
-    errDiv.style.display = '';
+    const fd=new FormData();
+    fd.append('section',section); fd.append('date_range',dateRange); fd.append('focus_area',focusArea);
+    const resp=await fetch('/ai/report',{method:'POST',body:fd});
+    const data=await resp.json();
+    if(!resp.ok){errDiv.textContent='⚠ '+(data.detail||'Report generation failed');errDiv.style.display='';return}
+    _reportData=data.report;
+    renderReport(data.report,section,dateRange);
+    output.style.display=''; output.scrollIntoView({behavior:'smooth',block:'start'});
+  } catch(e){
+    errDiv.textContent='⚠ Network error — please check your connection.'; errDiv.style.display='';
   } finally {
-    btn.disabled = false;
-    btnText.textContent = 'Generate Report';
-    btnIcon.style.animation = '';
-    btnIcon.textContent = '📊';
+    btn.disabled=false; btnText.textContent='Generate Report';
+    btnIcon.style.animation=''; btnIcon.textContent='📊';
   }
 }
 
-function renderReport(r, section, dateRange) {
-  // Title bar
-  const rangeLabels = {
-    '7d':'Last 7 Days','30d':'Last 30 Days','3m':'Last 3 Months',
-    '6m':'Last 6 Months','month':'This Month','quarter':'This Quarter'
-  };
-  document.getElementById('rpt-title').textContent = section + ' Report';
-  document.getElementById('rpt-subtitle').textContent =
-    rangeLabels[dateRange] || dateRange;
+function renderReport(r,section,dateRange) {
+  const rangeLabels={'7d':'Last 7 Days','30d':'Last 30 Days','3m':'Last 3 Months','6m':'Last 6 Months','month':'This Month','quarter':'This Quarter'};
+  document.getElementById('rpt-title').textContent=section+' Report';
+  document.getElementById('rpt-subtitle').textContent=rangeLabels[dateRange]||dateRange;
+  document.getElementById('rpt-summary').textContent=r.executive_summary||'';
 
-  // Executive Summary
-  document.getElementById('rpt-summary').textContent = r.executive_summary || '';
+  const ww=document.getElementById('rpt-working'); ww.innerHTML='';
+  (r.working_well||[]).forEach(x=>{const li=document.createElement('li');li.textContent=x;ww.appendChild(li)});
+  const na=document.getElementById('rpt-attention'); na.innerHTML='';
+  (r.needs_attention||[]).forEach(x=>{const li=document.createElement('li');li.textContent=x;na.appendChild(li)});
+  const wf=document.getElementById('rpt-focus-out'); wf.innerHTML='';
+  (r.where_to_focus||[]).forEach(x=>{const li=document.createElement('li');li.textContent=x;wf.appendChild(li)});
 
-  // Working Well
-  const ww = document.getElementById('rpt-working');
-  ww.innerHTML = '';
-  (r.working_well || []).forEach(item => {
-    const li = document.createElement('li'); li.textContent = item; ww.appendChild(li);
-  });
-
-  // Needs Attention
-  const na = document.getElementById('rpt-attention');
-  na.innerHTML = '';
-  (r.needs_attention || []).forEach(item => {
-    const li = document.createElement('li'); li.textContent = item; na.appendChild(li);
-  });
-
-  // Where to Focus
-  const wf = document.getElementById('rpt-focus-out');
-  wf.innerHTML = '';
-  (r.where_to_focus || []).forEach(item => {
-    const li = document.createElement('li'); li.textContent = item; wf.appendChild(li);
-  });
-
-  // Key Metrics Table
-  const mt = document.getElementById('rpt-metrics');
-  mt.innerHTML = '';
-  (r.key_metrics || []).forEach(m => {
-    const tr = document.createElement('tr');
-    tr.innerHTML =
-      `<td style="padding:9px 12px;font-size:13px;color:var(--text-primary);border-bottom:1px solid var(--border-subtle)">${m.metric}</td>` +
-      `<td style="padding:9px 12px;font-size:13px;font-weight:700;color:#7dd3fc;text-align:right;border-bottom:1px solid var(--border-subtle)">${m.value}</td>`;
+  const mt=document.getElementById('rpt-metrics'); mt.innerHTML='';
+  (r.key_metrics||[]).forEach(m=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td style="padding:8px 10px;font-size:13px;color:var(--text-primary);border-bottom:1px solid var(--border-subtle)">${m.metric}</td>`+
+      `<td class="metric-val" style="padding:8px 10px;border-bottom:1px solid var(--border-subtle)">${m.value}</td>`;
     mt.appendChild(tr);
   });
 
-  // Employee Highlights
-  const eh = r.employee_highlights;
-  const ehDiv = document.getElementById('rpt-emp-highlights');
-  if (eh) {
-    ehDiv.style.display = '';
-    const top = document.getElementById('rpt-top');
-    top.innerHTML = '';
-    (eh.top || []).forEach(e => {
-      const li = document.createElement('li');
-      li.innerHTML = `<strong style="color:var(--text-strong)">${e.name}</strong> — ${e.metric}`;
-      top.appendChild(li);
-    });
-    const bot = document.getElementById('rpt-bottom');
-    bot.innerHTML = '';
-    (eh.bottom || []).forEach(e => {
-      const li = document.createElement('li');
-      li.innerHTML = `<strong style="color:var(--text-strong)">${e.name}</strong> — ${e.metric}`;
-      bot.appendChild(li);
-    });
-    document.getElementById('rpt-patterns').textContent = eh.patterns || '';
-    document.getElementById('rpt-recommendation').textContent = eh.recommendation || '';
-  } else {
-    ehDiv.style.display = 'none';
-  }
+  const eh=r.employee_highlights;
+  const ehDiv=document.getElementById('rpt-emp-highlights');
+  if(eh){
+    ehDiv.style.display='';
+    const top=document.getElementById('rpt-top'); top.innerHTML='';
+    (eh.top||[]).forEach(e=>{const li=document.createElement('li');li.innerHTML=`<strong>${e.name}</strong> — ${e.metric}`;top.appendChild(li)});
+    const bot=document.getElementById('rpt-bottom'); bot.innerHTML='';
+    (eh.bottom||[]).forEach(e=>{const li=document.createElement('li');li.innerHTML=`<strong>${e.name}</strong> — ${e.metric}`;bot.appendChild(li)});
+    document.getElementById('rpt-patterns').textContent=eh.patterns||'';
+    document.getElementById('rpt-recommendation').textContent=eh.recommendation||'';
+  } else { ehDiv.style.display='none' }
 }
 
-// P9-04: Copy report as plain text
 function exportReport() {
-  if (!_reportData) return;
-  const r = _reportData;
-  const lines = [
-    '== EXECUTIVE SUMMARY ==',
-    r.executive_summary || '',
-    '',
-    '== WHAT IS WORKING WELL ==',
-    ...(r.working_well || []).map((x, i) => `${i+1}. ${x}`),
-    '',
-    '== WHAT NEEDS ATTENTION ==',
-    ...(r.needs_attention || []).map((x, i) => `${i+1}. ${x}`),
-    '',
-    '== WHERE TO FOCUS ==',
-    ...(r.where_to_focus || []).map((x, i) => `${i+1}. ${x}`),
-    '',
-    '== KEY METRICS ==',
-    ...(r.key_metrics || []).map(m => `${m.metric}: ${m.value}`),
-  ];
-  if (r.employee_highlights) {
-    const eh = r.employee_highlights;
-    lines.push('', '== TOP PERFORMERS ==',
-      ...(eh.top || []).map(e => `${e.name}: ${e.metric}`));
-    lines.push('', '== NEED SUPPORT ==',
-      ...(eh.bottom || []).map(e => `${e.name}: ${e.metric}`));
-    lines.push('', '== TEAM PATTERNS ==', eh.patterns || '');
-    lines.push('', '== RECOMMENDED FOCUS ==', eh.recommendation || '');
+  if(!_reportData)return;
+  const r=_reportData;
+  const lines=['== EXECUTIVE SUMMARY ==',r.executive_summary||'','',
+    '== WHAT IS WORKING WELL ==',...(r.working_well||[]).map((x,i)=>`${i+1}. ${x}`),'',
+    '== WHAT NEEDS ATTENTION ==',...(r.needs_attention||[]).map((x,i)=>`${i+1}. ${x}`),'',
+    '== WHERE TO FOCUS ==',...(r.where_to_focus||[]).map((x,i)=>`${i+1}. ${x}`),'',
+    '== KEY METRICS ==',...(r.key_metrics||[]).map(m=>`${m.metric}: ${m.value}`)];
+  if(r.employee_highlights){
+    const eh=r.employee_highlights;
+    lines.push('','== TOP PERFORMERS ==',...(eh.top||[]).map(e=>`${e.name}: ${e.metric}`));
+    lines.push('','== NEED SUPPORT ==',...(eh.bottom||[]).map(e=>`${e.name}: ${e.metric}`));
+    lines.push('','== TEAM PATTERNS ==',eh.patterns||'');
+    lines.push('','== RECOMMENDED FOCUS ==',eh.recommendation||'');
   }
-  navigator.clipboard.writeText(lines.join('\n')).then(() => {
-    const btn = document.querySelector('[onclick="exportReport()"]');
-    const orig = btn.textContent;
-    btn.textContent = '✓ Copied!';
-    setTimeout(() => { btn.textContent = orig; }, 2000);
+  navigator.clipboard.writeText(lines.join('\n')).then(()=>{
+    const btn=document.querySelector('[onclick="exportReport()"]');
+    const orig=btn.textContent; btn.textContent='✓ Copied!';
+    setTimeout(()=>{btn.textContent=orig},2000);
   });
 }
+
+const _styleEl=document.createElement('style');
+_styleEl.textContent='@keyframes spin{to{transform:rotate(360deg)}}';
+document.head.appendChild(_styleEl);
 </script>
 {% endblock %}

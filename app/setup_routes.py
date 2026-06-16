@@ -42,7 +42,14 @@ class _OrmEncoder(_json.JSONEncoder):
         return super().default(obj)
 
 
-templates.env.filters["tojson"] = lambda v: _Markup(_json.dumps(v, cls=_OrmEncoder))
+def _safe_tojson(v):
+    """JSON serialise v and escape chars that break HTML attributes."""
+    s = _json.dumps(v, cls=_OrmEncoder, ensure_ascii=False)
+    # Unicode-escape chars that are unsafe inside HTML attribute values
+    s = s.replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e').replace("'", '\\u0027')
+    return _Markup(s)
+
+templates.env.filters["tojson"] = _safe_tojson
 templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
 
 
@@ -264,7 +271,9 @@ async def import_customers(
 
     db.commit()
     if errors:
-        return _exception_report(errors, "customers_exceptions.csv")
+        r = _exception_report(errors, "customers_exceptions.csv")
+        r.headers["X-Imported"] = str(imported)
+        return r
     return _redir(f"/setup/customers?msg=Imported+{imported}+customer(s)")
 
 
@@ -414,7 +423,9 @@ async def import_end_products(
         imported += 1
     db.commit()
     if errors:
-        return _exception_report(errors, "end_products_exceptions.csv")
+        r = _exception_report(errors, "end_products_exceptions.csv")
+        r.headers["X-Imported"] = str(imported)
+        return r
     return _redir(f"/setup/end-products?msg=Imported+{imported}+product(s)")
 
 
@@ -589,7 +600,9 @@ async def import_list_items(
 
     db.commit()
     if errors:
-        return _exception_report(errors, "custom_items_exceptions.csv")
+        r = _exception_report(errors, "custom_items_exceptions.csv")
+        r.headers["X-Imported"] = str(imported)
+        return r
     return _redir(f"/setup/custom-lists?msg=Imported+{imported}+item(s)")
 
 

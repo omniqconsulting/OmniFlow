@@ -54,7 +54,7 @@
               </span>
             </td>
             <td>
-              <button onclick="openEdit({{ c|tojson }})" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
+              <button data-obj='{{ c|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
               <form method="post" action="/setup/customers/{{ c.id }}/delete" style="display:inline"
                     onsubmit="return confirm('Delete {{ c.name }}? Existing linked references are retained.')">
                 <button type="submit" class="btn btn-xs btn-red">Del</button>
@@ -94,7 +94,8 @@
       </div>
       <div class="form-group">
         <label class="form-label">Phone</label>
-        <input name="phone" class="form-input" placeholder="Contact phone">
+        <input name="phone" class="form-input" placeholder="e.g. +91 98765 43210"
+               pattern="[0-9+\-\s()]{7,20}" title="Numbers, +, -, spaces and () only — 7 to 20 characters">
       </div>
       <div class="form-group">
         <label class="form-label">Email</label>
@@ -131,7 +132,8 @@
       </div>
       <div class="form-group">
         <label class="form-label">Phone</label>
-        <input name="phone" id="edit_phone" class="form-input">
+        <input name="phone" id="edit_phone" class="form-input"
+               pattern="[0-9+\-\s()]{7,20}" title="Numbers, +, -, spaces and () only — 7 to 20 characters">
       </div>
       <div class="form-group">
         <label class="form-label">Email</label>
@@ -164,20 +166,19 @@
 <div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:420px;width:100%">
     <div class="modal-title">Import Customers via CSV</div>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">
-      Download the template first, fill it in, then upload. Invalid rows are returned as an exception report.
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:8px">
+      Download the template, fill it in, then upload. Rows with errors are skipped and shown in a downloadable report.
     </p>
     <a href="/setup/customers/template" class="btn btn-sm btn-outline" style="margin-bottom:12px;display:inline-block">⬇ Download Template</a>
-    <form method="post" action="/setup/customers/import" enctype="multipart/form-data">
-      <div class="form-group">
-        <label class="form-label">Upload CSV</label>
-        <input type="file" name="file" accept=".csv" class="form-input" required>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-        <button type="button" onclick="document.getElementById('importModal').style.display='none'" class="btn btn-outline">Cancel</button>
-        <button type="submit" class="btn btn-primary">Upload & Import</button>
-      </div>
-    </form>
+    <div id="import-result" style="display:none;border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px"></div>
+    <div class="form-group">
+      <label class="form-label">Upload CSV</label>
+      <input type="file" id="importFile" accept=".csv" class="form-input" required>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button type="button" onclick="document.getElementById('importModal').style.display='none'" class="btn btn-outline">Cancel</button>
+      <button type="button" onclick="runImport()" id="importBtn" class="btn btn-primary">Upload & Import</button>
+    </div>
   </div>
 </div>
 
@@ -198,6 +199,37 @@ function openEdit(c) {
   document.getElementById('edit_is_active').value = c.is_active ? '1' : '0';
   document.getElementById('editForm').action = '/setup/customers/' + c.id + '/edit';
   document.getElementById('editModal').style.display = 'flex';
+}
+async function runImport() {
+  const fileEl = document.getElementById('importFile');
+  if (!fileEl.files.length) { alert('Please select a CSV file.'); return; }
+  const btn = document.getElementById('importBtn');
+  const resultEl = document.getElementById('import-result');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  resultEl.style.display = 'none';
+  const fd = new FormData();
+  fd.append('file', fileEl.files[0]);
+  try {
+    const resp = await fetch('/setup/customers/import', { method: 'POST', body: fd });
+    const ct = resp.headers.get('Content-Type') || '';
+    if (ct.includes('text/csv')) {
+      const imported = resp.headers.get('X-Imported') || '0';
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'customers_errors.csv'; a.click();
+      resultEl.style.cssText = 'display:block;background:rgba(245,158,11,0.12);color:#b45309;border:1px solid rgba(245,158,11,0.3);border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px';
+      resultEl.innerHTML = '⚠ ' + imported + ' row(s) imported. Some rows had errors — error report downloaded to your Downloads folder.';
+      if (parseInt(imported) > 0) setTimeout(() => location.reload(), 2500);
+    } else {
+      resultEl.style.cssText = 'display:block;background:rgba(16,185,129,0.12);color:#065f46;border:1px solid rgba(16,185,129,0.3);border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px';
+      resultEl.textContent = '✓ Import successful!';
+      setTimeout(() => location.reload(), 1200);
+    }
+  } catch(e) {
+    resultEl.style.cssText = 'display:block;background:rgba(239,68,68,0.12);color:#991b1b;border:1px solid rgba(239,68,68,0.3);border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px';
+    resultEl.textContent = '✗ Upload failed. Please try again.';
+  }
+  btn.disabled = false; btn.textContent = 'Upload & Import';
 }
 </script>
 {% endblock %}

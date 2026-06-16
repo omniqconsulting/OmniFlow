@@ -130,18 +130,41 @@
 
 <!-- ── My Pending Assignments ────────────────────────────────────────────── -->
 <div class="card">
-  <h2>My Pending Checklists</h2>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <h2 style="margin:0">My Pending Checklists</h2>
+    {% if my_assignments %}
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-faint);cursor:pointer">
+      <input type="checkbox" id="cl-chk-all" onclick="toggleAllCl(this)"> Select All
+    </label>
+    {% endif %}
+  </div>
+  <!-- Checklist bulk bar -->
+  <div id="cl-bulk-bar" style="display:none;background:var(--bg-input);border:1px solid var(--border-med);border-radius:8px;padding:8px 14px;margin-bottom:12px;align-items:center;gap:10px;flex-wrap:wrap">
+    <span id="cl-bulk-count" style="font-size:12px;font-weight:600;color:var(--text-muted)">0 selected</span>
+    <form id="cl-bulk-start-form" method="post" action="/checklists/bulk-start" style="display:inline">
+      <div id="cl-start-ids"></div>
+      <button type="submit" class="btn btn-xs btn-cyan">▶ Start All</button>
+    </form>
+    <form id="cl-bulk-complete-form" method="post" action="/checklists/bulk-complete" style="display:inline">
+      <div id="cl-complete-ids"></div>
+      <button type="submit" class="btn btn-xs btn-green">✓ Complete All</button>
+    </form>
+    <button type="button" onclick="clearClSelection()" class="btn btn-xs" style="color:var(--text-faint)">✕ Cancel</button>
+  </div>
   {% if my_assignments %}
   <div style="display:flex;flex-direction:column;gap:10px">
   {% for a in my_assignments %}
   <div style="border:1px solid var(--border-subtle);border-radius:8px;padding:14px 16px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <input type="checkbox" class="cl-chk" value="{{ a.id }}" onchange="updateClBulkBar()" style="margin-top:3px;flex-shrink:0">
       <div>
         <div style="font-weight:600;font-size:13px;color:var(--text-strong)">
           {{ a.template.title if a.template else '—' }}
           {% if a.template and a.template.evidence_required %}<span class="badge badge-amber" style="font-size:9px;margin-left:6px">Evidence Required</span>{% endif %}
         </div>
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ a.template.description[:100] if a.template and a.template.description else '' }}</div>
+      </div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
         <span class="badge {% if a.status=='OVERDUE' %}badge-red{% elif a.status=='IN_PROGRESS' %}badge-yellow{% else %}badge-blue{% endif %}">{{ a.status }}</span>
@@ -572,6 +595,40 @@ function openCompleteModal(assignmentId, isOverdue) {
   evidenceInput.required = false; // actual enforcement is server-side
 
   modal.classList.add('open');
+}
+
+/* Checklist bulk selection */
+function updateClBulkBar() {
+  const checked = document.querySelectorAll('.cl-chk:checked');
+  const bar = document.getElementById('cl-bulk-bar');
+  const countEl = document.getElementById('cl-bulk-count');
+  if (!bar) return;
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    countEl.textContent = checked.length + ' selected';
+    // Rebuild hidden id inputs for both forms
+    ['cl-start-ids','cl-complete-ids'].forEach(containerId => {
+      const c = document.getElementById(containerId);
+      c.innerHTML = '';
+      checked.forEach(chk => {
+        const inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = 'assignment_ids'; inp.value = chk.value;
+        c.appendChild(inp);
+      });
+    });
+  } else {
+    bar.style.display = 'none';
+  }
+}
+function toggleAllCl(master) {
+  document.querySelectorAll('.cl-chk').forEach(c => c.checked = master.checked);
+  updateClBulkBar();
+}
+function clearClSelection() {
+  document.querySelectorAll('.cl-chk').forEach(c => c.checked = false);
+  const master = document.getElementById('cl-chk-all');
+  if (master) master.checked = false;
+  updateClBulkBar();
 }
 </script>
 {% endblock %}

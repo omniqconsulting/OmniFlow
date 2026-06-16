@@ -1,10 +1,62 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+/* ── OmniQ cross-sell card — stays visually distinct in both themes ── */
+.omniq-card {
+  background: linear-gradient(160deg,#0f172a 0%,#1e1b4b 60%,#0f172a 100%);
+  border: 1px solid rgba(139,92,246,0.35);
+  border-radius: 12px;
+  padding: 22px 20px;
+  position: relative;
+  overflow: hidden;
+}
+html.light .omniq-card {
+  background: linear-gradient(160deg,#1e1b4b 0%,#312e81 60%,#1e1b4b 100%);
+  border-color: rgba(139,92,246,0.5);
+  box-shadow: 0 4px 20px rgba(99,102,241,0.15);
+}
+.omniq-grid-bg {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(99,102,241,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,102,241,0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+.omniq-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: #818cf8; margin-bottom: 10px;
+}
+.omniq-name {
+  font-size: 18px; font-weight: 800; color: #f1f5f9;
+  margin-bottom: 4px; letter-spacing: -.3px;
+}
+.omniq-tagline {
+  font-size: 12px; color: #94a3b8; margin-bottom: 14px; line-height: 1.6;
+}
+html.light .omniq-tagline { color: #c7d2fe; }
+.omniq-svc-title {
+  font-size: 12px; font-weight: 600; color: #e2e8f0;
+}
+.omniq-svc-desc {
+  font-size: 11px; color: #64748b; line-height: 1.4;
+}
+html.light .omniq-svc-desc { color: #a5b4fc; }
+.omniq-link {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: rgba(99,102,241,0.2); border: 1px solid rgba(139,92,246,0.4);
+  border-radius: 8px; padding: 10px 14px; color: #a5b4fc;
+  font-size: 12px; font-weight: 600; text-decoration: none; transition: background .15s;
+}
+.omniq-link.omniq-link-hover,
+.omniq-link:hover { background: rgba(99,102,241,0.35); }
+html.light .omniq-link { background: rgba(99,102,241,0.3); color: #e0e7ff; }
+html.light .omniq-link:hover { background: rgba(99,102,241,0.45); }
+</style>
 
 <div class="page-header">
   <div>
-    <h2 class="page-title">Plan &amp; Features</h2>
-    <div class="muted">Your current plan and what's included</div>
+    <h2 class="page-title">Your Plan</h2>
+    <div class="muted">Current plan, usage, and support</div>
   </div>
 </div>
 
@@ -49,7 +101,7 @@
 <!-- ── Usage Tiles ────────────────────────────────────────────────────────── -->
 <div class="card">
   <h2>Your Usage</h2>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
     {% for key, label in limit_labels.items() %}
     {% set current = usage[key] %}
     {% set limit   = plan_limits[tenant.plan or 'STARTER'][key] %}
@@ -72,134 +124,150 @@
       </div>
       {% endif %}
       {% else %}
-      <div style="font-size:11px;color:#10b981;margin-top:4px">Unlimited on your plan</div>
+      <div style="font-size:11px;color:#10b981;margin-top:4px">Unlimited</div>
       {% endif %}
     </div>
     {% endfor %}
   </div>
 </div>
 
-<!-- ── 3-Column Plan Comparison Table ────────────────────────────────────── -->
+<!-- ── AI Feature Highlight ───────────────────────────────────────────────── -->
+<div style="background:linear-gradient(135deg,rgba(99,102,241,0.12) 0%,rgba(139,92,246,0.08) 100%);
+     border:1px solid rgba(139,92,246,0.25);border-radius:12px;padding:20px 24px;
+     display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap">
+  <div style="font-size:36px;flex-shrink:0">✦</div>
+  <div style="flex:1;min-width:200px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="font-size:15px;font-weight:700;color:var(--text-strong)">AI Assistant — Powered by Claude</div>
+      <span style="background:rgba(99,102,241,0.18);border:1px solid rgba(139,92,246,0.35);border-radius:12px;
+             padding:2px 8px;font-size:10px;font-weight:700;color:#a5b4fc;letter-spacing:.06em">INCLUDED</span>
+    </div>
+    <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px;line-height:1.65">
+      Ask any question about your team in plain English — <em>"Who has the most overdue tasks?"</em> or
+      <em>"Generate a 30-day employee performance report"</em> — and get an instant answer grounded in your live data.
+      No spreadsheets, no manual calculations.
+    </p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      {% set ai_feats = [
+        ('📊','Structured reports','Select module + time period → full report in seconds'),
+        ('👥','Per-employee KPIs','Top performers, who needs support, team patterns'),
+        ('🎯','Actionable insights','What\'s working, what needs attention, where to focus'),
+        ('🔒','Your data only','AI never stores or shares your operational data'),
+      ] %}
+      {% for icon, title, desc in ai_feats %}
+      <div style="background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:8px;padding:8px 12px;min-width:160px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:2px">{{ icon }} {{ title }}</div>
+        <div style="font-size:11px;color:var(--text-faint)">{{ desc }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div style="flex-shrink:0">
+    {% if ai_daily_limit is defined %}
+    <div style="text-align:center;background:var(--bg-input);border-radius:8px;padding:12px 16px;min-width:130px">
+      <div style="font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Daily AI calls</div>
+      <div style="font-size:24px;font-weight:800;color:var(--text-strong)">
+        {% if ai_daily_limit %}{{ ai_daily_limit }}{% else %}∞{% endif %}
+      </div>
+      <div style="font-size:11px;color:var(--text-faint);margin-top:2px">
+        {% if ai_daily_limit %}per day · resets midnight UTC{% else %}Unlimited{% endif %}
+      </div>
+    </div>
+    {% endif %}
+    <a href="/ai" style="display:block;text-align:center;margin-top:8px;padding:8px 14px;
+       background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border-radius:8px;
+       font-size:12px;font-weight:600;text-decoration:none">
+      Open AI Assistant →
+    </a>
+  </div>
+</div>
+
+<!-- ── Simplified Plan Comparison ────────────────────────────────────────── -->
 <div class="card">
-  <h2>Plan Comparison</h2>
+  <h2>What's Included</h2>
+  <p style="font-size:13px;color:var(--text-faint);margin-bottom:16px">Compare plans to see which features are available at each level.</p>
 
   {% set plans = ['STARTER', 'PROFESSIONAL', 'ENTERPRISE'] %}
   {% set plan_colors = {'STARTER': 'var(--text-muted)', 'PROFESSIONAL': '#60a5fa', 'ENTERPRISE': '#a78bfa'} %}
-  {% set plan_taglines = {
-    'STARTER': 'For small teams getting started',
-    'PROFESSIONAL': 'For growing operations that need more control',
-    'ENTERPRISE': 'For large factories needing AI and full power'
-  } %}
 
-  <!-- Feature descriptions — plain English -->
-  {% set DESCRIPTIONS = {
-    'TICKETS':              'Create tasks and assign them to team members. Track who is responsible and whether it got done.',
-    'KANBAN':               'See all tasks on a visual board sorted by status — like sticky notes on a wall, but digital.',
-    'TICKET_HELPERS':       'Let multiple people collaborate on a single task, not just one assignee.',
-    'CHECKLISTS':           'Create inspection or routine task checklists and assign them to your team.',
-    'CHECKLIST_COMMENTS':   'Leave notes and feedback directly on a checklist item.',
-    'MEDIA_UPLOAD':         'Attach photos and files as proof of completed work.',
-    'NOTIFICATIONS':        'Get notified inside the app when something is assigned to you or requires attention.',
-    'EMPLOYEES':            'Add and manage your team members, their roles, and departments.',
-    'KPI_SELF':             'Each employee can see their own performance — how fast they close tasks, their compliance rate.',
-    'KPI_CHARTS_ADMIN':     'Managers and admins can view KPI charts for the whole team.',
-    'ADVANCED_ANALYTICS':   'Deep analytics: scatter charts, heatmaps, burnout signals, and more.',
-    'CSV_EXPORT':           'Download your data as an Excel or CSV file for reporting or accounting.',
-    'BULK_IMPORT':          'Add many employees, departments, or branches at once by uploading a spreadsheet.',
-    'RECURRING_CHECKLISTS': 'Checklists that automatically repeat daily, weekly, or monthly — no manual work.',
-    'TICKET_ESCALATION':    'Overdue tasks automatically escalate to the manager if not acknowledged in time.',
-    'MULTI_BRANCH':         'Manage multiple factory locations or sites from one account.',
-    'MANAGER_ROLES':        'Assign a Manager role who can see and oversee their team\'s work only.',
-    'API_ACCESS':           'Connect OmniFlow to your own tools or software using our API.',
-    'WHITE_LABEL':          'Remove OmniFlow branding and show your own factory name.',
-    'CUSTOM_FIELDS':        'Add your own custom data fields to tickets beyond the defaults.',
-    'AUDIT_LOG':            'Full history of every action taken on the platform — useful for compliance and disputes.',
-    'SSO':                  'Let employees sign in using your company\'s existing login system (Google, Microsoft, etc).',
-    'SLA_MANAGEMENT':       'Set and enforce time-based service level agreements on tasks.',
-    'DEDICATED_SUPPORT':    'A dedicated WhatsApp support contact for your account.',
-    'INVENTORY':            'Track raw material stock levels, issues, receipts, and reconcile against production.',
+  {# Whitelist: only features that are meaningful to a non-technical user #}
+  {% set SHOW_FEATURES = [
+    'TICKETS', 'KANBAN', 'CHECKLISTS', 'RECURRING_CHECKLISTS',
+    'MEDIA_UPLOAD', 'NOTIFICATIONS', 'EMPLOYEES', 'MANAGER_ROLES',
+    'MULTI_BRANCH', 'BULK_IMPORT', 'CSV_EXPORT',
+    'KPI_SELF', 'KPI_CHARTS_ADMIN', 'FMS', 'DEDICATED_SUPPORT',
+  ] %}
+
+  {% set FRIENDLY = {
+    'TICKETS':              ('📋', 'Task Assignment', 'Create tasks, assign them to your team, and track who completed what.'),
+    'KANBAN':               ('🗂', 'Task Board', 'See all tasks on a visual board sorted by status — like a digital notice board.'),
+    'CHECKLISTS':           ('✅', 'Checklists', 'Create inspection or routine checklists and assign them to your team.'),
+    'RECURRING_CHECKLISTS': ('🔁', 'Auto-Recurring Checklists', 'Checklists that repeat daily, weekly, or monthly automatically — no manual work.'),
+    'MEDIA_UPLOAD':         ('📸', 'Photo & File Attachments', 'Attach photos or documents as proof of completed work.'),
+    'NOTIFICATIONS':        ('🔔', 'In-App Notifications', 'Get notified when a task is assigned to you or needs attention.'),
+    'EMPLOYEES':            ('👥', 'Team Management', 'Add and manage your team members, their roles, and departments.'),
+    'MANAGER_ROLES':        ('🏷', 'Manager Role', 'Give managers their own login so they can oversee only their team.'),
+    'MULTI_BRANCH':         ('🏭', 'Multiple Locations', 'Manage more than one factory or branch from a single account.'),
+    'BULK_IMPORT':          ('⬆', 'Bulk Import via CSV', 'Add many employees, departments, or branches at once using a spreadsheet.'),
+    'CSV_EXPORT':           ('⬇', 'Export to Excel / CSV', 'Download your data for reporting or to share with your accountant.'),
+    'KPI_SELF':             ('📊', 'Personal Performance View', 'Each employee can see their own task completion rate and on-time score.'),
+    'KPI_CHARTS_ADMIN':     ('📈', 'Team Analytics Dashboard', 'Managers and admins can view performance charts for the whole team.'),
+    'FMS':                  ('🔄', 'Flow Board (Work Orders)', 'Multi-stage work orders that follow your custom production or service process.'),
+    'DEDICATED_SUPPORT':    ('🎯', 'Dedicated Support Contact', 'A dedicated WhatsApp support contact assigned to your account.'),
   } %}
 
   <div style="overflow-x:auto">
-    <table style="border-collapse:separate;border-spacing:0;min-width:600px">
-      <!-- Plan header row -->
+    <table style="border-collapse:separate;border-spacing:0;min-width:520px;width:100%">
       <thead>
         <tr>
-          <th style="width:42%;padding:12px 16px;font-size:11px;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);text-transform:uppercase;letter-spacing:0.07em">Feature</th>
+          <th style="width:50%;padding:10px 16px;font-size:11px;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);text-transform:uppercase;letter-spacing:0.07em;text-align:left">Feature</th>
           {% for p in plans %}
-          <th style="text-align:center;padding:12px 16px;border-bottom:1px solid var(--border-subtle);
+          <th style="text-align:center;padding:10px 14px;border-bottom:1px solid var(--border-subtle);
                background:{% if tenant.plan == p %}rgba({{ '59,130,246' if p=='PROFESSIONAL' else ('124,58,237' if p=='ENTERPRISE' else '255,255,255') }},0.06){% else %}transparent{% endif %}">
-            <div style="font-size:14px;font-weight:700;color:{{ plan_colors[p] }}">{{ plan_labels[p] }}</div>
-            <div style="font-size:10px;color:#4b5568;margin-top:3px;font-weight:400">{{ plan_taglines[p] }}</div>
+            <div style="font-size:13px;font-weight:700;color:{{ plan_colors[p] }}">{{ plan_labels[p] }}</div>
             {% if tenant.plan == p %}
-            <div style="margin-top:6px"><span class="badge badge-green" style="font-size:9px">Current Plan</span></div>
+            <div style="margin-top:4px"><span class="badge badge-green" style="font-size:9px">Your plan</span></div>
             {% endif %}
           </th>
           {% endfor %}
         </tr>
       </thead>
       <tbody>
-
-        <!-- ── Capacity limits ────────────────────────────────────────── -->
-        <tr>
-          <td colspan="4" style="padding:10px 16px 4px;background:var(--row-hover)">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#374151">Capacity</div>
-          </td>
-        </tr>
-
-        {% set limit_descriptions = {
-          'max_users': 'How many team members can be added to this account.',
-          'max_branches': 'How many factory locations or branches you can manage.',
-          'max_checklist_templates': 'How many different checklist formats you can create.',
-          'max_tickets_open': 'How many active tasks can be open at any time.',
-        } %}
-
-        {% for key, label in limit_labels.items() %}
-        <tr style="border-bottom:1px solid var(--border-subtle)">
-          <td style="padding:12px 16px;vertical-align:top">
-            <div style="font-size:13px;font-weight:500;color:var(--text-primary)">{{ label }}</div>
-            <div style="font-size:11px;color:#4b5568;margin-top:2px;line-height:1.5">{{ limit_descriptions.get(key, '') }}</div>
-          </td>
-          {% for p in plans %}
-          {% set lim = plan_limits[p][key] %}
-          <td style="text-align:center;padding:12px 16px;vertical-align:middle;
-               background:{% if tenant.plan == p %}rgba({{ '59,130,246' if p=='PROFESSIONAL' else ('124,58,237' if p=='ENTERPRISE' else '255,255,255') }},0.04){% else %}transparent{% endif %}">
-            <span style="font-size:16px;font-weight:700;color:{% if lim == None %}#10b981{% else %}var(--text-primary){% endif %}">
-              {% if lim == None %}∞{% else %}{{ lim }}{% endif %}
-            </span>
-          </td>
+        {% for fname, finfo in FRIENDLY.items() %}
+        {# Check if this feature exists in our plan data at all #}
+        {% set ficon = finfo[0] %}
+        {% set flabel = finfo[1] %}
+        {% set fdesc = finfo[2] %}
+        {# Find the feature entry across all categories #}
+        {% set ns = namespace(found=false, min_plan='STARTER') %}
+        {% for cat, feats in by_category.items() %}
+          {% for f in feats %}
+            {% if f.name == fname %}
+              {% set ns.found = true %}
+              {% set ns.min_plan = f.min_plan %}
+            {% endif %}
           {% endfor %}
-        </tr>
         {% endfor %}
-
-        <!-- ── Features by category ───────────────────────────────────── -->
-        {% for category, features in by_category.items() %}
-        <tr>
-          <td colspan="4" style="padding:10px 16px 4px;background:var(--row-hover)">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#374151">{{ category }}</div>
-          </td>
-        </tr>
-        {% for f in features %}
+        {% if ns.found %}
         <tr style="border-bottom:1px solid var(--border-subtle)">
-          <td style="padding:12px 16px;vertical-align:top">
-            <div style="font-size:13px;font-weight:500;color:var(--text-primary)">{{ f.label }}</div>
-            <div style="font-size:11px;color:#4b5568;margin-top:3px;line-height:1.5">{{ DESCRIPTIONS.get(f.name, '') }}</div>
+          <td style="padding:11px 16px;vertical-align:top">
+            <div style="font-size:13px;font-weight:500;color:var(--text-primary)">{{ ficon }} {{ flabel }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:2px;line-height:1.5">{{ fdesc }}</div>
           </td>
           {% for p in plans %}
-          {% set plan_has = (plan_order[p] >= plan_order[f.min_plan]) %}
-          <td style="text-align:center;padding:12px 16px;vertical-align:middle;
+          {% set plan_has = (plan_order[p] >= plan_order[ns.min_plan]) %}
+          <td style="text-align:center;padding:11px 14px;vertical-align:middle;
                background:{% if tenant.plan == p %}rgba({{ '59,130,246' if p=='PROFESSIONAL' else ('124,58,237' if p=='ENTERPRISE' else '255,255,255') }},0.04){% else %}transparent{% endif %}">
             {% if plan_has %}
-            <span style="color:#10b981;font-size:16px" title="Included">✓</span>
+            <span style="color:#10b981;font-size:18px;font-weight:700">✓</span>
             {% else %}
-            <span style="color:var(--bg-elevated);font-size:16px" title="Not included on this plan">—</span>
+            <span style="color:var(--text-xfaint);font-size:14px">—</span>
             {% endif %}
           </td>
           {% endfor %}
         </tr>
+        {% endif %}
         {% endfor %}
-        {% endfor %}
-
       </tbody>
     </table>
   </div>
@@ -211,7 +279,7 @@
     {% set upgradeable = ['ENTERPRISE'] %}
   {% endif %}
   {% if upgradeable %}
-  <div style="text-align:center;padding:24px 0 8px">
+  <div style="text-align:center;padding:20px 0 4px">
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
       {% for up in upgradeable %}
       <button onclick="openUpgradeModal('{{ up }}')"
@@ -221,9 +289,70 @@
       </button>
       {% endfor %}
     </div>
-    <div style="font-size:12px;color:#4b5568;margin-top:8px">Your account manager will contact you to complete the upgrade.</div>
+    <div style="font-size:12px;color:var(--text-faint);margin-top:8px">Your account manager will contact you to complete the upgrade.</div>
   </div>
   {% endif %}
+</div>
+
+<!-- ── Contact Support ────────────────────────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+
+  <div class="card">
+    <h2>Contact Support</h2>
+    <p style="font-size:13px;color:var(--text-faint);margin-bottom:16px;line-height:1.7">
+      Have a question or something isn't working as expected?
+      Send us a message and someone from our team will get back to you within
+      <strong style="color:var(--text-strong)">24 hours</strong>.
+    </p>
+    <a href="https://wa.me/919818677455?text=Hi%2C+I+use+OmniFlow+and+need+help."
+       target="_blank" rel="noopener"
+       style="display:flex;align-items:center;gap:10px;background:#25D366;color:#fff;border-radius:8px;padding:12px 16px;text-decoration:none;font-size:13px;font-weight:600;margin-bottom:8px">
+      <span style="font-size:20px">💬</span>
+      Chat on WhatsApp · +91 98186 77455
+    </a>
+    <div style="font-size:11px;color:var(--text-xfaint);text-align:center;margin-bottom:14px">
+      Opens pre-filled message · Response within 24 hours
+    </div>
+    <div style="padding-top:12px;border-top:1px solid var(--border-subtle)">
+      <div style="font-size:11px;color:var(--text-faint);margin-bottom:3px">Support hours</div>
+      <div style="font-size:12px;color:var(--text-muted)">Monday – Saturday · 9 AM – 7 PM IST</div>
+    </div>
+  </div>
+
+  <!-- OmniQ cross-sell — intentionally distinct; stays dark in both themes for brand contrast -->
+  <div class="omniq-card">
+    <div class="omniq-grid-bg"></div>
+    <div style="position:relative;z-index:1">
+      <div class="omniq-label">Built by</div>
+      <div class="omniq-name">OmniQ Consulting</div>
+      <div class="omniq-tagline">
+        Strategy · Technology · Operations<br>
+        We build custom AI &amp; digital solutions — for any organisation, any industry.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:16px">
+        {% set services = [
+          ('🏭','Process Digitalisation','Turn paper-based processes into trackable digital workflows'),
+          ('📊','Business Analytics','Custom dashboards and reporting for leadership decisions'),
+          ('🤖','Custom AI Solutions','We design and implement AI tailored to your operations — not off-the-shelf'),
+        ] %}
+        {% for icon, title, desc in services %}
+        <div style="display:flex;align-items:flex-start;gap:8px">
+          <span style="font-size:14px;margin-top:1px">{{ icon }}</span>
+          <div>
+            <div class="omniq-svc-title">{{ title }}</div>
+            <div class="omniq-svc-desc">{{ desc }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <a href="https://omniqconsulting.com" target="_blank" rel="noopener" class="omniq-link"
+         onmouseover="this.classList.add('omniq-link-hover')"
+         onmouseout="this.classList.remove('omniq-link-hover')">
+        <span>🌐</span> omniqconsulting.com
+      </a>
+    </div>
+  </div>
+
 </div>
 
 <!-- ── Upgrade Request Modal ──────────────────────────────────────────────── -->
@@ -241,7 +370,7 @@
     <form method="post" action="/plan/upgrade-request">
       <input type="hidden" name="to_plan" id="modalToPlan" value="">
       <div class="form-group">
-        <label>Note for your account manager <span style="color:#4b5568;font-weight:400">(optional)</span></label>
+        <label>Note for your account manager <span style="color:var(--text-faint);font-weight:400">(optional)</span></label>
         <textarea name="message" placeholder="e.g. We want to add the FMS module, currently have 30 employees…" style="height:90px"></textarea>
       </div>
       <div style="display:flex;gap:10px;margin-top:4px">

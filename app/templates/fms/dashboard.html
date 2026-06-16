@@ -486,16 +486,37 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 <div style="font-size:11px;color:var(--text-faint);margin-bottom:10px">{{ list_tickets|length }} ticket{{ 's' if list_tickets|length != 1 }}</div>
 
 {% if list_tickets %}
+<!-- FMS bulk bar -->
+{% if user.role in ('ADMIN','MANAGER') %}
+<div id="fms-bulk-bar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:12px;padding:10px 18px;z-index:300;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);white-space:nowrap">
+  <span id="fms-bulk-count" style="font-size:12px;font-weight:600;color:var(--text-muted)">0 selected</span>
+  <button type="button" onclick="submitFmsBulk('send_back')" class="btn btn-xs btn-outline">← Send Back All</button>
+  <button type="button" onclick="submitFmsBulk('close')"     class="btn btn-xs btn-gray">Close All</button>
+  <button type="button" onclick="clearFmsSelection()"        class="btn btn-xs" style="color:var(--text-faint)">✕ Cancel</button>
+</div>
+{% endif %}
+
+<form id="fms-bulk-form" method="post" action="/fms/tickets/bulk-action">
+<input type="hidden" name="action" id="fms-bulk-action-val">
 <div class="card" style="padding:0;overflow:hidden">
   <div style="overflow-x:auto">
     <table class="list-table">
       <thead><tr style="background:var(--bg-input)">
+        {% if user.role in ('ADMIN','MANAGER') %}
+        <th style="width:32px"><input type="checkbox" id="fms-chk-all" onclick="toggleAllFms(this)" title="Select all"></th>
+        {% endif %}
         <th>ID</th><th>Title</th><th>Flow</th><th>Stage</th>
         <th>Assignee</th><th>Priority</th><th>Status</th><th>TaT</th><th>Days Open</th><th>Due</th>
+        {% if user.role in ('ADMIN','MANAGER') %}<th style="text-align:center">Actions</th>{% endif %}
       </tr></thead>
       <tbody>
         {% for row in list_tickets %}{% set t = row.ticket %}
         <tr onclick="location.href='/fms/tickets/{{ t.id }}'">
+          {% if user.role in ('ADMIN','MANAGER') %}
+          <td onclick="event.stopPropagation()">
+            <input type="checkbox" name="ticket_ids" value="{{ t.id }}" class="fms-chk" onchange="updateFmsBulkBar()">
+          </td>
+          {% endif %}
           <td><span style="font-family:monospace;font-size:11px;color:#60a5fa">{{ t.display_id or t.id[:8] }}</span></td>
           <td>
             <div style="font-weight:600;font-size:12px;color:var(--text-primary)">{{ t.title[:44] }}{% if t.title|length > 44 %}…{% endif %}</div>
@@ -525,12 +546,49 @@ select option{background:var(--bg-card);color:var(--text-primary)}
             <span style="font-size:12px;color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-muted){% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
             {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
           </td>
+          {% if user.role in ('ADMIN','MANAGER') %}
+          <td onclick="event.stopPropagation()" style="text-align:center;white-space:nowrap">
+            {% if row.prev_stage_id and t.status not in ('COMPLETED','CLOSED') %}
+            <button type="button" onclick="openFmsSendBack('{{ t.id }}','{{ row.prev_stage_id }}','{{ row.prev_stage_name }}')"
+                    class="btn btn-xs btn-outline">← {{ row.prev_stage_name }}</button>
+            {% endif %}
+            {% if t.status not in ('COMPLETED','CLOSED') %}
+            <a href="/fms/tickets/{{ t.id }}" class="btn btn-xs btn-gray" style="text-decoration:none;margin-left:4px">Open →</a>
+            {% endif %}
+          </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+</form>
+
+<!-- FMS Send-Back reason modal -->
+{% if user.role in ('ADMIN','MANAGER') %}
+<div id="fms-sendback-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);z-index:400;align-items:center;justify-content:center">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:12px;padding:24px;width:420px;max-width:95vw">
+    <div style="font-size:14px;font-weight:600;color:var(--text-strong);margin-bottom:4px">Send Back to Previous Stage</div>
+    <div id="fms-sendback-target" style="font-size:12px;color:var(--text-faint);margin-bottom:14px"></div>
+    <form id="fms-sendback-form" method="post">
+      <input type="hidden" name="next_stage_id" id="fms-sendback-stage-id">
+      <input type="hidden" name="direction" value="BACKWARD">
+      <input type="hidden" name="new_assignee_id" value="">
+      <div class="form-group" style="margin-bottom:14px">
+        <label style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:6px">Reason for returning <span style="color:#f87171">*</span></label>
+        <textarea name="return_reason" id="fms-sendback-reason" required rows="3"
+                  style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 12px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
+                  placeholder="Explain why this ticket is being sent back…"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="closeFmsSendBack()" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Send Back</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 {% else %}
 <div style="text-align:center;padding:50px 0;color:#374151">
   <div style="font-size:14px;color:var(--text-faint);margin-bottom:4px">No tickets match the selected filters</div>
@@ -1052,6 +1110,53 @@ function closeSCModal() {
   document.body.style.overflow = '';
 }
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeSCModal(); });
+</script>
+
+<script>
+/* FMS list view — bulk selection */
+function updateFmsBulkBar() {
+  const checked = document.querySelectorAll('.fms-chk:checked');
+  const bar = document.getElementById('fms-bulk-bar');
+  const countEl = document.getElementById('fms-bulk-count');
+  if (!bar) return;
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    countEl.textContent = checked.length + ' selected';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+function toggleAllFms(master) {
+  document.querySelectorAll('.fms-chk').forEach(c => c.checked = master.checked);
+  updateFmsBulkBar();
+}
+function submitFmsBulk(action) {
+  const checked = document.querySelectorAll('.fms-chk:checked');
+  if (!checked.length) return;
+  document.getElementById('fms-bulk-action-val').value = action;
+  document.getElementById('fms-bulk-form').submit();
+}
+function clearFmsSelection() {
+  document.querySelectorAll('.fms-chk').forEach(c => c.checked = false);
+  const master = document.getElementById('fms-chk-all');
+  if (master) master.checked = false;
+  updateFmsBulkBar();
+}
+
+/* FMS individual send-back modal */
+function openFmsSendBack(ticketId, stageId, stageName) {
+  document.getElementById('fms-sendback-form').action = '/fms/tickets/' + ticketId + '/transition';
+  document.getElementById('fms-sendback-stage-id').value = stageId;
+  document.getElementById('fms-sendback-target').textContent = '→ ' + stageName;
+  document.getElementById('fms-sendback-reason').value = '';
+  document.getElementById('fms-sendback-modal').style.display = 'flex';
+}
+function closeFmsSendBack() {
+  document.getElementById('fms-sendback-modal').style.display = 'none';
+}
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') closeFmsSendBack();
+});
 </script>
 
 {% endblock %}

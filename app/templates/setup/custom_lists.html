@@ -20,9 +20,17 @@
       </div>
     </div>
 
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px">
       Create named lists (e.g. Machine Types, Complaint Categories) whose items appear as dropdown options on ticket, checklist, and FMS forms.
     </p>
+    <div style="background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--text-faint);line-height:1.7">
+      <strong style="color:var(--text-muted);display:block;margin-bottom:4px">📌 Where are these lists used?</strong>
+      When creating or editing a <strong>Ticket</strong>, <strong>Checklist</strong>, or <strong>Flow Ticket</strong>,
+      any custom field of type "Dropdown" lets you pick from one of these lists.
+      For example: create a list called <em>Machine Type</em>, add items like <em>Lathe, CNC, Press</em> —
+      then select "Machine Type" as the dropdown source on a ticket form field.
+      Lists are <strong>tenant-specific</strong> and only admins can manage them here.
+    </div>
 
     {% if lists %}
     <div style="display:flex;flex-direction:column;gap:12px">
@@ -34,9 +42,9 @@
             <span style="font-size:12px;color:var(--text-faint);margin-left:8px">{{ lst.items|length }} items</span>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button onclick="openEditList({{ lst|tojson }})" class="btn btn-xs btn-outline">Rename</button>
-            <button onclick="openImportItems({{ lst.id|tojson }}, {{ lst.list_name|tojson }})" class="btn btn-xs btn-outline">⬆ Import Items</button>
-            <button onclick="openAddItem({{ lst.id|tojson }}, {{ lst.list_name|tojson }})" class="btn btn-xs btn-primary">+ Add Item</button>
+            <button data-obj='{{ lst|tojson }}' onclick="openEditList(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline">Rename</button>
+            <button data-id='{{ lst.id }}' data-name='{{ lst.list_name|e }}' onclick="openImportItems(this.dataset.id, this.dataset.name)" class="btn btn-xs btn-outline">⬆ Import Items</button>
+            <button data-id='{{ lst.id }}' data-name='{{ lst.list_name|e }}' onclick="openAddItem(this.dataset.id, this.dataset.name)" class="btn btn-xs btn-primary">+ Add Item</button>
             <form method="post" action="/setup/custom-lists/{{ lst.id }}/delete" style="display:inline"
                   onsubmit="return confirm('Delete list {{ lst.list_name }} and all its items?')">
               <button type="submit" class="btn btn-xs btn-red">Delete List</button>

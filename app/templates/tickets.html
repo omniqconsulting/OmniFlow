@@ -24,6 +24,9 @@
 /* ── Evidence modal ─────────────────────────────────────────────────────────── */
 .ev-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:200;align-items:center;justify-content:center}
 .ev-modal-bg.open{display:flex}
+/* ── Bulk action bar ─────────────────────────────────────────────────────────── */
+#bulk-bar{display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:12px;padding:10px 18px;z-index:300;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);white-space:nowrap}
+#bulk-bar.visible{display:flex}
 </style>
 
 <div id="toast"></div>
@@ -190,27 +193,67 @@
 
 {% else %}
 <!-- ═══ TABLE VIEW ═══ -->
+<!-- Bulk form lives OUTSIDE the table to avoid nested-form breakage -->
+<form id="bulk-form" method="post" action="/tickets/bulk-action" style="display:none">
+  <input type="hidden" name="action" id="bulk-action-val">
+  <div id="bulk-ids-container"></div>
+</form>
 <div class="card" style="padding:0;overflow:hidden">
 <table class="table">
   <thead>
     <tr>
-      <th>ID</th><th>Title</th><th>Category</th><th>Priority</th>
-      <th>Assignee</th><th>Due</th><th>Evidence</th><th></th>
+      {% if user.role in ('ADMIN','MANAGER') %}
+      <th style="width:32px"><input type="checkbox" id="chk-all" title="Select all" onclick="toggleAllTickets(this)"></th>
+      {% endif %}
+      <th>ID</th><th>Title</th><th>Status</th><th>Priority</th>
+      <th>Assignee</th><th>Due</th><th style="text-align:center">Actions</th>
     </tr>
   </thead>
   <tbody>
   {% for t in tickets %}
+  {# Next-stage map covering all statuses #}
+  {% set next_map = {
+    'OPEN':           ('Acknowledge',  'btn-outline'),
+    'ACKNOWLEDGED':   ('Start Work',   'btn-primary'),
+    'IN_PROGRESS':    ('Mark Done',    'btn-primary'),
+    'HELP_REQUESTED': ('Resume Work',  'btn-outline'),
+    'DONE':           ('Close',        'btn-gray'),
+  } %}
+  {% set prev_map = {
+    'ACKNOWLEDGED':   'Open',
+    'IN_PROGRESS':    'Acknowledged',
+    'HELP_REQUESTED': 'In Progress',
+    'DONE':           'In Progress',
+    'CLOSED':         'Done',
+  } %}
+  {% set next_info = next_map.get(t.status) %}
+  {% set prev_label = prev_map.get(t.status) %}
+  {% set status_styles = {
+    'OPEN':           ('badge-gray',   'Open'),
+    'ACKNOWLEDGED':   ('badge-blue',   'Acknowledged'),
+    'IN_PROGRESS':    ('badge-blue',   'In Progress'),
+    'HELP_REQUESTED': ('badge-amber',  'Help Requested'),
+    'DONE':           ('badge-green',  'Done'),
+    'CLOSED':         ('badge-gray',   'Closed'),
+  } %}
+  {% set sty = status_styles.get(t.status, ('badge-gray', t.status)) %}
   <tr>
+    {% if user.role in ('ADMIN','MANAGER') %}
+    <td onclick="event.stopPropagation()">
+      <input type="checkbox" name="ticket_ids" value="{{ t.id }}" class="ticket-chk" onchange="updateBulkBar()">
+    </td>
+    {% endif %}
     <td style="white-space:nowrap">
       <a href="/tickets/{{ t.id }}" style="color:#3b82f6;font-size:11px;font-weight:700">{{ t.display_id or '—' }}</a>
     </td>
     <td>
       {% if t.is_flagged %}<span style="color:#f87171">🚩 </span>{% endif %}
       <a href="/tickets/{{ t.id }}" style="font-weight:500;color:var(--text-primary);text-decoration:none">{{ t.title }}</a>
+      {% set cat = t.ticket_category if t.ticket_category is defined else 'NORMAL' %}
+      {% if cat == 'HELP' %}<span class="badge badge-amber" style="font-size:9px;margin-left:4px">HELP</span>{% endif %}
     </td>
     <td>
-      {% set cat = t.ticket_category if t.ticket_category is defined else 'NORMAL' %}
-      <span class="badge {% if cat == 'HELP' %}badge-amber{% else %}badge-blue{% endif %}" style="font-size:9px">{{ cat }}</span>
+      <span class="badge {{ sty[0] }}" style="font-size:10px;white-space:nowrap">{{ sty[1] }}</span>
     </td>
     <td>
       <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}">{{ t.priority }}</span>
@@ -219,45 +262,54 @@
     <td {% if t.due_at and t.due_at < now and t.status not in ('CLOSED','DONE') %}style="color:#f87171;font-size:12px"{% else %}style="color:var(--text-muted);font-size:12px"{% endif %}>
       {{ t.due_at.strftime('%d %b %y') if t.due_at else '—' }}
     </td>
-    <td>
-      {% if t.evidence_required is defined and t.evidence_required %}
-      <span class="badge badge-amber" style="font-size:9px">Required</span>
-      {% else %}
-      <span style="color:#374151;font-size:11px">—</span>
-      {% endif %}
-    </td>
-    <td onclick="event.stopPropagation()" style="white-space:nowrap">
-      {# P5-03: Mark as Done quick action #}
-      {% set next_map = {'OPEN':'Acknowledge','ACKNOWLEDGED':'Start','IN_PROGRESS':'Mark Done','DONE':'Close'} %}
-      {% set next_status = next_map.get(t.status) %}
-      {% if next_status and t.status != 'CLOSED' %}
+    <td onclick="event.stopPropagation()" style="white-space:nowrap;text-align:center">
+      {% if next_info %}
+        {% set btn_label = next_info[0] %}
+        {% set btn_cls   = next_info[1] %}
         {% if t.status == 'IN_PROGRESS' and t.evidence_required is defined and t.evidence_required %}
         <button onclick="openEvidenceModal('{{ t.id }}')"
                 class="btn btn-xs" style="color:#fcd34d;border-color:rgba(245,158,11,0.3)">
-          Submit with Evidence
+          📎 Submit Evidence → Done
         </button>
         {% else %}
         <form method="post" action="/tickets/{{ t.id }}/advance" style="display:inline">
-          <button type="submit" class="btn btn-xs btn-primary" onclick="showToast('✓ Status updated')">
-            {{ next_status }}
-          </button>
+          <button type="submit" class="btn btn-xs {{ btn_cls }}">{{ btn_label }} →</button>
         </form>
         {% endif %}
+      {% elif t.status == 'CLOSED' %}
+      <span style="font-size:11px;color:var(--text-xfaint)">Closed</span>
       {% endif %}
-      {# P5-06: Send Reminder (Admin/Manager only) #}
+      {# Send Reminder (Admin/Manager only, for open tickets) #}
       {% if user.role in ('ADMIN','MANAGER') and t.status not in ('DONE','CLOSED') %}
       <form method="post" action="/tickets/{{ t.id }}/remind" style="display:inline">
-        <button type="submit" class="btn btn-xs" title="Send Reminder" style="margin-left:3px">🔔</button>
+        <button type="submit" class="btn btn-xs" title="Send Reminder" style="margin-left:4px">🔔</button>
+      </form>
+      {% endif %}
+      {# Prev stage button (Admin/Manager only) #}
+      {% if user.role in ('ADMIN','MANAGER') and prev_label %}
+      <form method="post" action="/tickets/{{ t.id }}/revert" style="display:inline">
+        <button type="submit" class="btn btn-xs btn-gray" title="Move back to {{ prev_label }}" style="margin-left:4px">← {{ prev_label }}</button>
       </form>
       {% endif %}
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="8" style="text-align:center;color:var(--text-faint);padding:40px">No {{ L.tickets }} found.</td></tr>
+  <tr><td colspan="{% if user.role in ('ADMIN','MANAGER') %}8{% else %}7{% endif %}" style="text-align:center;color:var(--text-faint);padding:40px">No {{ L.tickets }} found.</td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+
+<!-- Bulk action bar -->
+{% if user.role in ('ADMIN','MANAGER') %}
+<div id="bulk-bar">
+  <span id="bulk-count" style="font-size:12px;font-weight:600;color:var(--text-muted)">0 selected</span>
+  <button type="button" onclick="submitBulk('advance')" class="btn btn-xs btn-primary">→ Advance All</button>
+  <button type="button" onclick="submitBulk('revert')"  class="btn btn-xs btn-outline">← Revert All</button>
+  <button type="button" onclick="submitBulk('close')"   class="btn btn-xs btn-gray">Close All</button>
+  <button type="button" onclick="clearSelection()"      class="btn btn-xs" style="color:var(--text-faint)">✕ Cancel</button>
+</div>
+{% endif %}
 {% endif %}
 
 <!-- ── Evidence Upload Modal (P5-03) ─────────────────────────────────────────── -->
@@ -417,5 +469,42 @@ window.addEventListener('load', () => showToast('✓ {{ L.Ticket }} status updat
 {% if request.query_params.get('reminded') %}
 window.addEventListener('load', () => showToast('✓ Reminder sent'));
 {% endif %}
+
+/* Bulk selection */
+function updateBulkBar() {
+  const checked = document.querySelectorAll('.ticket-chk:checked');
+  const bar = document.getElementById('bulk-bar');
+  const countEl = document.getElementById('bulk-count');
+  if (!bar) return;
+  if (checked.length > 0) {
+    bar.classList.add('visible');
+    countEl.textContent = checked.length + ' selected';
+  } else {
+    bar.classList.remove('visible');
+  }
+}
+function toggleAllTickets(master) {
+  document.querySelectorAll('.ticket-chk').forEach(c => c.checked = master.checked);
+  updateBulkBar();
+}
+function submitBulk(action) {
+  const checked = document.querySelectorAll('.ticket-chk:checked');
+  if (!checked.length) return;
+  document.getElementById('bulk-action-val').value = action;
+  const container = document.getElementById('bulk-ids-container');
+  container.innerHTML = '';
+  checked.forEach(chk => {
+    const inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'ticket_ids'; inp.value = chk.value;
+    container.appendChild(inp);
+  });
+  document.getElementById('bulk-form').submit();
+}
+function clearSelection() {
+  document.querySelectorAll('.ticket-chk').forEach(c => c.checked = false);
+  const master = document.getElementById('chk-all');
+  if (master) master.checked = false;
+  updateBulkBar();
+}
 </script>
 {% endblock %}
