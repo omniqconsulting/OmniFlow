@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Setup</h2>
+</div>
+
+<div class="setup-layout">
+  {% set active_section = 'end_products' %}
+  {% include "setup/nav.html" %}
+
+  <div class="setup-content">
+    {% if msg %}<div class="alert alert-green" style="margin-bottom:12px">{{ msg }}</div>{% endif %}
+    {% if err %}<div class="alert alert-red" style="margin-bottom:12px">{{ err }}</div>{% endif %}
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">End Products</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a href="/setup/end-products/template" class="btn btn-sm btn-outline">⬇ CSV Template</a>
+        <button onclick="document.getElementById('importModal').style.display='flex'" class="btn btn-sm btn-outline">⬆ Import CSV</button>
+        <button onclick="document.getElementById('addModal').style.display='flex'" class="btn btn-sm btn-primary">+ Add Product</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <input type="text" id="searchInput" placeholder="Search by name or SKU…" oninput="filterTable()"
+             style="width:100%;max-width:320px;padding:8px 12px;border-radius:6px;border:1px solid var(--border-med);background:var(--border-subtle);color:inherit;font-size:13px">
+    </div>
+
+    <div class="card" style="padding:0;overflow:hidden">
+      <table class="table" id="prodTable">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>SKU</th>
+            <th>Unit</th>
+            <th>Description</th>
+            <th>Status</th>
+            <th style="width:120px">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in products %}
+          <tr data-search="{{ (p.name ~ ' ' ~ (p.sku_code or ''))|lower }}">
+            <td><strong>{{ p.name }}</strong></td>
+            <td><code style="font-size:12px">{{ p.sku_code or '—' }}</code></td>
+            <td>{{ p.unit or '—' }}</td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.description or '—' }}</td>
+            <td>
+              <span class="badge {{ 'badge-green' if p.is_active else 'badge-gray' }}">
+                {{ 'Active' if p.is_active else 'Inactive' }}
+              </span>
+            </td>
+            <td>
+              <button data-obj='{{ p|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
+              <form method="post" action="/setup/end-products/{{ p.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Delete {{ p.name }}?')">
+                <button type="submit" class="btn btn-xs btn-red">Del</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">No end products yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add Modal -->
+<div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal-box" style="max-width:440px;width:100%">
+    <div class="modal-title">Add End Product</div>
+    <form method="post" action="/setup/end-products/add">
+      <div class="form-group">
+        <label class="form-label">Name <span style="color:#f87171">*</span></label>
+        <input name="name" class="form-input" required maxlength="200">
+      </div>
+      <div class="form-group">
+        <label class="form-label">SKU Code <span style="font-size:11px;color:var(--text-faint)">(unique per tenant, no spaces)</span></label>
+        <input name="sku_code" class="form-input" placeholder="e.g. SKU-001" pattern="[A-Za-z0-9\-_]+">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Unit of Measure</label>
+        <input name="unit" class="form-input" placeholder="e.g. pcs, kg, litres, box">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea name="description" class="form-input" rows="2"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="document.getElementById('addModal').style.display='none'" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add Product</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal-box" style="max-width:440px;width:100%">
+    <div class="modal-title">Edit End Product</div>
+    <form method="post" id="editForm">
+      <div class="form-group">
+        <label class="form-label">Name <span style="color:#f87171">*</span></label>
+        <input name="name" id="edit_name" class="form-input" required maxlength="200">
+      </div>
+      <div class="form-group">
+        <label class="form-label">SKU Code</label>
+        <input name="sku_code" id="edit_sku" class="form-input" pattern="[A-Za-z0-9\-_]*">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Unit</label>
+        <input name="unit" id="edit_unit" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea name="description" id="edit_desc" class="form-input" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select name="is_active" id="edit_is_active" class="form-input">
+          <option value="1">Active</option>
+          <option value="0">Inactive</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="document.getElementById('editModal').style.display='none'" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Import Modal -->
+<div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal-box" style="max-width:400px;width:100%">
+    <div class="modal-title">Import End Products via CSV</div>
+    <a href="/setup/end-products/template" class="btn btn-sm btn-outline" style="margin-bottom:12px;display:inline-block">⬇ Download Template</a>
+    <form method="post" action="/setup/end-products/import" enctype="multipart/form-data">
+      <div class="form-group">
+        <input type="file" name="file" accept=".csv" class="form-input" required>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="document.getElementById('importModal').style.display='none'" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload & Import</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function filterTable() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  document.querySelectorAll('#prodTable tbody tr[data-search]').forEach(tr => {
+    tr.style.display = tr.dataset.search.includes(q) ? '' : 'none';
+  });
+}
+function openEdit(p) {
+  document.getElementById('edit_name').value = p.name || '';
+  document.getElementById('edit_sku').value = p.sku_code || '';
+  document.getElementById('edit_unit').value = p.unit || '';
+  document.getElementById('edit_desc').value = p.description || '';
+  document.getElementById('edit_is_active').value = p.is_active ? '1' : '0';
+  document.getElementById('editForm').action = '/setup/end-products/' + p.id + '/edit';
+  document.getElementById('editModal').style.display = 'flex';
+}
+</script>
+{% endblock %}

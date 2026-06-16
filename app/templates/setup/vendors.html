@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Setup</h2>
+</div>
+
+<div class="setup-layout">
+  {% set active_section = 'vendors' %}
+  {% include "setup/nav.html" %}
+
+  <div class="setup-content">
+
+    {% if msg %}<div class="alert alert-green" style="margin-bottom:12px">{{ msg }}</div>{% endif %}
+    {% if err %}<div class="alert alert-red" style="margin-bottom:12px">{{ err }}</div>{% endif %}
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">Vendors</h2>
+      <button onclick="document.getElementById('addModal').style.display='flex'" class="btn btn-sm btn-primary">+ Add Vendor</button>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <input type="text" id="searchInput" placeholder="Search by name…" oninput="filterTable()"
+             style="width:100%;max-width:320px;padding:8px 12px;border-radius:6px;border:1px solid var(--border-med);background:var(--border-subtle);color:inherit;font-size:13px">
+    </div>
+
+    <div class="card" style="padding:0;overflow:hidden">
+      <table class="table" id="vendorTable">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Contact Person</th>
+            <th>Phone</th>
+            <th>Email</th>
+            <th>Status</th>
+            <th style="width:120px">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in vendors %}
+          <tr data-name="{{ v.name|lower }}">
+            <td><strong>{{ v.name }}</strong></td>
+            <td>{{ v.contact_person or '—' }}</td>
+            <td>{{ v.phone or '—' }}</td>
+            <td>{{ v.email or '—' }}</td>
+            <td>
+              <span class="badge {{ 'badge-green' if v.is_active else 'badge-gray' }}">
+                {{ 'Active' if v.is_active else 'Inactive' }}
+              </span>
+            </td>
+            <td>
+              <button data-obj='{{ v|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
+              <form method="post" action="/setup/vendors/{{ v.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Delete {{ v.name }}?')">
+                <button type="submit" class="btn btn-xs btn-red">Del</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">No vendors yet. Add your first vendor above.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if total > page_size %}
+    <div style="margin-top:12px;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-faint)">
+      {% if page > 1 %}<a href="?page={{ page-1 }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
+      <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+      {% if page * page_size < total %}<a href="?page={{ page+1 }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- Add Vendor Modal -->
+<div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal-box" style="max-width:480px;width:100%">
+    <div class="modal-title">Add Vendor</div>
+    <form method="post" action="/setup/vendors/add">
+      <div class="form-group">
+        <label class="form-label">Name <span style="color:#f87171">*</span></label>
+        <input name="name" class="form-input" required maxlength="200" placeholder="Vendor / supplier name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contact Person</label>
+        <input name="contact_person" class="form-input" placeholder="Primary contact name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone</label>
+        <input name="phone" class="form-input" placeholder="e.g. +91 98765 43210"
+               pattern="[0-9+\-\s()]{7,20}" title="Numbers, +, -, spaces and () only — 7 to 20 characters">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input name="email" type="email" class="form-input" placeholder="Contact email">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Address</label>
+        <textarea name="address" class="form-input" rows="2" placeholder="Vendor address"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea name="notes" class="form-input" rows="2" placeholder="Any additional notes"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="document.getElementById('addModal').style.display='none'" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add Vendor</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Vendor Modal -->
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal-box" style="max-width:480px;width:100%">
+    <div class="modal-title">Edit Vendor</div>
+    <form method="post" id="editForm">
+      <div class="form-group">
+        <label class="form-label">Name <span style="color:#f87171">*</span></label>
+        <input name="name" id="edit_name" class="form-input" required maxlength="200">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contact Person</label>
+        <input name="contact_person" id="edit_contact_person" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Phone</label>
+        <input name="phone" id="edit_phone" class="form-input"
+               pattern="[0-9+\-\s()]{7,20}" title="Numbers, +, -, spaces and () only — 7 to 20 characters">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input name="email" id="edit_email" type="email" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Address</label>
+        <textarea name="address" id="edit_address" class="form-input" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea name="notes" id="edit_notes" class="form-input" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select name="is_active" id="edit_is_active" class="form-input">
+          <option value="1">Active</option>
+          <option value="0">Inactive</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="document.getElementById('editModal').style.display='none'" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function filterTable() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  document.querySelectorAll('#vendorTable tbody tr[data-name]').forEach(tr => {
+    tr.style.display = tr.dataset.name.includes(q) ? '' : 'none';
+  });
+}
+function openEdit(v) {
+  document.getElementById('edit_name').value = v.name || '';
+  document.getElementById('edit_contact_person').value = v.contact_person || '';
+  document.getElementById('edit_phone').value = v.phone || '';
+  document.getElementById('edit_email').value = v.email || '';
+  document.getElementById('edit_address').value = v.address || '';
+  document.getElementById('edit_notes').value = v.notes || '';
+  document.getElementById('edit_is_active').value = v.is_active ? '1' : '0';
+  document.getElementById('editForm').action = '/setup/vendors/' + v.id + '/edit';
+  document.getElementById('editModal').style.display = 'flex';
+}
+</script>
+{% endblock %}

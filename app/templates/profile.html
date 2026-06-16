@@ -30,7 +30,7 @@
       <div class="form-group">
         <label>Phone Number *</label>
         <div style="display:flex;gap:8px">
-          <select id="countryCode" style="width:110px;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:9px 8px;font-size:12px;color:#e2e8f0;outline:none;cursor:pointer;flex-shrink:0">
+          <select id="countryCode" style="width:110px;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:9px 8px;font-size:12px;color:var(--text-primary);outline:none;cursor:pointer;flex-shrink:0">
             <option value="+91" data-len="10">🇮🇳 +91</option>
             <option value="+1"  data-len="10">🇺🇸 +1</option>
             <option value="+44" data-len="10">🇬🇧 +44</option>
@@ -44,18 +44,18 @@
                  required placeholder="XXXXXXXXXX"
                  style="flex:1">
         </div>
-        <div id="phoneHint" style="font-size:11px;color:#64748b;margin-top:4px">Enter digits only after the country code.</div>
+        <div id="phoneHint" style="font-size:11px;color:var(--text-faint);margin-top:4px">Enter digits only after the country code.</div>
       </div>
       <div class="form-group">
         <label>Role</label>
         <input type="text" value="{{ user.role }}" disabled
-               style="background:#0a0e1a;color:#4b5568;cursor:not-allowed">
-        <div style="font-size:11px;color:#374151;margin-top:4px">Role is managed by your administrator.</div>
+               style="background:var(--bg-input);color:var(--text-faint);cursor:not-allowed;opacity:0.8">
+        <div style="font-size:11px;color:var(--text-faint);margin-top:4px">Role is managed by your administrator.</div>
       </div>
       <div class="form-group">
         <label>Member Since</label>
         <input type="text" value="{{ user.created_at.strftime('%d %b %Y') if user.created_at else '—' }}" disabled
-               style="background:#0a0e1a;color:#4b5568;cursor:not-allowed">
+               style="background:var(--bg-input);color:var(--text-faint);cursor:not-allowed;opacity:0.8">
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px;margin-top:4px">
         Save Changes
@@ -66,7 +66,7 @@
   <!-- ── Change Password ───────────────────────────────────────── -->
   <div class="card">
     <h2>Change Password</h2>
-    <p style="font-size:12px;color:#64748b;margin-bottom:16px;line-height:1.6">
+    <p style="font-size:12px;color:var(--text-faint);margin-bottom:16px;line-height:1.6">
       Choose a strong password. You'll be asked to sign in again after changing it.
     </p>
     <form method="post" action="/profile/change-password" id="pwForm">
@@ -88,16 +88,16 @@
       </button>
     </form>
 
-    <div style="margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.07)">
-      <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Account Info</div>
+    <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border-subtle)">
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Account Info</div>
       <div style="display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;font-size:12px">
-          <span style="color:#64748b">Factory ID</span>
-          <span style="color:#94a3b8;font-family:monospace">{{ user.tenant.slug if user.tenant else '—' }}</span>
+          <span style="color:var(--text-faint)">Factory ID</span>
+          <span style="color:var(--text-muted);font-family:monospace">{{ user.tenant.slug if user.tenant else '—' }}</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:12px">
-          <span style="color:#64748b">User ID</span>
-          <span style="color:#94a3b8;font-family:monospace;font-size:11px">{{ user.id[:16] }}…</span>
+          <span style="color:var(--text-faint)">User ID</span>
+          <span style="color:var(--text-muted);font-family:monospace;font-size:11px">{{ user.id[:16] }}…</span>
         </div>
       </div>
     </div>

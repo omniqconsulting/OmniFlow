@@ -6,14 +6,14 @@
 </div>
 
 <!-- Progress Steps -->
-<div style="display:flex;gap:0;margin-bottom:28px;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)">
+<div style="display:flex;gap:0;margin-bottom:28px;border-radius:10px;overflow:hidden;border:1px solid var(--border-subtle)">
   {% for s, label in [(1,'Factory Info'),(2,'Branches'),(3,'Departments'),(4,'Employees'),(5,'Checklists')] %}
   {% set is_done = completed.get(s, False) %}
   {% set is_current = (step == s) %}
   <a href="/setup/wizard?step={{ s }}"
-     style="flex:1;padding:12px 8px;text-align:center;background:{% if is_current %}#1d4ed8{% elif is_done %}#065f46{% else %}#111827{% endif %};border-right:1px solid rgba(255,255,255,0.06);text-decoration:none;transition:opacity 0.1s"
+     style="flex:1;padding:12px 8px;text-align:center;background:{% if is_current %}#1d4ed8{% elif is_done %}#065f46{% else %}var(--bg-card){% endif %};border-right:1px solid var(--hover-bg);text-decoration:none;transition:opacity 0.1s"
      onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
-    <div style="font-size:11px;font-weight:700;color:{% if is_current or is_done %}#f1f5f9{% else %}#475569{% endif %}">
+    <div style="font-size:11px;font-weight:700;color:{% if is_current or is_done %}var(--text-strong){% else %}var(--text-xfaint){% endif %}">
       {% if is_done and not is_current %}✓ {% endif %}{{ label }}
     </div>
     <div style="font-size:9px;color:{% if is_done and not is_current %}#6ee7b7{% elif is_current %}#93c5fd{% else %}#374151{% endif %};margin-top:2px">
@@ -28,7 +28,7 @@
 <div class="card" style="text-align:center;padding:40px">
   <div style="font-size:48px;margin-bottom:16px">🎉</div>
   <h2 style="color:#6ee7b7;font-size:20px">Setup Complete!</h2>
-  <p style="color:#94a3b8;font-size:13px;margin:12px 0 24px;max-width:400px;margin-left:auto;margin-right:auto">
+  <p style="color:var(--text-muted);font-size:13px;margin:12px 0 24px;max-width:400px;margin-left:auto;margin-right:auto">
     Your OmniFlow is fully configured. You can always come back to this guide to review or add more.
   </p>
   <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
@@ -41,8 +41,8 @@
 <!-- Step 1: Factory info -->
 <div class="card">
   <h2>Welcome to OmniFlow!</h2>
-  <p style="color:#64748b;margin-bottom:18px;font-size:13px;line-height:1.7">
-    Your factory is registered as <strong style="color:#f1f5f9">{{ tenant.name }}</strong>.
+  <p style="color:var(--text-faint);margin-bottom:18px;font-size:13px;line-height:1.7">
+    Your factory is registered as <strong style="color:var(--text-strong)">{{ tenant.name }}</strong>.
     This guide will walk you through the 5-step setup. Progress is saved automatically — you can close the browser and return anytime.
   </p>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px">
@@ -52,10 +52,10 @@
       ('👥','Employees','Your team members and their roles'),
       ('✅','Checklists','Recurring inspection and task routines'),
     ] %}
-    <div style="background:#0d1424;border-radius:8px;padding:12px;text-align:center">
+    <div style="background:var(--bg-input);border-radius:8px;padding:12px;text-align:center">
       <div style="font-size:22px;margin-bottom:6px">{{ icon }}</div>
-      <div style="font-size:12px;font-weight:600;color:#f1f5f9">{{ title }}</div>
-      <div style="font-size:10px;color:#64748b;margin-top:3px">{{ desc }}</div>
+      <div style="font-size:12px;font-weight:600;color:var(--text-strong)">{{ title }}</div>
+      <div style="font-size:10px;color:var(--text-faint);margin-top:3px">{{ desc }}</div>
     </div>
     {% endfor %}
   </div>
@@ -68,7 +68,7 @@
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
     <div>
       <h2 style="margin:0">Branches / Locations</h2>
-      <div style="font-size:12px;color:#64748b;margin-top:3px">Where does your team operate? Add one or more locations.</div>
+      <div style="font-size:12px;color:var(--text-faint);margin-top:3px">Where does your team operate? Add one or more locations.</div>
     </div>
     <span class="badge badge-blue">{{ branches|length }} added</span>
   </div>
@@ -79,7 +79,7 @@
     <tbody>
     {% for b in branches %}
     <tr>
-      <td style="color:#e2e8f0;font-weight:500">{{ b.name }}</td>
+      <td style="color:var(--text-primary);font-weight:500">{{ b.name }}</td>
       <td class="muted">{{ b.address or '—' }}</td>
     </tr>
     {% endfor %}
@@ -87,16 +87,16 @@
   </table>
   {% endif %}
 
-  <div style="background:#0d1424;border-radius:8px;padding:16px;margin-bottom:16px">
-    <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:12px">Add another branch</div>
+  <div style="background:var(--bg-input);border-radius:8px;padding:16px;margin-bottom:16px">
+    <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:12px">Add another branch</div>
     <form method="post" action="/setup/branch" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
       <input type="hidden" name="redirect_to" value="/setup/wizard?step=2">
       <div class="form-group" style="flex:1;min-width:180px;margin:0">
-        <label style="font-size:11px;color:#64748b;margin-bottom:4px;display:block">Branch Name *</label>
+        <label style="font-size:11px;color:var(--text-faint);margin-bottom:4px;display:block">Branch Name *</label>
         <input name="name" placeholder="e.g. Main Plant" required>
       </div>
       <div class="form-group" style="flex:2;min-width:180px;margin:0">
-        <label style="font-size:11px;color:#64748b;margin-bottom:4px;display:block">Address (optional)</label>
+        <label style="font-size:11px;color:var(--text-faint);margin-bottom:4px;display:block">Address (optional)</label>
         <input name="location" placeholder="e.g. Plot 12, Industrial Area">
       </div>
       <button class="btn btn-green" type="submit" style="flex-shrink:0">+ Add Branch</button>
@@ -106,7 +106,7 @@
   <div style="display:flex;gap:10px;flex-wrap:wrap">
     <a href="/setup/wizard?step=1" class="btn btn-gray">← Back</a>
     <a href="/setup/wizard?step=3" class="btn btn-primary">Next: Departments →</a>
-    {% if branches %}<span style="font-size:11px;color:#64748b;align-self:center">{{ branches|length }} branch(es) saved ✓</span>{% endif %}
+    {% if branches %}<span style="font-size:11px;color:var(--text-faint);align-self:center">{{ branches|length }} branch(es) saved ✓</span>{% endif %}
   </div>
 </div>
 
@@ -115,8 +115,8 @@
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
     <div>
-      <h2 style="margin:0">Departments</h2>
-      <div style="font-size:12px;color:#64748b;margin-top:3px">Add as many departments as you need. E.g. Production, Quality, Maintenance, HR.</div>
+      <h2 style="margin:0">{{ L.Departments }}</h2>
+      <div style="font-size:12px;color:var(--text-faint);margin-top:3px">Add as many departments as you need. E.g. Production, Quality, Maintenance, HR.</div>
     </div>
     <span class="badge badge-blue">{{ departments|length }} added</span>
   </div>
@@ -129,8 +129,8 @@
   </div>
   {% endif %}
 
-  <div style="background:#0d1424;border-radius:8px;padding:16px;margin-bottom:16px">
-    <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:12px">Add another department</div>
+  <div style="background:var(--bg-input);border-radius:8px;padding:16px;margin-bottom:16px">
+    <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:12px">Add another department</div>
     <form method="post" action="/setup/department" style="display:flex;gap:10px;align-items:flex-end">
       <input type="hidden" name="redirect_to" value="/setup/wizard?step=3">
       <div class="form-group" style="flex:1;margin:0">
@@ -143,7 +143,7 @@
   <div style="display:flex;gap:10px;flex-wrap:wrap">
     <a href="/setup/wizard?step=2" class="btn btn-gray">← Back</a>
     <a href="/setup/wizard?step=4" class="btn btn-primary">Next: Add Employees →</a>
-    {% if departments %}<span style="font-size:11px;color:#64748b;align-self:center">{{ departments|length }} department(s) saved ✓</span>{% endif %}
+    {% if departments %}<span style="font-size:11px;color:var(--text-faint);align-self:center">{{ departments|length }} department(s) saved ✓</span>{% endif %}
   </div>
 </div>
 
@@ -152,19 +152,19 @@
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
     <div>
-      <h2 style="margin:0">Employees</h2>
-      <div style="font-size:12px;color:#64748b;margin-top:3px">Add team members — operators, supervisors, managers. You can assign roles and departments.</div>
+      <h2 style="margin:0">{{ L.Employees }}</h2>
+      <div style="font-size:12px;color:var(--text-faint);margin-top:3px">Add team members — operators, supervisors, managers. You can assign roles and departments.</div>
     </div>
     <span class="badge {% if employees|length > 1 %}badge-green{% else %}badge-gray{% endif %}">{{ employees|length }} registered</span>
   </div>
 
   {% if employees %}
   <table style="margin-bottom:16px">
-    <thead><tr><th>Name</th><th>Role</th><th>Department</th></tr></thead>
+    <thead><tr><th>Name</th><th>Role</th><th>{{ L.Department }}</th></tr></thead>
     <tbody>
     {% for e in employees %}
     <tr>
-      <td style="color:#e2e8f0;font-weight:500">{{ e.name }}</td>
+      <td style="color:var(--text-primary);font-weight:500">{{ e.name }}</td>
       <td><span class="badge badge-gray" style="font-size:10px">{{ e.role }}</span></td>
       <td class="muted" style="font-size:12px">{{ e.department.name if e.department else '—' }}</td>
     </tr>
@@ -189,13 +189,13 @@
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
     <div>
-      <h2 style="margin:0">Checklists</h2>
-      <div style="font-size:12px;color:#64748b;margin-top:3px">Create recurring inspection or task routines that auto-repeat for your team.</div>
+      <h2 style="margin:0">{{ L.Checklists }}</h2>
+      <div style="font-size:12px;color:var(--text-faint);margin-top:3px">Create recurring inspection or task routines that auto-repeat for your team.</div>
     </div>
     <span class="badge {% if checklist_count > 0 %}badge-green{% else %}badge-gray{% endif %}">{{ checklist_count }} created</span>
   </div>
 
-  <p style="color:#94a3b8;font-size:13px;line-height:1.7;margin-bottom:16px">
+  <p style="color:var(--text-muted);font-size:13px;line-height:1.7;margin-bottom:16px">
     Examples: Daily machine inspection, shift handover checklist, weekly safety walkthrough.
     Once created, they auto-assign to your team on schedule.
   </p>
@@ -207,7 +207,7 @@
   {% if checklist_count > 0 %}
   <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:16px;margin-bottom:16px">
     <div style="font-size:14px;font-weight:700;color:#6ee7b7;margin-bottom:4px">🎉 Setup Complete!</div>
-    <div style="color:#94a3b8;font-size:12px">Your OmniFlow is ready. Head to the dashboard to start managing operations.</div>
+    <div style="color:var(--text-muted);font-size:12px">Your OmniFlow is ready. Head to the dashboard to start managing operations.</div>
   </div>
   {% endif %}
 

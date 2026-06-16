@@ -5,11 +5,12 @@ Tabs: flows | submodules | checklists | labels | onboarding
 """
 from __future__ import annotations
 import json, logging
-from datetime import datetime
+from datetime import datetime, date as _date
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from markupsafe import Markup as _Markup
 import os
 
 from .database import (
@@ -28,6 +29,18 @@ router = APIRouter(prefix="/superadmin/library")
 BASE_DIR  = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 templates.env.filters["from_json"] = lambda s: (json.loads(s) if s else [])
+
+
+class _OrmEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if hasattr(obj, "__dict__"):
+            return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+        if isinstance(obj, (datetime, _date)):
+            return obj.isoformat()
+        return super().default(obj)
+
+
+templates.env.filters["tojson"] = lambda v: _Markup(json.dumps(v, cls=_OrmEncoder))
 log = logging.getLogger(__name__)
 
 FIELD_TYPES = [
@@ -216,6 +229,8 @@ def lib_flow_duplicate(flow_id: str, sa: SuperAdmin = Depends(get_current_sa),
         db.add(LibraryFlowStage(
             template_id=copy.id, name=s.name, description=s.description,
             color=s.color, order=s.order, is_terminal=s.is_terminal,
+            completion_note_required=bool(s.completion_note_required),
+            evidence_required=bool(s.evidence_required),
         ))
     db.commit()
     return _r(f"/superadmin/library/flows/{copy.id}?msg=duplicated")
@@ -277,12 +292,14 @@ def lib_flow_deploy(flow_id: str, tenant_id: str = Form(...),
             flow_id=fms_flow.id,
             tenant_id=tenant_id,
             name=lib_stage.name,
+            description=getattr(lib_stage, 'description', None),
             order=lib_stage.order,
             color=lib_stage.color,
             target_tat_hours=lib_stage.target_tat_hours,
             sub_module_tag=lib_stage.sub_module_tag,
             deployed_submodule_id=lib_stage.submodule_id,
             completion_note_required=bool(lib_stage.completion_note_required),
+            evidence_required=bool(lib_stage.evidence_required),
             is_terminal=lib_stage.is_terminal,
         ))
 
@@ -889,6 +906,7 @@ def _stage_to_dict(s: LibraryFlowStage) -> dict:
         "sub_module_tag": s.sub_module_tag or "",
         "submodule_id": s.submodule_id or "",
         "completion_note_required": bool(s.completion_note_required),
+        "evidence_required": bool(s.evidence_required),
     }
 
 
@@ -910,6 +928,7 @@ def _save_stages(db, template_id: str, stages_json: str):
             sub_module_tag=s.get("sub_module_tag") or None,
             submodule_id=s.get("submodule_id") or None,
             completion_note_required=bool(s.get("completion_note_required")),
+            evidence_required=bool(s.get("evidence_required")),
         ))
 
 

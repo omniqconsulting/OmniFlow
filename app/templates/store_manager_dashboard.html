@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.sm-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px; }
+@media (max-width:640px) { .sm-grid { grid-template-columns:1fr; } }
+</style>
+
+<div class="page-header">
+  <h2 class="page-title">My Dashboard</h2>
+</div>
+
+<div class="sm-grid">
+
+  <!-- My Open Tickets -->
+  <div class="card" style="padding:14px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px">My Open {{ L.Tickets }}</div>
+    {% if my_tickets %}
+    <table class="table" style="font-size:12px">
+      <thead>
+        <tr>
+          <th>{{ L.Ticket }} #</th>
+          <th>Title</th>
+          <th>Priority</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in my_tickets %}
+        <tr>
+          <td><a href="/tickets/{{ t.id }}" style="color:#60a5fa">{{ t.ticket_number or t.id[:8] }}</a></td>
+          <td>{{ t.title[:40] }}{% if t.title|length > 40 %}…{% endif %}</td>
+          <td>
+            <span class="badge {{ 'badge-red' if t.priority == 'CRITICAL' else 'badge-amber' if t.priority == 'HIGH' else 'badge-gray' }}">
+              {{ t.priority }}
+            </span>
+          </td>
+          <td>
+            <span class="badge badge-blue">{{ t.status.replace('_',' ') }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="color:var(--text-faint);font-size:13px;padding:24px 0;text-align:center">No open {{ L.tickets }}.</div>
+    {% endif %}
+    <div style="margin-top:10px">
+      <a href="/tickets" class="btn btn-sm btn-outline">View All {{ L.Tickets }}</a>
+    </div>
+  </div>
+
+  <!-- My Pending Checklists -->
+  <div class="card" style="padding:14px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px">My Pending {{ L.Checklists }}</div>
+    {% if my_checklists %}
+    <div style="display:flex;flex-direction:column;gap:6px">
+      {% for cl in my_checklists %}
+      <a href="/checklists/{{ cl.id }}" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:rgba(255,255,255,0.03);border:1px solid var(--border-subtle);border-radius:6px;text-decoration:none;color:inherit">
+        <div style="font-size:12px;font-weight:500">{{ cl.title or 'Checklist' }}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          {% if cl.due_at %}
+          <span style="font-size:10px;color:{{ '#f87171' if cl.status == 'OVERDUE' else 'var(--text-faint)' }}">
+            {{ cl.due_at.strftime('%d %b') }}
+          </span>
+          {% endif %}
+          <span class="badge {{ 'badge-red' if cl.status == 'OVERDUE' else 'badge-amber' }}">
+            {{ cl.status }}
+          </span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div style="color:var(--text-faint);font-size:13px;padding:24px 0;text-align:center">No pending {{ L.checklists }}.</div>
+    {% endif %}
+    <div style="margin-top:10px">
+      <a href="/checklists" class="btn btn-sm btn-outline">View All {{ L.Checklists }}</a>
+    </div>
+  </div>
+
+</div>
+
+{% if has_inventory %}
+<div class="card" style="padding:14px">
+  <div style="font-size:13px;font-weight:600;margin-bottom:10px">Inventory Quick Access</div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <a href="/inventory/materials" class="btn btn-sm btn-outline">Materials</a>
+    <a href="/inventory/requests" class="btn btn-sm btn-outline">My Requests</a>
+    <a href="/inventory/requests/new" class="btn btn-sm btn-primary">+ New Request</a>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

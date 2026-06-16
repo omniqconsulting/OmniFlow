@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block container_class %} full-width{% endblock %}
+{% block content %}
+<style>
+/* ── Summary dashboard layout ───────────────────────────────────────── */
+.sum-wrap { display:flex; gap:0; min-height:calc(100vh - 52px); }
+.sum-filters {
+  width:210px; min-width:210px; background:var(--bg-input);
+  border-right:1px solid var(--border-subtle);
+  padding:16px 14px; display:flex; flex-direction:column; gap:14px;
+  position:sticky; top:52px; height:calc(100vh - 52px); overflow-y:auto;
+}
+.sum-content { flex:1; padding:20px 24px; min-width:0; overflow-x:hidden; }
+.sum-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:8px; }
+
+/* ── Module sections (3 vertical columns) ── */
+.modules-grid {
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap:16px;
+  margin-bottom:16px;
+}
+.module-section {
+  background:var(--bg-card);
+  border:1px solid var(--border-subtle);
+  border-radius:12px;
+  overflow:hidden;
+}
+.module-header {
+  display:flex; align-items:center; gap:10px;
+  padding:12px 16px;
+  border-bottom:1px solid var(--border-subtle);
+  background:var(--bg-elevated);
+}
+.module-icon { font-size:16px; line-height:1; }
+.module-title { font-size:13px; font-weight:700; color:var(--text-strong); letter-spacing:0.01em; }
+.module-kpis { display:grid; grid-template-columns:1fr 1fr; gap:0; }
+.kpi-cell {
+  padding:14px 16px;
+  border-right:1px solid var(--border-subtle);
+  border-bottom:1px solid var(--border-subtle);
+  position:relative;
+}
+.kpi-cell:nth-child(2n) { border-right:none; }
+.kpi-cell:nth-last-child(-n+2) { border-bottom:none; }
+.kpi-cell-label {
+  font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:0.07em; color:var(--text-faint); margin-bottom:8px;
+  line-height:1.3;
+}
+.kpi-cell-value {
+  font-size:26px; font-weight:700; color:var(--text-strong); line-height:1;
+}
+.kpi-cell-value.good { color:#10b981; }
+.kpi-cell-value.warn { color:#f59e0b; }
+.kpi-cell-value.bad  { color:#f87171; }
+.kpi-cell-sub { font-size:11px; color:var(--text-faint); margin-top:5px; }
+
+/* Dept health */
+.dept-strip { display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+.dept-chip {
+  padding:7px 12px; border-radius:8px; font-size:12px; font-weight:600;
+  cursor:pointer; transition:all 0.15s; border:1px solid transparent;
+  text-decoration:none; display:block;
+}
+.dept-chip:hover { filter:brightness(1.12); }
+.dept-chip.green { background:rgba(16,185,129,0.15); color:#6ee7b7; border-color:rgba(16,185,129,0.2); }
+.dept-chip.amber { background:rgba(245,158,11,0.15); color:#fcd34d; border-color:rgba(245,158,11,0.2); }
+.dept-chip.red   { background:rgba(239,68,68,0.15);  color:#fca5a5; border-color:rgba(239,68,68,0.2); }
+html.light .dept-chip.green { color:#065f46; }
+html.light .dept-chip.amber { color:#92400e; }
+html.light .dept-chip.red   { color:#991b1b; }
+
+/* Filters */
+.filter-group { display:flex; flex-direction:column; gap:4px; }
+.filter-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:var(--text-xfaint); }
+.filter-select { background:var(--bg-card); border:1px solid var(--border-med); border-radius:6px; padding:6px 8px; font-size:12px; color:var(--text-primary); }
+.filter-input  { background:var(--bg-card); border:1px solid var(--border-med); border-radius:6px; padding:6px 8px; font-size:12px; color:var(--text-primary); width:100%; }
+.preset-btn { font-size:11px; padding:4px 10px; background:var(--bg-elevated); border:1px solid var(--border-med); border-radius:6px; cursor:pointer; color:var(--text-muted); transition:all .12s; font-family:inherit; font-weight:500; }
+.preset-btn:hover { background:var(--bg-card); color:var(--text-primary); border-color:var(--border-strong,var(--border-med)); }
+.preset-btn.active { background:rgba(59,130,246,0.18); color:#60a5fa; border-color:rgba(59,130,246,0.4); font-weight:600; }
+html.light .preset-btn { background:#e2e8f0; color:#334155; border-color:rgba(30,58,95,0.20); }
+html.light .preset-btn:hover { background:#cbd5e1; color:#1e293b; }
+html.light .preset-btn.active { background:rgba(29,78,216,0.12); color:#1d4ed8; border-color:rgba(29,78,216,0.35); }
+
+@media (max-width:768px) {
+  .sum-wrap { flex-direction:column; }
+  .sum-filters { width:100%; min-width:0; position:static; height:auto; flex-direction:row; flex-wrap:wrap; }
+  .modules-grid { grid-template-columns:1fr; }
+}
+</style>
+
+<div class="sum-wrap">
+
+  <!-- Left Filter Panel -->
+  <form id="filterForm" class="sum-filters" method="get" action="/dashboard">
+    <input type="hidden" name="view" value="summary">
+
+    <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Filters</div>
+
+    <!-- Date Range — first so it's immediately visible -->
+    <div class="filter-group">
+      <div class="filter-label">Date Range</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
+        {% for label, from_val, to_val in date_presets %}
+        <button type="submit" name="preset" value="{{ label }}"
+                class="preset-btn {{ 'active' if active_preset == label }}">
+          {{ label }}
+        </button>
+        {% endfor %}
+      </div>
+      <div class="filter-label" style="margin-top:4px">From</div>
+      <input type="date" name="date_from" value="{{ date_from }}" class="filter-input" style="margin-bottom:4px">
+      <div class="filter-label">To</div>
+      <input type="date" name="date_to"   value="{{ date_to }}"   class="filter-input">
+    </div>
+
+    <button type="submit" class="btn btn-sm btn-primary" style="margin-top:2px;margin-bottom:4px">Apply</button>
+
+    <!-- Factory / Branch -->
+    <div class="filter-group">
+      <div class="filter-label">Factory / Branch</div>
+      <select name="branch_id" class="filter-select" onchange="this.form.submit()">
+        <option value="">All Locations</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}" {{ 'selected' if branch_id == b.id }}>{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Department — deduplicated by name across branches -->
+    <div class="filter-group">
+      <div class="filter-label">{{ L.Department }}</div>
+      <select name="dept_name" class="filter-select" onchange="this.form.submit()">
+        <option value="">All {{ L.Departments }}</option>
+        {% for d in departments %}
+        <option value="{{ d.name }}" {{ 'selected' if dept_name == d.name }}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {% if user.role == 'ADMIN' and managers %}
+    <div class="filter-group">
+      <div class="filter-label">Manager</div>
+      <select name="manager_id" class="filter-select" onchange="this.form.submit()">
+        <option value="">All Managers</option>
+        {% for m in managers %}
+        <option value="{{ m.id }}" {{ 'selected' if manager_id == m.id }}>{{ m.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+
+    <a href="/dashboard?view=summary" style="font-size:11px;color:var(--text-faint);text-align:center;margin-top:2px;display:block">Reset</a>
+  </form>
+
+  <!-- Main Content -->
+  <div class="sum-content">
+
+    <div class="sum-header">
+      <div>
+        <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-strong)">Overview</h2>
+        <div style="font-size:12px;color:var(--text-faint);margin-top:2px">{{ date_from }} → {{ date_to }}</div>
+      </div>
+      <a href="/dashboard?view=detailed&date_from={{ date_from }}&date_to={{ date_to }}&dept_id={{ dept_id or '' }}&manager_id={{ manager_id or '' }}"
+         class="btn btn-sm btn-primary">Detailed Analysis →</a>
+    </div>
+
+    <!-- ── Performance Score ──────────────────────────────────────────── -->
+    {% if perf_components %}
+    <div style="display:grid;grid-template-columns:148px 1fr;gap:14px;margin-bottom:16px;align-items:stretch">
+      <div class="card" style="text-align:center;padding:18px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Overall Score</div>
+        <div style="
+          width:76px;height:76px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+          background:conic-gradient(
+            {% if perf_score >= 80 %}#10b981{% elif perf_score >= 60 %}#f59e0b{% else %}#ef4444{% endif %}
+            {{ perf_score * 3.6 }}deg, var(--bg-elevated) 0deg);
+          font-size:20px;font-weight:700;
+          color:{% if perf_score >= 80 %}#6ee7b7{% elif perf_score >= 60 %}#fbbf24{% else %}#f87171{% endif %}">
+          {{ perf_score }}%
+        </div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:8px">
+          {% if perf_score >= 80 %}Excellent{% elif perf_score >= 60 %}Good{% elif perf_score > 0 %}Needs Attention{% else %}No Data{% endif %}
+        </div>
+      </div>
+      <div class="card" style="padding:16px 20px;display:flex;flex-direction:column;justify-content:center;gap:10px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Score Breakdown</div>
+        {% for c in perf_components %}
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+            <span style="color:{{ c.color }};font-weight:500">{{ c.label }}</span>
+            <span style="color:{% if c.value >= 80 %}#10b981{% elif c.value >= 60 %}#fbbf24{% else %}#f87171{% endif %};font-weight:600">{{ c.value }}%</span>
+          </div>
+          <div style="height:5px;border-radius:3px;background:var(--hover-bg);overflow:hidden">
+            <div style="height:100%;border-radius:3px;width:{{ c.value }}%;background:{{ c.color }};transition:width 0.6s"></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- 3-Section Module Grid -->
+    <div class="modules-grid">
+
+      <!-- ── Tickets ─────────────────────────────────────────────────── -->
+      <div class="module-section">
+        <div class="module-header">
+          <span class="module-icon">🎫</span>
+          <span class="module-title">{{ L.Tickets }}</span>
+        </div>
+        <div class="module-kpis">
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># {{ L.Tickets }}</div>
+            <div class="kpi-cell-value" id="kv-total-count">{{ kpis.total_count }}</div>
+            <div class="kpi-cell-sub">{{ kpis.total_open }} open · {{ kpis.total_closed }} closed</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># Completed</div>
+            <div class="kpi-cell-value {{ 'good' if kpis.total_closed > 0 else '' }}" id="kv-total-closed">{{ kpis.total_closed }}</div>
+            <div class="kpi-cell-sub">of {{ kpis.total_count }} created</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># Completed on Time</div>
+            <div class="kpi-cell-value {{ 'good' if kpis.on_time_pct >= 80 else 'warn' if kpis.on_time_pct >= 60 else 'bad' }}" id="kv-on-time">
+              {{ kpis.on_time_count }}
+            </div>
+            <div class="kpi-cell-sub">{{ kpis.on_time_pct }}% of closed</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># Issues Raised</div>
+            <div class="kpi-cell-value {{ 'bad' if kpis.open_help > 0 else 'good' }}" id="kv-help">{{ kpis.open_help }}</div>
+            <div class="kpi-cell-sub">help {{ L.tickets }} open</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Checklists ──────────────────────────────────────────────── -->
+      {% if has_checklists %}
+      <div class="module-section">
+        <div class="module-header">
+          <span class="module-icon">✅</span>
+          <span class="module-title">{{ L.Checklists }}</span>
+        </div>
+        <div class="module-kpis">
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># {{ L.Checklists }}</div>
+            <div class="kpi-cell-value">{{ kpis.cl_due }}</div>
+            <div class="kpi-cell-sub">due in period</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># Completed</div>
+            <div class="kpi-cell-value {{ 'good' if kpis.cl_compliance_pct >= 80 else 'warn' if kpis.cl_compliance_pct >= 60 else 'bad' }}">
+              {{ kpis.cl_done }}
+            </div>
+            <div class="kpi-cell-sub">{{ kpis.cl_compliance_pct }}% compliance</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># Completed on Time</div>
+            <div class="kpi-cell-value {{ 'good' if kpis.cl_on_time == kpis.cl_done and kpis.cl_done > 0 else 'warn' if kpis.cl_on_time > 0 else '' }}">
+              {{ kpis.cl_on_time }}
+            </div>
+            <div class="kpi-cell-sub">of {{ kpis.cl_done }} completed</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># Issues / Missed</div>
+            <div class="kpi-cell-value {{ 'bad' if kpis.cl_missed > 0 else 'good' }}">{{ kpis.cl_missed }}</div>
+            <div class="kpi-cell-sub">not completed</div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- ── Flow Tickets ────────────────────────────────────────────── -->
+      {% if has_fms %}
+      <div class="module-section">
+        <div class="module-header">
+          <span class="module-icon">⚙️</span>
+          <span class="module-title">Flow {{ L.Tickets }}</span>
+        </div>
+        <div class="module-kpis">
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># Flow {{ L.Tickets }}</div>
+            <div class="kpi-cell-value" id="kv-fms-total">{{ kpis.fms_total }}</div>
+            <div class="kpi-cell-sub">{{ kpis.fms_active }} active · {{ kpis.fms_completed }} done</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># Completed</div>
+            <div class="kpi-cell-value {{ 'good' if kpis.fms_completed > 0 else '' }}" id="kv-fms-completed">{{ kpis.fms_completed }}</div>
+            <div class="kpi-cell-sub">in period</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># Completed on Time</div>
+            <div class="kpi-cell-value {{ 'good' if kpis.fms_on_time == kpis.fms_completed and kpis.fms_completed > 0 else 'warn' if kpis.fms_on_time > 0 else '' }}">
+              {{ kpis.fms_on_time }}
+            </div>
+            <div class="kpi-cell-sub">of {{ kpis.fms_completed }} completed</div>
+          </div>
+          <div class="kpi-cell">
+            <div class="kpi-cell-label"># Issues / TaT Breach</div>
+            <div class="kpi-cell-value {{ 'bad' if kpis.fms_tat_breaches > 0 else 'good' }}" id="kv-fms-breaches">{{ kpis.fms_tat_breaches }}</div>
+            <div class="kpi-cell-sub">stage TaT exceeded</div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+
+    <!-- Department Health Strip -->
+    <div class="card" style="padding:14px;margin-bottom:0">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-faint);margin-bottom:10px">
+        {{ L.Department }} Health
+      </div>
+      <div class="dept-strip">
+        {% for dh in dept_health %}
+        <a href="/dashboard?view=detailed&dept_id={{ dh.dept_id }}&date_from={{ date_from }}&date_to={{ date_to }}"
+           class="dept-chip {{ 'green' if dh.rate >= 80 else 'amber' if dh.rate >= 60 else 'red' }}"
+           title="{{ dh.rate }}% compliance">
+          {{ dh.name }} <span style="font-size:10px;opacity:0.7">{{ dh.rate }}%</span>
+        </a>
+        {% else %}
+        <div style="color:var(--text-faint);font-size:13px">No department data for this period.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const tenantId = {{ user.tenant_id | tojson }};
+
+if (window.__omniflow_ws) {
+  const origOnMessage = window.__omniflow_ws.onmessage;
+  window.__omniflow_ws.onmessage = function(e) {
+    if (origOnMessage) origOnMessage(e);
+    try {
+      const data = JSON.parse(e.data);
+      if (data.type === 'TICKET_STATUS_CHANGED') {
+        const wasOpen = ['OPEN','ACKNOWLEDGED','IN_PROGRESS'].includes(data.old_status);
+        const isOpen  = ['OPEN','ACKNOWLEDGED','IN_PROGRESS'].includes(data.new_status);
+        const delta = isOpen && !wasOpen ? 1 : (!isOpen && wasOpen ? -1 : 0);
+        const el = document.getElementById('kv-total-count');
+        if (el && delta !== 0) el.textContent = Math.max(0, (parseInt(el.textContent)||0) + Math.abs(delta));
+      }
+      if (data.type === 'TICKET_HELP_REQUESTED') {
+        const el = document.getElementById('kv-help');
+        if (el) el.textContent = (parseInt(el.textContent)||0) + 1;
+      }
+    } catch(_) {}
+  };
+}
+</script>
+{% endblock %}

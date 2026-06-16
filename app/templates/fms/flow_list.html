@@ -26,9 +26,9 @@
   <div class="card" style="border-left:4px solid {{ f.color }};border-radius:0 9px 9px 0;padding:16px 18px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
       <div>
-        <div style="font-size:14px;font-weight:600;color:#f1f5f9">{{ f.name }}</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text-strong)">{{ f.name }}</div>
         {% if f.description %}
-        <div style="font-size:11px;color:#64748b;margin-top:2px">{{ f.description[:80] }}{% if f.description|length > 80 %}…{% endif %}</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px">{{ f.description[:80] }}{% if f.description|length > 80 %}…{% endif %}</div>
         {% endif %}
       </div>
       <span class="badge {% if f.is_active %}badge-green{% else %}badge-gray{% endif %}" style="flex-shrink:0;margin-left:8px">
@@ -36,7 +36,7 @@
       </span>
     </div>
 
-    <div style="display:flex;gap:14px;font-size:11px;color:#64748b;margin-bottom:12px">
+    <div style="display:flex;gap:14px;font-size:11px;color:var(--text-faint);margin-bottom:12px">
       <span>{{ item.stage_count }} stages</span>
       <span>{{ item.active_tickets }} active tickets</span>
     </div>
@@ -45,7 +45,7 @@
     <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">
       {% for stage in f.stages if not stage.is_deleted %}
       <div style="display:flex;align-items:center;gap:3px">
-        <span style="background:{{ stage.color }}22;border:1px solid {{ stage.color }}44;border-radius:99px;padding:3px 9px;font-size:10px;font-weight:500;color:#e2e8f0">
+        <span style="background:{{ stage.color }}22;border:1px solid {{ stage.color }}44;border-radius:99px;padding:3px 9px;font-size:10px;font-weight:500;color:var(--text-primary)">
           {{ stage.name }}
           {% if stage.is_terminal %} ✓{% endif %}
         </span>
@@ -61,15 +61,15 @@
       </summary>
       <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
         {% for stage in f.stages if not stage.is_deleted %}
-        <div style="background:#0d1424;border-radius:7px;padding:10px 12px;border-left:3px solid {{ stage.color }}">
+        <div style="background:var(--bg-input);border-radius:7px;padding:10px 12px;border-left:3px solid {{ stage.color }}">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <span style="font-size:12px;font-weight:600;color:#f1f5f9">{{ loop.index }}. {{ stage.name }}</span>
+            <span style="font-size:12px;font-weight:600;color:var(--text-strong)">{{ loop.index }}. {{ stage.name }}</span>
             <div style="display:flex;gap:5px">
               {% if stage.is_terminal %}<span class="badge badge-green" style="font-size:9px">Terminal</span>{% endif %}
               {% if stage.is_mandatory %}<span class="badge badge-blue" style="font-size:9px">Mandatory</span>{% endif %}
             </div>
           </div>
-          <div style="font-size:11px;color:#64748b;display:flex;flex-wrap:wrap;gap:10px">
+          <div style="font-size:11px;color:var(--text-faint);display:flex;flex-wrap:wrap;gap:10px">
             {% if stage.target_tat_hours %}
             <span>⏱ {{ stage.target_tat_hours }}h TaT target</span>
             {% endif %}
@@ -100,7 +100,7 @@
 {% else %}
 <div style="text-align:center;padding:60px 0;color:#374151">
   <div style="font-size:40px;margin-bottom:12px">🔧</div>
-  <div style="font-size:15px;font-weight:500;color:#64748b;margin-bottom:8px">No flows deployed yet</div>
+  <div style="font-size:15px;font-weight:500;color:var(--text-faint);margin-bottom:8px">No flows deployed yet</div>
   <div style="font-size:12px;color:#374151">Your OmniFlow account manager will set up your flows. Contact support to get started.</div>
   <a href="/help" class="btn btn-primary" style="margin-top:16px;display:inline-block">Contact Support →</a>
 </div>

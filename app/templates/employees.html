@@ -6,15 +6,15 @@
 .org-wrap { overflow-x: auto; padding: 8px 0 20px; }
 .org-level { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 0; }
 .org-card {
-  background: #111827; border: 1px solid rgba(255,255,255,0.08);
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
   border-radius: 10px; padding: 12px 14px; min-width: 150px; max-width: 180px;
   text-align: center; position: relative; cursor: default;
   transition: border-color .15s;
 }
 .org-card:hover { border-color: rgba(255,255,255,0.2); }
-.org-card .oc-name { font-size: 13px; font-weight: 600; color: #f1f5f9; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.org-card .oc-phone { font-size: 11px; color: #64748b; margin-bottom: 6px; }
-.org-card .oc-dept { font-size: 10px; color: #475569; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.org-card .oc-name { font-size: 13px; font-weight: 600; color: var(--text-strong); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.org-card .oc-phone { font-size: 11px; color: var(--text-faint); margin-bottom: 6px; }
+.org-card .oc-dept { font-size: 10px; color: var(--text-xfaint); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .org-tree { position: relative; }
 .org-branch { display: flex; flex-direction: column; align-items: center; }
 .org-branch-children {
@@ -23,12 +23,12 @@
 }
 .org-branch-children::before {
   content: ''; position: absolute; top: 0; left: 50%; width: 1px;
-  height: 20px; background: rgba(255,255,255,0.1);
+  height: 20px; background: var(--border-med);
 }
 .org-branch-child { display: flex; flex-direction: column; align-items: center; position: relative; }
 .org-branch-child::before {
   content: ''; position: absolute; top: 0; left: 50%; width: 1px;
-  height: 12px; background: rgba(255,255,255,0.1);
+  height: 12px; background: var(--border-med);
 }
 .org-branch-child-inner { padding-top: 12px; }
 .org-section { margin-bottom: 28px; }
@@ -36,14 +36,19 @@
   font-size: 10px; font-weight: 700; color: #374151; text-transform: uppercase;
   letter-spacing: .08em; text-align: center; margin-bottom: 12px;
 }
-.view-btn { padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 500; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; background: transparent; color: #64748b; transition: all .12s; }
+.view-btn { padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 500; border: 1px solid var(--border-med); cursor: pointer; background: transparent; color: var(--text-faint); transition: all .12s; }
 .view-btn.active { background: rgba(59,130,246,0.2); color: #7dd3fc; border-color: rgba(59,130,246,0.4); }
+/* KPI strip */
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.kpi-tile { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px 18px; }
+.kpi-tile .kt-val { font-size: 26px; font-weight: 700; line-height: 1; }
+.kpi-tile .kt-lbl { font-size: 11px; color: var(--text-faint); margin-top: 4px; font-weight: 500; }
 </style>
 
 <div class="page-header">
   <h2 class="page-title">{{ L.Employees }}</h2>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-    <div style="display:flex;border:1px solid rgba(255,255,255,0.1);border-radius:8px;overflow:hidden">
+    <div style="display:flex;border:1px solid var(--border-med);border-radius:8px;overflow:hidden">
       <button class="view-btn active" id="btn-list" onclick="switchView('list')">List</button>
       <button class="view-btn" id="btn-org" onclick="switchView('org')">Org Chart</button>
     </div>
@@ -58,6 +63,8 @@
 
 {% set err = request.query_params.get('error') %}
 {% if err %}<div class="alert alert-red">{{ err }}</div>{% endif %}
+{% set msg = request.query_params.get('msg') %}
+{% if msg %}<div style="background:rgba(16,185,129,0.12);color:#6ee7b7;border:1px solid rgba(16,185,129,0.25);padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px">✓ {{ msg }}</div>{% endif %}
 {% set imported = request.query_params.get('imported') %}
 {% if imported %}
 <div style="background:rgba(16,185,129,0.12);color:#6ee7b7;border:1px solid rgba(16,185,129,0.25);padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px">
@@ -65,51 +72,84 @@
 </div>
 {% endif %}
 
+<!-- ══ P8-04: KPI STRIP ══════════════════════════════════════════════════════ -->
+<div class="kpi-strip">
+  <div class="kpi-tile">
+    <div class="kt-val" style="color:#7dd3fc">{{ kpi_total }}</div>
+    <div class="kt-lbl">Total Employees</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="kt-val" style="color:#6ee7b7">{{ kpi_active }}</div>
+    <div class="kt-lbl">Active</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="kt-val" style="color:#f87171">{{ kpi_terminated }}</div>
+    <div class="kt-lbl">Terminated</div>
+  </div>
+  <div class="kpi-tile">
+    <div class="kt-val" style="color:#fbbf24">{{ kpi_departments }}</div>
+    <div class="kt-lbl">{{ L.Departments }}</div>
+  </div>
+</div>
+
 <!-- ══ LIST VIEW ══════════════════════════════════════════════════════════ -->
 <div id="view-list">
 <div class="card" style="padding:0">
   <table>
     <thead>
       <tr>
-        <th>Name</th><th>Phone</th><th>Role</th><th>Department</th>
+        <th>Name</th><th>Phone</th><th>Role</th><th>{{ L.Department }}</th>
         <th>Manager</th><th>Status</th>
-        {% if user.role == 'ADMIN' %}<th>Actions</th>{% endif %}
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
     {% for emp in employees %}
     <tr>
-      <td style="font-weight:500;color:#f1f5f9">{{ emp.name }}</td>
-      <td style="color:#94a3b8">{{ emp.phone }}</td>
+      <td style="font-weight:500;color:var(--text-strong)">
+        {{ emp.name }}
+        {% if emp.employee_id %}<span style="font-size:10px;color:var(--text-xfaint);margin-left:6px">{{ emp.employee_id }}</span>{% endif %}
+      </td>
+      <td style="color:var(--text-muted)">{{ emp.phone }}</td>
       <td>
-        <span class="badge {% if emp.role=='ADMIN' %}badge-purple{% elif emp.role=='MANAGER' %}badge-blue{% elif emp.role=='STORE_MANAGER' %}badge-amber{% else %}badge-gray{% endif %}">
+        <span class="badge {% if emp.role=='ADMIN' %}badge-purple{% elif emp.role=='MANAGER' %}badge-blue{% else %}badge-gray{% endif %}">
           {{ emp.role }}
         </span>
       </td>
-      <td style="color:#94a3b8">{{ emp.department.name if emp.department else '—' }}</td>
-      <td style="color:#94a3b8">{{ emp.manager.name if emp.manager else '—' }}</td>
+      <td style="color:var(--text-muted)">{{ emp.department.name if emp.department else '—' }}</td>
+      <td style="color:var(--text-muted)">{{ emp.manager.name if emp.manager else '—' }}</td>
       <td>
-        <span class="badge {% if emp.is_active %}badge-green{% else %}badge-red{% endif %}">
-          {{ 'Active' if emp.is_active else 'Inactive' }}
+        <span class="badge {% if emp.status == 'TERMINATED' %}badge-red{% elif emp.is_active %}badge-green{% else %}badge-gray{% endif %}">
+          {{ emp.status if emp.status else ('Active' if emp.is_active else 'Inactive') }}
         </span>
       </td>
-      {% if user.role == 'ADMIN' %}
-      <td style="display:flex;gap:6px;flex-wrap:wrap">
-        <button onclick="toggleRow('mgr-{{ emp.id }}')" class="btn btn-sm btn-outline">Set Manager</button>
+      <td style="display:flex;gap:5px;flex-wrap:wrap">
+        <a href="/employees/{{ emp.id }}/performance" class="btn btn-sm btn-outline" title="Performance">📊</a>
+        {% if user.role == 'ADMIN' %}
+        <button onclick="toggleRow('mgr-{{ emp.id }}')" class="btn btn-sm btn-outline">Manager</button>
         <button onclick="toggleRow('pw-{{ emp.id }}')" class="btn btn-sm btn-gray">Reset PW</button>
+        <button onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-outline" style="color:#fbbf24;border-color:rgba(251,191,36,.3)">Edit</button>
+        {% if emp.status != 'TERMINATED' and emp.id != user.id %}
+        <button onclick="openTerminate('{{ emp.id }}','{{ emp.name | e }}')" class="btn btn-sm btn-outline" style="color:#f87171;border-color:rgba(248,113,113,.3)">Terminate</button>
+        {% endif %}
+        {% if emp.id != user.id %}
+        <button onclick="confirmDelete('{{ emp.id }}','{{ emp.name | e }}')" class="btn btn-sm btn-red">Delete</button>
+        {% endif %}
+        {% endif %}
       </td>
-      {% endif %}
     </tr>
+
+    <!-- Set Manager inline row -->
     {% if user.role == 'ADMIN' %}
     <tr id="mgr-{{ emp.id }}" style="display:none;background:rgba(59,130,246,0.04)">
       <td colspan="7" style="padding:10px 16px">
         <form method="post" action="/employees/{{ emp.id }}/assign-manager"
               style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:12px;color:#94a3b8;white-space:nowrap">
-            Manager for <strong style="color:#f1f5f9">{{ emp.name }}</strong>:
+          <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">
+            Manager for <strong style="color:var(--text-strong)">{{ emp.name }}</strong>:
           </span>
           <select name="manager_id"
-                  style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:200px">
+                  style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:200px">
             <option value="">— None —</option>
             {% for m in managers %}
             {% if m.id != emp.id %}
@@ -124,30 +164,109 @@
         </form>
       </td>
     </tr>
+
+    <!-- Reset PW inline row -->
     <tr id="pw-{{ emp.id }}" style="display:none;background:rgba(239,68,68,0.04)">
       <td colspan="7" style="padding:10px 16px">
         <form method="post" action="/employees/{{ emp.id }}/reset-password"
               style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:12px;color:#94a3b8;white-space:nowrap">
-            Set temp password for <strong style="color:#f1f5f9">{{ emp.name }}</strong>:
+          <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">
+            Set temp password for <strong style="color:var(--text-strong)">{{ emp.name }}</strong>:
           </span>
           <input type="text" name="temp_password" placeholder="Temporary password" minlength="6" required
-                 style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:7px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:200px">
+                 style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:200px">
           <button type="submit" class="btn btn-sm btn-red"
                   onclick="return confirm('Reset password for {{ emp.name }}? Share the new password with them directly.')">
             Set Password
           </button>
           <button type="button" onclick="toggleRow('pw-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
         </form>
-        <div style="font-size:11px;color:#64748b;margin-top:6px">
+        <div style="font-size:11px;color:var(--text-faint);margin-top:6px">
           Share this temporary password with the employee via WhatsApp. Ask them to change it after signing in.
         </div>
       </td>
     </tr>
+
+    <!-- P8-01/P8-06: Edit profile inline row -->
+    <tr id="edit-{{ emp.id }}" style="display:none;background:rgba(251,191,36,0.04)">
+      <td colspan="7" style="padding:14px 16px">
+        <form method="post" action="/employees/{{ emp.id }}/edit">
+          <div style="font-size:12px;font-weight:600;color:#fbbf24;margin-bottom:12px">Edit Profile — {{ emp.name }}</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+            <div class="form-group" style="margin:0">
+              <label>Full Name</label>
+              <input name="name" value="{{ emp.name }}" required>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Phone</label>
+              <input name="phone" value="{{ emp.phone }}" required>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Email</label>
+              <input name="email" type="email" value="{{ emp.email or '' }}" placeholder="optional">
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+            <div class="form-group" style="margin:0">
+              <label>Role</label>
+              <select name="role">
+                {% for r in ['EMPLOYEE','MANAGER','ADMIN'] %}
+                <option value="{{ r }}" {% if emp.role == r %}selected{% endif %}>{{ r }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>{{ L.Department }}</label>
+              <select name="department_id">
+                <option value="">— None —</option>
+                {% for d in departments %}
+                <option value="{{ d.id }}" {% if emp.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Reports To</label>
+              <select name="manager_id">
+                <option value="">— None —</option>
+                {% for m in managers %}
+                {% if m.id != emp.id %}
+                <option value="{{ m.id }}" {% if emp.manager_id == m.id %}selected{% endif %}>{{ m.name }}</option>
+                {% endif %}
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+            <div class="form-group" style="margin:0">
+              <label>Joining Date</label>
+              <input type="date" name="joining_date" value="{{ emp.joining_date.isoformat() if emp.joining_date else '' }}">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>{{ L.Branch }}</label>
+              <select name="branch_id">
+                <option value="">— None —</option>
+                {% for b in branches %}
+                <option value="{{ b.id }}" {% if emp.branch_id == b.id %}selected{% endif %}>{{ b.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Address</label>
+              <input name="address" value="{{ emp.address or '' }}" placeholder="optional">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
+            <button type="button" onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
+          </div>
+        </form>
+      </td>
+    </tr>
     {% endif %}
+
     {% else %}
     <tr>
-      <td colspan="7" style="text-align:center;color:#64748b;padding:48px">
+      <td colspan="7" style="text-align:center;color:var(--text-faint);padding:48px">
         No employees yet.
         {% if user.role == 'ADMIN' %}
         <button onclick="show('create-modal')" class="btn btn-sm btn-primary" style="margin-left:10px">Add first employee</button>
@@ -163,10 +282,10 @@
 <!-- ══ ORG CHART VIEW ════════════════════════════════════════════════════ -->
 <div id="view-org" style="display:none">
   <!-- Filter bar -->
-  <div style="background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+  <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
     <div>
-      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Department</div>
-      <select id="orgDeptFilter" onchange="renderOrg()" style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:160px">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">{{ L.Department }}</div>
+      <select id="orgDeptFilter" onchange="renderOrg()" style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:160px">
         <option value="">All Departments</option>
         {% for d in departments %}
         <option value="{{ d.name }}">{{ d.name }}</option>
@@ -174,12 +293,11 @@
       </select>
     </div>
     <div>
-      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Show</div>
-      <select id="orgRoleFilter" onchange="renderOrg()" style="background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;min-width:140px">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Show</div>
+      <select id="orgRoleFilter" onchange="renderOrg()" style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:140px">
         <option value="">All Roles</option>
         <option value="ADMIN">Admins only</option>
         <option value="MANAGER">Managers only</option>
-        <option value="STORE_MANAGER">Store Managers only</option>
         <option value="EMPLOYEE">Employees only</option>
       </select>
     </div>
@@ -193,10 +311,10 @@
 <!-- ══ ADD EMPLOYEE MODAL ════════════════════════════════════════════════ -->
 {% if user.role == 'ADMIN' %}
 <div id="create-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:480px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:480px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">Add Employee</h3>
-      <button onclick="hide('create-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Add Employee</h3>
+      <button onclick="hide('create-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
     </div>
     <form method="post" action="/employees/create">
       <div class="form-group">
@@ -213,22 +331,30 @@
         <label>Password</label>
         <input type="password" name="password" required minlength="6">
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
         <div class="form-group">
           <label>Role</label>
           <select name="role">
-            <option value="EMPLOYEE">Employee</option>
+            <option value="EMPLOYEE">{{ L.Employee }}</option>
             <option value="MANAGER">Manager</option>
-            <option value="STORE_MANAGER">Store Manager</option>
             <option value="ADMIN">Admin</option>
           </select>
         </div>
         <div class="form-group">
-          <label>Department</label>
+          <label>{{ L.Department }}</label>
           <select name="department_id">
             <option value="">— None —</option>
             {% for d in departments %}
             <option value="{{ d.id }}">{{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>{{ L.Branch }}</label>
+          <select name="branch_id">
+            <option value="">— None —</option>
+            {% for b in branches %}
+            <option value="{{ b.id }}">{{ b.name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -249,36 +375,120 @@
     </form>
   </div>
 </div>
+
+<!-- ══ P8-02: TERMINATE MODAL ════════════════════════════════════════════ -->
+<div id="terminate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:200">
+  <div style="background:var(--bg-modal);border:1px solid rgba(248,113,113,0.25);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.7);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:15px;font-weight:600;color:#f87171">Terminate Employee</h3>
+      <button onclick="closeTerminate()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
+    </div>
+    <p id="term-emp-label" style="font-size:13px;color:var(--text-muted);margin-bottom:16px"></p>
+
+    <!-- Loading state -->
+    <div id="term-loading" style="text-align:center;padding:20px;color:var(--text-faint);font-size:13px">Loading open work…</div>
+
+    <!-- No open work — fast path -->
+    <div id="term-no-work" style="display:none;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:#6ee7b7">
+      ✓ No open tickets, checklists, or flow tickets — safe to terminate.
+    </div>
+
+    <!-- Open work item list -->
+    <div id="term-work-list" style="display:none;margin-bottom:14px">
+      <div id="term-ticket-section" style="display:none;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+          Open Tickets (<span id="tw-ticket-count">0</span>)
+        </div>
+        <div id="tw-ticket-items" style="background:var(--bg-input);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--text-muted);max-height:100px;overflow-y:auto"></div>
+      </div>
+      <div id="term-cl-section" style="display:none;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+          Pending Checklists (<span id="tw-cl-count">0</span>)
+        </div>
+        <div id="tw-cl-items" style="background:var(--bg-input);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--text-muted);max-height:100px;overflow-y:auto"></div>
+      </div>
+      <div id="term-fms-section" style="display:none;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+          Open Flow Tickets (<span id="tw-fms-count">0</span>)
+        </div>
+        <div id="tw-fms-items" style="background:var(--bg-input);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--text-muted);max-height:100px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <form id="terminate-form" method="post" style="display:none">
+      <!-- Reassignment selects — only shown when there's something to reassign -->
+      <div id="term-ticket-reassign" style="display:none">
+        <div class="form-group">
+          <label>Reassign Open Tickets To</label>
+          <select name="ticket_reassign_to">
+            <option value="">— Leave unassigned —</option>
+            {% for m in managers %}<option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>{% endfor %}
+            {% for emp in employees %}{% if emp.role not in ['ADMIN','MANAGER'] %}<option value="{{ emp.id }}">{{ emp.name }}</option>{% endif %}{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div id="term-cl-reassign" style="display:none">
+        <div class="form-group">
+          <label>Reassign Pending Checklists To</label>
+          <select name="checklist_reassign_to">
+            <option value="">— Leave unassigned —</option>
+            {% for m in managers %}<option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>{% endfor %}
+            {% for emp in employees %}{% if emp.role not in ['ADMIN','MANAGER'] %}<option value="{{ emp.id }}">{{ emp.name }}</option>{% endif %}{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div id="term-fms-reassign" style="display:none">
+        <div class="form-group">
+          <label>Reassign Open Flow Tickets To</label>
+          <select name="fms_reassign_to">
+            <option value="">— Leave unassigned —</option>
+            {% for m in managers %}<option value="{{ m.id }}">{{ m.name }} ({{ m.role }})</option>{% endfor %}
+            {% for emp in employees %}{% if emp.role not in ['ADMIN','MANAGER'] %}<option value="{{ emp.id }}">{{ emp.name }}</option>{% endif %}{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div style="background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:#fca5a5">
+        ⚠ This action marks the employee as TERMINATED and disables their login. This cannot be undone from the UI.
+      </div>
+      <div style="display:flex;gap:10px">
+        <button type="button" onclick="closeTerminate()" class="btn btn-outline" style="flex:1">Cancel</button>
+        <button type="submit" class="btn btn-red" style="flex:1">Confirm Terminate</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Delete confirmation form (hidden, submitted via JS) -->
+<form id="delete-form" method="post" style="display:none">
+  <input type="hidden" name="_method" value="delete">
+</form>
 {% endif %}
 
 <!-- ══ BULK IMPORT MODAL ══════════════════════════════════════════════════ -->
 {% if can_bulk and user.role == 'ADMIN' %}
 <div id="bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
-  <div style="background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 style="font-size:15px;font-weight:600;color:#f1f5f9">Bulk Import via CSV</h3>
-      <button onclick="hide('bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:#64748b;line-height:1">×</button>
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Bulk Import via CSV</h3>
+      <button onclick="hide('bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
     </div>
-    <p style="font-size:12px;color:#64748b;margin-bottom:14px">Download a template, fill it in, then upload. Rows with errors are returned as a downloadable report — valid rows are still imported.</p>
-    <div style="background:#0d1424;border-radius:8px;padding:12px 14px;margin-bottom:16px">
-      <p style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Step 1 — Download Template</p>
+    <p style="font-size:12px;color:var(--text-faint);margin-bottom:14px">Download a template, fill it in, then upload. Rows with errors are returned as a downloadable report — valid rows are still imported.</p>
+    <div style="background:var(--bg-input);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+      <p style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Step 1 — Download Template</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a href="/employees/import/template?entity=employees" class="btn btn-sm btn-outline">⬇ Employees CSV</a>
-        <a href="/employees/import/template?entity=departments" class="btn btn-sm btn-outline">⬇ Departments CSV</a>
-        <a href="/employees/import/template?entity=branches" class="btn btn-sm btn-outline">⬇ Branches CSV</a>
       </div>
+      <div style="font-size:11px;color:var(--text-xfaint);margin-top:8px">Row 2 in the CSV is a description row — do not edit or delete it. Add your data from row 3 onwards.</div>
     </div>
-    <p style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Step 2 — Upload Filled CSV</p>
-    {% for label, icon, action in [('Employees','👤','/employees/import'),('Departments','🏢','/departments/import'),('Branches','📍','/branches/import')] %}
-    <div style="border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px 14px;margin-bottom:10px">
-      <p style="font-size:12px;font-weight:600;color:#e2e8f0;margin-bottom:8px">{{ icon }} {{ label }}</p>
-      <form method="post" action="{{ action }}" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
+    <p style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Step 2 — Upload Filled CSV</p>
+    <div style="border:1px solid var(--border-subtle);border-radius:8px;padding:12px 14px;margin-bottom:16px">
+      <p style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px">👤 Employees</p>
+      <form method="post" action="/employees/import" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
         <input type="file" name="file" accept=".csv" required
-               style="flex:1;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0">
+               style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
         <button type="submit" class="btn btn-sm btn-primary">Import</button>
       </form>
     </div>
-    {% endfor %}
     <button onclick="hide('bulk-modal')" class="btn btn-gray" style="width:100%">Close</button>
   </div>
 </div>
@@ -289,7 +499,7 @@
   <span style="font-size:22px">🔒</span>
   <div>
     <div style="font-weight:600;color:#c4b5fd;font-size:13px">Bulk Import — Professional Plan Feature</div>
-    <div style="font-size:12px;color:#64748b;margin-top:3px">Import employees, departments and branches in bulk via CSV with row-level validation and error reports.</div>
+    <div style="font-size:12px;color:var(--text-faint);margin-top:3px">Import employees, departments and branches in bulk via CSV with row-level validation and error reports.</div>
   </div>
 </div>
 {% endif %}
@@ -311,6 +521,78 @@ function switchView(v) {
   if (v === 'org') renderOrg();
 }
 
+// ── P8-06: Delete employee ─────────────────────────────────────────────────
+function confirmDelete(empId, empName) {
+  if (!confirm('Permanently remove ' + empName + '? This cannot be undone.')) return;
+  var f = document.getElementById('delete-form');
+  f.action = '/employees/' + empId + '/delete';
+  f.submit();
+}
+
+// ── P8-02: Terminate modal ─────────────────────────────────────────────────
+var _terminateEmpId = null;
+
+function openTerminate(empId, empName) {
+  _terminateEmpId = empId;
+  document.getElementById('term-emp-label').textContent = 'You are about to terminate: ' + empName;
+  document.getElementById('term-loading').style.display = '';
+  document.getElementById('term-no-work').style.display = 'none';
+  document.getElementById('term-work-list').style.display = 'none';
+  document.getElementById('terminate-form').style.display = 'none';
+  document.getElementById('terminate-modal').style.display = 'flex';
+
+  fetch('/employees/' + empId + '/open-work')
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('term-loading').style.display = 'none';
+
+      const hasWork = data.tickets > 0 || data.checklists > 0 || data.fms > 0;
+
+      if (!hasWork) {
+        document.getElementById('term-no-work').style.display = '';
+      } else {
+        document.getElementById('term-work-list').style.display = '';
+        _renderItems('term-ticket-section','tw-ticket-count','tw-ticket-items', data.ticket_items||[], data.tickets, '#f87171');
+        _renderItems('term-cl-section','tw-cl-count','tw-cl-items', data.checklist_items||[], data.checklists, '#fbbf24');
+        _renderItems('term-fms-section','tw-fms-count','tw-fms-items', data.fms_items||[], data.fms, '#7dd3fc');
+        // show relevant reassign dropdowns
+        document.getElementById('term-ticket-reassign').style.display = data.tickets > 0 ? '' : 'none';
+        document.getElementById('term-cl-reassign').style.display = data.checklists > 0 ? '' : 'none';
+        document.getElementById('term-fms-reassign').style.display = data.fms > 0 ? '' : 'none';
+      }
+
+      var f = document.getElementById('terminate-form');
+      f.action = '/employees/' + empId + '/terminate';
+      f.style.display = '';
+    })
+    .catch(() => {
+      document.getElementById('term-loading').textContent = 'Failed to load open work. Please refresh and try again.';
+    });
+}
+
+function _renderItems(sectionId, countId, listId, items, total, color) {
+  if (total === 0) { document.getElementById(sectionId).style.display = 'none'; return; }
+  document.getElementById(sectionId).style.display = '';
+  document.getElementById(countId).textContent = total;
+  const el = document.getElementById(listId);
+  if (items.length === 0) {
+    el.innerHTML = '<span style="color:var(--text-xfaint)">—</span>';
+  } else {
+    el.innerHTML = items.map(it =>
+      '<div style="padding:3px 0;border-bottom:1px solid var(--border-subtle);display:flex;gap:8px;align-items:center">'
+      + '<span style="width:6px;height:6px;border-radius:50%;background:' + color + ';flex-shrink:0;display:inline-block"></span>'
+      + '<span>' + it.title.replace(/</g,'&lt;') + '</span>'
+      + '<span style="font-size:10px;color:var(--text-xfaint);margin-left:auto">' + it.status + '</span>'
+      + '</div>'
+    ).join('');
+  }
+}
+
+function closeTerminate() {
+  document.getElementById('terminate-modal').style.display = 'none';
+  _terminateEmpId = null;
+}
+
 // ── Employee data ──────────────────────────────────────────────────────────
 const EMP_DATA = [
   {% for emp in employees %}
@@ -326,8 +608,8 @@ const EMP_DATA = [
   {% endfor %}
 ];
 
-const ROLE_COLOR = { ADMIN: '#7c3aed', MANAGER: '#2563eb', STORE_MANAGER: '#d97706', EMPLOYEE: '#0f766e' };
-const ROLE_BG    = { ADMIN: 'rgba(124,58,237,.15)', MANAGER: 'rgba(37,99,235,.15)', STORE_MANAGER: 'rgba(217,119,6,.15)', EMPLOYEE: 'rgba(15,118,110,.15)' };
+const ROLE_COLOR = { ADMIN: '#7c3aed', MANAGER: '#2563eb', EMPLOYEE: '#0f766e' };
+const ROLE_BG    = { ADMIN: 'rgba(124,58,237,.15)', MANAGER: 'rgba(37,99,235,.15)', EMPLOYEE: 'rgba(15,118,110,.15)' };
 
 function empCard(e) {
   const initials = e.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
@@ -355,7 +637,6 @@ function renderOrg() {
   const byId = {};
   EMP_DATA.forEach(e => byId[e.id] = e);
 
-  // Build child map from ALL employees (for structural relationships)
   const children = {};
   EMP_DATA.forEach(e => {
     if (e.manager_id) {
@@ -364,7 +645,6 @@ function renderOrg() {
     }
   });
 
-  // Find roots (no manager or manager not in list)
   const filteredIds = new Set(filtered.map(e => e.id));
   const roots = filtered.filter(e => !e.manager_id || !filteredIds.has(e.manager_id));
 

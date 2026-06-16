@@ -21,13 +21,13 @@ from .database import (
     Tenant, User, Notification,
     FMSTicket, FMSStage, FMSEvent,
     PMSDailyLog, DispatchRecord, InvoiceRecord,
-    Material, MaterialRequest, CustomSubmoduleResponse,
+    CustomSubmoduleResponse,
     LibrarySubmoduleDefinition, TenantDeployedItem,
 )
 from .auth import get_current_user, require_admin, require_manager
 from .labels import get_labels, DEFAULT_L
 from .notifications import notify_fms_stage_transition
-from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION, STORE_ALERT
+from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION
 
 import os
 BASE_DIR = os.path.dirname(__file__)
@@ -47,7 +47,7 @@ templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
 
 router = APIRouter(prefix="/submodules", tags=["Submodules"])
 
-SUBMODULE_TYPES = ["PMS", "DISPATCH", "INVOICE", "MATERIAL_REQ", "CUSTOM"]
+SUBMODULE_TYPES = ["PMS", "DISPATCH", "INVOICE", "CUSTOM"]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,10 +88,9 @@ def _admin_manager_ids(db, tenant_id):
 
 # Map sub_module_type → the fixed system library ID seeded in database.py
 _BUILTIN_IDS = {
-    "PMS":          "sys-pms-builtin",
-    "DISPATCH":     "sys-dispatch-builtin",
-    "INVOICE":      "sys-invoice-builtin",
-    "MATERIAL_REQ": "sys-material-builtin",
+    "PMS":      "sys-pms-builtin",
+    "DISPATCH": "sys-dispatch-builtin",
+    "INVOICE":  "sys-invoice-builtin",
 }
 
 def _require_submodule(db, tenant_id: str, sub_module_type: str):
@@ -414,141 +413,6 @@ def invoice_mark_paid(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3-D: Material Requisition
-# ══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/materials/{ticket_id}", response_class=HTMLResponse)
-def material_req_panel(ticket_id: str, request: Request,
-                       user: User = Depends(get_current_user),
-                       db: Session = Depends(get_db)):
-    """3-D-1: Material request panel."""
-    _require_submodule(db, user.tenant_id, "MATERIAL_REQ")
-    ticket   = _get_ticket(db, ticket_id, user.tenant_id)
-    requests = db.query(MaterialRequest).filter(
-        MaterialRequest.ticket_id == ticket_id
-    ).order_by(MaterialRequest.created_at.desc()).all()
-
-    catalogue = db.query(Material).filter(
-        Material.tenant_id == user.tenant_id,
-        Material.is_active == True,
-        Material.is_deleted == False,
-    ).order_by(Material.name).all()
-
-    can_approve = user.role in ("ADMIN", "MANAGER")
-
-    return templates.TemplateResponse(request, "submodules/material_req_panel.html", _ctx(
-        request, user, db,
-        ticket=ticket, requests=requests,
-        catalogue=catalogue, can_approve=can_approve,
-    ))
-
-
-@router.post("/materials/{ticket_id}/request")
-def material_request_create(
-    ticket_id: str,
-    material_id: str = Form(""),
-    material_name: str = Form(""),
-    qty_requested: int = Form(...),
-    unit: str = Form(""),
-    reason: str = Form(""),
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """3-D-1/2: Submit a material requisition."""
-    _require_submodule(db, user.tenant_id, "MATERIAL_REQ")
-    ticket = _get_ticket(db, ticket_id, user.tenant_id)
-
-    # Resolve material details from catalogue if id provided
-    mat_name = material_name.strip()
-    mat_unit = unit.strip()
-    if material_id.strip():
-        mat = db.query(Material).get(material_id.strip())
-        if mat and mat.tenant_id == user.tenant_id:
-            mat_name = mat_name or mat.name
-            mat_unit = mat_unit or mat.unit
-
-    current_stage = db.query(FMSStage).filter(
-        FMSStage.id == ticket.current_stage_id
-    ).first() if ticket.current_stage_id else None
-
-    req = MaterialRequest(
-        ticket_id=ticket_id, tenant_id=user.tenant_id,
-        material_id=material_id.strip() or None,
-        material_name=mat_name,
-        qty_requested=qty_requested,
-        unit=mat_unit or "",
-        reason=reason.strip() or None,
-        requested_by_id=user.id,
-        stage_id=current_stage.id if current_stage else None,
-        stage_name=current_stage.name if current_stage else None,
-    )
-    db.add(req)
-    _log_event(db, ticket_id, user.id, "COMMENT",
-               f"Material request: {qty_requested} {mat_unit} of {mat_name}")
-    db.commit()
-
-    # Notify admins + managers in real-time (3-D-3)
-    notif_ids = _admin_manager_ids(db, user.tenant_id)
-    broadcast_sync(user.tenant_id, notif_ids, STORE_ALERT, {
-        "event": "MATERIAL_REQUEST",
-        "ticket_id": ticket_id,
-        "material": mat_name,
-        "qty": qty_requested,
-    })
-    return _redirect(f"/fms/tickets/{ticket_id}")
-
-
-@router.post("/materials/req/{req_id}/approve")
-def material_req_approve(
-    req_id: str,
-    user: User = Depends(require_manager),
-    db: Session = Depends(get_db),
-):
-    """3-D-3: Approve a material request → notify employee in real-time."""
-    req = db.query(MaterialRequest).get(req_id)
-    if not req or req.tenant_id != user.tenant_id:
-        raise HTTPException(404)
-    req.status        = "APPROVED"
-    req.approved_by_id = user.id
-    req.approved_at   = datetime.utcnow()
-    req.updated_at    = datetime.utcnow()
-    db.commit()
-
-    # Notify the requesting employee
-    broadcast_sync(user.tenant_id, [req.requested_by_id], STORE_ALERT, {
-        "event": "MATERIAL_REQUEST_APPROVED",
-        "material": req.material_name, "qty": req.qty_requested,
-    })
-    return _redirect(f"/fms/tickets/{req.ticket_id}")
-
-
-@router.post("/materials/req/{req_id}/reject")
-def material_req_reject(
-    req_id: str,
-    rejection_note: str = Form(""),
-    user: User = Depends(require_manager),
-    db: Session = Depends(get_db),
-):
-    """3-D-3: Reject a material request → notify employee."""
-    req = db.query(MaterialRequest).get(req_id)
-    if not req or req.tenant_id != user.tenant_id:
-        raise HTTPException(404)
-    req.status         = "REJECTED"
-    req.approved_by_id = user.id
-    req.approved_at    = datetime.utcnow()
-    req.rejection_note = rejection_note.strip() or None
-    req.updated_at     = datetime.utcnow()
-    db.commit()
-
-    broadcast_sync(user.tenant_id, [req.requested_by_id], STORE_ALERT, {
-        "event": "MATERIAL_REQUEST_REJECTED",
-        "material": req.material_name,
-        "note": rejection_note,
-    })
-    return _redirect(f"/fms/tickets/{req.ticket_id}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # 3-E: Custom Sub-module Renderer
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -737,30 +601,6 @@ def submodule_data_api(
                              "outstanding": total_invoiced - total_received,
                              "invoices": rows})
 
-    if tag == "MATERIAL_REQ":
-        reqs = db.query(MaterialRequest).filter(
-            MaterialRequest.ticket_id == ticket_id
-        ).order_by(MaterialRequest.created_at.asc()).all()
-        rows = []
-        for r in reqs:
-            req_by = db.query(User).get(r.requested_by_id) if r.requested_by_id else None
-            appr_by = db.query(User).get(r.approved_by_id) if getattr(r, "approved_by_id", None) else None
-            rows.append({
-                "id": r.id,
-                "material_name": r.material_name,
-                "qty_requested": r.qty_requested,
-                "unit": r.unit,
-                "reason": r.reason,
-                "status": r.status,
-                "stage_name": r.stage_name,
-                "requested_by": req_by.name if req_by else None,
-                "approved_by": appr_by.name if appr_by else None,
-                "approved_at": r.approved_at.strftime("%d %b %Y") if getattr(r, "approved_at", None) else None,
-                "rejection_note": getattr(r, "rejection_note", None),
-                "created_at": r.created_at.strftime("%d %b %Y, %H:%M") if r.created_at else None,
-            })
-        return JSONResponse({"type": "MATERIAL_REQ", "requests": rows})
-
     if tag == "CUSTOM" and stage_id:
         stage = db.query(FMSStage).filter(
             FMSStage.id == stage_id, FMSStage.flow_id == ticket.flow_id).first()
@@ -807,47 +647,3 @@ def deploy_submodule_to_stage(
     return _redirect(f"/fms/flows/{stage.flow_id}?msg=submodule_deployed")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Material Catalogue Management (Admin — used by both Phase 3-D and Phase 4-B)
-# ══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/catalogue", response_class=HTMLResponse)
-def material_catalogue(request: Request,
-                       user: User = Depends(require_admin),
-                       db: Session = Depends(get_db)):
-    materials = db.query(Material).filter(
-        Material.tenant_id == user.tenant_id,
-        Material.is_deleted == False,
-    ).order_by(Material.name).all()
-    return templates.TemplateResponse(request, "submodules/material_catalogue.html", _ctx(
-        request, user, db, materials=materials))
-
-
-@router.post("/catalogue/add")
-def material_add(
-    name: str = Form(...),
-    unit: str = Form("pcs"),
-    description: str = Form(""),
-    reorder_threshold: int = Form(0),
-    reorder_qty: int = Form(0),
-    lead_time_days: int = Form(0),
-    supplier: str = Form(""),
-    opening_stock: int = Form(0),
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    mat = Material(
-        tenant_id=user.tenant_id, name=name.strip(),
-        unit=unit.strip() or "pcs",
-        description=description.strip() or None,
-        reorder_threshold=reorder_threshold,
-        reorder_qty=reorder_qty,
-        lead_time_days=lead_time_days,
-        supplier=supplier.strip() or None,
-        opening_stock=opening_stock,
-        current_stock=opening_stock,
-        created_by_id=user.id,
-    )
-    db.add(mat)
-    db.commit()
-    return _redirect("/submodules/catalogue")

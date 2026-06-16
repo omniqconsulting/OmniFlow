@@ -6,64 +6,64 @@
 <style>
 .fms-wrap{display:flex;min-height:calc(100vh - 52px)}
 .fms-main{flex:1;padding:20px 24px;min-width:0;overflow-y:auto}
-.fms-aside{width:300px;flex-shrink:0;background:#0d1220;border-left:1px solid rgba(255,255,255,0.06);padding:16px 14px;overflow-y:auto}
-.card{background:#111827;border:1px solid rgba(255,255,255,0.07);border-radius:9px;padding:16px 18px;margin-bottom:12px}
+.fms-aside{width:300px;flex-shrink:0;background:var(--bg-input);border-left:1px solid var(--hover-bg);padding:16px 14px;overflow-y:auto}
+.card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:9px;padding:16px 18px;margin-bottom:12px}
 .card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.card-title{font-size:13px;font-weight:600;color:#f1f5f9}
+.card-title{font-size:13px;font-weight:600;color:var(--text-strong)}
 .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600}
 .b-blue{background:rgba(59,130,246,0.15);color:#7dd3fc}
 .b-green{background:rgba(16,185,129,0.15);color:#6ee7b7}
 .b-red{background:rgba(239,68,68,0.15);color:#fca5a5}
 .b-amber{background:rgba(245,158,11,0.15);color:#fcd34d}
 .b-purple{background:rgba(139,92,246,0.15);color:#c4b5fd}
-.b-gray{background:rgba(255,255,255,0.07);color:#64748b}
+.b-gray{background:var(--border-subtle);color:var(--text-faint)}
 .b-cyan{background:rgba(6,182,212,0.15);color:#67e8f9}
-.btn-xs{background:#1e293b;border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:4px 10px;font-size:11px;color:#94a3b8;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-block;transition:all 0.1s}
-.btn-xs:hover{background:#273549;color:#e2e8f0}
+.btn-xs{background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:5px;padding:4px 10px;font-size:11px;color:var(--text-muted);cursor:pointer;font-family:inherit;text-decoration:none;display:inline-block;transition:all 0.1s}
+.btn-xs:hover{background:#273549;color:var(--text-primary)}
 .btn-sm-primary{background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
 .btn-sm-primary:hover{background:#2563eb}
-.btn-sm-gray{background:#1e293b;border:1px solid rgba(255,255,255,0.1);color:#94a3b8;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;font-family:inherit}
+.btn-sm-gray{background:var(--bg-elevated);border:1px solid var(--border-med);color:var(--text-muted);border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;font-family:inherit}
 .btn-sm-warn{background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#fcd34d;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;font-family:inherit}
 .btn-sm-danger{background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;font-family:inherit}
 .form-group{margin-bottom:12px}
-label{display:block;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px}
-input[type=text],input[type=number],select,textarea{width:100%;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:8px 10px;font-size:12px;color:#e2e8f0;outline:none;font-family:inherit;resize:vertical}
+label{display:block;font-size:10px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px}
+input[type=text],input[type=number],select,textarea{width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical}
 input:focus,select:focus,textarea:focus{border-color:#3b82f6}
-select option{background:#111827}
-.action-panel{display:none;background:#0d1424;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:14px;margin-top:10px}
+select option{background:var(--bg-card)}
+.action-panel{display:none;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:8px;padding:14px;margin-top:10px}
 .dt{width:100%;border-collapse:collapse;font-size:12px}
-.dt th{text-align:left;padding:6px 8px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#374151;border-bottom:1px solid rgba(255,255,255,0.06)}
-.dt td{padding:8px 8px;border-bottom:1px solid rgba(255,255,255,0.04);color:#94a3b8}
+.dt th{text-align:left;padding:6px 8px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#374151;border-bottom:1px solid var(--hover-bg)}
+.dt td{padding:8px 8px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted)}
 .dt tr:last-child td{border-bottom:none}
-.prog{height:6px;border-radius:3px;background:rgba(255,255,255,0.06);overflow:hidden;margin-top:4px}
+.prog{height:6px;border-radius:3px;background:var(--hover-bg);overflow:hidden;margin-top:4px}
 .prog-fill{height:100%;border-radius:3px}
 
 /* ── Horizontal progress bar ───────────────────────────────────────────────── */
-.hpb-wrap{display:flex;align-items:flex-start;overflow-x:auto;padding-bottom:6px;gap:0;scrollbar-width:thin;scrollbar-color:#1e293b transparent}
+.hpb-wrap{display:flex;align-items:flex-start;overflow-x:auto;padding-bottom:6px;gap:0;scrollbar-width:thin;scrollbar-color:var(--bg-elevated) transparent}
 .hpb-step{display:flex;flex-direction:column;align-items:center;flex-shrink:0;min-width:100px;max-width:160px;cursor:pointer;position:relative}
-.hpb-node{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 12px 8px;border-radius:8px;border:1.5px solid rgba(255,255,255,0.08);background:#0d1424;transition:all .15s;width:100%;box-sizing:border-box}
+.hpb-node{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 12px 8px;border-radius:8px;border:1.5px solid var(--border-subtle);background:var(--bg-input);transition:all .15s;width:100%;box-sizing:border-box}
 .hpb-step.is-current .hpb-node{border-color:var(--sc);background:color-mix(in srgb,var(--sc) 12%,transparent)}
 .hpb-step.is-done .hpb-node{border-color:rgba(16,185,129,0.35);background:rgba(16,185,129,0.06)}
 .hpb-step.is-future .hpb-node{opacity:.45}
 .hpb-step:hover .hpb-node{background:#1a2332;border-color:rgba(255,255,255,0.18)}
 .hpb-step.is-current:hover .hpb-node{background:color-mix(in srgb,var(--sc) 20%,transparent)}
 .hpb-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.hpb-label{font-size:10px;font-weight:600;color:#e2e8f0;text-align:center;line-height:1.3}
-.hpb-step.is-future .hpb-label{color:#64748b}
-.hpb-meta{font-size:9px;color:#64748b;text-align:center}
-.hpb-tat{width:100%;height:3px;border-radius:2px;background:rgba(255,255,255,0.06);overflow:hidden;margin-top:4px}
-.hpb-conn{width:24px;height:2px;flex-shrink:0;background:rgba(255,255,255,0.08);margin-top:24px;align-self:flex-start}
+.hpb-label{font-size:10px;font-weight:600;color:var(--text-primary);text-align:center;line-height:1.3}
+.hpb-step.is-future .hpb-label{color:var(--text-faint)}
+.hpb-meta{font-size:9px;color:var(--text-faint);text-align:center}
+.hpb-tat{width:100%;height:3px;border-radius:2px;background:var(--hover-bg);overflow:hidden;margin-top:4px}
+.hpb-conn{width:24px;height:2px;flex-shrink:0;background:var(--border-subtle);margin-top:24px;align-self:flex-start}
 .hpb-conn.done-line{background:rgba(16,185,129,0.4)}
 .hpb-now-badge{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:#3b82f6;color:#fff;font-size:8px;font-weight:700;padding:1px 6px;border-radius:99px;white-space:nowrap;pointer-events:none}
 
 /* ── Stage accordion panel ─────────────────────────────────────────────────── */
-.stage-accordion{display:none;margin-top:12px;border:1px solid rgba(255,255,255,0.08);border-radius:9px;overflow:hidden}
+.stage-accordion{display:none;margin-top:12px;border:1px solid var(--border-subtle);border-radius:9px;overflow:hidden}
 .stage-accordion.open{display:block}
-.sa-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#0d1424;border-bottom:1px solid rgba(255,255,255,0.06)}
+.sa-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-input);border-bottom:1px solid var(--hover-bg)}
 .sa-body{padding:14px}
-.sa-section{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,0.05)}
+.sa-section{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border-subtle)}
 .sa-section:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none}
-.sa-section-title{font-size:10px;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px}
+.sa-section-title{font-size:10px;font-weight:600;color:var(--text-xfaint);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px}
 
 /* ── Visit row ─────────────────────────────────────────────────────────────── */
 .visit-row{background:#080e1a;border-radius:7px;padding:10px 12px;margin-bottom:8px}
@@ -73,15 +73,15 @@ select option{background:#111827}
 .tl{position:relative;padding-left:20px}
 .tl-item{position:relative;padding-bottom:14px}
 .tl-item:last-child{padding-bottom:0}
-.tl-dot{position:absolute;left:-20px;top:3px;width:9px;height:9px;border-radius:50%;background:#1e293b;border:2px solid rgba(255,255,255,0.12)}
+.tl-dot{position:absolute;left:-20px;top:3px;width:9px;height:9px;border-radius:50%;background:var(--bg-elevated);border:2px solid var(--border-med)}
 .tl-dot.ev-stage{border-color:#3b82f6;background:rgba(59,130,246,0.2)}
 .tl-dot.ev-return{border-color:#f59e0b;background:rgba(245,158,11,0.2)}
 .tl-dot.ev-flag{border-color:#ef4444;background:rgba(239,68,68,0.2)}
 .tl-dot.ev-comment{border-color:#8b5cf6;background:rgba(139,92,246,0.2)}
 .tl-dot.ev-help{border-color:#f97316;background:rgba(249,115,22,0.2)}
-.tl-line{position:absolute;left:-16px;top:12px;bottom:0;width:2px;background:rgba(255,255,255,0.05)}
-.tl-meta{font-size:10px;color:#64748b}
-.tl-body{font-size:11px;color:#94a3b8;margin-top:2px;line-height:1.5}
+.tl-line{position:absolute;left:-16px;top:12px;bottom:0;width:2px;background:var(--border-subtle)}
+.tl-meta{font-size:10px;color:var(--text-faint)}
+.tl-body{font-size:11px;color:var(--text-muted);margin-top:2px;line-height:1.5}
 </style>
 
 {% set can_close = user.role in ('ADMIN', 'MANAGER') %}
@@ -95,21 +95,21 @@ select option{background:#111827}
 
 <!-- ══ SUB-MODULE MODAL ══════════════════════════════════════════════════════ -->
 <div id="smModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(4px);z-index:500;align-items:center;justify-content:center;padding:16px">
-  <div style="background:#111827;border:1px solid rgba(255,255,255,0.1);border-radius:12px;width:100%;max-width:680px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.6)">
+  <div style="background:var(--bg-card);border:1px solid var(--border-med);border-radius:12px;width:100%;max-width:680px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.6)">
     <!-- Modal header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,0.07);flex-shrink:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border-subtle);flex-shrink:0">
       <div style="display:flex;align-items:center;gap:10px">
         <span id="smModalIcon" style="font-size:16px"></span>
         <div>
-          <div id="smModalTitle" style="font-size:14px;font-weight:700;color:#f1f5f9"></div>
-          <div id="smModalSubtitle" style="font-size:11px;color:#64748b;margin-top:1px"></div>
+          <div id="smModalTitle" style="font-size:14px;font-weight:700;color:var(--text-strong)"></div>
+          <div id="smModalSubtitle" style="font-size:11px;color:var(--text-faint);margin-top:1px"></div>
         </div>
       </div>
-      <button onclick="closeSubmoduleModal()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#94a3b8;font-size:14px;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+      <button onclick="closeSubmoduleModal()" style="background:var(--hover-bg);border:1px solid var(--border-med);border-radius:6px;color:var(--text-muted);font-size:14px;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
     </div>
     <!-- Modal body -->
     <div id="smModalBody" style="padding:16px 18px;overflow-y:auto;flex:1;min-height:0">
-      <div id="smModalLoading" style="text-align:center;padding:40px;color:#64748b;font-size:13px">Loading…</div>
+      <div id="smModalLoading" style="text-align:center;padding:40px;color:var(--text-faint);font-size:13px">Loading…</div>
       <div id="smModalContent" style="display:none"></div>
     </div>
   </div>
@@ -120,18 +120,18 @@ select option{background:#111827}
 
   <!-- Breadcrumb + title -->
   <div style="margin-bottom:14px">
-    <div style="font-size:11px;color:#64748b;margin-bottom:6px">
+    <div style="font-size:11px;color:var(--text-faint);margin-bottom:6px">
       <a href="/fms/dashboard{% if ticket.flow_id %}?flow_id={{ ticket.flow_id }}{% endif %}" style="color:#60a5fa">FMS Dashboard</a>
       <span style="margin:0 6px;color:#374151">›</span>
       <span>{{ ticket.title[:60] }}</span>
     </div>
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px">
       <div>
-        <h2 style="font-size:18px;font-weight:700;color:#f1f5f9;margin-bottom:4px">
+        <h2 style="font-size:18px;font-weight:700;color:var(--text-strong);margin-bottom:4px">
           {% if ticket.is_flagged %}<span style="color:#f87171">🚩 </span>{% endif %}
           {{ ticket.title }}
         </h2>
-        <div style="display:flex;gap:10px;font-size:11px;color:#64748b;flex-wrap:wrap">
+        <div style="display:flex;gap:10px;font-size:11px;color:var(--text-faint);flex-wrap:wrap">
           {% if ticket.display_id %}<span style="font-family:monospace;color:#60a5fa">{{ ticket.display_id }}</span>{% endif %}
           {% if ticket.wo_number %}<span>WO/PO: {{ ticket.wo_number }}</span>{% endif %}
           {% if ticket.flow %}<span style="color:#c4b5fd">{{ ticket.flow.name }}</span>{% endif %}
@@ -151,7 +151,7 @@ select option{background:#111827}
   <div class="card" style="padding:16px 18px 12px">
     <div class="card-hdr" style="margin-bottom:12px">
       <span class="card-title">Flow Progress — {{ flow.name }}</span>
-      <span style="font-size:11px;color:#64748b">
+      <span style="font-size:11px;color:var(--text-faint)">
         {{ ticket.current_stage.name if ticket.current_stage else '—' }}
         {% if tat_pct is not none %}
         ·&nbsp;<span style="color:{% if tat_pct < 50 %}#10b981{% elif tat_pct < 90 %}#f59e0b{% else %}#f87171{% endif %}">{{ tat_pct }}% TaT used</span>
@@ -194,7 +194,7 @@ select option{background:#111827}
           {% endif %}
 
           {% if p.total_visits > 0 %}
-          <div class="hpb-meta" style="color:{% if p.is_done %}#6ee7b7{% elif p.is_current %}#94a3b8{% else %}#374151{% endif %}">
+          <div class="hpb-meta" style="color:{% if p.is_done %}#6ee7b7{% elif p.is_current %}var(--text-muted){% else %}#374151{% endif %}">
             {% if p.total_visits > 1 %}{{ p.total_visits }}× visited · {% endif %}
             {% if p.is_current and p.current_secs is not none %}
               {{ (p.current_secs // 3600)|int }}h {{ ((p.current_secs % 3600) // 60)|int }}m here
@@ -231,7 +231,7 @@ select option{background:#111827}
       <div class="sa-header">
         <div style="display:flex;align-items:center;gap:10px">
           <div style="width:10px;height:10px;border-radius:50%;background:{{ sc }};flex-shrink:0"></div>
-          <span style="font-size:13px;font-weight:600;color:#f1f5f9">{{ s.name }}</span>
+          <span style="font-size:13px;font-weight:600;color:var(--text-strong)">{{ s.name }}</span>
           {% if p.is_current %}<span class="badge b-blue" style="font-size:9px">Active Now</span>{% endif %}
           {% if p.is_done %}<span class="badge b-green" style="font-size:9px">✓ Done</span>{% endif %}
           {% if p.is_future %}<span class="badge b-gray" style="font-size:9px">Upcoming</span>{% endif %}
@@ -246,17 +246,17 @@ select option{background:#111827}
         <!-- ① Quick stats row -->
         <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:14px;font-size:12px">
           <div>
-            <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Assigned Employee</div>
-            <div style="color:#e2e8f0;font-weight:500">
+            <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Assigned Employee</div>
+            <div style="color:var(--text-primary);font-weight:500">
               {% if p.assignee_names %}{{ p.assignee_names | join(', ') }}{% else %}—{% endif %}
             </div>
           </div>
           <div>
-            <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Time in Stage</div>
-            <div style="color:#e2e8f0;font-weight:500">
+            <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Time in Stage</div>
+            <div style="color:var(--text-primary);font-weight:500">
               {% if p.is_current and p.current_secs is not none %}
                 {{ (p.current_secs // 3600)|int }}h {{ ((p.current_secs % 3600) // 60)|int }}m
-                <span style="color:#64748b;font-size:10px">(ongoing)</span>
+                <span style="color:var(--text-faint);font-size:10px">(ongoing)</span>
               {% elif p.total_hours > 0 %}
                 {{ p.total_hours }}h total
               {% else %}—{% endif %}
@@ -264,8 +264,8 @@ select option{background:#111827}
           </div>
           {% if s.target_tat_hours %}
           <div>
-            <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">TaT Target</div>
-            <div style="color:#e2e8f0;font-weight:500">{{ s.target_tat_hours }}h
+            <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">TaT Target</div>
+            <div style="color:var(--text-primary);font-weight:500">{{ s.target_tat_hours }}h
               {% if p.is_current and p.tat_pct is not none %}
               <span style="color:{% if p.tat_pct < 50 %}#10b981{% elif p.tat_pct < 90 %}#f59e0b{% else %}#f87171{% endif %}">
                 ({{ p.tat_pct }}% used)
@@ -276,14 +276,14 @@ select option{background:#111827}
           {% endif %}
           {% if p.total_visits > 1 %}
           <div>
-            <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Visits</div>
+            <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Visits</div>
             <div style="color:#f59e0b;font-weight:500">{{ p.total_visits }}× (returned)</div>
           </div>
           {% endif %}
           {% if p.qty_done %}
           <div>
-            <div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Qty Completed</div>
-            <div style="color:#e2e8f0;font-weight:500">{{ p.qty_done }} {{ ticket.qty_unit or 'units' }}</div>
+            <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Qty Completed</div>
+            <div style="color:var(--text-primary);font-weight:500">{{ p.qty_done }} {{ ticket.qty_unit or 'units' }}</div>
           </div>
           {% endif %}
         </div>
@@ -292,7 +292,7 @@ select option{background:#111827}
         {% if p.is_current and p.tat_pct is not none %}
         <div class="sa-section">
           <div class="sa-section-title">TaT Progress</div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-bottom:4px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-faint);margin-bottom:4px">
             <span>{{ p.tat_pct }}% of {{ s.target_tat_hours }}h target used</span>
             {% if p.tat_pct >= 100 %}<span style="color:#f87171">⚠ Overdue</span>{% endif %}
           </div>
@@ -310,7 +310,7 @@ select option{background:#111827}
             <div style="display:flex;align-items:center;gap:8px">
               <span style="font-size:12px;color:#c4b5fd;font-weight:500">{{ sm_labels.get(p.sub_module_tag, p.sub_module_tag) }}</span>
               {% if p.sub_module_tag == 'PMS' and ticket.target_qty %}
-              <span style="font-size:11px;color:#64748b">{{ p.qty_done }}/{{ ticket.target_qty }} {{ ticket.qty_unit or 'units' }}</span>
+              <span style="font-size:11px;color:var(--text-faint)">{{ p.qty_done }}/{{ ticket.target_qty }} {{ ticket.qty_unit or 'units' }}</span>
               {% endif %}
             </div>
             <button
@@ -322,7 +322,7 @@ select option{background:#111827}
           {% if p.sub_module_tag == 'PMS' and ticket.target_qty %}
           {% set pms_pct = [((p.qty_done / ticket.target_qty) * 100)|int, 100]|min %}
           <div style="margin-top:8px">
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-bottom:3px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-faint);margin-bottom:3px">
               <span>Production progress</span><span>{{ p.qty_done }}/{{ ticket.target_qty }} {{ ticket.qty_unit or '' }}</span>
             </div>
             <div class="prog"><div class="prog-fill" style="width:{{ pms_pct }}%;background:{% if pms_pct >= 100 %}#10b981{% elif pms_pct >= 50 %}#f59e0b{% else %}#3b82f6{% endif %}"></div></div>
@@ -344,13 +344,13 @@ select option{background:#111827}
                   {{ dir_labels.get(v.history.direction, v.history.direction) }}
                 </span>
                 {% if v.history.from_stage_name %}
-                <span style="font-size:10px;color:#64748b">from {{ v.history.from_stage_name }}</span>
+                <span style="font-size:10px;color:var(--text-faint)">from {{ v.history.from_stage_name }}</span>
                 {% endif %}
                 {% if v.is_open %}
                 <span class="badge b-green" style="font-size:9px">● Active</span>
                 {% endif %}
               </div>
-              <div style="font-size:10px;color:#64748b">
+              <div style="font-size:10px;color:var(--text-faint)">
                 {{ v.history.entered_at.strftime('%d %b %Y, %H:%M') if v.history.entered_at else '—' }}
                 {% if v.duration_h is not none %} · {{ v.duration_h }}h{% elif v.is_open %} · ongoing{% endif %}
               </div>
@@ -360,7 +360,7 @@ select option{background:#111827}
             {% if v.history.assignee_id %}
             {% set va = employees | selectattr('id','equalto',v.history.assignee_id) | first | default(none) %}
             {% if va %}
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">
               <i class="bi bi-person me-1"></i>{{ va.name }}
             </div>
             {% endif %}
@@ -372,6 +372,14 @@ select option{background:#111827}
             {% endif %}
             {% if v.history.completion_note %}
             <div style="font-size:11px;color:#6ee7b7;margin-bottom:4px">✓ Note: {{ v.history.completion_note }}</div>
+            {% endif %}
+            {% if v.history.evidence_url %}
+            <div style="margin-bottom:6px">
+              <a href="{{ v.history.evidence_url }}" target="_blank"
+                 style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#fcd34d;text-decoration:none;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:5px;padding:3px 9px">
+                📎 {{ v.history.evidence_filename or 'View Evidence' }}
+              </a>
+            </div>
             {% endif %}
 
             <!-- Events during this visit -->
@@ -426,23 +434,23 @@ select option{background:#111827}
   <div class="card">
     <div class="card-hdr"><span class="card-title">Ticket Details</span></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">
-      <div><span style="color:#64748b">Flow</span><br><span style="color:#e2e8f0;font-weight:500">{{ flow.name if flow else '—' }}</span></div>
-      <div><span style="color:#64748b">Current Stage</span><br><span style="color:#e2e8f0;font-weight:500">{{ ticket.current_stage.name if ticket.current_stage else '—' }}</span></div>
-      <div><span style="color:#64748b">Assignee</span><br><span style="color:#e2e8f0;font-weight:500">{{ ticket.current_assignee.name if ticket.current_assignee else '—' }}</span></div>
-      <div><span style="color:#64748b">Created by</span><br><span style="color:#e2e8f0">{{ ticket.created_by.name if ticket.created_by else '—' }} · {{ ticket.created_at.strftime('%d %b %Y') if ticket.created_at else '—' }}</span></div>
+      <div><span style="color:var(--text-faint)">Flow</span><br><span style="color:var(--text-primary);font-weight:500">{{ flow.name if flow else '—' }}</span></div>
+      <div><span style="color:var(--text-faint)">Current Stage</span><br><span style="color:var(--text-primary);font-weight:500">{{ ticket.current_stage.name if ticket.current_stage else '—' }}</span></div>
+      <div><span style="color:var(--text-faint)">Assignee</span><br><span style="color:var(--text-primary);font-weight:500">{{ ticket.current_assignee.name if ticket.current_assignee else '—' }}</span></div>
+      <div><span style="color:var(--text-faint)">Created by</span><br><span style="color:var(--text-primary)">{{ ticket.created_by.name if ticket.created_by else '—' }} · {{ ticket.created_at.strftime('%d %b %Y') if ticket.created_at else '—' }}</span></div>
       {% if ticket.due_at %}
-      <div><span style="color:#64748b">Due</span><br>
-        <span style="color:{% if ticket.due_at < now and ticket.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}#e2e8f0{% endif %};font-weight:500">
+      <div><span style="color:var(--text-faint)">Due</span><br>
+        <span style="color:{% if ticket.due_at < now and ticket.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-primary){% endif %};font-weight:500">
           {{ ticket.due_at.strftime('%d %b %Y %H:%M') }}
         </span>
       </div>
       {% endif %}
       {% if ticket.target_qty %}
-      <div><span style="color:#64748b">Target Qty</span><br><span style="color:#e2e8f0">{{ ticket.target_qty }} {{ ticket.qty_unit or '' }}</span></div>
+      <div><span style="color:var(--text-faint)">Target Qty</span><br><span style="color:var(--text-primary)">{{ ticket.target_qty }} {{ ticket.qty_unit or '' }}</span></div>
       {% endif %}
     </div>
     {% if ticket.description %}
-    <div style="font-size:12px;color:#94a3b8;line-height:1.7;padding-top:10px;border-top:1px solid rgba(255,255,255,0.06)">{{ ticket.description }}</div>
+    <div style="font-size:12px;color:var(--text-muted);line-height:1.7;padding-top:10px;border-top:1px solid var(--hover-bg)">{{ ticket.description }}</div>
     {% endif %}
     {% if ticket.is_flagged and ticket.flagged_reason %}
     <div style="margin-top:10px;padding:8px 12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:7px;font-size:12px;color:#f87171">
@@ -454,8 +462,15 @@ select option{background:#111827}
   <!-- ══ TRANSITION FORM ═══════════════════════════════════════════════════════ -->
   {% if can_transition and ticket.status not in ('COMPLETED','CLOSED') %}
   <div class="card">
-    <div class="card-hdr"><span class="card-title">↗ Move to Stage</span></div>
-    <form method="post" action="/fms/tickets/{{ ticket.id }}/transition">
+    <div class="card-hdr">
+      <span class="card-title">↗ Move to Stage</span>
+      {% if ticket.current_stage and ticket.current_stage.evidence_required %}
+      <span style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#fcd34d;font-size:11px;font-weight:600;padding:3px 10px;border-radius:6px">
+        📎 Evidence required to complete this stage
+      </span>
+      {% endif %}
+    </div>
+    <form method="post" action="/fms/tickets/{{ ticket.id }}/transition" enctype="multipart/form-data">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
         <div class="form-group" style="margin-bottom:0">
           <label>Next Stage *</label>
@@ -488,6 +503,17 @@ select option{background:#111827}
           <input type="text" name="completion_note" placeholder="What was accomplished…">
         </div>
       </div>
+      {% if ticket.current_stage and ticket.current_stage.evidence_required %}
+      <div class="form-group" style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+        <label style="color:#fcd34d">📎 Evidence File *</label>
+        <input type="file" name="evidence_file" required
+               style="width:100%;background:var(--bg-input);border:1px solid rgba(245,158,11,0.3);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)">
+        <div style="font-size:11px;color:#92400e;margin-top:5px">
+          Required — upload a photo, document, or report before moving to the next stage.
+          Accepted: images, PDF, Office docs (max 20 MB).
+        </div>
+      </div>
+      {% endif %}
       <div id="returnReasonRow" style="display:none" class="form-group">
         <label style="color:#f59e0b">Return reason *</label>
         <input type="text" name="return_reason" placeholder="Why is this being returned?">
@@ -607,8 +633,8 @@ select option{background:#111827}
     </div>
     {% if ticket.helpers %}
     {% for h in ticket.helpers %}
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px">
-      <span style="color:#e2e8f0">{{ h.user.name if h.user else h.user_id }}</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">
+      <span style="color:var(--text-primary)">{{ h.user.name if h.user else h.user_id }}</span>
       {% if can_manage %}
       <form method="post" action="/fms/tickets/{{ ticket.id }}/action" style="display:inline">
         <input type="hidden" name="action" value="remove_helper">
@@ -625,7 +651,7 @@ select option{background:#111827}
     <div id="helperPanel" class="action-panel" style="margin-top:8px">
       <form method="post" action="/fms/tickets/{{ ticket.id }}/action">
         <input type="hidden" name="action" value="add_helper">
-        <div class="form-group"><label>Employee</label>
+        <div class="form-group"><label>{{ L.Employee }}</label>
           <select name="helper_id" required>
             <option value="">Select…</option>
             {% for emp in employees if emp.id not in helper_ids %}
@@ -640,10 +666,21 @@ select option{background:#111827}
     {% endif %}
   </div>
 
+  {# P7-08: Linked Entities #}
+  {% if entity_options %}
+  <div style="margin-bottom:16px">
+    <div style="font-size:10px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.09em;margin-bottom:8px">Linked Entities</div>
+    {% set parent_type = 'FMS_TICKET' %}
+    {% set parent_id = ticket.id %}
+    {% set readonly = true %}
+    {% include "components/linked_entities.html" %}
+  </div>
+  {% endif %}
+
   <!-- Ticket meta -->
-  <div style="font-size:11px;color:#64748b;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px;display:flex;flex-direction:column;gap:5px">
-    <div>Created: <span style="color:#94a3b8">{{ ticket.created_at.strftime('%d %b %Y') if ticket.created_at else '—' }}</span></div>
-    <div>By: <span style="color:#94a3b8">{{ ticket.created_by.name if ticket.created_by else '—' }}</span></div>
+  <div style="font-size:11px;color:var(--text-faint);border-top:1px solid var(--hover-bg);padding-top:12px;display:flex;flex-direction:column;gap:5px">
+    <div>Created: <span style="color:var(--text-muted)">{{ ticket.created_at.strftime('%d %b %Y') if ticket.created_at else '—' }}</span></div>
+    <div>By: <span style="color:var(--text-muted)">{{ ticket.created_by.name if ticket.created_by else '—' }}</span></div>
     {% if ticket.completed_at %}
     <div>Completed: <span style="color:#6ee7b7">{{ ticket.completed_at.strftime('%d %b %Y %H:%M') }}</span></div>
     {% endif %}
@@ -761,8 +798,8 @@ document.getElementById('smModal').addEventListener('click', function(e) {
 function smKV(label, value, color) {
   if (!value && value !== 0) return '';
   return `<div style="display:flex;flex-direction:column;gap:2px">
-    <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.06em">${label}</div>
-    <div style="font-size:12px;color:${color||'#e2e8f0'};font-weight:500">${value}</div>
+    <div style="font-size:10px;color:var(--text-xfaint);text-transform:uppercase;letter-spacing:.06em">${label}</div>
+    <div style="font-size:12px;color:${color||'var(--text-primary)'};font-weight:500">${value}</div>
   </div>`;
 }
 
@@ -774,30 +811,30 @@ function renderSubmoduleData(d) {
     for (const e of d.entries) {
       if (e.event_type === 'DAILY_LOG') {
         rows += `<tr>
-          <td style="padding:8px;color:#94a3b8">${esc(e.date)}</td>
-          <td style="padding:8px;color:#e2e8f0;font-weight:600">${esc(e.qty_done)} ${esc(d.unit)}</td>
+          <td style="padding:8px;color:var(--text-muted)">${esc(e.date)}</td>
+          <td style="padding:8px;color:var(--text-primary);font-weight:600">${esc(e.qty_done)} ${esc(d.unit)}</td>
           <td style="padding:8px">${e.has_blockers?'<span style="color:#f87171;font-size:10px">⚠ Blocker</span>':'<span style="color:#6ee7b7;font-size:10px">✓ OK</span>'}</td>
-          <td style="padding:8px;color:#64748b;font-size:11px">${esc(e.comment)}</td>
-          <td style="padding:8px;color:#64748b;font-size:11px">${esc(e.actor)}</td>
+          <td style="padding:8px;color:var(--text-faint);font-size:11px">${esc(e.comment)}</td>
+          <td style="padding:8px;color:var(--text-faint);font-size:11px">${esc(e.actor)}</td>
         </tr>`;
       } else if (e.event_type === 'TARGET_REVISED') {
         rows += `<tr style="background:rgba(245,158,11,0.05)">
-          <td style="padding:8px;color:#94a3b8">${esc(e.date)}</td>
+          <td style="padding:8px;color:var(--text-muted)">${esc(e.date)}</td>
           <td colspan="3" style="padding:8px;color:#fcd34d;font-size:11px">Target revised: ${esc(e.old_target)} → ${esc(e.new_target)}. ${esc(e.revision_reason)}</td>
-          <td style="padding:8px;color:#64748b;font-size:11px">${esc(e.actor)}</td>
+          <td style="padding:8px;color:var(--text-faint);font-size:11px">${esc(e.actor)}</td>
         </tr>`;
       }
     }
     return `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px">
       ${smKV('Total Done',`${d.total_done} ${esc(d.unit)}`,'#6ee7b7')}
-      ${smKV('Target',`${d.target} ${esc(d.unit)}`,'#e2e8f0')}
+      ${smKV('Target',`${d.target} ${esc(d.unit)}`,'var(--text-primary)')}
       ${smKV('Progress',`${pct}%`, pct>=100?'#6ee7b7':pct>=50?'#fcd34d':'#93c5fd')}
     </div>
-    <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.06);overflow:hidden;margin-bottom:14px">
+    <div style="height:6px;border-radius:3px;background:var(--hover-bg);overflow:hidden;margin-bottom:14px">
       <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width .3s"></div>
     </div>
     ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.07)">
+      <thead><tr style="border-bottom:1px solid var(--border-subtle)">
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase;letter-spacing:.07em">Date</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Qty</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Status</th>
@@ -809,20 +846,20 @@ function renderSubmoduleData(d) {
   if (d.type === 'DISPATCH') {
     const pct = d.target ? Math.min(Math.round(d.total_dispatched/d.target*100),100) : 0;
     let rows = d.records.map(r => `<tr>
-      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.created_at)}</td>
-      <td style="padding:8px;color:#e2e8f0;font-weight:600">${esc(r.qty_dispatched)} ${esc(r.unit)}</td>
-      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.destination)}</td>
-      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.vehicle_number)}</td>
-      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.driver_name)}</td>
-      <td style="padding:8px">${r.pod_uploaded?'<span style="color:#6ee7b7;font-size:10px">✓ POD</span>':'<span style="color:#475569;font-size:10px">Pending</span>'}</td>
+      <td style="padding:8px;color:var(--text-muted);font-size:11px">${esc(r.created_at)}</td>
+      <td style="padding:8px;color:var(--text-primary);font-weight:600">${esc(r.qty_dispatched)} ${esc(r.unit)}</td>
+      <td style="padding:8px;color:var(--text-muted);font-size:11px">${esc(r.destination)}</td>
+      <td style="padding:8px;color:var(--text-muted);font-size:11px">${esc(r.vehicle_number)}</td>
+      <td style="padding:8px;color:var(--text-muted);font-size:11px">${esc(r.driver_name)}</td>
+      <td style="padding:8px">${r.pod_uploaded?'<span style="color:#6ee7b7;font-size:10px">✓ POD</span>':'<span style="color:var(--text-xfaint);font-size:10px">Pending</span>'}</td>
     </tr>`).join('');
     return `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px">
       ${smKV('Total Dispatched',`${d.total_dispatched} ${esc(d.unit)}`,'#6ee7b7')}
-      ${smKV('Target',d.target?`${d.target} ${esc(d.unit)}`:'—','#e2e8f0')}
+      ${smKV('Target',d.target?`${d.target} ${esc(d.unit)}`:'—','var(--text-primary)')}
       ${pct?smKV('Dispatch %',`${pct}%`,pct>=100?'#6ee7b7':'#93c5fd'):''}
     </div>
     ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.07)">
+      <thead><tr style="border-bottom:1px solid var(--border-subtle)">
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Date</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Qty</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Destination</th>
@@ -835,19 +872,19 @@ function renderSubmoduleData(d) {
   if (d.type === 'INVOICE') {
     const curr = d.invoices[0]?.currency || 'INR';
     let rows = d.invoices.map(i => `<tr>
-      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(i.created_at)}</td>
+      <td style="padding:8px;color:var(--text-muted);font-size:11px">${esc(i.created_at)}</td>
       <td style="padding:8px;color:#c4b5fd;font-family:monospace;font-size:11px">${esc(i.invoice_number)}</td>
-      <td style="padding:8px;color:#e2e8f0;font-weight:600">${esc(i.currency)} ${Number(i.amount).toLocaleString()}</td>
-      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(i.due_date)}</td>
+      <td style="padding:8px;color:var(--text-primary);font-weight:600">${esc(i.currency)} ${Number(i.amount).toLocaleString()}</td>
+      <td style="padding:8px;color:var(--text-muted);font-size:11px">${esc(i.due_date)}</td>
       <td style="padding:8px">${i.is_paid?`<span style="color:#6ee7b7;font-size:10px">✓ Paid${i.paid_at?' '+esc(i.paid_at):''}</span>`:'<span style="color:#f87171;font-size:10px">Unpaid</span>'}</td>
     </tr>`).join('');
     return `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px">
-      ${smKV('Total Invoiced',`${esc(curr)} ${Number(d.total_invoiced).toLocaleString()}`,'#e2e8f0')}
+      ${smKV('Total Invoiced',`${esc(curr)} ${Number(d.total_invoiced).toLocaleString()}`,'var(--text-primary)')}
       ${smKV('Received',`${esc(curr)} ${Number(d.total_received).toLocaleString()}`,'#6ee7b7')}
       ${smKV('Outstanding',`${esc(curr)} ${Number(d.outstanding).toLocaleString()}`,d.outstanding>0?'#f87171':'#6ee7b7')}
     </div>
     ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.07)">
+      <thead><tr style="border-bottom:1px solid var(--border-subtle)">
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Date</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Invoice #</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Amount</th>
@@ -859,20 +896,20 @@ function renderSubmoduleData(d) {
   if (d.type === 'MATERIAL_REQ') {
     const statusColor = {PENDING:'#fcd34d',APPROVED:'#6ee7b7',REJECTED:'#f87171'};
     let rows = d.requests.map(r => `<tr>
-      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.created_at)}</td>
-      <td style="padding:8px;color:#e2e8f0;font-weight:500">${esc(r.material_name)}</td>
-      <td style="padding:8px;color:#e2e8f0">${esc(r.qty_requested)} ${esc(r.unit)}</td>
-      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.stage_name)}</td>
-      <td style="padding:8px"><span style="color:${statusColor[r.status]||'#94a3b8'};font-size:10px;font-weight:600">${esc(r.status)}</span></td>
-      <td style="padding:8px;color:#94a3b8;font-size:11px">${esc(r.reason)}</td>
+      <td style="padding:8px;color:var(--text-muted);font-size:11px">${esc(r.created_at)}</td>
+      <td style="padding:8px;color:var(--text-primary);font-weight:500">${esc(r.material_name)}</td>
+      <td style="padding:8px;color:var(--text-primary)">${esc(r.qty_requested)} ${esc(r.unit)}</td>
+      <td style="padding:8px;color:var(--text-muted);font-size:11px">${esc(r.stage_name)}</td>
+      <td style="padding:8px"><span style="color:${statusColor[r.status]||'var(--text-muted)'};font-size:10px;font-weight:600">${esc(r.status)}</span></td>
+      <td style="padding:8px;color:var(--text-muted);font-size:11px">${esc(r.reason)}</td>
     </tr>`).join('');
     const pending = d.requests.filter(r=>r.status==='PENDING').length;
     return `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px">
-      ${smKV('Total Requests',d.requests.length,'#e2e8f0')}
+      ${smKV('Total Requests',d.requests.length,'var(--text-primary)')}
       ${pending?smKV('Pending Approval',pending,'#fcd34d'):''}
     </div>
     ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.07)">
+      <thead><tr style="border-bottom:1px solid var(--border-subtle)">
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Date</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Material</th>
         <th style="padding:6px 8px;text-align:left;font-size:9px;color:#374151;text-transform:uppercase">Qty</th>
@@ -887,9 +924,9 @@ function renderSubmoduleData(d) {
     let html = `<div style="margin-bottom:10px"><span style="font-size:11px;color:${d.is_complete?'#6ee7b7':'#fcd34d'}">${d.is_complete?'✓ Completed':'⏳ In progress'}</span></div>`;
     for (const f of d.fields) {
       const val = d.responses[f.name] || d.responses[f.label] || null;
-      html += `<div style="margin-bottom:10px;padding:10px 12px;background:#0d1424;border-radius:7px;border:1px solid rgba(255,255,255,0.06)">
-        <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">${esc(f.label||f.name)}</div>
-        <div style="font-size:12px;color:#e2e8f0">${esc(val)}</div>
+      html += `<div style="margin-bottom:10px;padding:10px 12px;background:var(--bg-input);border-radius:7px;border:1px solid var(--hover-bg)">
+        <div style="font-size:10px;color:var(--text-xfaint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">${esc(f.label||f.name)}</div>
+        <div style="font-size:12px;color:var(--text-primary)">${esc(val)}</div>
       </div>`;
     }
     return html;

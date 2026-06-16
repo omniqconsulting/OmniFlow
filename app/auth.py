@@ -49,14 +49,3 @@ def require_manager(user: User = Depends(get_current_user)) -> User:
         raise HTTPException(status_code=403, detail="Manager or Admin only")
     return user
 
-def require_store_manager(user: User = Depends(get_current_user)) -> User:
-    """Phase 4: Store Manager or Admin can access inventory routes."""
-    if user.role not in ("ADMIN", "STORE_MANAGER"):
-        raise HTTPException(status_code=403, detail="Store Manager or Admin only")
-    return user
-
-def require_inventory_admin(user: User = Depends(get_current_user)) -> User:
-    """Phase 4: Only Admin can perform catalogue management and PO approval."""
-    if user.role != "ADMIN":
-        raise HTTPException(status_code=403, detail="Admin only")
-    return user

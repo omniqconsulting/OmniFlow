@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Setup</h2>
+</div>
+
+<div class="setup-layout">
+  {% set active_section = 'howto' %}
+  {% include "setup/nav.html" %}
+
+  <div class="setup-content">
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+      <span style="font-size:24px">📖</span>
+      <div>
+        <h2 style="margin:0">How to Set Up OmniFlow</h2>
+        <div style="font-size:13px;color:var(--text-faint);margin-top:2px">Follow these steps in order to get your team up and running</div>
+      </div>
+    </div>
+
+    {% set steps = [
+      ('1', '#3b82f6', 'Add Your Branch(es)',
+       'Create at least one branch — your factory, warehouse, or office location. Each branch can have its own departments and employees. You can add multiple branches if you operate from more than one site.',
+       [('Go to Organisation tab', '/setup'), ('Or use the Branches section on the org page', '/setup#branch')]),
+
+      ('2', '#8b5cf6', 'Create Departments',
+       'Add departments such as Production, Quality Control, Maintenance, HR, or Accounts. Departments help you organise your team and allow managers and employees to filter their view to only their area.',
+       [('Departments section on Organisation page', '/setup#depts')]),
+
+      ('3', '#10b981', 'Add Employees',
+       'Add each team member with their name, role (Employee or Manager), department, branch, and login credentials. Employees log in with their username and password. Managers can see their team\'s tickets and checklists; Admins have full access.',
+       [('Setup → Employees', '/setup/employees')]),
+
+      ('4', '#f59e0b', 'Upload Reference Data',
+       'Add the entities your team works with — customers you serve, vendors you buy from, raw materials you use, and end products you produce. These appear as selectable options when your team creates tickets or work orders, so nothing is typed free-form.',
+       [('Customers', '/setup/customers'), ('Vendors', '/setup/vendors'), ('Raw Materials', '/setup/raw-materials'), ('End Products', '/setup/end-products')]),
+
+      ('5', '#ef4444', 'Create Checklist Templates',
+       'Build reusable checklists for daily routines, safety walk-rounds, machine inspections, or quality checks. Each template can be set to repeat daily, weekly, or monthly. Once published, assign the checklist to specific employees — they will receive reminders and can mark items complete from their view.',
+       [('Go to Checklists tab', '/checklists')]),
+
+      ('6', '#06b6d4', 'Set Up the Flow Board (Optional)',
+       'If your work moves through multiple stages — e.g. Order Received → In Production → QC → Dispatch — the Flow Board lets you model this. Create a Flow, define its stages, then raise work orders that move stage by stage with full history and accountability.',
+       [('Go to Flow Board', '/fms')]),
+
+      ('7', '#a78bfa', 'Configure Notification Times',
+       'Set the IST hours when employees automatically receive a consolidated reminder listing all their pending checklists for the day. Default is 8:00 AM, 1:00 PM, and 6:00 PM IST. You can change this to match your shift timings.',
+       [('Notification Schedule on Organisation page', '/setup#notifications')]),
+    ] %}
+
+    <div class="card" style="padding:0;overflow:hidden">
+      {% for num, color, title, body, links in steps %}
+      <div style="display:flex;gap:16px;padding:18px 20px;border-bottom:1px solid var(--border-subtle){% if loop.last %};border-bottom:none{% endif %}">
+        <div style="width:32px;height:32px;border-radius:50%;background:{{ color }};color:#fff;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">{{ num }}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:5px">{{ title }}</div>
+          <div style="font-size:13px;color:var(--text-muted);line-height:1.65;margin-bottom:8px">{{ body }}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            {% for label, href in links %}
+            <a href="{{ href }}" style="font-size:11px;font-weight:600;color:{{ color }};background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:6px;padding:3px 10px;text-decoration:none">{{ label }} →</a>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="card" style="margin-top:16px;background:var(--bg-input)">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <span style="font-size:20px">💬</span>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Need help getting started?</div>
+          <div style="font-size:12px;color:var(--text-faint);line-height:1.6;margin-bottom:10px">
+            Your OmniFlow account manager is available Monday – Saturday, 9 AM – 7 PM IST. Reach out on WhatsApp for a guided walkthrough.
+          </div>
+          <a href="https://wa.me/919818677455?text=Hi%2C+I+need+help+setting+up+OmniFlow."
+             target="_blank" rel="noopener"
+             style="display:inline-flex;align-items:center;gap:8px;background:#25D366;color:#fff;border-radius:7px;padding:8px 14px;text-decoration:none;font-size:12px;font-weight:600">
+            💬 Chat on WhatsApp · +91 98186 77455
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

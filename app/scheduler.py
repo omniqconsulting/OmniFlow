@@ -73,11 +73,12 @@ def generate_recurring_checklists():
                 continue
 
             for u in users:
-                # Skip if an assignment already exists in this window
+                # Skip only if an assignment for this exact due date already exists
                 existing = db.query(ChecklistAssignment).filter(
                     ChecklistAssignment.template_id == tmpl.id,
                     ChecklistAssignment.user_id == u.id,
-                    ChecklistAssignment.due_at > (now - lookback),
+                    ChecklistAssignment.due_at == next_due,
+                    ChecklistAssignment.is_deleted == False,
                 ).first()
                 if not existing:
                     db.add(ChecklistAssignment(
@@ -117,56 +118,21 @@ def mark_overdue_checklists():
 
 
 def send_checklist_reminders():
-    """Phase 0-B-3/4/5: send reminder notifications before/at/after due time."""
+    """Legacy per-assignment reminder — kept for overdue repeat alerts only."""
     from .database import SessionLocal, ChecklistAssignment, Notification
     db = SessionLocal()
     try:
         now = datetime.utcnow()
-
-        # 2h-before and at-due reminders
-        look_ahead = now + timedelta(hours=2, minutes=30)
-        upcoming = db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.due_at > now,
-            ChecklistAssignment.due_at <= look_ahead,
-            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
-        ).all()
-
-        for a in upcoming:
-            hours_before = (a.template.reminder_hours_before
-                            if a.template else 2) or 2
-            notify_at = a.due_at - timedelta(hours=hours_before)
-            if now < notify_at:
-                continue
-            # Deduplicate: one reminder per assignment per 2.5h window
-            dup = db.query(Notification).filter(
-                Notification.user_id == a.user_id,
-                Notification.notif_type == "CHECKLIST_REMINDER",
-                Notification.link == "/checklists",
-                Notification.created_at > (now - timedelta(hours=2, minutes=30)),
-            ).first()
-            if not dup:
-                mins = max(int((a.due_at - now).total_seconds() / 60), 0)
-                label = a.template.title if a.template else "Checklist"
-                db.add(Notification(
-                    tenant_id=a.tenant_id,
-                    user_id=a.user_id,
-                    notif_type="CHECKLIST_REMINDER",
-                    title=f"Checklist due in {mins} min",
-                    body=f'"{label}" is due soon.',
-                    link="/checklists",
-                ))
-
-        # Overdue repeat every N hours
+        # Overdue repeat every 4 hours (simple fallback — main notifications via consolidated job)
         overdue_list = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.status == "OVERDUE",
+            ChecklistAssignment.is_deleted == False,
         ).all()
         for a in overdue_list:
-            repeat_h = (a.template.reminder_repeat_hours
-                        if a.template else 4) or 4
             dup = db.query(Notification).filter(
                 Notification.user_id == a.user_id,
                 Notification.notif_type == "CHECKLIST_OVERDUE",
-                Notification.created_at > (now - timedelta(hours=repeat_h)),
+                Notification.created_at > (now - timedelta(hours=4)),
             ).first()
             if not dup:
                 label = a.template.title if a.template else "Checklist"
@@ -178,7 +144,6 @@ def send_checklist_reminders():
                     body=f'"{label}" is overdue. Please complete it now.',
                     link="/checklists",
                 ))
-
         db.commit()
     except Exception as e:
         logger.error("send_checklist_reminders error: %s", e)
@@ -227,6 +192,193 @@ def escalate_unacknowledged_tickets():
         db.commit()
     except Exception as e:
         logger.error("escalate_unacknowledged_tickets error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+# ── Phase 5 jobs ─────────────────────────────────────────────────────────────
+
+def morning_ticket_summary():
+    """P5-05: 8:00 AM daily — notify each user of their open/in-progress tickets due today or overdue."""
+    from datetime import date as _date
+    from .database import SessionLocal, Ticket, User, Notification
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        today_end = datetime.combine(_date.today(), datetime.max.time())
+
+        # Group open tickets by assignee
+        open_statuses = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
+        tickets = db.query(Ticket).filter(
+            Ticket.is_deleted == False,
+            Ticket.status.in_(open_statuses),
+            Ticket.due_at <= today_end,
+        ).all()
+
+        by_user: dict = {}
+        for t in tickets:
+            by_user.setdefault(t.current_assignee_id, []).append(t)
+
+        for uid, user_tickets in by_user.items():
+            if not uid:
+                continue
+            overdue = [t for t in user_tickets if t.due_at and t.due_at < now]
+            due_today = [t for t in user_tickets if t.due_at and t.due_at >= now]
+            parts = []
+            if overdue:
+                parts.append(f"{len(overdue)} overdue")
+            if due_today:
+                parts.append(f"{len(due_today)} due today")
+            if not parts:
+                continue
+            tenant_id = user_tickets[0].tenant_id
+            db.add(Notification(
+                tenant_id=tenant_id, user_id=uid,
+                notif_type="TICKET_REMINDER",
+                title="🌅 Morning ticket summary",
+                body=f"You have {', '.join(parts)} ticket(s) needing attention.",
+                link="/tickets?status=OPEN",
+            ))
+        db.commit()
+        logger.info("Morning ticket summary sent to %d users", len(by_user))
+    except Exception as e:
+        logger.error("morning_ticket_summary error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+# ── Phase 6 jobs ─────────────────────────────────────────────────────────────
+
+_DEFAULT_NOTIF_HOURS_IST = [8, 13, 18]   # IST hours — fallback when tenant has no custom config
+
+def _parse_notif_hours(raw: str | None) -> list[int]:
+    """Parse comma-separated IST hour string into a sorted list of UTC hours for comparison."""
+    if not raw:
+        ist_hours = _DEFAULT_NOTIF_HOURS_IST
+    else:
+        try:
+            ist_hours = [int(h.strip()) for h in raw.split(",") if h.strip().isdigit()]
+            ist_hours = sorted(set(h for h in ist_hours if 0 <= h <= 23))
+            if not ist_hours:
+                ist_hours = _DEFAULT_NOTIF_HOURS_IST
+        except Exception:
+            ist_hours = _DEFAULT_NOTIF_HOURS_IST
+    # Convert IST → UTC: subtract 5 hours (ignoring :30 offset at hour granularity)
+    return [(h - 5) % 24 for h in ist_hours]
+
+
+def send_consolidated_checklist_notifications():
+    """Run every 30 minutes. For each tenant, fire consolidated per-employee
+    checklist notifications at their configured UTC hours (default 8, 13, 18).
+
+    Each employee receives a single notification listing ALL their pending
+    checklists due today — not one per checklist."""
+    from datetime import date as _date
+    from .database import SessionLocal, Tenant, ChecklistAssignment, Notification
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        current_hour = now.hour
+        today_start = datetime.combine(_date.today(), datetime.min.time())
+        today_end   = datetime.combine(_date.today(), datetime.max.time())
+
+        # Fire if we're within the first 30 minutes of any configured hour
+        tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
+        for tenant in tenants:
+            notif_hours = _parse_notif_hours(getattr(tenant, "checklist_notif_hours", None))
+            if current_hour not in notif_hours:
+                continue
+
+            # Dedup: already sent for this tenant+hour today?
+            window_start = now.replace(minute=0, second=0, microsecond=0)
+            already_sent = db.query(Notification).filter(
+                Notification.tenant_id == tenant.id,
+                Notification.notif_type == "CHECKLIST_REMINDER",
+                Notification.created_at >= window_start,
+            ).first()
+            if already_sent:
+                continue
+
+            # All pending/in-progress assignments due today for this tenant
+            pending = db.query(ChecklistAssignment).filter(
+                ChecklistAssignment.tenant_id == tenant.id,
+                ChecklistAssignment.due_at >= today_start,
+                ChecklistAssignment.due_at <= today_end,
+                ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+                ChecklistAssignment.is_deleted == False,
+            ).all()
+
+            if not pending:
+                continue
+
+            # Group by user — each employee gets their own notification
+            by_user: dict = {}
+            for a in pending:
+                by_user.setdefault(a.user_id, []).append(a)
+
+            # Choose title emoji based on hour
+            if current_hour <= 10:
+                time_label = "🌅 Morning"
+            elif current_hour <= 15:
+                time_label = "☀ Midday"
+            else:
+                time_label = "🌆 End-of-day"
+
+            for uid, items in by_user.items():
+                titles = [a.template.title for a in items if a.template]
+                overdue_count = sum(1 for a in items if a.status == "OVERDUE")
+                pending_count = len(items) - overdue_count
+
+                parts = []
+                if pending_count:
+                    parts.append(f"{pending_count} pending")
+                if overdue_count:
+                    parts.append(f"{overdue_count} overdue")
+                summary = ", ".join(parts)
+
+                # Build body with the actual checklist titles (up to 5)
+                listed = titles[:5]
+                body = f"You have {summary} checklist(s) for today:\n• " + "\n• ".join(listed)
+                if len(titles) > 5:
+                    body += f"\n… and {len(titles) - 5} more."
+
+                db.add(Notification(
+                    tenant_id=tenant.id,
+                    user_id=uid,
+                    notif_type="CHECKLIST_REMINDER",
+                    title=f"{time_label} checklist reminder ({len(items)} due)",
+                    body=body,
+                    link="/checklists",
+                ))
+
+        db.commit()
+        logger.info("Consolidated checklist notifications processed for %d tenants", len(tenants))
+    except Exception as e:
+        logger.error("send_consolidated_checklist_notifications error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def checklist_eod_overdue():
+    """Mark past-due assignments OVERDUE at end of day."""
+    from .database import SessionLocal, ChecklistAssignment
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        past_due = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.due_at < now,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+            ChecklistAssignment.is_deleted == False,
+        ).all()
+        for a in past_due:
+            a.status = "OVERDUE"
+        db.commit()
+        logger.info("EOD: marked %d assignments OVERDUE", len(past_due))
+    except Exception as e:
+        logger.error("checklist_eod_overdue error: %s", e)
         db.rollback()
     finally:
         db.close()
@@ -391,6 +543,7 @@ def invoice_overdue_check():
 # ── Start / stop ──────────────────────────────────────────────────────────────
 
 def start_scheduler():
+    from apscheduler.triggers.cron import CronTrigger
     scheduler.add_job(generate_recurring_checklists,
                       IntervalTrigger(hours=1), id="gen_cl",    replace_existing=True)
     scheduler.add_job(mark_overdue_checklists,
@@ -399,6 +552,14 @@ def start_scheduler():
                       IntervalTrigger(minutes=15), id="remind",  replace_existing=True)
     scheduler.add_job(escalate_unacknowledged_tickets,
                       IntervalTrigger(minutes=30), id="escalate",replace_existing=True)
+    # Phase 5 jobs
+    scheduler.add_job(morning_ticket_summary,
+                      CronTrigger(hour=8, minute=0, timezone="UTC"), id="morning_tickets", replace_existing=True)
+    # Phase 6 jobs — consolidated per-employee, per-tenant notifications every 30 min
+    scheduler.add_job(send_consolidated_checklist_notifications,
+                      IntervalTrigger(minutes=30), id="cl_consolidated", replace_existing=True)
+    scheduler.add_job(checklist_eod_overdue,
+                      CronTrigger(hour=18, minute=0, timezone="UTC"), id="cl_eod", replace_existing=True)
     # Phase 3 jobs
     scheduler.add_job(pms_no_entry_check,
                       IntervalTrigger(hours=1), id="pms_noe",   replace_existing=True)
@@ -408,7 +569,7 @@ def start_scheduler():
                       IntervalTrigger(hours=6), id="inv_chk",   replace_existing=True)
     if not scheduler.running:
         scheduler.start()
-    logger.info("Scheduler started (7 jobs)")
+    logger.info("Scheduler started (11 jobs)")
 
 
 def stop_scheduler():

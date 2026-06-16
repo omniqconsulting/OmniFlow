@@ -68,8 +68,8 @@ new Chart(document.getElementById('complianceChart'), {
     responsive: true,
     plugins: { legend: { display: false } },
     scales: {
-      y: { min:0, max:100, ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' } },
-      x: { ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' } }
+      y: { min:0, max:100, ticks:{ color:'var(--text-faint)' }, grid:{ color:'var(--border-subtle)' } },
+      x: { ticks:{ color:'var(--text-faint)' }, grid:{ color:'var(--border-subtle)' } }
     }
   }
 });
@@ -81,9 +81,9 @@ new Chart(document.getElementById('complianceChart'), {
   <h2>Active Tickets by Priority</h2>
   <div style="display:flex;gap:10px;flex-wrap:wrap">
     {% for p, cnt in kpis.active_by_priority.items() %}
-    <div style="background:#1e293b;border-radius:8px;padding:10px 18px;min-width:90px;text-align:center">
+    <div style="background:var(--bg-elevated);border-radius:8px;padding:10px 18px;min-width:90px;text-align:center">
       <div style="font-size:20px;font-weight:700">{{ cnt }}</div>
-      <div style="font-size:11px;color:#64748b;margin-top:3px">{{ p }}</div>
+      <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ p }}</div>
     </div>
     {% endfor %}
   </div>
@@ -141,8 +141,8 @@ new Chart(document.getElementById('tatChart'), {
     responsive: true,
     plugins: { legend:{ display:false } },
     scales: {
-      y: { ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' } },
-      x: { ticks:{ color:'#64748b', maxRotation:45 }, grid:{ color:'rgba(255,255,255,0.05)' } }
+      y: { ticks:{ color:'var(--text-faint)' }, grid:{ color:'var(--border-subtle)' } },
+      x: { ticks:{ color:'var(--text-faint)', maxRotation:45 }, grid:{ color:'var(--border-subtle)' } }
     }
   }
 });

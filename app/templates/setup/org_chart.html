@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header"><h2 class="page-title">Setup</h2></div>
+<div class="setup-layout">
+  {% set active_section = 'org_chart' %}
+  {% include "setup/nav.html" %}
+  <div class="setup-content">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">Org Chart</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select id="filterManager" class="form-input" style="width:auto;min-width:160px;font-size:13px" onchange="applyFilters()">
+          <option value="">All Managers</option>
+          {% for m in managers %}
+          <option value="{{ m.id }}">{{ m.name }}</option>
+          {% endfor %}
+        </select>
+        <select id="filterDept" class="form-input" style="width:auto;min-width:160px;font-size:13px" onchange="applyFilters()">
+          <option value="">All Departments</option>
+          {% for d in departments %}
+          <option value="{{ d.id }}">{{ d.name }}</option>
+          {% endfor %}
+        </select>
+        <select id="filterBranch" class="form-input" style="width:auto;min-width:160px;font-size:13px" onchange="applyFilters()">
+          <option value="">All Branches</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}">{{ b.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div id="orgChartRoot" style="font-family:inherit"></div>
+  </div>
+</div>
+
+<style>
+.oc-node {
+  display:inline-flex; flex-direction:column; align-items:center;
+  cursor:pointer; user-select:none;
+}
+.oc-card {
+  background:var(--card-bg,var(--bg-elevated)); border:1px solid var(--border-med);
+  border-radius:8px; padding:10px 14px; min-width:140px; max-width:180px;
+  text-align:center; transition:border-color 0.15s;
+}
+.oc-card:hover { border-color:#3b82f6; }
+.oc-card .oc-name { font-size:13px; font-weight:600; color:var(--text-primary); }
+.oc-card .oc-id { font-size:10px; color:var(--text-faint); margin-top:1px; }
+.oc-card .oc-role { font-size:10px; font-weight:700; margin-top:4px; border-radius:4px; padding:1px 6px; display:inline-block; }
+.oc-card .oc-dept { font-size:11px; color:var(--text-muted); margin-top:3px; }
+.oc-children { display:flex; gap:16px; margin-top:0; padding-top:0; position:relative; justify-content:center; }
+.oc-connector { width:2px; height:20px; background:rgba(255,255,255,0.15); margin:0 auto; }
+.oc-hline { position:absolute; top:0; height:2px; background:rgba(255,255,255,0.15); }
+.role-ADMIN    { background:rgba(124,58,237,.2); color:#a78bfa; }
+.role-MANAGER  { background:rgba(37,99,235,.2);  color:#60a5fa; }
+.role-EMPLOYEE { background:rgba(5,150,105,.2);  color:#6ee7b7; }
+</style>
+
+<script>
+const ALL_EMPS = {{ employees_json|safe }};
+let filtered = ALL_EMPS;
+
+function applyFilters() {
+  const mgr = document.getElementById('filterManager').value;
+  const dept = document.getElementById('filterDept').value;
+  const branch = document.getElementById('filterBranch').value;
+  filtered = ALL_EMPS.filter(e => {
+    if (mgr && e.manager_id !== mgr) return false;
+    if (dept && e.department_id !== dept) return false;
+    if (branch && e.branch_id !== branch) return false;
+    return true;
+  });
+  renderChart();
+}
+
+function buildTree(emps) {
+  const byId = {};
+  emps.forEach(e => { byId[e.id] = {...e, children: []}; });
+  const roots = [];
+  emps.forEach(e => {
+    if (e.manager_id && byId[e.manager_id]) {
+      byId[e.manager_id].children.push(byId[e.id]);
+    } else {
+      roots.push(byId[e.id]);
+    }
+  });
+  return roots;
+}
+
+function renderNode(emp) {
+  const roleColors = {
+    ADMIN: 'role-ADMIN', MANAGER: 'role-MANAGER',
+    EMPLOYEE: 'role-EMPLOYEE'
+  };
+  const div = document.createElement('div');
+  div.className = 'oc-node';
+  div.dataset.empId = emp.id;
+
+  const card = document.createElement('div');
+  card.className = 'oc-card';
+  card.innerHTML = `
+    <div class="oc-name">${emp.name}</div>
+    <div class="oc-id">${emp.employee_id || ''}</div>
+    <span class="oc-role ${roleColors[emp.role] || ''}">${emp.role}</span>
+    <div class="oc-dept">${emp.department || ''}</div>
+  `;
+  card.onclick = () => window.location.href = '/employees?highlight=' + emp.id;
+  div.appendChild(card);
+
+  if (emp.children && emp.children.length > 0) {
+    const connector = document.createElement('div');
+    connector.className = 'oc-connector';
+    div.appendChild(connector);
+
+    const childWrap = document.createElement('div');
+    childWrap.className = 'oc-children';
+    emp.children.forEach(child => {
+      const childNode = renderNode(child);
+      // vertical connector above each child
+      const childWrapInner = document.createElement('div');
+      childWrapInner.style.cssText = 'display:flex;flex-direction:column;align-items:center';
+      const vline = document.createElement('div');
+      vline.className = 'oc-connector';
+      childWrapInner.appendChild(vline);
+      childWrapInner.appendChild(childNode);
+      childWrap.appendChild(childWrapInner);
+    });
+    div.appendChild(childWrap);
+  }
+  return div;
+}
+
+function renderChart() {
+  const root = document.getElementById('orgChartRoot');
+  root.innerHTML = '';
+  const trees = buildTree(filtered);
+  if (trees.length === 0) {
+    root.innerHTML = '<div style="color:var(--text-faint);padding:32px;text-align:center">No employees match the selected filters.</div>';
+    return;
+  }
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'overflow-x:auto;padding:16px 0';
+  const inner = document.createElement('div');
+  inner.style.cssText = 'display:flex;gap:32px;flex-wrap:wrap;justify-content:flex-start';
+  trees.forEach(node => inner.appendChild(renderNode(node)));
+  wrap.appendChild(inner);
+  root.appendChild(wrap);
+}
+
+renderChart();
+</script>
+{% endblock %}

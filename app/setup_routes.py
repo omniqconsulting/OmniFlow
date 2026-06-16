@@ -1,0 +1,811 @@
+"""
+Phase 2 — Setup Module: Customers, End Products, Custom Lists, Org Chart,
+Deployed Config, and Inventory Reference routes.
+"""
+from __future__ import annotations
+
+import csv, io, json
+from datetime import datetime, date as _date
+
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
+from sqlalchemy.orm import Session
+import os
+
+from .database import (
+    get_db, new_id,
+    User, Tenant, Branch, Department,
+    Customer, EndProduct, Vendor, RawMaterial,
+    CustomReferenceList, CustomReferenceItem,
+    FMSFlow, FMSStage, FMSTicket,
+)
+from .auth import require_admin
+from .labels import get_labels
+
+router = APIRouter()
+
+BASE_DIR  = os.path.dirname(__file__)
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+
+import json as _json
+from markupsafe import Markup as _Markup
+
+
+class _OrmEncoder(_json.JSONEncoder):
+    def default(self, obj):
+        if hasattr(obj, "__dict__"):
+            return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+        if isinstance(obj, (datetime, _date)):
+            return obj.isoformat()
+        return super().default(obj)
+
+
+def _safe_tojson(v):
+    """JSON serialise v and escape chars that break HTML attributes."""
+    s = _json.dumps(v, cls=_OrmEncoder, ensure_ascii=False)
+    # Unicode-escape chars that are unsafe inside HTML attribute values
+    s = s.replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e').replace("'", '\\u0027')
+    return _Markup(s)
+
+templates.env.filters["tojson"] = _safe_tojson
+templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
+
+
+def _redir(path: str):
+    return RedirectResponse(path, status_code=302)
+
+
+def _L(db: Session, user: User):
+    return get_labels(db, user.tenant_id)
+
+
+def _unread(db: Session, user: User) -> int:
+    from .database import Notification
+    return db.query(Notification).filter(
+        Notification.user_id == user.id,
+        Notification.is_read == False,
+    ).count()
+
+
+def _nav_ctx(db: Session, user: User) -> dict:
+    from .constants import has_feature
+    tenant = db.query(Tenant).get(user.tenant_id)
+    return {
+        "has_inventory":  has_feature(tenant, "INVENTORY",  db),
+        "has_fms":        has_feature(tenant, "FMS",        db),
+        "has_checklists": has_feature(tenant, "CHECKLISTS", db),
+        "has_ai":         has_feature(tenant, "ASK_AI",     db),
+    }
+
+
+# ── Customer CSV template columns ─────────────────────────────────────────────
+_CUSTOMER_COLS = [
+    ("name",           "Mandatory. Customer/client name. Max 200 characters."),
+    ("contact_person", "Optional. Primary contact name at the customer."),
+    ("phone",          "Optional. Contact phone number."),
+    ("email",          "Optional. Contact email address."),
+    ("address",        "Optional. Customer address. Free text."),
+    ("notes",          "Optional. Any additional notes. Free text."),
+]
+
+_ENDPRODUCT_COLS = [
+    ("name",        "Mandatory. Product name. Max 200 characters."),
+    ("sku_code",    "Optional. Must be unique per tenant if provided. Alphanumeric, no spaces."),
+    ("unit",        "Optional. Unit of measure. E.g. pcs, kg, litres, box."),
+    ("description", "Optional. Product description. Free text."),
+]
+
+_CUSTOM_ITEM_COLS = [
+    ("list_name",   "Mandatory. Must match an existing Custom List name exactly. Case-sensitive."),
+    ("value",       "Mandatory. The item label to show in the dropdown. Max 200 characters."),
+    ("sort_order",  "Optional. Integer. Determines display order. Defaults to 0."),
+]
+
+
+def _csv_template(rows: list[tuple[str, str]], filename: str) -> StreamingResponse:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([r[0] for r in rows])
+    w.writerow([r[1] for r in rows])
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.read()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+def _exception_report(errors: list[dict], filename: str) -> StreamingResponse:
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=["row", "error", "data"])
+    w.writeheader()
+    for e in errors:
+        w.writerow({"row": e["row"], "error": e["error"], "data": str(e.get("data", ""))})
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.read()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CUSTOMERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+PAGE_SIZE = 20
+
+
+@router.get("/setup/customers", response_class=HTMLResponse)
+def customers_page(
+    request: Request,
+    page: int = 1,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Customer).filter(
+        Customer.tenant_id == user.tenant_id,
+        Customer.is_deleted == False,
+    ).order_by(Customer.name)
+    total = q.count()
+    customers = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    msg = request.query_params.get("msg", "")
+    err = request.query_params.get("err", "")
+    return templates.TemplateResponse(request, "setup/customers.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "customers": customers, "total": total,
+        "page": page, "page_size": PAGE_SIZE,
+        "msg": msg, "err": err,
+    })
+
+
+@router.post("/setup/customers/add")
+def add_customer(
+    name: str = Form(...),
+    contact_person: str = Form(""),
+    phone: str = Form(""),
+    email: str = Form(""),
+    address: str = Form(""),
+    notes: str = Form(""),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if not name.strip():
+        return _redir("/setup/customers?err=Name+is+required")
+    db.add(Customer(
+        tenant_id=user.tenant_id,
+        name=name.strip(), contact_person=contact_person.strip() or None,
+        phone=phone.strip() or None, email=email.strip() or None,
+        address=address.strip() or None, notes=notes.strip() or None,
+        created_by_id=user.id,
+    ))
+    db.commit()
+    return _redir("/setup/customers?msg=Customer+added")
+
+
+@router.post("/setup/customers/{cust_id}/edit")
+def edit_customer(
+    cust_id: str,
+    name: str = Form(...),
+    contact_person: str = Form(""),
+    phone: str = Form(""),
+    email: str = Form(""),
+    address: str = Form(""),
+    notes: str = Form(""),
+    is_active: str = Form("1"),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    c = db.query(Customer).filter(
+        Customer.id == cust_id, Customer.tenant_id == user.tenant_id,
+        Customer.is_deleted == False,
+    ).first()
+    if not c:
+        return _redir("/setup/customers?err=Not+found")
+    c.name = name.strip()
+    c.contact_person = contact_person.strip() or None
+    c.phone = phone.strip() or None
+    c.email = email.strip() or None
+    c.address = address.strip() or None
+    c.notes = notes.strip() or None
+    c.is_active = is_active == "1"
+    c.updated_at = datetime.utcnow()
+    db.commit()
+    return _redir("/setup/customers?msg=Customer+updated")
+
+
+@router.post("/setup/customers/{cust_id}/delete")
+def delete_customer(
+    cust_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    c = db.query(Customer).filter(
+        Customer.id == cust_id, Customer.tenant_id == user.tenant_id,
+    ).first()
+    if c:
+        c.is_deleted = True
+        db.commit()
+    return _redir("/setup/customers?msg=Customer+deleted")
+
+
+@router.get("/setup/customers/template")
+def customers_template(user: User = Depends(require_admin)):
+    return _csv_template(_CUSTOMER_COLS, "customers_template.csv")
+
+
+@router.post("/setup/customers/import")
+async def import_customers(
+    file: UploadFile = File(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    content = (await file.read()).decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(content))
+    errors, imported = [], 0
+    for i, row in enumerate(reader, start=2):
+        # Skip description row
+        if row.get("name", "").startswith("Mandatory") or row.get("name", "").startswith("Optional"):
+            continue
+        name = (row.get("name") or "").strip()
+        if not name:
+            errors.append({"row": i, "error": "name is required", "data": dict(row)})
+            continue
+        if len(name) > 200:
+            errors.append({"row": i, "error": "name exceeds 200 characters", "data": dict(row)})
+            continue
+        db.add(Customer(
+            tenant_id=user.tenant_id,
+            name=name,
+            contact_person=(row.get("contact_person") or "").strip() or None,
+            phone=(row.get("phone") or "").strip() or None,
+            email=(row.get("email") or "").strip() or None,
+            address=(row.get("address") or "").strip() or None,
+            notes=(row.get("notes") or "").strip() or None,
+            created_by_id=user.id,
+        ))
+        imported += 1
+
+    db.commit()
+    if errors:
+        r = _exception_report(errors, "customers_exceptions.csv")
+        r.headers["X-Imported"] = str(imported)
+        return r
+    return _redir(f"/setup/customers?msg=Imported+{imported}+customer(s)")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# END PRODUCTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/setup/end-products", response_class=HTMLResponse)
+def end_products_page(
+    request: Request,
+    page: int = 1,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    q = db.query(EndProduct).filter(
+        EndProduct.tenant_id == user.tenant_id,
+        EndProduct.is_deleted == False,
+    ).order_by(EndProduct.name)
+    total = q.count()
+    products = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    return templates.TemplateResponse(request, "setup/end_products.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "products": products, "total": total,
+        "page": page, "page_size": PAGE_SIZE,
+        "msg": request.query_params.get("msg", ""),
+        "err": request.query_params.get("err", ""),
+    })
+
+
+@router.post("/setup/end-products/add")
+def add_end_product(
+    name: str = Form(...),
+    sku_code: str = Form(""),
+    unit: str = Form(""),
+    description: str = Form(""),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if not name.strip():
+        return _redir("/setup/end-products?err=Name+is+required")
+    sku = sku_code.strip() or None
+    if sku:
+        exists = db.query(EndProduct).filter(
+            EndProduct.tenant_id == user.tenant_id,
+            EndProduct.sku_code == sku,
+            EndProduct.is_deleted == False,
+        ).first()
+        if exists:
+            return _redir(f"/setup/end-products?err=SKU+{sku}+already+exists")
+    db.add(EndProduct(
+        tenant_id=user.tenant_id, name=name.strip(), sku_code=sku,
+        unit=unit.strip() or None, description=description.strip() or None,
+        created_by_id=user.id,
+    ))
+    db.commit()
+    return _redir("/setup/end-products?msg=Product+added")
+
+
+@router.post("/setup/end-products/{prod_id}/edit")
+def edit_end_product(
+    prod_id: str,
+    name: str = Form(...),
+    sku_code: str = Form(""),
+    unit: str = Form(""),
+    description: str = Form(""),
+    is_active: str = Form("1"),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    p = db.query(EndProduct).filter(
+        EndProduct.id == prod_id, EndProduct.tenant_id == user.tenant_id,
+        EndProduct.is_deleted == False,
+    ).first()
+    if not p:
+        return _redir("/setup/end-products?err=Not+found")
+    sku = sku_code.strip() or None
+    if sku and sku != p.sku_code:
+        exists = db.query(EndProduct).filter(
+            EndProduct.tenant_id == user.tenant_id,
+            EndProduct.sku_code == sku,
+            EndProduct.id != prod_id,
+            EndProduct.is_deleted == False,
+        ).first()
+        if exists:
+            return _redir(f"/setup/end-products?err=SKU+{sku}+already+exists")
+    p.name = name.strip()
+    p.sku_code = sku
+    p.unit = unit.strip() or None
+    p.description = description.strip() or None
+    p.is_active = is_active == "1"
+    p.updated_at = datetime.utcnow()
+    db.commit()
+    return _redir("/setup/end-products?msg=Product+updated")
+
+
+@router.post("/setup/end-products/{prod_id}/delete")
+def delete_end_product(
+    prod_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    p = db.query(EndProduct).filter(
+        EndProduct.id == prod_id, EndProduct.tenant_id == user.tenant_id,
+    ).first()
+    if p:
+        p.is_deleted = True
+        db.commit()
+    return _redir("/setup/end-products?msg=Product+deleted")
+
+
+@router.get("/setup/end-products/template")
+def end_products_template(user: User = Depends(require_admin)):
+    return _csv_template(_ENDPRODUCT_COLS, "end_products_template.csv")
+
+
+@router.post("/setup/end-products/import")
+async def import_end_products(
+    file: UploadFile = File(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    content = (await file.read()).decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(content))
+    errors, imported = [], 0
+    for i, row in enumerate(reader, start=2):
+        name = (row.get("name") or "").strip()
+        if not name or name.startswith("Mandatory"):
+            if not name:
+                errors.append({"row": i, "error": "name is required", "data": dict(row)})
+            continue
+        sku = (row.get("sku_code") or "").strip() or None
+        if sku:
+            exists = db.query(EndProduct).filter(
+                EndProduct.tenant_id == user.tenant_id,
+                EndProduct.sku_code == sku, EndProduct.is_deleted == False,
+            ).first()
+            if exists:
+                errors.append({"row": i, "error": f"SKU {sku} already exists", "data": dict(row)})
+                continue
+        db.add(EndProduct(
+            tenant_id=user.tenant_id, name=name, sku_code=sku,
+            unit=(row.get("unit") or "").strip() or None,
+            description=(row.get("description") or "").strip() or None,
+            created_by_id=user.id,
+        ))
+        imported += 1
+    db.commit()
+    if errors:
+        r = _exception_report(errors, "end_products_exceptions.csv")
+        r.headers["X-Imported"] = str(imported)
+        return r
+    return _redir(f"/setup/end-products?msg=Imported+{imported}+product(s)")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CUSTOM REFERENCE LISTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/setup/custom-lists", response_class=HTMLResponse)
+def custom_lists_page(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    lists = db.query(CustomReferenceList).filter(
+        CustomReferenceList.tenant_id == user.tenant_id,
+        CustomReferenceList.is_deleted == False,
+    ).order_by(CustomReferenceList.list_name).all()
+    return templates.TemplateResponse(request, "setup/custom_lists.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "lists": lists,
+        "msg": request.query_params.get("msg", ""),
+        "err": request.query_params.get("err", ""),
+    })
+
+
+@router.get("/setup/how-to", response_class=HTMLResponse)
+def howto_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "setup/howto.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+    })
+
+
+@router.post("/setup/custom-lists/add")
+def add_custom_list(
+    list_name: str = Form(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if not list_name.strip():
+        return _redir("/setup/custom-lists?err=List+name+is+required")
+    db.add(CustomReferenceList(
+        tenant_id=user.tenant_id, list_name=list_name.strip(),
+        created_by_id=user.id,
+    ))
+    db.commit()
+    return _redir("/setup/custom-lists?msg=List+created")
+
+
+@router.post("/setup/custom-lists/{list_id}/edit")
+def edit_custom_list(
+    list_id: str,
+    list_name: str = Form(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    lst = db.query(CustomReferenceList).filter(
+        CustomReferenceList.id == list_id,
+        CustomReferenceList.tenant_id == user.tenant_id,
+        CustomReferenceList.is_deleted == False,
+    ).first()
+    if lst:
+        lst.list_name = list_name.strip()
+        db.commit()
+    return _redir("/setup/custom-lists?msg=List+renamed")
+
+
+@router.post("/setup/custom-lists/{list_id}/delete")
+def delete_custom_list(
+    list_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    lst = db.query(CustomReferenceList).filter(
+        CustomReferenceList.id == list_id,
+        CustomReferenceList.tenant_id == user.tenant_id,
+    ).first()
+    if lst:
+        lst.is_deleted = True
+        for item in lst.items:
+            item.is_deleted = True
+        db.commit()
+    return _redir("/setup/custom-lists?msg=List+deleted")
+
+
+@router.post("/setup/custom-lists/{list_id}/items/add")
+def add_list_item(
+    list_id: str,
+    value: str = Form(...),
+    sort_order: int = Form(0),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    lst = db.query(CustomReferenceList).filter(
+        CustomReferenceList.id == list_id,
+        CustomReferenceList.tenant_id == user.tenant_id,
+        CustomReferenceList.is_deleted == False,
+    ).first()
+    if not lst:
+        return _redir("/setup/custom-lists?err=List+not+found")
+    db.add(CustomReferenceItem(
+        list_id=list_id, tenant_id=user.tenant_id,
+        value=value.strip(), sort_order=sort_order,
+    ))
+    db.commit()
+    return _redir("/setup/custom-lists?msg=Item+added")
+
+
+@router.post("/setup/custom-lists/items/{item_id}/delete")
+def delete_list_item(
+    item_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    item = db.query(CustomReferenceItem).filter(
+        CustomReferenceItem.id == item_id,
+        CustomReferenceItem.tenant_id == user.tenant_id,
+    ).first()
+    if item:
+        item.is_deleted = True
+        db.commit()
+    return _redir("/setup/custom-lists?msg=Item+removed")
+
+
+@router.get("/setup/custom-lists/items/template")
+def custom_items_template(user: User = Depends(require_admin)):
+    return _csv_template(_CUSTOM_ITEM_COLS, "custom_list_items_template.csv")
+
+
+@router.post("/setup/custom-lists/items/import")
+async def import_list_items(
+    file: UploadFile = File(...),
+    list_id: str = Form(""),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    content = (await file.read()).decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(content))
+    errors, imported = [], 0
+    for i, row in enumerate(reader, start=2):
+        list_name = (row.get("list_name") or "").strip()
+        value = (row.get("value") or "").strip()
+        if not value or value.startswith("Mandatory"):
+            if not value:
+                errors.append({"row": i, "error": "value is required", "data": dict(row)})
+            continue
+
+        # resolve list by name or use provided list_id
+        target_list = None
+        if list_name:
+            target_list = db.query(CustomReferenceList).filter(
+                CustomReferenceList.tenant_id == user.tenant_id,
+                CustomReferenceList.list_name == list_name,
+                CustomReferenceList.is_deleted == False,
+            ).first()
+            if not target_list:
+                errors.append({"row": i, "error": f"List '{list_name}' not found", "data": dict(row)})
+                continue
+        elif list_id:
+            target_list = db.query(CustomReferenceList).filter(
+                CustomReferenceList.id == list_id,
+                CustomReferenceList.tenant_id == user.tenant_id,
+            ).first()
+
+        if not target_list:
+            errors.append({"row": i, "error": "list_name is required or list not found", "data": dict(row)})
+            continue
+
+        try:
+            sort_order = int((row.get("sort_order") or "0").strip())
+        except ValueError:
+            sort_order = 0
+
+        db.add(CustomReferenceItem(
+            list_id=target_list.id, tenant_id=user.tenant_id,
+            value=value, sort_order=sort_order,
+        ))
+        imported += 1
+
+    db.commit()
+    if errors:
+        r = _exception_report(errors, "custom_items_exceptions.csv")
+        r.headers["X-Imported"] = str(imported)
+        return r
+    return _redir(f"/setup/custom-lists?msg=Imported+{imported}+item(s)")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DEPLOYED CONFIGURATION (read-only)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/setup/deployed-config", response_class=HTMLResponse)
+def deployed_config_page(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    flows_raw = db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_active == True,
+        FMSFlow.is_deleted == False,
+    ).order_by(FMSFlow.name).all()
+
+    flows = []
+    for f in flows_raw:
+        active_count = db.query(FMSTicket).filter(
+            FMSTicket.flow_id == f.id,
+            FMSTicket.is_deleted == False,
+            FMSTicket.status.in_(["ACTIVE", "STAGE_COMPLETE", "IN_TRANSITION"]),
+        ).count()
+        flows.append({
+            "name": f.name, "stages": f.stages,
+            "active_tickets": active_count, "created_at": f.created_at,
+        })
+
+    return templates.TemplateResponse(request, "setup/deployed_config.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "flows": flows,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VENDORS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/setup/vendors", response_class=HTMLResponse)
+def vendors_page(request: Request, page: int = 1,
+                 user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    q = db.query(Vendor).filter(Vendor.tenant_id == user.tenant_id, Vendor.is_deleted == False).order_by(Vendor.name)
+    total = q.count()
+    vendors = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    return templates.TemplateResponse(request, "setup/vendors.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "vendors": vendors, "total": total, "page": page, "page_size": PAGE_SIZE,
+        "msg": request.query_params.get("msg", ""),
+        "err": request.query_params.get("err", ""),
+    })
+
+@router.post("/setup/vendors/add")
+def add_vendor(name: str = Form(...), contact_person: str = Form(""), phone: str = Form(""),
+               email: str = Form(""), address: str = Form(""), notes: str = Form(""),
+               user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    if not name.strip():
+        return _redir("/setup/vendors?err=Name+is+required")
+    db.add(Vendor(tenant_id=user.tenant_id, name=name.strip(),
+                  contact_person=contact_person.strip() or None,
+                  phone=phone.strip() or None, email=email.strip() or None,
+                  address=address.strip() or None, notes=notes.strip() or None,
+                  created_by_id=user.id))
+    db.commit()
+    return _redir("/setup/vendors?msg=Vendor+added")
+
+@router.post("/setup/vendors/{vendor_id}/edit")
+def edit_vendor(vendor_id: str, name: str = Form(...), contact_person: str = Form(""),
+                phone: str = Form(""), email: str = Form(""), address: str = Form(""),
+                notes: str = Form(""), is_active: str = Form("1"),
+                user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    v = db.query(Vendor).filter(Vendor.id == vendor_id, Vendor.tenant_id == user.tenant_id, Vendor.is_deleted == False).first()
+    if not v:
+        return _redir("/setup/vendors?err=Not+found")
+    v.name = name.strip(); v.contact_person = contact_person.strip() or None
+    v.phone = phone.strip() or None; v.email = email.strip() or None
+    v.address = address.strip() or None; v.notes = notes.strip() or None
+    v.is_active = (is_active == "1"); v.updated_at = datetime.utcnow()
+    db.commit()
+    return _redir("/setup/vendors?msg=Vendor+updated")
+
+@router.post("/setup/vendors/{vendor_id}/delete")
+def delete_vendor(vendor_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    v = db.query(Vendor).filter(Vendor.id == vendor_id, Vendor.tenant_id == user.tenant_id).first()
+    if v:
+        v.is_deleted = True; db.commit()
+    return _redir("/setup/vendors?msg=Vendor+deleted")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RAW MATERIALS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/setup/raw-materials", response_class=HTMLResponse)
+def raw_materials_page(request: Request, page: int = 1,
+                       user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    q = db.query(RawMaterial).filter(RawMaterial.tenant_id == user.tenant_id, RawMaterial.is_deleted == False).order_by(RawMaterial.name)
+    total = q.count()
+    items = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    return templates.TemplateResponse(request, "setup/raw_materials.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "items": items, "total": total, "page": page, "page_size": PAGE_SIZE,
+        "msg": request.query_params.get("msg", ""),
+        "err": request.query_params.get("err", ""),
+    })
+
+@router.post("/setup/raw-materials/add")
+def add_raw_material(name: str = Form(...), unit: str = Form(""), description: str = Form(""),
+                     notes: str = Form(""), user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    if not name.strip():
+        return _redir("/setup/raw-materials?err=Name+is+required")
+    db.add(RawMaterial(tenant_id=user.tenant_id, name=name.strip(),
+                       unit=unit.strip() or None, description=description.strip() or None,
+                       notes=notes.strip() or None, created_by_id=user.id))
+    db.commit()
+    return _redir("/setup/raw-materials?msg=Raw+material+added")
+
+@router.post("/setup/raw-materials/{item_id}/edit")
+def edit_raw_material(item_id: str, name: str = Form(...), unit: str = Form(""),
+                      description: str = Form(""), notes: str = Form(""), is_active: str = Form("1"),
+                      user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    m = db.query(RawMaterial).filter(RawMaterial.id == item_id, RawMaterial.tenant_id == user.tenant_id, RawMaterial.is_deleted == False).first()
+    if not m:
+        return _redir("/setup/raw-materials?err=Not+found")
+    m.name = name.strip(); m.unit = unit.strip() or None
+    m.description = description.strip() or None; m.notes = notes.strip() or None
+    m.is_active = (is_active == "1"); m.updated_at = datetime.utcnow()
+    db.commit()
+    return _redir("/setup/raw-materials?msg=Raw+material+updated")
+
+@router.post("/setup/raw-materials/{item_id}/delete")
+def delete_raw_material(item_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    m = db.query(RawMaterial).filter(RawMaterial.id == item_id, RawMaterial.tenant_id == user.tenant_id).first()
+    if m:
+        m.is_deleted = True; db.commit()
+    return _redir("/setup/raw-materials?msg=Raw+material+deleted")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ORG CHART
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/setup/org-chart", response_class=HTMLResponse)
+def org_chart_page(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    employees = db.query(User).filter(
+        User.tenant_id == user.tenant_id,
+        User.is_deleted == False,
+        User.is_active == True,
+    ).order_by(User.name).all()
+
+    managers = [e for e in employees if e.role in ("MANAGER", "ADMIN")]
+    departments = db.query(Department).filter(
+        Department.tenant_id == user.tenant_id,
+        Department.is_deleted == False,
+    ).all()
+    branches = db.query(Branch).filter(
+        Branch.tenant_id == user.tenant_id,
+        Branch.is_deleted == False,
+    ).all()
+
+    employees_json = _json.dumps([
+        {
+            "id": e.id,
+            "name": e.name,
+            "employee_id": e.employee_id or "",
+            "role": e.role,
+            "department": e.department.name if e.department else "",
+            "department_id": e.department_id or "",
+            "branch_id": e.branch_id or "",
+            "manager_id": e.manager_id or "",
+        }
+        for e in employees
+    ])
+
+    return templates.TemplateResponse(request, "setup/org_chart.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "managers": managers, "departments": departments, "branches": branches,
+        "employees_json": employees_json,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SETUP /employees shortcut — redirects to main employees page
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/setup/employees")
+def setup_employees_redirect(user: User = Depends(require_admin)):
+    return _redir("/employees")

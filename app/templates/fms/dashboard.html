@@ -4,75 +4,75 @@
 <style>
 /* ── FMS Dashboard ───────────────────────────────────────────────────────────── */
 .fms-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px}
-.fms-kpi{background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px 16px;transition:border-color .2s}
-.fms-kpi .val{font-size:26px;font-weight:700;color:#f1f5f9;line-height:1.1}
-.fms-kpi .lbl{font-size:11px;color:#64748b;margin-top:4px;font-weight:500}
+.fms-kpi{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:14px 16px;transition:border-color .2s}
+.fms-kpi .val{font-size:26px;font-weight:700;color:var(--text-strong);line-height:1.1}
+.fms-kpi .lbl{font-size:11px;color:var(--text-faint);margin-top:4px;font-weight:500}
 
 .flow-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.flow-tab{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:8px;border:1.5px solid rgba(255,255,255,0.1);background:transparent;text-decoration:none;transition:all .15s;font-size:13px;color:#94a3b8;font-weight:400}
-.flow-tab.active{font-weight:600;color:#f1f5f9}
+.flow-tab{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:8px;border:1.5px solid var(--border-med);background:transparent;text-decoration:none;transition:all .15s;font-size:13px;color:var(--text-muted);font-weight:400}
+.flow-tab.active{font-weight:600;color:var(--text-strong)}
 .flow-tab .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .flow-tab .cnt{font-size:10px;padding:1px 6px;border-radius:99px}
 
-.view-toggle{display:inline-flex;border:1px solid rgba(255,255,255,0.1);border-radius:7px;overflow:hidden}
-.view-toggle a{padding:5px 13px;font-size:12px;color:#64748b;text-decoration:none;transition:all .12s}
+.view-toggle{display:inline-flex;border:1px solid var(--border-med);border-radius:7px;overflow:hidden}
+.view-toggle a{padding:5px 13px;font-size:12px;color:var(--text-faint);text-decoration:none;transition:all .12s}
 .view-toggle a.active,.view-toggle a:hover{background:rgba(59,130,246,0.2);color:#7dd3fc}
 
 /* ── Swimlane ────────────────────────────────────────────────────────────────── */
 .swim-wrap{display:flex;gap:12px;overflow-x:auto;padding-bottom:10px;align-items:flex-start}
 .swim-col{flex-shrink:0;width:268px}
 .swim-col-hdr{padding:8px 12px;border-radius:8px 8px 0 0;display:flex;align-items:center;justify-content:space-between}
-.swim-body{background:#111827;border:1px solid rgba(255,255,255,0.07);border-top:none;border-radius:0 0 8px 8px;padding:8px;min-height:180px;max-height:65vh;overflow-y:auto}
-.ticket-card{background:#0d1424;border:1px solid rgba(255,255,255,0.06);border-radius:7px;padding:10px 11px;margin-bottom:8px;cursor:pointer;transition:all .12s}
-.ticket-card:hover{background:#131e30;border-color:rgba(255,255,255,0.14)}
-.tc-title{font-size:12px;font-weight:600;color:#e2e8f0;line-height:1.4;margin-bottom:4px}
-.tc-meta{font-size:10px;color:#64748b}
-.tc-assignee{font-size:11px;color:#94a3b8;margin-top:5px}
-.tat-bar{height:3px;border-radius:2px;background:rgba(255,255,255,0.07);overflow:hidden;margin-top:6px}
+.swim-body{background:var(--bg-card);border:1px solid var(--border-subtle);border-top:none;border-radius:0 0 8px 8px;padding:8px;min-height:180px;max-height:65vh;overflow-y:auto}
+.ticket-card{background:var(--bg-input);border:1px solid var(--hover-bg);border-radius:7px;padding:10px 11px;margin-bottom:8px;cursor:pointer;transition:all .12s}
+.ticket-card:hover{background:#131e30;border-color:var(--border-strong)}
+.tc-title{font-size:12px;font-weight:600;color:var(--text-primary);line-height:1.4;margin-bottom:4px}
+.tc-meta{font-size:10px;color:var(--text-faint)}
+.tc-assignee{font-size:11px;color:var(--text-muted);margin-top:5px}
+.tat-bar{height:3px;border-radius:2px;background:var(--border-subtle);overflow:hidden;margin-top:6px}
 
 /* ── List view ───────────────────────────────────────────────────────────────── */
-.filter-bar{background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
-.filter-bar select,.filter-bar input{background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;font-family:inherit}
+.filter-bar{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.filter-bar select,.filter-bar input{background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit}
 .filter-bar select:focus,.filter-bar input:focus{border-color:#3b82f6}
-.filter-bar label{display:block;font-size:10px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+.filter-bar label{display:block;font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
 .filter-group{min-width:130px}
-select option{background:#111827;color:#e2e8f0}
+select option{background:var(--bg-card);color:var(--text-primary)}
 .list-table{width:100%;border-collapse:collapse;font-size:12px}
-.list-table th{padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;border-bottom:1px solid rgba(255,255,255,0.08);white-space:nowrap}
-.list-table td{padding:10px 10px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-align:middle;color:#cbd5e1}
-.list-table tr:hover td{background:rgba(255,255,255,0.025);cursor:pointer}
+.list-table th{padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);white-space:nowrap}
+.list-table td{padding:10px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;color:#cbd5e1}
+.list-table tr:hover td{background:var(--row-hover);cursor:pointer}
 .list-table tr:last-child td{border-bottom:none}
 
 .pri-badge{display:inline-block;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:700}
-.pri-LOW{background:rgba(100,116,139,.2);color:#94a3b8}.pri-MEDIUM{background:rgba(59,130,246,.15);color:#7dd3fc}
+.pri-LOW{background:rgba(100,116,139,.2);color:var(--text-muted)}.pri-MEDIUM{background:rgba(59,130,246,.15);color:#7dd3fc}
 .pri-HIGH{background:rgba(245,158,11,.15);color:#fcd34d}.pri-CRITICAL{background:rgba(239,68,68,.15);color:#fca5a5}
 .st-badge{display:inline-block;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600}
 .st-ACTIVE{background:rgba(59,130,246,.15);color:#7dd3fc}.st-STAGE_COMPLETE{background:rgba(6,182,212,.15);color:#67e8f9}
 .st-FLAGGED{background:rgba(239,68,68,.15);color:#fca5a5}.st-HELP_REQUESTED{background:rgba(245,158,11,.15);color:#fcd34d}
-.st-ON_HOLD{background:rgba(100,116,139,.15);color:#94a3b8}.st-COMPLETED{background:rgba(16,185,129,.15);color:#6ee7b7}
-.st-CLOSED{background:rgba(30,41,59,.5);color:#64748b}
+.st-ON_HOLD{background:rgba(100,116,139,.15);color:var(--text-muted)}.st-COMPLETED{background:rgba(16,185,129,.15);color:#6ee7b7}
+.st-CLOSED{background:rgba(30,41,59,.5);color:var(--text-faint)}
 .tat-mini{height:4px;border-radius:2px;background:rgba(255,255,255,.07);overflow:hidden;width:56px}
 
 /* ── Modal overlay ───────────────────────────────────────────────────────────── */
 .fms-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);z-index:200;align-items:center;justify-content:center;padding:16px}
 .fms-modal-overlay.open{display:flex}
-.fms-modal{background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;width:100%;max-width:860px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 32px 64px rgba(0,0,0,.7)}
+.fms-modal{background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;width:100%;max-width:860px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 32px 64px rgba(0,0,0,.7)}
 .fms-modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0}
-.fms-modal-hdr h3{font-size:15px;font-weight:700;color:#f1f5f9;margin:0}
-.fms-modal-close{background:none;border:none;color:#64748b;font-size:20px;cursor:pointer;padding:0;line-height:1;transition:color .12s}
-.fms-modal-close:hover{color:#e2e8f0}
+.fms-modal-hdr h3{font-size:15px;font-weight:700;color:var(--text-strong);margin:0}
+.fms-modal-close{background:none;border:none;color:var(--text-faint);font-size:20px;cursor:pointer;padding:0;line-height:1;transition:color .12s}
+.fms-modal-close:hover{color:var(--text-primary)}
 .fms-modal-body{display:flex;flex:1;overflow:hidden}
 
 /* ── Modal left panel (flow info + stage selector) ───────────────────────────── */
-.fml{width:280px;flex-shrink:0;background:#0d1220;border-right:1px solid rgba(255,255,255,.07);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
-.fml-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin-bottom:6px}
+.fml{width:280px;flex-shrink:0;background:var(--bg-input);border-right:1px solid rgba(255,255,255,.07);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.fml-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint);margin-bottom:6px}
 
-.flow-sel-btn{width:100%;text-align:left;background:#0d1424;border:1.5px solid rgba(255,255,255,.1);border-radius:8px;padding:9px 12px;font-size:13px;color:#94a3b8;cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:8px}
-.flow-sel-btn:hover{border-color:rgba(255,255,255,.22);color:#e2e8f0;background:#111827}
-.flow-sel-btn.selected{border-color:var(--fc);color:#f1f5f9;background:rgba(255,255,255,.04)}
+.flow-sel-btn{width:100%;text-align:left;background:var(--bg-input);border:1.5px solid rgba(255,255,255,.1);border-radius:8px;padding:9px 12px;font-size:13px;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:8px}
+.flow-sel-btn:hover{border-color:rgba(255,255,255,.22);color:var(--text-primary);background:var(--bg-card)}
+.flow-sel-btn.selected{border-color:var(--fc);color:var(--text-strong);background:rgba(255,255,255,.04)}
 .flow-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
 
-.flow-info-box{background:#0d1424;border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:12px;display:none}
+.flow-info-box{background:var(--bg-input);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:12px;display:none}
 .flow-info-box.visible{display:block}
 .flow-pipeline{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
 .pip-step{display:flex;align-items:center;gap:3px}
@@ -80,9 +80,9 @@ select option{background:#111827;color:#e2e8f0}
 .pip-arrow{font-size:9px;color:#374151}
 
 .stage-sel-wrap{display:flex;flex-direction:column;gap:6px}
-.stage-btn{width:100%;text-align:left;background:#0d1424;border:1.5px solid rgba(255,255,255,.08);border-radius:7px;padding:8px 11px;font-size:12px;color:#94a3b8;cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:8px}
-.stage-btn:hover{border-color:rgba(255,255,255,.2);color:#e2e8f0;background:#111827}
-.stage-btn.selected{color:#f1f5f9;background:rgba(255,255,255,.04)}
+.stage-btn{width:100%;text-align:left;background:var(--bg-input);border:1.5px solid rgba(255,255,255,.08);border-radius:7px;padding:8px 11px;font-size:12px;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:8px}
+.stage-btn:hover{border-color:rgba(255,255,255,.2);color:var(--text-primary);background:var(--bg-card)}
+.stage-btn.selected{color:var(--text-strong);background:rgba(255,255,255,.04)}
 .stage-num{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
 .stage-tag{font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(139,92,246,.2);color:#c4b5fd;margin-left:auto;flex-shrink:0}
 
@@ -91,14 +91,14 @@ select option{background:#111827;color:#e2e8f0}
 .fmr-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .fmr-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
 .fm-group{margin-bottom:14px}
-.fm-group label{display:block;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
-.fm-group input,.fm-group select,.fm-group textarea{width:100%;background:#0d1424;border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit;transition:border-color .12s}
+.fm-group label{display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.fm-group input,.fm-group select,.fm-group textarea{width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;transition:border-color .12s}
 .fm-group input:focus,.fm-group select:focus,.fm-group textarea:focus{border-color:#3b82f6}
 .fm-group textarea{resize:vertical;min-height:70px;line-height:1.5}
 .fm-group input::placeholder,.fm-group textarea::placeholder{color:#374151}
-.fm-group select option{background:#111827}
+.fm-group select option{background:var(--bg-card)}
 
-.fms-modal-ftr{padding:14px 20px;border-top:1px solid rgba(255,255,255,.07);display:flex;justify-content:flex-end;gap:10px;flex-shrink:0;background:#0d1424;border-radius:0 0 14px 14px}
+.fms-modal-ftr{padding:14px 20px;border-top:1px solid rgba(255,255,255,.07);display:flex;justify-content:flex-end;gap:10px;flex-shrink:0;background:var(--bg-input);border-radius:0 0 14px 14px}
 
 /* ── Empty stage notice ──────────────────────────────────────────────────────── */
 .stage-empty{text-align:center;padding:16px;color:#374151;font-size:12px}
@@ -110,12 +110,12 @@ select option{background:#111827;color:#e2e8f0}
     <div class="val">{{ active_tickets }}</div>
     <div class="lbl">Active Tickets</div>
   </div>
-  <div class="fms-kpi" style="border-color:{% if tat_breaches > 0 %}rgba(239,68,68,0.3){% else %}rgba(255,255,255,0.08){% endif %}">
-    <div class="val" style="color:{% if tat_breaches > 0 %}#f87171{% else %}#f1f5f9{% endif %}">{{ tat_breaches }}</div>
+  <div class="fms-kpi" style="border-color:{% if tat_breaches > 0 %}rgba(239,68,68,0.3){% else %}var(--border-subtle){% endif %}">
+    <div class="val" style="color:{% if tat_breaches > 0 %}#f87171{% else %}var(--text-strong){% endif %}">{{ tat_breaches }}</div>
     <div class="lbl">TaT Breaches</div>
   </div>
-  <div class="fms-kpi" style="border-color:{% if flagged_count > 0 %}rgba(245,158,11,0.3){% else %}rgba(255,255,255,0.08){% endif %}">
-    <div class="val" style="color:{% if flagged_count > 0 %}#fcd34d{% else %}#f1f5f9{% endif %}">{{ flagged_count }}</div>
+  <div class="fms-kpi" style="border-color:{% if flagged_count > 0 %}rgba(245,158,11,0.3){% else %}var(--border-subtle){% endif %}">
+    <div class="val" style="color:{% if flagged_count > 0 %}#fcd34d{% else %}var(--text-strong){% endif %}">{{ flagged_count }}</div>
     <div class="lbl">Flagged</div>
   </div>
   <div class="fms-kpi">
@@ -128,40 +128,217 @@ select option{background:#111827;color:#e2e8f0}
   </div>
 </div>
 
-<!-- ── Flow tabs + actions ────────────────────────────────────────────────────── -->
+<!-- ── Flow selector + actions ───────────────────────────────────────────────── -->
 {% if flows %}
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#475569">Flows</span>
-    <div class="flow-tabs">
-      {% for f in flows %}
-      {% set is_active = active_flow and active_flow.id == f.id %}
-      <a href="/fms/dashboard?flow_id={{ f.id }}&view={{ view }}" class="flow-tab {% if is_active %}active{% endif %}"
-         style="border-color:{{ f.color if is_active else f.color + '44' }};background:{{ f.color + '14' if is_active else 'transparent' }}">
-        <span class="dot" style="background:{{ f.color }}"></span>
-        <span>{{ f.name }}</span>
-        {% if flow_counts.get(f.id, 0) %}
-        <span class="cnt" style="background:{{ f.color + '25' }};color:#e2e8f0">{{ flow_counts[f.id] }}</span>
-        {% endif %}
-      </a>
-      {% endfor %}
+    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint)">FLOWS</span>
+    <div style="position:relative">
+      <select onchange="window.location='/fms/dashboard?flow_id='+this.value+'&view={{ view }}'"
+              style="background:var(--bg-input);border:1.5px solid {{ active_flow.color + '88' if active_flow else 'var(--border-med)' }};border-radius:8px;padding:7px 32px 7px 12px;font-size:13px;font-weight:600;color:var(--text-strong);outline:none;appearance:none;cursor:pointer;min-width:200px">
+        {% for f in flows %}
+        <option value="{{ f.id }}" {% if active_flow and active_flow.id == f.id %}selected{% endif %}>
+          {{ f.name }}{% if flow_counts.get(f.id, 0) %} ({{ flow_counts[f.id] }}){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      {% if active_flow %}
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%) translateX(-20px);width:8px;height:8px;border-radius:50%;background:{{ active_flow.color }};pointer-events:none"></span>
+      {% endif %}
+      <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--text-faint);pointer-events:none;font-size:10px">▼</span>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
     {% if user.role in ('ADMIN','MANAGER') %}
+    <a href="/fms/tickets/bulk-template" class="btn btn-outline btn-sm">⬇ Template</a>
+    <button onclick="show('fms-bulk-modal')" class="btn btn-outline btn-sm">⬆ Bulk Upload</button>
     <button class="btn btn-primary btn-sm"
             onclick="openTicketModal('{{ active_flow.id if active_flow else '' }}')">
       + New Ticket
     </button>
     {% endif %}
     <div class="view-toggle">
-      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=swimlane" class="{{ 'active' if view == 'swimlane' else '' }}">Board</a>
+      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=stage_table" class="{{ 'active' if view == 'stage_table' else '' }}">Stages</a>
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=list"     class="{{ 'active' if view == 'list' else '' }}">List</a>
     </div>
   </div>
 </div>
 {% endif %}
 
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     STAGE-TABLE VIEW (P7-03 / P7-04)
+══════════════════════════════════════════════════════════════════════════ -->
+{% if view == 'stage_table' %}
+{% if active_flow and stage_table_stages %}
+<div style="display:grid;grid-template-columns:220px 1fr;gap:0;border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden;background:var(--bg-card)">
+
+  <!-- Left: stage list with descriptions -->
+  <div style="border-right:1px solid var(--border-subtle);background:var(--bg-input);padding:12px 0;overflow-y:auto;max-height:70vh">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint);padding:0 14px;margin-bottom:8px">Flow Stages</div>
+    {% for s in stage_table_stages %}
+    {% set cnt = stage_ticket_counts.get(s.id, 0) %}
+    {% set is_sel = active_stage and active_stage.id == s.id %}
+    <a href="/fms/dashboard?flow_id={{ active_flow.id }}&view=stage_table&stage_id={{ s.id }}"
+       style="display:block;padding:8px 14px;text-decoration:none;transition:background .12s;
+              background:{{ 'rgba(255,255,255,0.06)' if is_sel else 'transparent' }};
+              border-left:3px solid {{ s.color or '#3b82f6' if is_sel else 'transparent' }}">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:8px;height:8px;border-radius:50%;background:{{ s.color or '#3b82f6' }};flex-shrink:0"></span>
+        <span style="flex:1;font-size:12px;font-weight:{{ '600' if is_sel else '500' }};color:{{ 'var(--text-strong)' if is_sel else 'var(--text-muted)' }}">{{ s.name }}</span>
+        {% if cnt %}<span style="font-size:10px;padding:1px 6px;border-radius:99px;background:{{ (s.color or '#3b82f6') + '28' }};color:var(--text-primary);flex-shrink:0">{{ cnt }}</span>{% endif %}
+        {% if s.is_terminal %}<span title="Terminal" style="font-size:9px;color:#6ee7b7;flex-shrink:0">✓</span>{% endif %}
+      </div>
+      {% if s.description %}
+      <div style="font-size:10px;color:{{ 'var(--text-faint)' if is_sel else '#374151' }};margin-top:3px;margin-left:16px;line-height:1.45">{{ s.description }}</div>
+      {% endif %}
+    </a>
+    {% if not loop.last %}<div style="margin:0 14px;border-top:1px solid var(--border-subtle);opacity:.4"></div>{% endif %}
+    {% endfor %}
+  </div>
+
+  <!-- Right: ticket table for selected stage -->
+  <div style="padding:16px;overflow-x:auto">
+    {% if active_stage %}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:14px;font-weight:600;color:var(--text-strong)">{{ active_stage.name }}</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px">
+          {{ stage_tickets|length }} ticket{{ 's' if stage_tickets|length != 1 }}
+          {% if active_stage.target_tat_hours %} · TaT target: {{ active_stage.target_tat_hours }}h{% endif %}
+          {% if active_stage.evidence_required %} · <span style="color:#fbbf24">📎 Evidence Required</span>{% endif %}
+        </div>
+      </div>
+      <!-- Inline filters -->
+      <form method="get" action="/fms/dashboard" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="hidden" name="flow_id" value="{{ active_flow.id }}">
+        <input type="hidden" name="view" value="stage_table">
+        <input type="hidden" name="stage_id" value="{{ active_stage.id }}">
+        <select name="f_priority" onchange="this.form.submit()"
+                style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--text-muted);outline:none">
+          <option value="">All Priorities</option>
+          {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+          <option {% if request.query_params.get('f_priority') == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+        <select name="f_assignee_id" onchange="this.form.submit()"
+                style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:4px 8px;font-size:11px;color:var(--text-muted);outline:none">
+          <option value="">All Assignees</option>
+          {% for emp in employees %}
+          <option value="{{ emp.id }}" {% if request.query_params.get('f_assignee_id') == emp.id %}selected{% endif %}>{{ emp.name }}</option>
+          {% endfor %}
+        </select>
+        {% if request.query_params.get('f_priority') or request.query_params.get('f_assignee_id') %}
+        <a href="/fms/dashboard?flow_id={{ active_flow.id }}&view=stage_table&stage_id={{ active_stage.id }}"
+           style="font-size:11px;color:#f87171;text-decoration:none">✕ Clear</a>
+        {% endif %}
+      </form>
+    </div>
+
+    {% if stage_tickets %}
+    <table class="list-table">
+      <thead>
+        <tr style="background:var(--bg-input)">
+          <th>ID</th><th>Title</th><th>Assignee</th><th>Priority</th><th>TaT</th><th>Due</th>
+          {# P7-04: dynamic sub-module columns #}
+          {% if active_stage.sub_module_tag == 'PMS' %}
+          <th>Target</th><th>Cumul. Qty</th><th>% Progress</th><th>Blockers</th><th>Last Entry</th>
+          {% elif active_stage.sub_module_tag == 'DISPATCH' %}
+          <th>Total Disp.</th><th>Remaining</th><th>Last Dispatch</th><th>POD Uploaded</th>
+          {% elif active_stage.sub_module_tag == 'INVOICE' %}
+          <th>Total Inv.</th><th>Received</th><th>Outstanding</th><th>Oldest Due</th>
+          {% endif %}
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in stage_tickets %}{% set t = row.ticket %}
+      <tr onclick="window.location='/fms/tickets/{{ t.id }}'" style="cursor:pointer">
+        <td>
+          <a href="/fms/tickets/{{ t.id }}" onclick="event.stopPropagation()"
+             style="font-family:monospace;font-size:11px;color:#60a5fa;text-decoration:none;font-weight:600">
+            {{ t.display_id or t.id[:8] }}
+          </a>
+        </td>
+        <td>
+          <div style="font-weight:600;font-size:12px;color:var(--text-primary)">
+            {{ t.title[:40] }}{% if t.title|length > 40 %}…{% endif %}
+            {% if t.is_flagged %} 🚩{% endif %}
+          </div>
+        </td>
+        <td style="font-size:12px;color:var(--text-muted)">{{ row.assignee_name }}</td>
+        <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
+        <td>
+          {% if row.tat_pct is not none %}
+          {% set tc = '#10b981' if row.tat_color == 'green' else ('#f59e0b' if row.tat_color == 'amber' else '#ef4444') %}
+          <div class="tat-mini"><div style="height:100%;border-radius:2px;width:{{ [row.tat_pct,100]|min }}%;background:{{ tc }}"></div></div>
+          <div style="font-size:10px;color:var(--text-faint);margin-top:2px">{{ row.tat_pct }}%</div>
+          {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
+        </td>
+        <td>
+          {% if t.due_at %}
+          <span style="font-size:12px;color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-muted){% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
+          {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
+        </td>
+        {# sub-module data columns #}
+        {% if active_stage.sub_module_tag == 'PMS' %}
+        {% set sub = row.sub %}
+        <td style="font-size:12px;color:var(--text-muted)">{{ sub.target_qty or '—' }}</td>
+        <td style="font-size:12px;color:var(--text-muted)">{{ sub.cum_qty or 0 }}</td>
+        <td>
+          {% if sub.pct is defined %}
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="width:60px;height:5px;background:var(--border-subtle);border-radius:3px;overflow:hidden">
+              <div style="height:100%;background:{% if sub.pct >= 80 %}#10b981{% elif sub.pct >= 40 %}#f59e0b{% else %}#ef4444{% endif %};width:{{ sub.pct }}%"></div>
+            </div>
+            <span style="font-size:11px;color:var(--text-muted)">{{ sub.pct }}%</span>
+          </div>
+          {% else %}—{% endif %}
+        </td>
+        <td><span style="font-size:11px;color:{% if sub.blockers %}#f87171{% else %}#6ee7b7{% endif %}">{{ 'Yes' if sub.blockers else 'No' }}</span></td>
+        <td style="font-size:11px;color:var(--text-faint)">{{ sub.last_entry.strftime('%d %b') if sub.last_entry else '—' }}</td>
+        {% elif active_stage.sub_module_tag == 'DISPATCH' %}
+        {% set sub = row.sub %}
+        <td style="font-size:12px;color:var(--text-muted)">{{ sub.total_dispatched or 0 }}</td>
+        <td style="font-size:12px;color:{% if (sub.remaining or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.remaining or 0 }}</td>
+        <td style="font-size:11px;color:var(--text-faint)">{{ sub.last_dispatch.strftime('%d %b') if sub.last_dispatch else '—' }}</td>
+        <td><span style="font-size:11px;color:{% if sub.pod_uploaded %}#6ee7b7{% else %}#f87171{% endif %}">{{ 'Yes' if sub.pod_uploaded else 'No' }}</span></td>
+        {% elif active_stage.sub_module_tag == 'INVOICE' %}
+        {% set sub = row.sub %}
+        <td style="font-size:12px;color:var(--text-muted)">{{ sub.total_invoiced|round(0)|int if sub.total_invoiced else 0 }}</td>
+        <td style="font-size:12px;color:#6ee7b7">{{ sub.total_received|round(0)|int if sub.total_received else 0 }}</td>
+        <td style="font-size:12px;color:{% if (sub.outstanding or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.outstanding|round(0)|int if sub.outstanding else 0 }}</td>
+        <td style="font-size:11px;color:{% if sub.oldest_due and sub.oldest_due < now.date() %}#f87171{% else %}var(--text-faint){% endif %}">{{ sub.oldest_due.strftime('%d %b') if sub.oldest_due else '—' }}</td>
+        {% endif %}
+        <td onclick="event.stopPropagation()">
+          {% if not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
+          <button onclick="openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ active_stage.evidence_required|lower }}','{{ active_stage.completion_note_required|lower }}')"
+                  class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px;white-space:nowrap">
+            ✓ Mark Done
+          </button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align:center;padding:50px 0;color:#374151">
+      <div style="font-size:28px;margin-bottom:8px">📭</div>
+      <div style="font-size:13px;color:var(--text-faint)">No tickets at this stage</div>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div style="text-align:center;padding:60px 0">
+  <div style="font-size:32px;margin-bottom:10px">📋</div>
+  <div style="font-size:14px;font-weight:500;color:var(--text-faint);margin-bottom:4px">No active flows deployed</div>
+  <div style="font-size:12px;color:#374151">Contact your OmniFlow account manager to get started.</div>
+</div>
+{% endif %}
+{% endif %}
 
 <!-- ══════════════════════════════════════════════════════════════════════════
      SWIMLANE VIEW
@@ -175,8 +352,8 @@ select option{background:#111827;color:#e2e8f0}
   {% set sc = stage.color or '#3b82f6' %}
   <div class="swim-col">
     <div class="swim-col-hdr" style="background:{{ sc }}16;border-left:3px solid {{ sc }};border-radius:8px 8px 0 0">
-      <span style="font-size:12px;font-weight:600;color:#f1f5f9">{{ stage.name }}</span>
-      <span style="font-size:10px;padding:2px 7px;border-radius:99px;background:{{ sc }}30;color:#e2e8f0">
+      <span style="font-size:12px;font-weight:600;color:var(--text-strong)">{{ stage.name }}</span>
+      <span style="font-size:10px;padding:2px 7px;border-radius:99px;background:{{ sc }}30;color:var(--text-primary)">
         {{ tickets_by_stage.get(stage.id, [])|length }}
       </span>
     </div>
@@ -210,7 +387,7 @@ select option{background:#111827;color:#e2e8f0}
         </div>
         {% endif %}
         {% if t.due_at %}
-        <div style="font-size:10px;margin-top:3px;color:{% if t.due_at < now %}#f87171{% else %}#64748b{% endif %}">
+        <div style="font-size:10px;margin-top:3px;color:{% if t.due_at < now %}#f87171{% else %}var(--text-faint){% endif %}">
           Due {{ t.due_at.strftime('%d %b') }}
         </div>
         {% endif %}
@@ -226,14 +403,14 @@ select option{background:#111827;color:#e2e8f0}
 {% else %}
 <div style="text-align:center;padding:60px 0">
   <div style="font-size:32px;margin-bottom:10px">⚙</div>
-  <div style="font-size:14px;font-weight:500;color:#64748b;margin-bottom:4px">No stages configured for this flow</div>
+  <div style="font-size:14px;font-weight:500;color:var(--text-faint);margin-bottom:4px">No stages configured for this flow</div>
   <div style="font-size:12px;color:#374151">Contact your OmniFlow account manager to set up stages.</div>
 </div>
 {% endif %}
 {% else %}
 <div style="text-align:center;padding:60px 0">
   <div style="font-size:32px;margin-bottom:10px">📋</div>
-  <div style="font-size:14px;font-weight:500;color:#64748b;margin-bottom:4px">No active flows deployed</div>
+  <div style="font-size:14px;font-weight:500;color:var(--text-faint);margin-bottom:4px">No active flows deployed</div>
   <div style="font-size:12px;color:#374151">Contact your OmniFlow account manager to get started.</div>
 </div>
 {% endif %}
@@ -249,7 +426,7 @@ select option{background:#111827;color:#e2e8f0}
   {% if active_flow %}<input type="hidden" name="flow_id" value="{{ active_flow.id }}">{% endif %}
   {% if departments %}
   <div class="filter-group">
-    <label>Department</label>
+    <label>{{ L.Department }}</label>
     <select name="dept_id">
       <option value="">All Departments</option>
       {% for d in departments %}<option value="{{ d.id }}" {{ 'selected' if f_dept_id == d.id }}>{{ d.name }}</option>{% endfor %}
@@ -295,31 +472,52 @@ select option{background:#111827;color:#e2e8f0}
   </div>
 </form>
 
-<div style="font-size:11px;color:#64748b;margin-bottom:10px">{{ list_tickets|length }} ticket{{ 's' if list_tickets|length != 1 }}</div>
+<div style="font-size:11px;color:var(--text-faint);margin-bottom:10px">{{ list_tickets|length }} ticket{{ 's' if list_tickets|length != 1 }}</div>
 
 {% if list_tickets %}
+<!-- FMS bulk bar -->
+{% if user.role in ('ADMIN','MANAGER') %}
+<div id="fms-bulk-bar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:12px;padding:10px 18px;z-index:300;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);white-space:nowrap">
+  <span id="fms-bulk-count" style="font-size:12px;font-weight:600;color:var(--text-muted)">0 selected</span>
+  <button type="button" onclick="submitFmsBulk('send_back')" class="btn btn-xs btn-outline">← Send Back All</button>
+  <button type="button" onclick="submitFmsBulk('close')"     class="btn btn-xs btn-gray">Close All</button>
+  <button type="button" onclick="clearFmsSelection()"        class="btn btn-xs" style="color:var(--text-faint)">✕ Cancel</button>
+</div>
+{% endif %}
+
+<form id="fms-bulk-form" method="post" action="/fms/tickets/bulk-action">
+<input type="hidden" name="action" id="fms-bulk-action-val">
 <div class="card" style="padding:0;overflow:hidden">
   <div style="overflow-x:auto">
     <table class="list-table">
-      <thead><tr style="background:#0d1424">
+      <thead><tr style="background:var(--bg-input)">
+        {% if user.role in ('ADMIN','MANAGER') %}
+        <th style="width:32px"><input type="checkbox" id="fms-chk-all" onclick="toggleAllFms(this)" title="Select all"></th>
+        {% endif %}
         <th>ID</th><th>Title</th><th>Flow</th><th>Stage</th>
         <th>Assignee</th><th>Priority</th><th>Status</th><th>TaT</th><th>Days Open</th><th>Due</th>
+        {% if user.role in ('ADMIN','MANAGER') %}<th style="text-align:center">Actions</th>{% endif %}
       </tr></thead>
       <tbody>
         {% for row in list_tickets %}{% set t = row.ticket %}
         <tr onclick="location.href='/fms/tickets/{{ t.id }}'">
+          {% if user.role in ('ADMIN','MANAGER') %}
+          <td onclick="event.stopPropagation()">
+            <input type="checkbox" name="ticket_ids" value="{{ t.id }}" class="fms-chk" onchange="updateFmsBulkBar()">
+          </td>
+          {% endif %}
           <td><span style="font-family:monospace;font-size:11px;color:#60a5fa">{{ t.display_id or t.id[:8] }}</span></td>
           <td>
-            <div style="font-weight:600;font-size:12px;color:#e2e8f0">{{ t.title[:44] }}{% if t.title|length > 44 %}…{% endif %}</div>
-            {% if t.wo_number %}<div style="font-size:10px;color:#64748b">{{ t.wo_number }}</div>{% endif %}
+            <div style="font-weight:600;font-size:12px;color:var(--text-primary)">{{ t.title[:44] }}{% if t.title|length > 44 %}…{% endif %}</div>
+            {% if t.wo_number %}<div style="font-size:10px;color:var(--text-faint)">{{ t.wo_number }}</div>{% endif %}
           </td>
           <td><span style="display:inline-flex;align-items:center;gap:5px">
             <span style="width:7px;height:7px;border-radius:50%;background:{{ row.flow_color }}"></span>
-            <span style="color:#94a3b8;font-size:11px">{{ row.flow_name }}</span>
+            <span style="color:var(--text-muted);font-size:11px">{{ row.flow_name }}</span>
           </span></td>
           <td>
-            <div style="font-size:12px;color:#e2e8f0">{{ row.stage_name }}</div>
-            {% if row.stage_entered_at %}<div style="font-size:10px;color:#64748b">since {{ row.stage_entered_at.strftime('%d %b') }}</div>{% endif %}
+            <div style="font-size:12px;color:var(--text-primary)">{{ row.stage_name }}</div>
+            {% if row.stage_entered_at %}<div style="font-size:10px;color:var(--text-faint)">since {{ row.stage_entered_at.strftime('%d %b') }}</div>{% endif %}
           </td>
           <td style="font-size:12px">{{ row.assignee_name }}</td>
           <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
@@ -328,24 +526,61 @@ select option{background:#111827;color:#e2e8f0}
             {% if row.tat_pct is not none %}
             {% set tc = '#10b981' if row.tat_color == 'green' else ('#f59e0b' if row.tat_color == 'amber' else '#ef4444') %}
             <div class="tat-mini"><div style="height:100%;border-radius:2px;width:{{ [row.tat_pct,100]|min }}%;background:{{ tc }}"></div></div>
-            <div style="font-size:10px;color:#64748b;margin-top:2px">{{ row.tat_pct }}%</div>
+            <div style="font-size:10px;color:var(--text-faint);margin-top:2px">{{ row.tat_pct }}%</div>
             {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
           </td>
-          <td><span style="font-size:12px;color:{% if row.days_open > 7 %}#f87171{% else %}#64748b{% endif %}">{{ row.days_open }}d</span></td>
+          <td><span style="font-size:12px;color:{% if row.days_open > 7 %}#f87171{% else %}var(--text-faint){% endif %}">{{ row.days_open }}d</span></td>
           <td>
             {% if t.due_at %}
-            <span style="font-size:12px;color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}#94a3b8{% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
+            <span style="font-size:12px;color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-muted){% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
             {% else %}<span style="color:#374151;font-size:11px">—</span>{% endif %}
           </td>
+          {% if user.role in ('ADMIN','MANAGER') %}
+          <td onclick="event.stopPropagation()" style="text-align:center;white-space:nowrap">
+            {% if row.prev_stage_id and t.status not in ('COMPLETED','CLOSED') %}
+            <button type="button" onclick="openFmsSendBack('{{ t.id }}','{{ row.prev_stage_id }}','{{ row.prev_stage_name }}')"
+                    class="btn btn-xs btn-outline">← {{ row.prev_stage_name }}</button>
+            {% endif %}
+            {% if t.status not in ('COMPLETED','CLOSED') %}
+            <a href="/fms/tickets/{{ t.id }}" class="btn btn-xs btn-gray" style="text-decoration:none;margin-left:4px">Open →</a>
+            {% endif %}
+          </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+</form>
+
+<!-- FMS Send-Back reason modal -->
+{% if user.role in ('ADMIN','MANAGER') %}
+<div id="fms-sendback-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);z-index:400;align-items:center;justify-content:center">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:12px;padding:24px;width:420px;max-width:95vw">
+    <div style="font-size:14px;font-weight:600;color:var(--text-strong);margin-bottom:4px">Send Back to Previous Stage</div>
+    <div id="fms-sendback-target" style="font-size:12px;color:var(--text-faint);margin-bottom:14px"></div>
+    <form id="fms-sendback-form" method="post">
+      <input type="hidden" name="next_stage_id" id="fms-sendback-stage-id">
+      <input type="hidden" name="direction" value="BACKWARD">
+      <input type="hidden" name="new_assignee_id" value="">
+      <div class="form-group" style="margin-bottom:14px">
+        <label style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:6px">Reason for returning <span style="color:#f87171">*</span></label>
+        <textarea name="return_reason" id="fms-sendback-reason" required rows="3"
+                  style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 12px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
+                  placeholder="Explain why this ticket is being sent back…"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="closeFmsSendBack()" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Send Back</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 {% else %}
 <div style="text-align:center;padding:50px 0;color:#374151">
-  <div style="font-size:14px;color:#64748b;margin-bottom:4px">No tickets match the selected filters</div>
+  <div style="font-size:14px;color:var(--text-faint);margin-bottom:4px">No tickets match the selected filters</div>
 </div>
 {% endif %}
 {% endif %}
@@ -353,17 +588,17 @@ select option{background:#111827;color:#e2e8f0}
 
 <!-- ── Escalations panel ──────────────────────────────────────────────────── -->
 {% if flagged_tickets and user.role in ('ADMIN','MANAGER') %}
-<div style="background:#111827;border:1px solid rgba(239,68,68,0.25);border-radius:10px;margin-top:20px">
+<div style="background:var(--bg-card);border:1px solid rgba(239,68,68,0.25);border-radius:10px;margin-top:20px">
   <div style="padding:10px 16px;border-bottom:1px solid rgba(239,68,68,0.15);font-size:12px;font-weight:600;color:#fca5a5">
     🚩 Escalations — {{ flagged_tickets|length }} Flagged Ticket{{ 's' if flagged_tickets|length != 1 }}
   </div>
   {% for t in flagged_tickets %}
-  <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.04)">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border-subtle)">
     <div>
-      <a href="/fms/tickets/{{ t.id }}" style="font-size:13px;font-weight:600;color:#e2e8f0">{{ t.title[:50] }}</a>
-      {% if t.flagged_reason %}<div style="font-size:11px;color:#64748b;margin-top:2px">{{ t.flagged_reason[:80] }}</div>{% endif %}
+      <a href="/fms/tickets/{{ t.id }}" style="font-size:13px;font-weight:600;color:var(--text-primary)">{{ t.title[:50] }}</a>
+      {% if t.flagged_reason %}<div style="font-size:11px;color:var(--text-faint);margin-top:2px">{{ t.flagged_reason[:80] }}</div>{% endif %}
     </div>
-    <span style="font-size:11px;color:#64748b;background:#1e293b;padding:2px 8px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-left:12px">
+    <span style="font-size:11px;color:var(--text-faint);background:var(--bg-elevated);padding:2px 8px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-left:12px">
       {{ t.current_stage.name if t.current_stage else '—' }}
     </span>
   </div>
@@ -403,7 +638,7 @@ select option{background:#111827;color:#e2e8f0}
               <span class="flow-dot" style="background:{{ f.color }}"></span>
               <span style="flex:1">{{ f.name }}</span>
               {% if f.description %}
-              <span style="font-size:9px;color:#475569">ℹ</span>
+              <span style="font-size:9px;color:var(--text-xfaint)">ℹ</span>
               {% endif %}
             </button>
             {% endfor %}
@@ -413,8 +648,8 @@ select option{background:#111827;color:#e2e8f0}
 
         <!-- Flow info box -->
         <div class="flow-info-box" id="flowInfoBox">
-          <div id="flowInfoName" style="font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:4px"></div>
-          <div id="flowInfoDesc" style="font-size:11px;color:#64748b;margin-bottom:8px;line-height:1.5"></div>
+          <div id="flowInfoName" style="font-size:13px;font-weight:700;color:var(--text-strong);margin-bottom:4px"></div>
+          <div id="flowInfoDesc" style="font-size:11px;color:var(--text-faint);margin-bottom:8px;line-height:1.5"></div>
           <div class="fml-label" style="margin-bottom:4px">Stage Pipeline</div>
           <div class="flow-pipeline" id="flowPipeline"></div>
         </div>
@@ -432,7 +667,7 @@ select option{background:#111827;color:#e2e8f0}
       <div class="fmr">
         <div id="noFlowMsg" style="text-align:center;padding:40px 0;color:#374151">
           <div style="font-size:24px;margin-bottom:8px">←</div>
-          <div style="font-size:13px;color:#64748b">Select a workflow to continue</div>
+          <div style="font-size:13px;color:var(--text-faint)">Select a workflow to continue</div>
         </div>
 
         <div id="ticketFields" style="display:none">
@@ -449,10 +684,6 @@ select option{background:#111827;color:#e2e8f0}
 
           <div class="fmr-grid2">
             <div class="fm-group" style="margin-bottom:0">
-              <label>WO / PO Number</label>
-              <input type="text" name="wo_number" placeholder="e.g. WO-4521">
-            </div>
-            <div class="fm-group" style="margin-bottom:0">
               <label>Priority</label>
               <select name="priority">
                 <option value="LOW">LOW</option>
@@ -460,19 +691,6 @@ select option{background:#111827;color:#e2e8f0}
                 <option value="HIGH">HIGH</option>
                 <option value="CRITICAL">CRITICAL</option>
               </select>
-            </div>
-          </div>
-
-          <div style="height:12px"></div>
-
-          <div class="fmr-grid3">
-            <div class="fm-group" style="margin-bottom:0">
-              <label>Target Qty</label>
-              <input type="number" name="target_qty" min="0" placeholder="100">
-            </div>
-            <div class="fm-group" style="margin-bottom:0">
-              <label>Unit</label>
-              <input type="text" name="qty_unit" placeholder="pcs / kg / m">
             </div>
             <div class="fm-group" style="margin-bottom:0">
               <label>Due Date</label>
@@ -494,8 +712,60 @@ select option{background:#111827;color:#e2e8f0}
             </select>
           </div>
 
+          <!-- Linked entities -->
+          {% if entity_options %}
+          <div style="height:14px"></div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint);margin-bottom:8px">🔗 Linked Records <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+          {% if entity_options.get('CUSTOMER') %}
+          <div class="fm-group" style="margin-bottom:10px">
+            <label>Customer</label>
+            <select name="linked_customer">
+              <option value="">— None —</option>
+              {% for opt in entity_options['CUSTOMER'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          {% if entity_options.get('VENDOR') %}
+          <div class="fm-group" style="margin-bottom:10px">
+            <label>Vendor</label>
+            <select name="linked_vendor">
+              <option value="">— None —</option>
+              {% for opt in entity_options['VENDOR'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          {% if entity_options.get('END_PRODUCT') %}
+          <div class="fm-group" style="margin-bottom:10px">
+            <label>End Product</label>
+            <select name="linked_end_product">
+              <option value="">— None —</option>
+              {% for opt in entity_options['END_PRODUCT'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          {% if entity_options.get('MATERIAL') %}
+          <div class="fm-group" style="margin-bottom:10px">
+            <label>Raw Material</label>
+            <select name="linked_material">
+              <option value="">— None —</option>
+              {% for opt in entity_options['MATERIAL'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          {% for key, items in entity_options.items() %}{% if key.startswith('CUSTOM_LIST:') %}
+          {% set parts = key.split(':') %}
+          <div class="fm-group" style="margin-bottom:10px">
+            <label>{{ parts[2] }}</label>
+            <select name="linked_custom_{{ parts[1] }}">
+              <option value="">— None —</option>
+              {% for opt in items %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endif %}{% endfor %}
+          {% endif %}
+
           <!-- Stage hint -->
-          <div id="stageHint" style="display:none;margin-top:10px;padding:8px 12px;background:#0d1424;border:1px solid rgba(255,255,255,.08);border-radius:7px;font-size:11px;color:#64748b;line-height:1.6"></div>
+          <div id="stageHint" style="display:none;margin-top:10px;padding:8px 12px;background:var(--bg-input);border:1px solid rgba(255,255,255,.08);border-radius:7px;font-size:11px;color:var(--text-faint);line-height:1.6"></div>
 
         </div>
       </div>
@@ -511,6 +781,91 @@ select option{background:#111827;color:#e2e8f0}
 </div>
 {% endif %}
 
+
+<!-- ── P7-05: Mark Stage Complete modal ──────────────────────────────────── -->
+<div id="stageCompleteModal" class="fms-modal-overlay" onclick="if(event.target===this)closeSCModal()">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;width:420px;max-width:95vw;padding:24px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)" id="scModalTitle">Mark Stage Complete</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="scModalSubtitle"></div>
+      </div>
+      <button class="fms-modal-close" onclick="closeSCModal()">✕</button>
+    </div>
+    <form id="scForm" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="is_override" value="false">
+
+      <!-- Next stage selector (auto-populated) -->
+      <div class="fm-group" id="scNextStageGroup">
+        <label>Move to Next Stage</label>
+        <select name="next_stage_id" id="scNextStageId" required
+                style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none">
+        </select>
+      </div>
+
+      <!-- Assignee for next stage -->
+      <div class="fm-group">
+        <label>Assign to (next stage)</label>
+        <select name="new_assignee_id" id="scAssignee" required
+                style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none">
+          <option value="">— select assignee —</option>
+          {% for emp in employees %}
+          <option value="{{ emp.id }}">{{ emp.name }} · {{ emp.role }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Completion note -->
+      <div class="fm-group" id="scNoteGroup">
+        <label id="scNoteLabel">Completion Note</label>
+        <textarea name="completion_note" id="scNote" rows="2"
+                  style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical"></textarea>
+      </div>
+
+      <!-- Evidence upload (shown when evidence_required) -->
+      <div class="fm-group" id="scEvidenceGroup" style="display:none">
+        <label>Evidence File <span style="color:#f87171">*</span></label>
+        <input type="file" name="evidence_file" id="scEvidenceFile"
+               accept="image/*,.pdf,.doc,.docx"
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
+      </div>
+
+      <input type="hidden" name="qty_completed" value="0">
+      <input type="hidden" name="return_reason" value="">
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="closeSCModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">✓ Complete Stage →</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── P7-07: Bulk upload modal ──────────────────────────────────────────── -->
+{% if user.role in ('ADMIN','MANAGER') %}
+<div id="fms-bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;z-index:300">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:440px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Bulk Upload FMS Tickets</h3>
+      <button onclick="hide('fms-bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint)">×</button>
+    </div>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
+      Upload CSV to create multiple FMS tickets at once.
+      <a href="/fms/tickets/bulk-template" style="color:#3b82f6;text-decoration:none">Download template →</a>
+    </p>
+    <form method="post" action="/fms/tickets/bulk-upload" enctype="multipart/form-data">
+      <div style="margin-bottom:16px">
+        <input type="file" name="file" accept=".csv" required
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);box-sizing:border-box">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="hide('fms-bulk-modal')" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload & Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 <!-- ── Drag-drop script ────────────────────────────────────────────────────── -->
 {% if can_drag and view == 'swimlane' %}
@@ -620,7 +975,7 @@ function selectFlow(fid) {
     const chip = document.createElement('div');
     chip.className = 'pip-step';
     chip.innerHTML = `
-      <span class="pip-chip" style="background:${s.color}22;border:1px solid ${s.color}44;color:#e2e8f0">
+      <span class="pip-chip" style="background:${s.color}22;border:1px solid ${s.color}44;color:var(--text-primary)">
         ${s.name}${s.is_terminal ? ' ✓' : ''}
       </span>
       ${i < f.stages.length - 1 ? '<span class="pip-arrow">›</span>' : ''}
@@ -643,13 +998,15 @@ function selectFlow(fid) {
       btn.setAttribute('data-stage-id', s.id);
       btn.setAttribute('data-assignee', s.default_assignee_id || '');
       btn.setAttribute('data-tat', s.target_tat_hours || '');
-      btn.setAttribute('data-sub', s.sub_module_tag || '');
       btn.setAttribute('data-note', s.completion_note_required ? '1' : '0');
+      btn.setAttribute('data-desc', s.description || '');
       btn.innerHTML = `
-        <span class="stage-num" style="background:${s.color}33;color:#e2e8f0">${s.order + 1}</span>
-        <span style="flex:1;font-weight:500">${s.name}</span>
-        ${s.sub_module_tag ? `<span class="stage-tag">${SM_LABELS[s.sub_module_tag] || s.sub_module_tag}</span>` : ''}
-        ${s.is_terminal ? '<span style="font-size:9px;color:#6ee7b7;margin-left:auto">terminal</span>' : ''}
+        <span class="stage-num" style="background:${s.color}33;color:var(--text-primary)">${s.order + 1}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500">${s.name}</div>
+          ${s.description ? `<div style="font-size:10px;color:var(--text-faint);margin-top:2px;line-height:1.4;white-space:normal">${s.description}</div>` : ''}
+        </div>
+        ${s.is_terminal ? '<span style="font-size:9px;color:#6ee7b7;flex-shrink:0">terminal</span>' : ''}
       `;
       btn.onclick = () => selectStage(s.id, s.color);
       stageList.appendChild(btn);
@@ -691,11 +1048,9 @@ function selectStage(sid, color) {
     // Stage hint
     const hint = document.getElementById('stageHint');
     const parts = [];
-    const tat = btn.getAttribute('data-tat');
-    const sub = btn.getAttribute('data-sub');
+    const tat  = btn.getAttribute('data-tat');
     const note = btn.getAttribute('data-note');
-    if (tat)        parts.push(`⏱ TaT target: <strong style="color:#e2e8f0">${tat}h</strong>`);
-    if (sub)        parts.push(`🔧 Sub-module: <strong style="color:#c4b5fd">${SM_LABELS[sub] || sub}</strong>`);
+    if (tat)        parts.push(`⏱ TaT target: <strong style="color:var(--text-primary)">${tat}h</strong>`);
     if (note==='1') parts.push(`📝 Completion note required`);
     if (parts.length) { hint.innerHTML = parts.join(' &nbsp;·&nbsp; '); hint.style.display=''; }
     else hint.style.display = 'none';
@@ -709,5 +1064,123 @@ function checkReady() {
 }
 </script>
 {% endif %}
+
+<!-- ── Stage-complete + utility JS ──────────────────────────────────────── -->
+<script>
+function show(id){ document.getElementById(id).style.display='flex'; }
+function hide(id){ document.getElementById(id).style.display='none'; }
+function toggleForm(id){
+  var el=document.getElementById(id);
+  el.style.display=(el.style.display==='none'||el.style.display==='')?'block':'none';
+}
+
+const NEXT_STAGE_MAP = {
+  {% for sid, ns in next_stage_map.items() %}
+  "{{ sid }}": { id: "{{ ns.id }}", name: {{ ns.name | tojson }} }{% if not loop.last %},{% endif %}
+  {% endfor %}
+};
+
+function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired, noteRequired) {
+  var modal = document.getElementById('stageCompleteModal');
+  var form  = document.getElementById('scForm');
+  form.action = '/fms/tickets/' + ticketId + '/transition';
+
+  document.getElementById('scModalTitle').textContent = 'Mark Stage Complete';
+  document.getElementById('scModalSubtitle').textContent = displayId + ' — ' + stageName;
+
+  var activeStageId = "{{ active_stage.id if active_stage else '' }}";
+  var ns = NEXT_STAGE_MAP[activeStageId];
+  var sel = document.getElementById('scNextStageId');
+  sel.innerHTML = '';
+  if (ns) {
+    var opt = document.createElement('option');
+    opt.value = ns.id;
+    opt.textContent = ns.name;
+    sel.appendChild(opt);
+  } else {
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '(terminal — will complete ticket)';
+    sel.appendChild(opt);
+  }
+
+  var noteLabel = document.getElementById('scNoteLabel');
+  var noteEl    = document.getElementById('scNote');
+  if (noteRequired === 'true') {
+    noteLabel.innerHTML = 'Completion Note <span style="color:#f87171">*</span>';
+    noteEl.required = true;
+  } else {
+    noteLabel.textContent = 'Completion Note (optional)';
+    noteEl.required = false;
+  }
+  noteEl.value = '';
+
+  var evGroup = document.getElementById('scEvidenceGroup');
+  var evFile  = document.getElementById('scEvidenceFile');
+  if (evidenceRequired === 'true') {
+    evGroup.style.display = '';
+    evFile.required = true;
+  } else {
+    evGroup.style.display = 'none';
+    evFile.required = false;
+  }
+
+  modal.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSCModal() {
+  document.getElementById('stageCompleteModal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeSCModal(); });
+</script>
+
+<script>
+/* FMS list view — bulk selection */
+function updateFmsBulkBar() {
+  const checked = document.querySelectorAll('.fms-chk:checked');
+  const bar = document.getElementById('fms-bulk-bar');
+  const countEl = document.getElementById('fms-bulk-count');
+  if (!bar) return;
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    countEl.textContent = checked.length + ' selected';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+function toggleAllFms(master) {
+  document.querySelectorAll('.fms-chk').forEach(c => c.checked = master.checked);
+  updateFmsBulkBar();
+}
+function submitFmsBulk(action) {
+  const checked = document.querySelectorAll('.fms-chk:checked');
+  if (!checked.length) return;
+  document.getElementById('fms-bulk-action-val').value = action;
+  document.getElementById('fms-bulk-form').submit();
+}
+function clearFmsSelection() {
+  document.querySelectorAll('.fms-chk').forEach(c => c.checked = false);
+  const master = document.getElementById('fms-chk-all');
+  if (master) master.checked = false;
+  updateFmsBulkBar();
+}
+
+/* FMS individual send-back modal */
+function openFmsSendBack(ticketId, stageId, stageName) {
+  document.getElementById('fms-sendback-form').action = '/fms/tickets/' + ticketId + '/transition';
+  document.getElementById('fms-sendback-stage-id').value = stageId;
+  document.getElementById('fms-sendback-target').textContent = '→ ' + stageName;
+  document.getElementById('fms-sendback-reason').value = '';
+  document.getElementById('fms-sendback-modal').style.display = 'flex';
+}
+function closeFmsSendBack() {
+  document.getElementById('fms-sendback-modal').style.display = 'none';
+}
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') closeFmsSendBack();
+});
+</script>
 
 {% endblock %}

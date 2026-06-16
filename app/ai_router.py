@@ -1,5 +1,6 @@
 """
 Phase 5 — AI Assistant Router
+
 Endpoint: /ai  (Admin + Manager only)
 
 Architecture
@@ -9,13 +10,14 @@ POST /ai/ask      → SSE streaming response from Claude
 GET  /ai/context  → JSON debug endpoint (SA / Admin only) — shows what data
                     the AI sees, so admins can trust the answers
 
-Claude model: claude-3-5-haiku-20241022  (fast, cheap, accurate for structured data)
+Claude model: claude-haiku-4-5  (fast, cheap, accurate for structured data)
 Streaming: Server-Sent Events (SSE) — response appears word-by-word in the browser
 Context: built fresh per query from live DB snapshot via ai_context.build_context()
 """
+
 import os, json, time, logging
-from datetime import datetime, date
-from typing import AsyncGenerator
+from datetime import datetime, date, timedelta
+from typing import AsyncGenerator, Optional
 
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
@@ -24,7 +26,10 @@ from sqlalchemy.orm import Session
 
 import anthropic
 
-from .database import get_db, User, Tenant, TenantAIUsage
+from .database import (
+    get_db, User, Tenant, TenantAIUsage,
+    Ticket, ChecklistAssignment, ChecklistTemplate,
+)
 from .auth import get_current_user
 from .labels import get_labels
 from .constants import has_feature, get_limit
@@ -37,8 +42,11 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 router = APIRouter(prefix="/ai", tags=["AI"])
 
+
 # ── Anthropic client (lazy-init so missing key = graceful error) ───────────────
+
 _client: anthropic.Anthropic | None = None
+
 
 def _get_client() -> anthropic.Anthropic:
     global _client
@@ -50,11 +58,14 @@ def _get_client() -> anthropic.Anthropic:
         _client = anthropic.Anthropic(api_key=api_key)
     return _client
 
+
 # ── Access guard ───────────────────────────────────────────────────────────────
+
 def _require_ai_access(user: User = Depends(get_current_user)) -> User:
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(403, "AI Assistant is available to Admins and Managers only.")
     return user
+
 
 def _unread(db, user):
     from .database import Notification
@@ -63,13 +74,16 @@ def _unread(db, user):
         Notification.is_read == False,
     ).count()
 
+
 def _ctx(request, user, db, **kw):
     L = get_labels(db, user.tenant_id)
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     return {
         "request": request, "user": user, "L": L,
         "unread": _unread(db, user),
-        "has_inventory": has_feature(tenant, "INVENTORY", db) if tenant else False,
+        "has_inventory":  has_feature(tenant, "INVENTORY",  db) if tenant else False,
+        "has_fms":        has_feature(tenant, "FMS",        db) if tenant else False,
+        "has_checklists": has_feature(tenant, "CHECKLISTS", db) if tenant else False,
         **kw,
     }
 
@@ -112,7 +126,45 @@ def _increment_usage(db: Session, tenant_id: str) -> None:
     db.commit()
 
 
-# ── System prompt ──────────────────────────────────────────────────────────────
+# ── System prompts ─────────────────────────────────────────────────────────────
+
+REPORT_SYSTEM_PROMPT = """\
+You are the AI business intelligence assistant inside OmniFlow.
+Generate a structured JSON report based on the data snapshot provided.
+
+RULES:
+1. Base every finding strictly on the DATA SNAPSHOT. Never invent numbers.
+2. Be specific and data-backed — no generic advice.
+3. Output ONLY valid JSON. No preamble, no code blocks, no other text.
+4. Array items should be complete sentences (15–40 words each).
+5. key_metrics must include exactly 5 entries with real numbers from the data.
+
+REQUIRED JSON SCHEMA:
+{
+  "executive_summary": "string (3-5 sentences covering the period)",
+  "working_well": ["string", "string", "string"],
+  "needs_attention": ["string", "string", "string"],
+  "where_to_focus": ["string", "string", "string"],
+  "key_metrics": [
+    {"metric": "string", "value": "string"},
+    {"metric": "string", "value": "string"},
+    {"metric": "string", "value": "string"},
+    {"metric": "string", "value": "string"},
+    {"metric": "string", "value": "string"}
+  ]
+}
+
+For the Employees section ALSO include (in addition to all above):
+{
+  "employee_highlights": {
+    "top": [{"name": "string", "metric": "string"}, ...],
+    "bottom": [{"name": "string", "metric": "string"}, ...],
+    "patterns": "string",
+    "recommendation": "string"
+  }
+}
+"""
+
 
 SYSTEM_PROMPT = """\
 You are the AI business intelligence assistant embedded inside OmniFlow — \
@@ -140,6 +192,205 @@ RULES
 
 # ── Pages ──────────────────────────────────────────────────────────────────────
 
+def _active_sections(db: Session, tenant_id: str) -> list:
+    """Return the report sections available for this tenant based on active data."""
+    sections = [("Overall", "Overall summary across all modules")]
+    if db.query(Ticket).filter(Ticket.tenant_id == tenant_id).first():
+        sections.append(("Delegation", "Ticket delegation & closure performance"))
+    if db.query(ChecklistTemplate).filter(
+        ChecklistTemplate.tenant_id == tenant_id, ChecklistTemplate.is_deleted == False,
+    ).first():
+        sections.append(("Checklists", "Checklist compliance & completion rates"))
+    try:
+        from .database import FMSFlow
+        if db.query(FMSFlow).filter(
+            FMSFlow.tenant_id == tenant_id, FMSFlow.is_deleted == False,
+        ).first():
+            sections.append(("FMS", "Flow Management System performance"))
+    except Exception:
+        pass
+    sections.append(("Employees", "Per-employee performance & team health"))
+    return sections
+
+
+def _report_data_snapshot(db: Session, tenant_id: str, section: str,
+                           since: datetime, L: dict) -> str:
+    """Build a focused data snapshot for the report prompt."""
+    now = datetime.utcnow()
+    days = (now - since).days
+
+    def pct(p, t):
+        return f"{round(p / t * 100)}%" if t else "N/A"
+
+    lines = [f"# {section} Report — Period: last {days} days ({since.date()} to {now.date()})"]
+
+    # Organisation baseline
+    all_users = db.query(User).filter(
+        User.tenant_id == tenant_id, User.is_deleted == False,
+    ).all()
+    active_users = [u for u in all_users if u.is_active]
+    lines += [
+        "## Organisation",
+        f"- Total employees: {len(all_users)}, Active: {len(active_users)}",
+    ]
+
+    # Delegation / Tickets
+    if section in ("Overall", "Delegation"):
+        total_t = db.query(Ticket).filter(
+            Ticket.tenant_id == tenant_id, Ticket.is_deleted == False,
+            Ticket.created_at >= since,
+        ).count()
+        open_t = db.query(Ticket).filter(
+            Ticket.tenant_id == tenant_id, Ticket.is_deleted == False,
+            Ticket.status.in_(["OPEN", "ACKNOWLEDGED", "IN_PROGRESS"]),
+        ).count()
+        closed_t = db.query(Ticket).filter(
+            Ticket.tenant_id == tenant_id, Ticket.is_deleted == False,
+            Ticket.created_at >= since,
+            Ticket.status.in_(["DONE", "CLOSED"]),
+        ).count()
+        overdue_t = db.query(Ticket).filter(
+            Ticket.tenant_id == tenant_id, Ticket.is_deleted == False,
+            Ticket.status.notin_(["DONE", "CLOSED"]),
+            Ticket.due_at != None,
+            Ticket.due_at < now,
+        ).count()
+        lines += [
+            "## Delegation (Tickets)",
+            f"- Created in period: {total_t}",
+            f"- Currently open: {open_t}",
+            f"- Closed in period: {closed_t} ({pct(closed_t, total_t)} of created)",
+            f"- Overdue (open past due date): {overdue_t}",
+        ]
+        try:
+            from .analytics import get_all_employee_kpis
+            emp_kpis = get_all_employee_kpis(db, tenant_id)
+            if emp_kpis:
+                lines.append("## Per-Employee Ticket Performance")
+                for kpi in sorted(emp_kpis, key=lambda x: -x["closed_30d"])[:12]:
+                    lines.append(
+                        f"  - {kpi['user'].name}: closed={kpi['closed_30d']}, "
+                        f"on_time_rate={kpi['on_time_rate']}%, "
+                        f"avg_tat={kpi['avg_tat_hours']}h, active={kpi['active_count']}"
+                    )
+        except Exception:
+            pass
+
+    # Checklists
+    if section in ("Overall", "Checklists"):
+        cl_total = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tenant_id,
+            ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.created_at >= since,
+        ).count()
+        cl_done = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tenant_id,
+            ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.created_at >= since,
+            ChecklistAssignment.status == "DONE",
+        ).count()
+        cl_overdue = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tenant_id,
+            ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.status == "OVERDUE",
+        ).count()
+        cl_pending = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tenant_id,
+            ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+        ).count()
+        lines += [
+            "## Checklists",
+            f"- Assigned in period: {cl_total}",
+            f"- Completed: {cl_done} ({pct(cl_done, cl_total)})",
+            f"- Overdue: {cl_overdue}",
+            f"- Still pending / in-progress: {cl_pending}",
+        ]
+
+    # FMS
+    if section in ("Overall", "FMS"):
+        try:
+            from .database import FMSTicket, FMSFlow
+            fms_total = db.query(FMSTicket).filter(
+                FMSTicket.tenant_id == tenant_id, FMSTicket.is_deleted == False,
+                FMSTicket.created_at >= since,
+            ).count()
+            fms_done = db.query(FMSTicket).filter(
+                FMSTicket.tenant_id == tenant_id, FMSTicket.is_deleted == False,
+                FMSTicket.created_at >= since,
+                FMSTicket.status.in_(["COMPLETED", "CLOSED"]),
+            ).count()
+            fms_open = db.query(FMSTicket).filter(
+                FMSTicket.tenant_id == tenant_id, FMSTicket.is_deleted == False,
+                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            ).count()
+            fms_flows = db.query(FMSFlow).filter(
+                FMSFlow.tenant_id == tenant_id, FMSFlow.is_deleted == False,
+            ).count()
+            lines += [
+                "## FMS (Flow Management System)",
+                f"- Active flows: {fms_flows}",
+                f"- Tickets created in period: {fms_total}",
+                f"- Completed: {fms_done} ({pct(fms_done, fms_total)})",
+                f"- Currently open: {fms_open}",
+            ]
+        except Exception:
+            pass
+
+    # Employees
+    if section in ("Overall", "Employees"):
+        try:
+            from .analytics import get_all_employee_kpis
+            emp_kpis = get_all_employee_kpis(db, tenant_id)
+            terminated = sum(
+                1 for u in all_users if getattr(u, "status", "ACTIVE") == "TERMINATED"
+            )
+            lines += [
+                "## Employees",
+                f"- Active: {len(active_users)}, Terminated: {terminated}",
+                "## Per-Employee Performance (last 30d)"
+            ]
+            for kpi in emp_kpis:
+                lines.append(
+                    f"  - {kpi['user'].name} ({kpi['user'].role}): "
+                    f"compliance={kpi['compliance_rate']}%, "
+                    f"on_time={kpi['on_time_rate']}%, "
+                    f"closed={kpi['closed_30d']}, "
+                    f"avg_tat={kpi['avg_tat_hours']}h, "
+                    f"active_tickets={kpi['active_count']}"
+                )
+        except Exception:
+            pass
+
+    return "\n".join(lines)
+
+
+DATE_RANGE_OPTIONS = [
+    ("7d",      "Last 7 Days"),
+    ("30d",     "Last 30 Days"),
+    ("3m",      "Last 3 Months"),
+    ("6m",      "Last 6 Months"),
+    ("month",   "This Month"),
+    ("quarter", "This Quarter"),
+]
+
+
+def _resolve_since(date_range: str) -> datetime:
+    now = datetime.utcnow()
+    if date_range == "7d":
+        return now - timedelta(days=7)
+    if date_range == "3m":
+        return now - timedelta(days=90)
+    if date_range == "6m":
+        return now - timedelta(days=180)
+    if date_range == "month":
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if date_range == "quarter":
+        month = ((now.month - 1) // 3) * 3 + 1
+        return now.replace(month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
+    return now - timedelta(days=30)  # default: 30d
+
+
 @router.get("", response_class=HTMLResponse)
 @router.get("/", response_class=HTMLResponse)
 def ai_home(request: Request,
@@ -150,11 +401,14 @@ def ai_home(request: Request,
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     usage_row = _get_today_usage(db, user.tenant_id)
     ai_limit = _get_ai_limit(tenant) if tenant else 20
+    sections = _active_sections(db, user.tenant_id)
     return templates.TemplateResponse(request, "ai/ask.html", _ctx(
         request, user, db,
         api_configured=api_configured,
         ai_calls_today=usage_row.call_count,
         ai_daily_limit=ai_limit,
+        report_sections=sections,
+        report_date_ranges=DATE_RANGE_OPTIONS,
     ))
 
 
@@ -220,7 +474,6 @@ async def ai_ask(
 
     async def event_stream() -> AsyncGenerator[str, None]:
         try:
-            # Stream from Claude
             with client.messages.stream(
                 model="claude-haiku-4-5",
                 max_tokens=1024,
@@ -228,11 +481,9 @@ async def ai_ask(
                 messages=[{"role": "user", "content": user_message}],
             ) as stream:
                 for text_chunk in stream.text_stream:
-                    # SSE format: data: <payload>\n\n
                     payload = json.dumps({"type": "text", "text": text_chunk})
                     yield f"data: {payload}\n\n"
 
-            # Send done signal
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         except anthropic.APIConnectionError:
@@ -261,3 +512,66 @@ async def ai_ask(
             "X-Accel-Buffering": "no",   # nginx: disable buffering for SSE
         },
     )
+
+
+# ── P9-03: Report Generator endpoint ─────────────────────────────────────────
+
+@router.post("/report")
+async def ai_report(
+    request: Request,
+    section: str = Form(...),
+    date_range: str = Form("30d"),
+    focus_area: str = Form(""),
+    user: User = Depends(_require_ai_access),
+    db: Session = Depends(get_db),
+):
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    ai_limit = _get_ai_limit(tenant) if tenant else 20
+    if ai_limit is not None:
+        usage_row = _get_today_usage(db, user.tenant_id)
+        if usage_row.call_count >= ai_limit:
+            raise HTTPException(429, f"Daily AI limit reached ({ai_limit}/day). Limit resets at midnight UTC.")
+
+    L = get_labels(db, user.tenant_id)
+    since = _resolve_since(date_range)
+    snapshot = _report_data_snapshot(db, user.tenant_id, section, since, L)
+
+    focus = focus_area.strip()
+    user_msg = snapshot
+    if focus:
+        user_msg = user_msg + "\n\nFOCUS AREA: " + focus
+    user_msg = user_msg + "\n\nGenerate the report JSON now."
+
+    _increment_usage(db, user.tenant_id)
+    client = _get_client()
+
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=2048,
+            system=REPORT_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        raw = resp.content[0].text.strip()
+        # Strip code fences if Claude wrapped JSON in them
+        FENCE = "\x60\x60\x60"
+        if FENCE in raw:
+            parts = raw.split(FENCE)
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        report = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise HTTPException(500, "Report returned invalid JSON: " + str(e))
+    except anthropic.APIConnectionError:
+        raise HTTPException(503, "Could not reach AI service.")
+    except anthropic.RateLimitError:
+        raise HTTPException(429, "AI rate limit reached. Please wait.")
+    except anthropic.AuthenticationError:
+        raise HTTPException(503, "AI API key invalid. Contact administrator.")
+    except Exception as e:
+        log.exception("Report generation error")
+        raise HTTPException(500, "Report failed: " + str(e)[:120])
+
+    return JSONResponse({"ok": True, "report": report, "section": section, "date_range": date_range})

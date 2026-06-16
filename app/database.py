@@ -10,7 +10,8 @@ if DATABASE_URL:
     # Render still issues legacy postgres:// URLs — SQLAlchemy requires postgresql://
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    engine = create_engine(DATABASE_URL)
+    # pool_pre_ping: validates connections before use (handles Render idle-timeout drops)
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
 else:
     _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     _DB_FILE      = os.path.join(_PROJECT_ROOT, "omniflow.db")
@@ -90,6 +91,7 @@ class Tenant(Base):
     trial_started_at = Column(DateTime)                   # When self-registration happened
     ticket_seq    = Column(Integer,  default=0)                # Auto-increment counter for display IDs
     ai_custom_limit = Column(Integer, nullable=True)           # SA override for daily AI call limit (None = use plan default)
+    checklist_notif_hours = Column(String, nullable=True)      # Comma-separated UTC hours for checklist notifications e.g. "8,13,18"
     created_at    = Column(DateTime, default=datetime.utcnow)
 
     users = relationship("User", back_populates="tenant")
@@ -133,10 +135,17 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     role = Column(String, default="EMPLOYEE")
     department_id = Column(String, ForeignKey("departments.id"))
+    branch_id = Column(String, ForeignKey("branches.id"), nullable=True)   # P1-09
     manager_id = Column(String, ForeignKey("users.id"))       # Phase 0-A-1
     is_active = Column(Boolean, default=True)
     is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # P1-05: Employee profile additions
+    employee_id   = Column(String)          # auto-generated EMP-XXXX per tenant
+    joining_date  = Column(Date)
+    address       = Column(Text)
+    status        = Column(String, default="ACTIVE")   # ACTIVE / TERMINATED
+    terminated_at = Column(DateTime)
 
     tenant = relationship("Tenant", back_populates="users")
     department = relationship("Department", back_populates="users")
@@ -162,6 +171,9 @@ class Ticket(Base):
     is_flagged = Column(Boolean, default=False)
     flagged_reason = Column(String)
     proof_required = Column(Boolean, default=False)
+    # P1-06: ticket enhancements
+    ticket_category   = Column(String, default="NORMAL")   # NORMAL / HELP
+    evidence_required = Column(Boolean, default=False)     # replaces proof_required
     is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -218,6 +230,7 @@ class ChecklistTemplate(Base):
     description = Column(Text, nullable=False)
     frequency = Column(String, default="DAILY")
     proof_required = Column(Boolean, default=False)
+    evidence_required = Column(Boolean, default=False)  # P1-08: replaces proof_required on template
     assigned_to_role = Column(String)
     assigned_to_dept_id = Column(String, ForeignKey("departments.id"), nullable=True)
     assigned_to_user_id = Column(String, ForeignKey("users.id"), nullable=True)
@@ -244,6 +257,10 @@ class ChecklistAssignment(Base):
     status = Column(String, default="PENDING")   # PENDING|IN_PROGRESS|OVERDUE|DONE|FAILED
     proof_url = Column(String)
     failure_note = Column(Text, nullable=True)    # reason when status=FAILED
+    # P1-08: checklist assignment enhancements
+    delay_reason      = Column(Text)              # mandatory when OVERDUE completion
+    evidence_required = Column(Boolean)           # inherited from template at assignment creation
+    is_deleted        = Column(Boolean, default=False)  # P6-03: soft delete
     created_at = Column(DateTime, default=datetime.utcnow)
 
     template = relationship("ChecklistTemplate", back_populates="assignments")
@@ -310,20 +327,6 @@ class TenantLabelConfig(Base):
     employee_s    = Column(String)
     employee_p    = Column(String)
     industry      = Column(String)   # which preset was last applied
-    # ── Inventory concepts (Phase 4) ──────────────────────────────────────────
-    inventory_s      = Column(String)   # "Inventory" / "Warehouse" / "Store"
-    inventory_p      = Column(String)   # "Inventories" / "Warehouses" / "Stores"
-    material_s       = Column(String)   # "Material" / "Product" / "Item" / "SKU"
-    material_p       = Column(String)   # "Materials" / "Products" / "Items"
-    stock_in_s       = Column(String)   # "Stock In" / "GRN" / "Receiving" / "Purchase Receipt"
-    stock_out_s      = Column(String)   # "Stock Out" / "Issue" / "Consumption" / "Dispatch"
-    adjustment_s     = Column(String)   # "Adjustment" / "Correction"
-    purchase_order_s = Column(String)   # "Purchase Order" / "Procurement Order"
-    purchase_order_p = Column(String)   # "Purchase Orders"
-    supplier_s       = Column(String)   # "Supplier" / "Vendor" / "Provider"
-    supplier_p       = Column(String)   # "Suppliers" / "Vendors"
-    store_manager_s  = Column(String)   # "Store Manager" / "Warehouse Manager" / "Inventory Controller"
-    store_manager_p  = Column(String)   # "Store Managers"
     updated_at    = Column(DateTime, default=datetime.utcnow)
 
     tenant = relationship("Tenant")
@@ -406,9 +409,10 @@ class LibraryFlowStage(Base):
     is_terminal = Column(Boolean, default=False)
     allowed_next_stages_json     = Column(Text,    default="[]")
     target_tat_hours             = Column(Integer, nullable=True)
-    sub_module_tag               = Column(String,  nullable=True)   # PMS|DISPATCH|INVOICE|MATERIAL_REQ|CUSTOM
+    sub_module_tag               = Column(String,  nullable=True)   # PMS|DISPATCH|INVOICE|CUSTOM
     submodule_id                 = Column(String,  ForeignKey("library_submodule_definitions.id"), nullable=True)
     completion_note_required     = Column(Boolean, default=False)
+    evidence_required            = Column(Boolean, default=False)   # P1-07
 
     template   = relationship("LibraryFlowTemplate", back_populates="stages")
     submodule  = relationship("LibrarySubmoduleDefinition", foreign_keys=[submodule_id])
@@ -416,7 +420,7 @@ class LibraryFlowStage(Base):
 
 class LibrarySubmoduleDefinition(Base):
     """A structured data-entry form definition (sub-module).
-    sub_module_type: PMS | DISPATCH | INVOICE | MATERIAL_REQ | CUSTOM
+    sub_module_type: PMS | DISPATCH | INVOICE | CUSTOM
     is_system=True  → built-in, cannot be edited directly (must duplicate)
     fields_json stores a JSON array of FieldDef objects:
     [{"id":"...", "label":"...", "type":"text|longtext|number|date|datetime|yesno|dropdown|photo|file|signature",
@@ -427,7 +431,7 @@ class LibrarySubmoduleDefinition(Base):
     name             = Column(String,  nullable=False)
     description      = Column(Text)
     industry         = Column(String)
-    sub_module_type  = Column(String,  default="CUSTOM")   # PMS|DISPATCH|INVOICE|MATERIAL_REQ|CUSTOM
+    sub_module_type  = Column(String,  default="CUSTOM")   # PMS|DISPATCH|INVOICE|CUSTOM
     version          = Column(Integer, default=1, nullable=False)
     status           = Column(String,  default="DRAFT")
     is_system        = Column(Boolean, default=False)
@@ -573,22 +577,24 @@ class FMSStage(Base):
     One stage inside an FMSFlow.
     Fields per §10.2: name, order, target_tat_hours, default_assignee,
     sub_module_tag, is_mandatory, completion_note_required, is_terminal.
-    sub_module_tag values: None | PMS | DISPATCH | INVOICE | MATERIAL_REQ | CUSTOM
+    sub_module_tag values: None | PMS | DISPATCH | INVOICE | CUSTOM
     """
     __tablename__ = "fms_stages"
     id                      = Column(String,  primary_key=True, default=new_id)
     flow_id                 = Column(String,  ForeignKey("fms_flows.id"), nullable=False)
     tenant_id               = Column(String,  ForeignKey("tenants.id"), nullable=False)
     name                    = Column(String,  nullable=False)
+    description             = Column(Text,    nullable=True)
     order                   = Column(Integer, default=0)
     color                   = Column(String,  default="#3b82f6")
     target_tat_hours        = Column(Integer, nullable=True)         # None = no TaT target
     default_assignee_id     = Column(String,  ForeignKey("users.id"), nullable=True)
-    sub_module_tag          = Column(String,  nullable=True)         # PMS|DISPATCH|INVOICE|MATERIAL_REQ|CUSTOM
+    sub_module_tag          = Column(String,  nullable=True)         # PMS|DISPATCH|INVOICE|CUSTOM
     deployed_submodule_id   = Column(String,  ForeignKey("library_submodule_definitions.id"), nullable=True)
     is_mandatory            = Column(Boolean, default=True)
     completion_note_required= Column(Boolean, default=False)
     is_terminal             = Column(Boolean, default=False)         # reaching this = COMPLETED
+    evidence_required       = Column(Boolean, default=False)         # P1-07: stage-level evidence
     is_deleted              = Column(Boolean, default=False)
 
     flow              = relationship("FMSFlow", back_populates="stages")
@@ -672,6 +678,8 @@ class FMSStageHistory(Base):
     qty_completed    = Column(Integer, default=0)
     from_stage_id    = Column(String,  nullable=True)
     from_stage_name  = Column(String,  nullable=True)
+    evidence_url     = Column(String,  nullable=True)   # uploaded file path/URL
+    evidence_filename= Column(String,  nullable=True)   # original filename for display
 
     ticket   = relationship("FMSTicket", back_populates="stage_history")
     stage    = relationship("FMSStage",  foreign_keys=[stage_id])
@@ -803,158 +811,6 @@ class InvoiceRecord(Base):
     actor  = relationship("User",      foreign_keys=[actor_id])
 
 
-class Material(Base):
-    """
-    Phase 3-D / 4-B: Raw material catalogue entry per tenant.
-    Phase 3 creates the table; Phase 4 adds inventory movement tracking.
-    """
-    __tablename__ = "materials"
-    id                = Column(String,   primary_key=True, default=new_id)
-    tenant_id         = Column(String,   ForeignKey("tenants.id"), nullable=False)
-    name              = Column(String,   nullable=False)
-    unit              = Column(String,   default="pcs")
-    description       = Column(Text)
-    reorder_threshold = Column(Integer,  default=0)
-    reorder_qty       = Column(Integer,  default=0)
-    lead_time_days    = Column(Integer,  default=0)
-    supplier          = Column(String)
-    opening_stock     = Column(Integer,  default=0)
-    current_stock     = Column(Integer,  default=0)
-    is_active         = Column(Boolean,  default=True)
-    is_deleted        = Column(Boolean,  default=False)
-    created_by_id     = Column(String,   ForeignKey("users.id"), nullable=True)
-    created_at        = Column(DateTime, default=datetime.utcnow)
-    updated_at        = Column(DateTime, default=datetime.utcnow)
-
-    created_by = relationship("User", foreign_keys=[created_by_id])
-    tenant     = relationship("Tenant")
-
-
-class MaterialRequest(Base):
-    """
-    Phase 3-D: Material requisition raised from an FMS ticket.
-    Store Manager approval flow is completed in Phase 4.
-    status: PENDING | APPROVED | REJECTED | FULFILLED
-    """
-    __tablename__ = "material_requests"
-    id               = Column(String,  primary_key=True, default=new_id)
-    ticket_id        = Column(String,  ForeignKey("fms_tickets.id"), nullable=True)
-    tenant_id        = Column(String,  ForeignKey("tenants.id"),     nullable=False)
-    material_id      = Column(String,  ForeignKey("materials.id"),   nullable=True)
-    material_name    = Column(String)                                 # text fallback
-    qty_requested    = Column(Integer, nullable=False)
-    unit             = Column(String)
-    reason           = Column(Text)
-    status           = Column(String,  default="PENDING")
-    approved_by_id   = Column(String,  ForeignKey("users.id"), nullable=True)
-    approved_at      = Column(DateTime, nullable=True)
-    rejection_note   = Column(Text)
-    fulfilled_qty    = Column(Integer, default=0)
-    fulfilled_at     = Column(DateTime, nullable=True)
-    requested_by_id  = Column(String,  ForeignKey("users.id"), nullable=False)
-    created_at       = Column(DateTime, default=datetime.utcnow)
-    updated_at       = Column(DateTime, default=datetime.utcnow)
-
-    stage_id         = Column(String,  ForeignKey("fms_stages.id"), nullable=True)
-    stage_name       = Column(String,  nullable=True)   # snapshot at time of request
-
-    ticket       = relationship("FMSTicket",  foreign_keys=[ticket_id])
-    material     = relationship("Material",   foreign_keys=[material_id])
-    requested_by = relationship("User",       foreign_keys=[requested_by_id])
-    approved_by  = relationship("User",       foreign_keys=[approved_by_id])
-    stage        = relationship("FMSStage",   foreign_keys=[stage_id])
-
-
-# ── Phase 4: Inventory Management ─────────────────────────────────────────────
-
-class StockMovement(Base):
-    """
-    Phase 4-C: Immutable ledger of every stock change.
-    movement_type: STOCK_IN | STOCK_OUT | ADJUSTMENT | PO_RECEIPT | OPENING | RETURN
-    qty is always positive; direction is encoded in movement_type.
-    qty_before / qty_after are snapshots for full auditability.
-    """
-    __tablename__ = "stock_movements"
-    id            = Column(String,   primary_key=True, default=new_id)
-    tenant_id     = Column(String,   ForeignKey("tenants.id"),   nullable=False)
-    material_id   = Column(String,   ForeignKey("materials.id"), nullable=False)
-    branch_id     = Column(String,   ForeignKey("branches.id"),  nullable=True)
-    department_id = Column(String,   ForeignKey("departments.id"), nullable=True)
-    movement_type = Column(String,   nullable=False)
-    qty           = Column(Float,    nullable=False)      # always positive
-    qty_before    = Column(Float,    nullable=False, default=0)
-    qty_after     = Column(Float,    nullable=False, default=0)
-    unit          = Column(String)
-    unit_cost     = Column(Float,    nullable=True)       # cost per unit at time of movement
-    total_cost    = Column(Float,    nullable=True)
-    reference     = Column(String)                        # PO number, ticket id, batch no.
-    notes         = Column(Text)
-    po_item_id    = Column(String,   ForeignKey("purchase_order_items.id"), nullable=True)
-    actor_id      = Column(String,   ForeignKey("users.id"), nullable=False)
-    created_at    = Column(DateTime, default=datetime.utcnow)
-    # immutable — no is_deleted, no updated_at
-
-    material   = relationship("Material",          foreign_keys=[material_id])
-    actor      = relationship("User",              foreign_keys=[actor_id])
-    tenant     = relationship("Tenant")
-    po_item    = relationship("PurchaseOrderItem", foreign_keys=[po_item_id])
-
-
-class PurchaseOrder(Base):
-    """
-    Phase 4-D: Purchase Order header.
-    status: DRAFT → SUBMITTED → APPROVED → PARTIALLY_RECEIVED → RECEIVED → CANCELLED
-    """
-    __tablename__ = "purchase_orders"
-    id               = Column(String,   primary_key=True, default=new_id)
-    tenant_id        = Column(String,   ForeignKey("tenants.id"),    nullable=False)
-    branch_id        = Column(String,   ForeignKey("branches.id"),   nullable=True)
-    department_id    = Column(String,   ForeignKey("departments.id"), nullable=True)
-    po_number        = Column(String,   nullable=False)   # auto-generated or manual
-    supplier         = Column(String)
-    supplier_ref     = Column(String)                     # supplier's own order/invoice ref
-    status           = Column(String,   default="DRAFT")
-    expected_delivery= Column(Date,     nullable=True)
-    notes            = Column(Text)
-    total_amount     = Column(Float,    default=0)
-    currency         = Column(String,   default="INR")
-    is_deleted       = Column(Boolean,  default=False)
-    created_by_id    = Column(String,   ForeignKey("users.id"), nullable=False)
-    approved_by_id   = Column(String,   ForeignKey("users.id"), nullable=True)
-    approved_at      = Column(DateTime, nullable=True)
-    received_at      = Column(DateTime, nullable=True)
-    cancelled_at     = Column(DateTime, nullable=True)
-    cancel_reason    = Column(String)
-    created_at       = Column(DateTime, default=datetime.utcnow)
-    updated_at       = Column(DateTime, default=datetime.utcnow)
-
-    tenant      = relationship("Tenant")
-    created_by  = relationship("User", foreign_keys=[created_by_id])
-    approved_by = relationship("User", foreign_keys=[approved_by_id])
-    items       = relationship("PurchaseOrderItem", back_populates="po",
-                               cascade="all, delete-orphan")
-
-
-class PurchaseOrderItem(Base):
-    """Phase 4-D: Line items on a Purchase Order."""
-    __tablename__ = "purchase_order_items"
-    id               = Column(String,  primary_key=True, default=new_id)
-    po_id            = Column(String,  ForeignKey("purchase_orders.id"), nullable=False)
-    tenant_id        = Column(String,  ForeignKey("tenants.id"),         nullable=False)
-    material_id      = Column(String,  ForeignKey("materials.id"),       nullable=True)
-    material_name    = Column(String,  nullable=False)    # name snapshot at PO creation time
-    unit             = Column(String)
-    qty_ordered      = Column(Float,   nullable=False)
-    qty_received     = Column(Float,   default=0)
-    unit_cost        = Column(Float,   nullable=True)
-    total_cost       = Column(Float,   nullable=True)
-    is_fully_received= Column(Boolean, default=False)
-
-    po       = relationship("PurchaseOrder", back_populates="items")
-    material = relationship("Material",      foreign_keys=[material_id])
-    movements= relationship("StockMovement", back_populates="po_item")
-
-
 class CustomSubmoduleResponse(Base):
     """
     Phase 3-E: Flexible JSON response for a custom sub-module on an FMS stage.
@@ -977,6 +833,137 @@ class CustomSubmoduleResponse(Base):
     stage         = relationship("FMSStage",                 foreign_keys=[stage_id])
     submodule_def = relationship("LibrarySubmoduleDefinition", foreign_keys=[submodule_def_id])
     actor         = relationship("User",                     foreign_keys=[actor_id])
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Enhancement Pass — Setup Entity Tables (Phase 1, Section 3.1)
+# ═══════════════════════════════════════════════════════════════════
+
+class Vendor(Base):
+    __tablename__ = "vendors"
+    id             = Column(String,  primary_key=True, default=new_id)
+    tenant_id      = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name           = Column(String,  nullable=False)
+    contact_person = Column(String)
+    phone          = Column(String)
+    email          = Column(String)
+    address        = Column(Text)
+    notes          = Column(Text)
+    is_active      = Column(Boolean, default=True)
+    is_deleted     = Column(Boolean, default=False)
+    created_by_id  = Column(String,  ForeignKey("users.id"))
+    created_at     = Column(DateTime, default=datetime.utcnow)
+    updated_at     = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class RawMaterial(Base):
+    __tablename__ = "raw_materials"
+    id            = Column(String,  primary_key=True, default=new_id)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name          = Column(String,  nullable=False)
+    unit          = Column(String)
+    description   = Column(Text)
+    notes         = Column(Text)
+    is_active     = Column(Boolean, default=True)
+    is_deleted    = Column(Boolean, default=False)
+    created_by_id = Column(String,  ForeignKey("users.id"))
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class Customer(Base):
+    __tablename__ = "customers"
+    id             = Column(String,  primary_key=True, default=new_id)
+    tenant_id      = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name           = Column(String,  nullable=False)
+    contact_person = Column(String)
+    phone          = Column(String)
+    email          = Column(String)
+    address        = Column(Text)
+    notes          = Column(Text)
+    is_active      = Column(Boolean, default=True)
+    is_deleted     = Column(Boolean, default=False)
+    created_by_id  = Column(String,  ForeignKey("users.id"))
+    created_at     = Column(DateTime, default=datetime.utcnow)
+    updated_at     = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class EndProduct(Base):
+    __tablename__ = "end_products"
+    id            = Column(String,  primary_key=True, default=new_id)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name          = Column(String,  nullable=False)
+    sku_code      = Column(String)
+    unit          = Column(String)
+    description   = Column(Text)
+    is_active     = Column(Boolean, default=True)
+    is_deleted    = Column(Boolean, default=False)
+    created_by_id = Column(String,  ForeignKey("users.id"))
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class CustomReferenceList(Base):
+    __tablename__ = "custom_reference_lists"
+    id            = Column(String,  primary_key=True, default=new_id)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    list_name     = Column(String,  nullable=False)
+    is_active     = Column(Boolean, default=True)
+    is_deleted    = Column(Boolean, default=False)
+    created_by_id = Column(String,  ForeignKey("users.id"))
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    items      = relationship("CustomReferenceItem", back_populates="ref_list",
+                              order_by="CustomReferenceItem.sort_order",
+                              cascade="all, delete-orphan")
+
+
+class CustomReferenceItem(Base):
+    __tablename__ = "custom_reference_items"
+    id         = Column(String,  primary_key=True, default=new_id)
+    list_id    = Column(String,  ForeignKey("custom_reference_lists.id"), nullable=False)
+    tenant_id  = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    value      = Column(String,  nullable=False)
+    sort_order = Column(Integer, default=0)
+    is_active  = Column(Boolean, default=True)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    ref_list = relationship("CustomReferenceList", back_populates="items")
+    tenant   = relationship("Tenant")
+
+
+class LinkedEntityReference(Base):
+    """Polymorphic table linking any entity to a ticket/checklist/FMS ticket.
+    No FK on parent_id or entity_id — resolved at query time for flexibility."""
+    __tablename__ = "linked_entity_references"
+    id           = Column(String, primary_key=True, default=new_id)
+    tenant_id    = Column(String, ForeignKey("tenants.id"), nullable=False)
+    parent_type  = Column(String, nullable=False)  # TICKET / CHECKLIST_ASSIGNMENT / FMS_TICKET
+    parent_id    = Column(String, nullable=False)
+    entity_type  = Column(String, nullable=False)  # CUSTOMER / END_PRODUCT / MATERIAL / VENDOR / CUSTOM_LIST / OTHER
+    entity_id    = Column(String)
+    entity_label = Column(String)  # snapshot of entity name at time of linking
+    custom_text  = Column(String)  # used when entity_type is OTHER
+    created_by_id= Column(String, ForeignKey("users.id"))
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
 
 
 def create_tables():
@@ -1025,21 +1012,11 @@ _BUILTIN_SUBMODULES = [
         ),
         "fields_json": "[]",
     },
-    {
-        "id": "sys-material-builtin",
-        "name": "Material Requisition",
-        "sub_module_type": "MATERIAL_REQ",
-        "description": (
-            "Request raw materials from the tenant catalogue. "
-            "Manager approves or rejects each request with notes."
-        ),
-        "fields_json": "[]",
-    },
 ]
 
 
 def _seed_builtin_submodules():
-    """Ensure the 4 built-in system sub-module records exist in the library.
+    """Ensure the 3 built-in system sub-module records exist in the library.
     Safe to call on every startup — uses upsert logic."""
     db = SessionLocal()
     try:

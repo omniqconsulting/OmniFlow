@@ -71,7 +71,7 @@
           {% if req.ticket %}
             <a href="/fms/tickets/{{ req.ticket_id }}" style="color:#3b82f6;">{{ req.ticket.title[:40] }}</a>
           {% else %}
-            <span style="font-style:italic; color:#64748b;">Standalone request</span>
+            <span style="font-style:italic; color:var(--text-faint);">Standalone request</span>
           {% endif %}
         </td>
         <td class="text-muted" style="font-size:.8rem;">

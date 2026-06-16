@@ -1,48 +1,143 @@
 {% extends "base.html" %}
 {% block content %}
-<a href="/tickets" style="font-size:13px;color:#64748b">← Back to tickets</a>
+<style>
+.tpl-grid{display:grid;grid-template-columns:1fr 380px;gap:16px;align-items:start}
+@media(max-width:700px){.tpl-grid{grid-template-columns:1fr}}
+.card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:9px;padding:16px 18px;margin-bottom:12px}
+.card h2{font-size:13px;font-weight:600;color:var(--text-strong);margin:0 0 12px}
+.form-panel{margin-top:14px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:8px;padding:14px}
+.form-panel label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);display:block;margin-bottom:3px}
+.form-panel input,.form-panel select,.form-panel textarea{width:100%;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit;box-sizing:border-box;resize:vertical}
+.timeline-dot{position:absolute;left:-13px;top:4px;width:8px;height:8px;border-radius:50%;background:#3b82f6;border:2px solid var(--bg-input)}
+.timeline-meta{font-size:11px;color:var(--text-xfaint);margin-bottom:3px}
+.timeline-body{font-size:13px;color:#cbd5e1;background:rgba(255,255,255,0.03);border-radius:6px;padding:8px 10px}
+.timeline-detail{font-size:11px;color:var(--text-faint);font-style:italic}
+.ev-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:200;align-items:center;justify-content:center}
+.ev-modal-bg.open{display:flex}
+</style>
+
+<a href="/tickets?status={{ ticket.status }}" style="font-size:13px;color:var(--text-faint)">← Back to {{ L.Tickets }}</a>
+
+{% if request.query_params.get('reminded') %}
+<div class="alert alert-green" style="margin:10px 0">✓ Reminder sent to {{ ticket.current_assignee.name if ticket.current_assignee else 'assignee' }}.</div>
+{% endif %}
 
 <div style="display:flex;align-items:flex-start;justify-content:space-between;margin:16px 0 6px;flex-wrap:wrap;gap:8px">
   <div>
     {% if ticket.display_id %}<div style="font-size:11px;color:#3b82f6;font-weight:700;letter-spacing:.06em;margin-bottom:4px">{{ ticket.display_id }}</div>{% endif %}
-    <h2 style="font-size:20px;font-weight:700;color:#f1f5f9;margin:0">
+    <h2 style="font-size:20px;font-weight:700;color:var(--text-strong);margin:0">
       {% if ticket.is_flagged %}<span style="color:#f87171">🚩 </span>{% endif %}
       {{ ticket.title }}
     </h2>
   </div>
-  <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
-    {% if ticket.ticket_type == 'C' %}
-    <span class="badge badge-purple">COMPLAINT</span>
-    {% else %}
-    <span class="badge badge-gray">TASK</span>
-    {% endif %}
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-shrink:0">
+    {# P5-02: Category badge #}
+    {% set cat = ticket.ticket_category if ticket.ticket_category is defined else 'NORMAL' %}
+    <span class="badge {% if cat == 'HELP' %}badge-amber{% else %}badge-blue{% endif %}">{{ cat }}</span>
     <span class="badge {% if ticket.priority=='CRITICAL' %}badge-red{% elif ticket.priority=='HIGH' %}badge-yellow{% elif ticket.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}">{{ ticket.priority }}</span>
-    <span class="badge {% if ticket.status=='OPEN' %}badge-blue{% elif ticket.status=='IN_PROGRESS' %}badge-yellow{% elif ticket.status=='DONE' %}badge-green{% elif ticket.status=='CLOSED' %}badge-gray{% elif ticket.status=='HELP_REQUESTED' %}badge-red{% else %}badge-purple{% endif %}">{{ ticket.status }}</span>
+    <span class="badge {% if ticket.status=='OPEN' %}badge-blue{% elif ticket.status=='IN_PROGRESS' %}badge-yellow{% elif ticket.status=='DONE' %}badge-green{% elif ticket.status=='CLOSED' %}badge-gray{% elif ticket.status=='HELP_REQUESTED' %}badge-red{% else %}badge-purple{% endif %}">{{ ticket.status.replace('_',' ') }}</span>
+    {% if ticket.evidence_required is defined and ticket.evidence_required %}
+    <span class="badge badge-amber">Evidence Required</span>
+    {% endif %}
+    {# P5-06: Send Reminder #}
+    {% if user.role in ('ADMIN','MANAGER') and ticket.status not in ('DONE','CLOSED') %}
+    <form method="post" action="/tickets/{{ ticket.id }}/remind" style="display:inline">
+      <button type="submit" class="btn btn-sm btn-outline" title="Send reminder to assignee">🔔 Remind</button>
+    </form>
+    {% endif %}
+    {# P5-08: Edit button #}
+    {% if user.role in ('ADMIN','MANAGER') and ticket.status != 'CLOSED' %}
+    <button onclick="show('edit-form')" class="btn btn-sm btn-outline">✏ Edit</button>
+    {% endif %}
+    {# P5-09: Delete button (Admin only) #}
+    {% if user.role == 'ADMIN' %}
+    <form method="post" action="/tickets/{{ ticket.id }}/delete"
+          onsubmit="return confirm('Soft-delete this {{ L.ticket }}? It will be hidden but retained in the database.')">
+      <button type="submit" class="btn btn-sm btn-red">Delete</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 
-<div style="font-size:12px;color:#64748b;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:14px">
-  <span>Created by <strong style="color:#94a3b8">{{ ticket.created_by.name }}</strong></span>
-  <span>Assignee: <strong style="color:#94a3b8">{{ ticket.current_assignee.name if ticket.current_assignee else '—' }}</strong></span>
-  <span>Due: <strong {% if ticket.due_at and ticket.due_at < now and ticket.status not in ('CLOSED','DONE') %}style="color:#f87171"{% else %}style="color:#94a3b8"{% endif %}>
+<div style="font-size:12px;color:var(--text-faint);margin-bottom:18px;display:flex;flex-wrap:wrap;gap:14px">
+  <span>Created by <strong style="color:var(--text-muted)">{{ ticket.created_by.name if ticket.created_by else '—' }}</strong></span>
+  <span>Assignee: <strong style="color:var(--text-muted)">{{ ticket.current_assignee.name if ticket.current_assignee else '—' }}</strong></span>
+  <span>Due: <strong {% if ticket.due_at and ticket.due_at < now and ticket.status not in ('CLOSED','DONE') %}style="color:#f87171"{% else %}style="color:var(--text-muted)"{% endif %}>
     {{ ticket.due_at.strftime('%d %b %Y, %I:%M %p') if ticket.due_at else '—' }}
   </strong></span>
   {% if ticket.acknowledged_at %}
-  <span>Acked: <strong style="color:#94a3b8">{{ ticket.acknowledged_at.strftime('%d %b, %H:%M') }}</strong></span>
+  <span>Acked: <strong style="color:var(--text-muted)">{{ ticket.acknowledged_at.strftime('%d %b, %H:%M') }}</strong></span>
   {% endif %}
   {% if ticket.is_flagged and ticket.flagged_reason %}
   <span style="color:#f87171">🚩 {{ ticket.flagged_reason }}</span>
   {% endif %}
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 380px;gap:16px;align-items:start">
+{# P5-08: Edit form (hidden by default) #}
+{% if user.role in ('ADMIN','MANAGER') and ticket.status != 'CLOSED' %}
+<div id="edit-form" class="card" style="display:none;margin-bottom:16px">
+  <h2>Edit {{ L.Ticket }}</h2>
+  <form method="post" action="/tickets/{{ ticket.id }}/edit">
+    <div class="form-group"><label class="form-label">Title</label>
+      <input name="title" class="form-input" value="{{ ticket.title }}" required maxlength="200"></div>
+    <div class="form-group"><label class="form-label">Description</label>
+      <textarea name="description" class="form-input" rows="3" required>{{ ticket.description }}</textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Priority</label>
+        <select name="priority" class="form-input">
+          {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+          <option value="{{ p }}" {% if p == ticket.priority %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <select name="ticket_category" class="form-input">
+          <option value="NORMAL" {% if (ticket.ticket_category if ticket.ticket_category is defined else 'NORMAL') == 'NORMAL' %}selected{% endif %}>Normal</option>
+          <option value="HELP" {% if (ticket.ticket_category if ticket.ticket_category is defined else '') == 'HELP' %}selected{% endif %}>Help</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group">
+        <label class="form-label">Assignee</label>
+        <select name="assignee_id" class="form-input" required>
+          {% for e in employees %}
+          <option value="{{ e.id }}" {% if e.id == ticket.current_assignee_id %}selected{% endif %}>{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Due Date & Time</label>
+        <input type="datetime-local" name="due_at" class="form-input"
+               value="{{ ticket.due_at.strftime('%Y-%m-%dT%H:%M') if ticket.due_at else '' }}">
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);margin-bottom:14px;cursor:pointer">
+      <input type="checkbox" name="evidence_required" value="true"
+             {% if ticket.evidence_required is defined and ticket.evidence_required %}checked{% endif %}>
+      Evidence Required
+    </label>
+    <div style="display:flex;gap:8px">
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+      <button type="button" onclick="hide('edit-form')" class="btn btn-outline">Cancel</button>
+    </div>
+  </form>
+</div>
+{% endif %}
 
+<div class="tpl-grid">
   <!-- ── Left column ── -->
   <div>
     <div class="card">
       <h2>Description</h2>
-      <p style="font-size:13px;color:#cbd5e1;line-height:1.7">{{ ticket.description }}</p>
+      <p style="font-size:13px;color:#cbd5e1;line-height:1.7;margin:0">{{ ticket.description }}</p>
     </div>
+
+    {# P5-10: Linked entities display #}
+    {% set readonly = true %}
+    {% include "components/linked_entities.html" %}
 
     <!-- Helpers -->
     <div class="card">
@@ -50,10 +145,10 @@
       {% if ticket.helpers %}
       <div style="margin-bottom:14px">
         {% for h in ticket.helpers %}
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
           <div>
-            <span style="font-weight:500;color:#e2e8f0">{{ h.user.name if h.user else '—' }}</span>
-            {% if h.note %}<span style="font-size:11px;color:#64748b;margin-left:8px">{{ h.note }}</span>{% endif %}
+            <span style="font-weight:500;color:var(--text-primary)">{{ h.user.name if h.user else '—' }}</span>
+            {% if h.note %}<span style="font-size:11px;color:var(--text-faint);margin-left:8px">{{ h.note }}</span>{% endif %}
           </div>
           {% if user.role in ('ADMIN','MANAGER') %}
           <form method="post" action="/tickets/{{ ticket.id }}/remove-helper">
@@ -65,14 +160,13 @@
         {% endfor %}
       </div>
       {% else %}
-      <p style="font-size:12px;color:#64748b;margin-bottom:12px">No helpers assigned yet.</p>
+      <p style="font-size:12px;color:var(--text-faint);margin-bottom:12px">No helpers assigned yet.</p>
       {% endif %}
-
       {% if user.role in ('ADMIN','MANAGER') %}
       <button onclick="show('add-helper-form')" class="btn btn-sm btn-outline">+ Add Helper</button>
       <div id="add-helper-form" class="form-panel" style="display:none">
         <form method="post" action="/tickets/{{ ticket.id }}/add-helper">
-          <div class="form-group">
+          <div class="form-group" style="margin-bottom:10px">
             <label>Select Helper</label>
             <select name="helper_id" required>
               <option value="">Select employee…</option>
@@ -83,7 +177,7 @@
               {% endfor %}
             </select>
           </div>
-          <div class="form-group">
+          <div class="form-group" style="margin-bottom:10px">
             <label>Note (optional)</label>
             <input name="note" placeholder="e.g. Assist with calibration">
           </div>
@@ -96,34 +190,33 @@
       {% endif %}
     </div>
 
-    <!-- Proof / Attachments -->
+    <!-- Evidence / Attachments -->
     <div class="card">
-      <h2>Proof / Attachments</h2>
+      <h2>Evidence / Attachments</h2>
       {% if media %}
       <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
         {% for m in media %}
-        <div style="background:#1e293b;border-radius:8px;padding:8px 12px;font-size:12px">
+        <div style="background:var(--bg-elevated);border-radius:8px;padding:8px 12px;font-size:12px">
           {% if m.file_type and 'image' in m.file_type %}
           <img src="{{ m.file_path }}" style="max-width:120px;max-height:90px;border-radius:4px;display:block;margin-bottom:6px">
           {% else %}
           <span style="font-size:20px">📎</span>
           {% endif %}
-          <div style="color:#94a3b8">{{ m.file_name }}</div>
-          <div style="color:#475569;font-size:11px">{{ m.uploaded_by.name if m.uploaded_by else '' }}</div>
+          <div style="color:var(--text-muted)">{{ m.file_name }}</div>
+          <div style="color:var(--text-xfaint);font-size:11px">{{ m.uploaded_by.name if m.uploaded_by else '' }}</div>
         </div>
         {% endfor %}
       </div>
       {% else %}
-      <p style="font-size:12px;color:#64748b;margin-bottom:12px">No attachments yet.</p>
+      <p style="font-size:12px;color:var(--text-faint);margin-bottom:12px">No attachments yet.</p>
       {% endif %}
-
-      {% if ticket.proof_required or ticket.current_assignee_id == user.id or user.id in helper_ids %}
-      <button onclick="show('upload-form')" class="btn btn-sm btn-outline">📎 Upload Proof</button>
+      {% if ticket.current_assignee_id == user.id or user.id in helper_ids or user.role in ('ADMIN','MANAGER') %}
+      <button onclick="show('upload-form')" class="btn btn-sm btn-outline">📎 Upload File</button>
       <div id="upload-form" class="form-panel" style="display:none">
         <form method="post" action="/tickets/{{ ticket.id }}/upload" enctype="multipart/form-data">
-          <div class="form-group">
-            <label>Select File (photo/video/pdf)</label>
-            <input type="file" name="file" accept="image/*,video/*,.pdf" required style="padding:6px">
+          <div class="form-group" style="margin-bottom:10px">
+            <label>Select File (photo/pdf/doc)</label>
+            <input type="file" name="file" accept="image/*,.pdf,.doc,.docx" required style="padding:6px">
           </div>
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-sm btn-green">Upload</button>
@@ -151,22 +244,26 @@
             <button class="btn btn-sm btn-amber">Start Work</button>
           </form>
           {% endif %}
-          {% if ticket.status not in ('DONE','CLOSED') %}
-          <form method="post" action="/tickets/{{ ticket.id }}/action">
-            <input type="hidden" name="action" value="done">
-            <button class="btn btn-sm btn-green">✓ Mark Done</button>
-          </form>
-          {% if ticket.current_assignee_id == user.id %}
+          {% if ticket.status == 'IN_PROGRESS' %}
+            {% if ticket.evidence_required is defined and ticket.evidence_required %}
+            <button onclick="document.getElementById('evidence-modal').classList.add('open')" class="btn btn-sm btn-green">📎 Submit with Evidence</button>
+            {% else %}
+            <form method="post" action="/tickets/{{ ticket.id }}/action">
+              <input type="hidden" name="action" value="done">
+              <button class="btn btn-sm btn-green">✓ Mark Done</button>
+            </form>
+            {% endif %}
+          {% endif %}
+          {% if ticket.status not in ('DONE','CLOSED') and ticket.current_assignee_id == user.id %}
           <button onclick="show('reassign-form')" class="btn btn-sm btn-purple">↩ Reassign</button>
           <button onclick="show('help-form')" class="btn btn-sm btn-orange">⚑ Help Request</button>
           {% endif %}
-          {% endif %}
         {% endif %}
 
-        {% if ticket.status == 'DONE' and (user.id == ticket.created_by_id or user.role == 'ADMIN') %}
+        {% if ticket.status == 'DONE' and (user.id == ticket.created_by_id or user.role in ('ADMIN','MANAGER')) %}
         <form method="post" action="/tickets/{{ ticket.id }}/action">
           <input type="hidden" name="action" value="close">
-          <button class="btn btn-sm btn-gray">Close Ticket</button>
+          <button class="btn btn-sm btn-gray">Close {{ L.Ticket }}</button>
         </form>
         {% endif %}
 
@@ -191,12 +288,12 @@
 
       <!-- Reassign form -->
       <div id="reassign-form" class="form-panel" style="display:none">
-        <p style="font-size:11px;font-weight:700;color:#64748b;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">Reassign Ticket</p>
+        <p style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">Reassign {{ L.Ticket }}</p>
         <form method="post" action="/tickets/{{ ticket.id }}/action">
           <input type="hidden" name="action" value="reassign">
-          <div class="form-group"><label>What did you complete?</label><textarea name="what_completed" required placeholder="Describe what you've done so far…"></textarea></div>
-          <div class="form-group"><label>Why are you reassigning?</label><textarea name="why_reassigning" required placeholder="Reason for handoff…"></textarea></div>
-          <div class="form-group">
+          <div class="form-group" style="margin-bottom:10px"><label>What did you complete?</label><textarea name="what_completed" required placeholder="Describe what you've done so far…"></textarea></div>
+          <div class="form-group" style="margin-bottom:10px"><label>Why are you reassigning?</label><textarea name="why_reassigning" required placeholder="Reason for handoff…"></textarea></div>
+          <div class="form-group" style="margin-bottom:10px">
             <label>New Assignee</label>
             <select name="new_assignee_id" required>
               <option value="">Select person…</option>
@@ -214,10 +311,10 @@
 
       <!-- Help request form -->
       <div id="help-form" class="form-panel" style="display:none">
-        <p style="font-size:11px;font-weight:700;color:#64748b;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">Request Help</p>
+        <p style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">Request Help</p>
         <form method="post" action="/tickets/{{ ticket.id }}/action">
           <input type="hidden" name="action" value="help_request">
-          <div class="form-group"><label>Why do you need help?</label><textarea name="comment" required placeholder="Describe the issue…"></textarea></div>
+          <div class="form-group" style="margin-bottom:10px"><label>Why do you need help?</label><textarea name="comment" required placeholder="Describe the issue…"></textarea></div>
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-sm btn-orange">Send Help Request</button>
             <button type="button" onclick="hide('help-form')" class="btn btn-sm btn-outline">Cancel</button>
@@ -227,10 +324,10 @@
 
       <!-- Flag form -->
       <div id="flag-form" class="form-panel" style="display:none">
-        <p style="font-size:11px;font-weight:700;color:#64748b;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">Flag Ticket</p>
+        <p style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">Flag {{ L.Ticket }}</p>
         <form method="post" action="/tickets/{{ ticket.id }}/action">
           <input type="hidden" name="action" value="flag">
-          <div class="form-group"><label>Reason for flagging</label><input name="flag_reason" required placeholder="e.g. Missed deadline, quality issue…"></div>
+          <div class="form-group" style="margin-bottom:10px"><label>Reason for flagging</label><input name="flag_reason" required placeholder="e.g. Missed deadline, quality issue…"></div>
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-sm btn-red">Confirm Flag</button>
             <button type="button" onclick="hide('flag-form')" class="btn btn-sm btn-outline">Cancel</button>
@@ -240,12 +337,12 @@
     </div>
   </div>
 
-  <!-- ── Right column: Journey + Comments (sticky) ── -->
+  <!-- ── Right column: Journey + Comments ── -->
   <div style="position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto;display:flex;flex-direction:column;gap:12px">
 
     <!-- Ticket Journey -->
     <div class="card" style="margin:0">
-      <h2 style="margin-bottom:14px">Ticket Journey</h2>
+      <h2 style="margin-bottom:14px">{{ L.Ticket }} Journey</h2>
       {% set journey_events = ticket.events | selectattr('event_type', 'ne', 'COMMENT') | list %}
       {% set all_items = (journey_events | list) + (ticket.comments | list) %}
       {% set all_sorted = all_items | sort(attribute='created_at') %}
@@ -271,23 +368,40 @@
         {% endfor %}
       </div>
       {% else %}
-      <p style="color:#64748b;font-size:13px">No activity yet.</p>
+      <p style="color:var(--text-faint);font-size:13px">No activity yet.</p>
       {% endif %}
     </div>
 
-    <!-- Comment input — always visible at bottom of right panel -->
+    <!-- Comment input -->
     <div class="card" style="margin:0">
       <h2 style="margin-bottom:10px">Add Comment</h2>
       <form method="post" action="/tickets/{{ ticket.id }}/action">
         <input type="hidden" name="action" value="comment">
         <textarea name="comment" placeholder="Write a comment…" required
-                  style="width:100%;box-sizing:border-box;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:9px 12px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit;resize:vertical;height:70px;margin-bottom:8px"></textarea>
+                  style="width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border-med);border-radius:8px;padding:9px 12px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;height:70px;margin-bottom:8px"></textarea>
         <button type="submit" class="btn btn-primary btn-sm" style="width:100%">Post Comment</button>
       </form>
     </div>
 
   </div>
+</div>
 
+<!-- Evidence upload modal for Mark Done -->
+<div id="evidence-modal" class="ev-modal-bg">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:12px;padding:24px;width:420px;max-width:95vw">
+    <div style="font-size:15px;font-weight:600;color:var(--text-strong);margin-bottom:16px">Submit with Evidence</div>
+    <form method="post" action="/tickets/{{ ticket.id }}/advance" enctype="multipart/form-data">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">An evidence file is required before this {{ L.ticket }} can be marked Done.</p>
+      <div class="form-group" style="margin-bottom:14px">
+        <label class="form-label">Upload Evidence <span style="color:#f87171">*</span></label>
+        <input type="file" name="evidence_file" class="form-input" required accept="image/*,.pdf,.doc,.docx">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="document.getElementById('evidence-modal').classList.remove('open')" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Submit & Mark Done</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <script>

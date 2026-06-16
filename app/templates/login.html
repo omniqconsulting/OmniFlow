@@ -6,44 +6,101 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+/* ── CSS variables: dark (default) ── */
+:root {
+  --bg-base:       #0b0f1a;
+  --bg-card:       #111827;
+  --bg-input:      #0d1424;
+  --bg-elevated:   #1e293b;
+  --bg-modal:      #131c2e;
+  --text-primary:  #e2e8f0;
+  --text-strong:   #f1f5f9;
+  --text-muted:    #94a3b8;
+  --text-faint:    #64748b;
+  --border-subtle: rgba(255,255,255,0.08);
+  --border-med:    rgba(255,255,255,0.12);
+  --hover-bg:      rgba(255,255,255,0.06);
+  --accent:        #3b82f6;
+  --step-num-bg:   #1e3a5f;
+  --step-num-color:#60a5fa;
+  --close-btn-hover:#273549;
+  --overlay-bg:    rgba(0,0,0,0.75);
+}
+/* ── Light theme overrides ── */
+html.light {
+  --bg-base:       #f0f4f8;
+  --bg-card:       #ffffff;
+  --bg-input:      #f8fafc;
+  --bg-elevated:   #e8edf4;
+  --bg-modal:      #ffffff;
+  --text-primary:  #1e3a5f;
+  --text-strong:   #0c2340;
+  --text-muted:    #3a5a7a;
+  --text-faint:    #5a7a9a;
+  --border-subtle: rgba(30,58,95,0.10);
+  --border-med:    rgba(30,58,95,0.18);
+  --hover-bg:      rgba(30,58,95,0.05);
+  --accent:        #1d4ed8;
+  --step-num-bg:   #dbeafe;
+  --step-num-color:#1d4ed8;
+  --close-btn-hover:#e2eaf4;
+  --overlay-bg:    rgba(0,0,0,0.50);
+}
+
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',system-ui,sans-serif;background:#0b0f1a;display:flex;align-items:center;justify-content:center;min-height:100vh;color:#e2e8f0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg-base);display:flex;align-items:center;justify-content:center;min-height:100vh;color:var(--text-primary);transition:background .2s,color .2s}
 .wrap{width:360px}
 .logo-row{text-align:center;margin-bottom:32px}
-.logo{font-size:22px;font-weight:700;color:#e2e8f0;letter-spacing:-0.4px}
-.logo-sub{font-size:13px;color:#64748b;margin-top:4px}
-.card{background:#111827;border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:32px}
-.card-title{font-size:16px;font-weight:600;color:#e2e8f0;margin-bottom:4px}
-.card-sub{font-size:12px;color:#64748b;margin-bottom:24px}
+.logo{font-size:22px;font-weight:700;color:var(--text-strong);letter-spacing:-0.4px}
+.logo-sub{font-size:13px;color:var(--text-faint);margin-top:4px}
+.card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.12)}
+html.light .card{box-shadow:0 2px 12px rgba(0,0,0,0.10),0 1px 3px rgba(0,0,0,0.06)}
+.card-title{font-size:16px;font-weight:600;color:var(--text-strong);margin-bottom:4px}
+.card-sub{font-size:12px;color:var(--text-faint);margin-bottom:24px}
 .form-group{margin-bottom:14px}
-label{display:block;font-size:11px;font-weight:600;margin-bottom:5px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em}
-input{width:100%;background:#0b0f1a;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:10px 12px;font-size:14px;color:#e2e8f0;outline:none;font-family:inherit;transition:border-color 0.12s}
-input:focus{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,0.15)}
-input::placeholder{color:#4b5568}
-.btn{width:100%;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;font-family:inherit;transition:background 0.12s}
-.btn:hover{background:#2563eb}
-.error{background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:16px}
-.footer{text-align:center;font-size:12px;color:#64748b;margin-top:20px}
-.footer a{color:#60a5fa}
-.footer a:hover{color:#93c5fd}
-.divider{border:none;border-top:1px solid rgba(255,255,255,0.06);margin:20px 0}
-/* Forgot password modal */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;z-index:100}
+label{display:block;font-size:11px;font-weight:600;margin-bottom:5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em}
+input{width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:8px;padding:10px 12px;font-size:14px;color:var(--text-primary);outline:none;font-family:inherit;transition:border-color 0.12s}
+input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,0.15)}
+input::placeholder{color:var(--text-faint)}
+.btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;font-family:inherit;transition:background 0.12s}
+.btn:hover{filter:brightness(1.08)}
+.error{background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:16px}
+html.light .error{color:#dc2626}
+.footer{text-align:center;font-size:12px;color:var(--text-faint);margin-top:20px}
+.footer a{color:var(--accent);text-decoration:none;cursor:pointer}
+.footer a:hover{text-decoration:underline}
+.footer-sep{margin:0 8px;color:var(--text-faint)}
+.divider{border:none;border-top:1px solid var(--border-subtle);margin:20px 0}
+
+/* ── Modal base ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:var(--overlay-bg);align-items:center;justify-content:center;z-index:100}
 .modal-overlay.open{display:flex}
-.modal-box{background:#131c2e;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:28px;width:400px;max-width:95vw}
-.modal-title{font-size:15px;font-weight:600;color:#f1f5f9;margin-bottom:8px}
-.modal-body{font-size:13px;color:#94a3b8;line-height:1.7;margin-bottom:20px}
-.modal-body strong{color:#e2e8f0}
-.modal-step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06)}
+.modal-box{background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:400px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.4)}
+.modal-title{font-size:15px;font-weight:600;color:var(--text-strong);margin-bottom:8px}
+.modal-body{font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:20px}
+.modal-step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)}
 .modal-step:last-child{border-bottom:none}
-.step-num{width:22px;height:22px;border-radius:50%;background:#1e3a5f;color:#60a5fa;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
-.step-text{font-size:12px;color:#94a3b8;line-height:1.6}
-.step-text strong{color:#e2e8f0;display:block;margin-bottom:2px}
-.modal-close-btn{width:100%;background:#1e293b;color:#94a3b8;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:9px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;margin-top:20px}
-.modal-close-btn:hover{background:#273549;color:#e2e8f0}
+.step-num{width:22px;height:22px;border-radius:50%;background:var(--step-num-bg);color:var(--step-num-color);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.step-text{font-size:12px;color:var(--text-muted);line-height:1.6}
+.step-text strong{color:var(--text-primary);display:block;margin-bottom:2px}
+.modal-close-btn{width:100%;background:var(--bg-elevated);color:var(--text-muted);border:1px solid var(--border-med);border-radius:8px;padding:9px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;margin-top:20px;transition:all .12s}
+.modal-close-btn:hover{background:var(--close-btn-hover);color:var(--text-primary)}
+
+/* ── Theme toggle ── */
+.theme-toggle{position:fixed;top:16px;right:16px;background:var(--bg-card);border:1px solid var(--border-med);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:15px;color:var(--text-muted);transition:all .15s;z-index:10;line-height:1}
+.theme-toggle:hover{border-color:var(--border-strong,var(--border-med));color:var(--text-primary);background:var(--bg-elevated)}
+
+/* ── Contact admin modal specific ── */
+.contact-info{background:var(--bg-input);border:1px solid var(--border-med);border-radius:8px;padding:14px 16px;margin-top:14px;font-size:13px}
+.contact-info .contact-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-faint);margin-bottom:4px}
+.contact-info .contact-name{font-size:14px;font-weight:600;color:var(--text-strong);margin-bottom:2px}
+.contact-info .contact-detail{font-size:12px;color:var(--text-muted)}
+.whatsapp-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#25d366;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:12px;text-decoration:none;transition:background .12s}
+.whatsapp-btn:hover{background:#1da851;color:#fff}
 </style>
 </head>
 <body>
+<button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
 <div class="wrap">
   <div class="logo-row">
     <div class="logo">OmniFlow</div>
@@ -70,15 +127,15 @@ input::placeholder{color:#4b5568}
     </form>
     <hr class="divider">
     <div class="footer">
-      <a href="#" onclick="document.getElementById('forgotModal').classList.add('open');return false;">Forgot password?</a>
-      <span style="margin:0 8px;color:#1e293b">·</span>
-      <a href="/register">Create new account</a>
+      <a href="#" onclick="openModal('forgotModal');return false;">Forgot password?</a>
+      <span class="footer-sep">·</span>
+      <a href="#" onclick="openModal('contactModal');return false;">Contact your administrator</a>
     </div>
   </div>
 </div>
 
 <!-- Forgot Password Modal -->
-<div class="modal-overlay" id="forgotModal" onclick="if(event.target===this)this.classList.remove('open')">
+<div class="modal-overlay" id="forgotModal" onclick="if(event.target===this)closeModal('forgotModal')">
   <div class="modal-box">
     <div class="modal-title">🔐 Reset Your Password</div>
     <div class="modal-body">
@@ -95,7 +152,7 @@ input::placeholder{color:#4b5568}
       <div class="step-num">2</div>
       <div class="step-text">
         <strong>Sign in with the temporary password</strong>
-        Use the temp password you receive to sign in, then change it from your profile immediately.
+        Use the temporary password you receive to sign in, then change it from your profile immediately.
       </div>
     </div>
     <div class="modal-step">
@@ -105,8 +162,61 @@ input::placeholder{color:#4b5568}
         If you are the admin and are locked out, reach out to your OmniFlow account manager directly via WhatsApp.
       </div>
     </div>
-    <button class="modal-close-btn" onclick="document.getElementById('forgotModal').classList.remove('open')">Close</button>
+    <button class="modal-close-btn" onclick="closeModal('forgotModal')">Close</button>
   </div>
 </div>
+
+<!-- Contact Administrator Modal -->
+<div class="modal-overlay" id="contactModal" onclick="if(event.target===this)closeModal('contactModal')">
+  <div class="modal-box">
+    <div class="modal-title">📞 Contact Your Administrator</div>
+    <div class="modal-body">
+      Reach out to your factory administrator for account help, access issues, or onboarding support.
+    </div>
+    <div class="modal-step">
+      <div class="step-num">1</div>
+      <div class="step-text">
+        <strong>Factory Admin</strong>
+        Your factory admin can reset passwords, create accounts, and manage roles on the Employees page.
+      </div>
+    </div>
+    <div class="modal-step">
+      <div class="step-num">2</div>
+      <div class="step-text">
+        <strong>Platform Support</strong>
+        If your admin is unavailable or you are the admin and are locked out, contact OmniFlow support directly.
+      </div>
+    </div>
+    <a href="https://wa.me/919818677455" target="_blank" rel="noopener" class="whatsapp-btn">
+      💬 WhatsApp OmniFlow Support
+    </a>
+    <button class="modal-close-btn" onclick="closeModal('contactModal')">Close</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var t = localStorage.getItem('omniflow-theme') || 'dark';
+  if(t === 'light') document.documentElement.classList.add('light');
+  document.addEventListener('DOMContentLoaded', function(){
+    var btn = document.getElementById('themeBtn');
+    if(btn) btn.textContent = (t === 'light') ? '🌙' : '☀️';
+  });
+})();
+
+function toggleTheme(){
+  var isLight = document.documentElement.classList.toggle('light');
+  localStorage.setItem('omniflow-theme', isLight ? 'light' : 'dark');
+  document.getElementById('themeBtn').textContent = isLight ? '🌙' : '☀️';
+}
+
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){
+    document.querySelectorAll('.modal-overlay.open').forEach(function(m){ m.classList.remove('open'); });
+  }
+});
+</script>
 </body>
 </html>
