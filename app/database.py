@@ -968,6 +968,16 @@ class LinkedEntityReference(Base):
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
+    # Run any pending Alembic migrations on startup
+    try:
+        from alembic.config import Config
+        from alembic import command
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Alembic upgrade skipped: %s", e)
+    _seed_builtin_submodules()    
     # Auto-migrate: add any columns present in models but missing from the DB
     try:
         import sys, os
