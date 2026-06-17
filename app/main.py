@@ -2381,32 +2381,57 @@ def repair_checklist_schedules(user: User = Depends(require_admin), db: Session 
     for tmpl in templates:
         if not getattr(tmpl, "is_recurring", True):
             continue
-        assigned_user_id = tmpl.assigned_to_user_id
-        if not assigned_user_id:
+
+        # Resolve target user list (same logic as the scheduler)
+        if tmpl.assigned_to_user_id:
+            target_users = db.query(User).filter(
+                User.id == tmpl.assigned_to_user_id,
+                User.tenant_id == tid,
+                User.is_active == True,
+                User.is_deleted == False,
+            ).all()
+        elif tmpl.assigned_to_dept_id:
+            target_users = db.query(User).filter(
+                User.department_id == tmpl.assigned_to_dept_id,
+                User.tenant_id == tid,
+                User.is_active == True,
+                User.is_deleted == False,
+            ).all()
+        elif tmpl.assigned_to_role:
+            target_users = db.query(User).filter(
+                User.role == tmpl.assigned_to_role,
+                User.tenant_id == tid,
+                User.is_active == True,
+                User.is_deleted == False,
+            ).all()
+        else:
             continue
-        # Check if a pending/in-progress assignment already exists
-        pending = db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.template_id == tmpl.id,
-            ChecklistAssignment.user_id == assigned_user_id,
-            ChecklistAssignment.is_deleted == False,
-            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
-        ).first()
-        if pending:
-            continue
-        # Find the last completed assignment to compute next_due
-        last_done = db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.template_id == tmpl.id,
-            ChecklistAssignment.user_id == assigned_user_id,
-            ChecklistAssignment.status == "DONE",
-        ).order_by(ChecklistAssignment.due_at.desc()).first()
-        base_dt = (last_done.due_at if last_done and last_done.due_at else datetime.utcnow())
-        next_due = _next_due_from(tmpl.frequency, base_dt)
-        db.add(ChecklistAssignment(
-            template_id=tmpl.id, tenant_id=tid,
-            user_id=assigned_user_id, due_at=next_due,
-            evidence_required=bool(tmpl.evidence_required),
-        ))
-        created += 1
+
+        for target_user in target_users:
+            uid = target_user.id
+            # Skip if a pending/in-progress assignment already exists for this user
+            pending = db.query(ChecklistAssignment).filter(
+                ChecklistAssignment.template_id == tmpl.id,
+                ChecklistAssignment.user_id == uid,
+                ChecklistAssignment.is_deleted == False,
+                ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+            ).first()
+            if pending:
+                continue
+            # Base next_due on last completed assignment, otherwise now
+            last_done = db.query(ChecklistAssignment).filter(
+                ChecklistAssignment.template_id == tmpl.id,
+                ChecklistAssignment.user_id == uid,
+                ChecklistAssignment.status == "DONE",
+            ).order_by(ChecklistAssignment.due_at.desc()).first()
+            base_dt = (last_done.due_at if last_done and last_done.due_at else datetime.utcnow())
+            next_due = _next_due_from(tmpl.frequency, base_dt)
+            db.add(ChecklistAssignment(
+                template_id=tmpl.id, tenant_id=tid,
+                user_id=uid, due_at=next_due,
+                evidence_required=bool(tmpl.evidence_required),
+            ))
+            created += 1
     db.commit()
     return redirect(f"/checklists?msg=Repaired+{created}+missing+schedules")
 
