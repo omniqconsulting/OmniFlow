@@ -1711,10 +1711,13 @@ async def upload_ticket_media(ticket_id: str, file: UploadFile = File(...),
 def _next_due_from(freq: str, from_dt: datetime) -> datetime:
     """Compute next due datetime based on frequency. Always returns a future datetime."""
     _delta = {
-        "DAILY":     timedelta(days=1),
-        "WEEKLY":    timedelta(weeks=1),
-        "MONTHLY":   timedelta(days=30),
-        "PER_SHIFT": timedelta(hours=8),
+        "DAILY":        timedelta(days=1),
+        "WEEKLY":       timedelta(weeks=1),
+        "TWICE_A_MONTH": timedelta(days=15),
+        "MONTHLY":      timedelta(days=30),
+        "QUARTERLY":    timedelta(days=91),
+        "YEARLY":       timedelta(days=365),
+        "PER_SHIFT":    timedelta(hours=8),
     }.get(freq, timedelta(days=1))
     nxt = from_dt + _delta
     _now = datetime.utcnow()
@@ -2503,7 +2506,7 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
         if not title or not desc:
             errors.append((i, title or "(blank)", "title and description are required"))
             continue
-        if freq not in ("DAILY","WEEKLY","MONTHLY","PER_SHIFT"):
+        if freq not in ("DAILY","WEEKLY","TWICE_A_MONTH","MONTHLY","QUARTERLY","YEARLY","PER_SHIFT"):
             errors.append((i, title, f"Invalid frequency: {freq}"))
             continue
         # Resolve assignee
