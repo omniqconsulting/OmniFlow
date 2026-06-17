@@ -544,6 +544,12 @@ select option{background:var(--bg-card);color:var(--text-primary)}
             {% if t.status not in ('COMPLETED','CLOSED') %}
             <a href="/fms/tickets/{{ t.id }}" class="btn btn-xs btn-gray" style="text-decoration:none;margin-left:4px">Open →</a>
             {% endif %}
+            {% if user.role == 'ADMIN' %}
+            <form method="post" action="/fms/tickets/{{ t.id }}/delete" style="display:inline;margin-left:4px"
+                  onsubmit="return confirm('Delete ticket {{ t.display_id or t.id[:8] }}? This cannot be undone.')">
+              <button type="submit" class="btn btn-xs btn-red">Del</button>
+            </form>
+            {% endif %}
           </td>
           {% endif %}
         </tr>
