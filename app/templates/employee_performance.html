@@ -175,91 +175,64 @@
 </div>
 
 <!-- ── Score Breakdown ────────────────────────────────────────────────────── -->
-{% if not score_components %}
+{% set active_comp_count = score_components | selectattr("value", "ne", none) | list | length %}
 <div class="card" style="padding:24px;margin-bottom:20px;background:transparent;border:1px solid var(--border-subtle)">
-  <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:16px">How This Score Is Calculated</div>
-  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px">
-    <div style="background:var(--bg-input);border-radius:10px;padding:14px 18px;text-align:center;min-width:110px">
-      <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:6px">Tickets</div>
-      <div style="font-size:18px;font-weight:700;color:#3b82f6">On-Time %</div>
-      <div style="font-size:10px;color:var(--text-faint);margin-top:4px">e.g. 80%</div>
-    </div>
-    <div style="font-size:20px;color:var(--text-xfaint)">+</div>
-    <div style="background:var(--bg-input);border-radius:10px;padding:14px 18px;text-align:center;min-width:110px">
-      <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:6px">Checklists</div>
-      <div style="font-size:18px;font-weight:700;color:#10b981">Compliance %</div>
-      <div style="font-size:10px;color:var(--text-faint);margin-top:4px">e.g. 90%</div>
-    </div>
-    <div style="font-size:20px;color:var(--text-xfaint)">+</div>
-    <div style="background:var(--bg-input);border-radius:10px;padding:14px 18px;text-align:center;min-width:110px">
-      <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:6px">Flow Tickets</div>
-      <div style="font-size:18px;font-weight:700;color:#8b5cf6">On-Time %</div>
-      <div style="font-size:10px;color:var(--text-faint);margin-top:4px">e.g. 70%</div>
-    </div>
-    <div style="font-size:20px;color:var(--text-xfaint)">÷ 3 =</div>
-    <div style="border:2px solid #3b82f6;border-radius:10px;padding:14px 20px;text-align:center;min-width:110px">
-      <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:6px">Final Score</div>
-      <div style="font-size:28px;font-weight:800;color:#3b82f6">80%</div>
-      <div style="font-size:10px;color:var(--text-faint);margin-top:4px">example</div>
-    </div>
-  </div>
-  <div style="background:var(--bg-input);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--text-faint);line-height:1.7">
-    <strong style="color:var(--text-muted);display:block;margin-bottom:4px">No activity data for this period yet.</strong>
-    Once this employee is assigned and completes work across active modules (Tickets, Checklists, Flow Tickets),
-    their score will appear here — calculated as the average on-time / compliance rate across all active modules.
-    Only modules with at least one completed item count towards the score.
-  </div>
-</div>
-{% else %}
-<div class="card" style="padding:24px;margin-bottom:20px;background:transparent;border:1px solid var(--border-subtle)">
-  <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:20px">How This Score Is Calculated</div>
+  <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:20px">Score Breakdown</div>
 
-  <div style="display:flex;align-items:stretch;gap:0">
+  <div style="display:flex;align-items:stretch;gap:0;flex-wrap:wrap">
     {% for comp in score_components %}
+    {% set has_data = comp.value is not none %}
     <!-- Component block -->
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;padding:16px 12px;
-         background:var(--bg-input);border-radius:10px;
-         {% if not loop.last %}margin-right:0;{% endif %}">
+    <div style="flex:1;min-width:100px;display:flex;flex-direction:column;align-items:center;padding:16px 12px;
+         background:var(--bg-input);border-radius:10px;opacity:{% if has_data %}1{% else %}0.45{% endif %}">
       <div style="width:10px;height:10px;border-radius:50%;background:{{ comp.color }};margin-bottom:8px"></div>
       <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:2px">{{ comp.label }}</div>
       <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:12px">{{ comp.metric }}</div>
+      {% if has_data %}
       <div style="font-size:28px;font-weight:800;color:{{ comp.color }};line-height:1">{{ comp.value }}%</div>
       <div style="font-size:10px;color:var(--text-faint);margin-top:6px">{{ comp.detail }}</div>
-      <!-- mini bar -->
       <div style="width:100%;background:var(--bg-elevated);border-radius:99px;height:4px;margin-top:10px;overflow:hidden">
         <div style="height:100%;border-radius:99px;width:{{ comp.value }}%;background:{{ comp.color }};opacity:0.8"></div>
       </div>
+      {% else %}
+      <div style="font-size:22px;font-weight:700;color:var(--text-xfaint);line-height:1">—</div>
+      <div style="font-size:10px;color:var(--text-xfaint);margin-top:6px">{{ comp.detail }}</div>
+      <div style="width:100%;background:var(--bg-elevated);border-radius:99px;height:4px;margin-top:10px"></div>
+      {% endif %}
     </div>
 
     {% if not loop.last %}
-    <!-- Plus connector -->
-    <div style="display:flex;align-items:center;padding:0 10px;color:var(--text-faint);font-size:20px;font-weight:300;flex-shrink:0">+</div>
+    <div style="display:flex;align-items:center;padding:0 8px;color:var(--text-xfaint);font-size:18px;font-weight:300;flex-shrink:0">+</div>
     {% endif %}
     {% endfor %}
 
     <!-- Divider + equals -->
-    <div style="display:flex;align-items:center;padding:0 10px;color:var(--text-faint);font-size:20px;font-weight:300;flex-shrink:0">÷ {{ score_components|length }} =</div>
+    <div style="display:flex;align-items:center;padding:0 8px;color:var(--text-faint);font-size:16px;font-weight:300;flex-shrink:0">
+      ÷ {{ active_comp_count if active_comp_count > 0 else '—' }} =
+    </div>
 
     <!-- Final Score -->
     <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px 20px;
          border-radius:10px;border:2px solid
-         {% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% else %}#ef4444{% endif %};
-         min-width:110px;flex-shrink:0">
+         {% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% elif active_comp_count > 0 %}#ef4444{% else %}var(--border-subtle){% endif %};
+         min-width:100px;flex-shrink:0">
       <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Final Score</div>
       <div style="font-size:36px;font-weight:800;line-height:1;
-           color:{% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% else %}#ef4444{% endif %}">
-        {{ overall_score }}%
+           color:{% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% elif active_comp_count > 0 %}#ef4444{% else %}var(--text-xfaint){% endif %}">
+        {% if active_comp_count > 0 %}{{ overall_score }}%{% else %}—{% endif %}
       </div>
       <div style="font-size:11px;color:var(--text-xfaint);margin-top:6px">
-        {% if overall_score >= 80 %}Excellent{% elif overall_score >= 60 %}Good{% elif overall_score > 0 or score_components %}Needs Improvement{% else %}No Data{% endif %}
+        {% if active_comp_count == 0 %}No activity yet
+        {% elif overall_score >= 80 %}Excellent
+        {% elif overall_score >= 60 %}Good
+        {% else %}Needs Improvement{% endif %}
       </div>
     </div>
   </div>
 
   <div style="margin-top:14px;font-size:11px;color:var(--text-xfaint);text-align:center">
-    Score = average of on-time rates across active modules · matches the dial above
+    Score = average across modules with data · dimmed modules have no activity this period
   </div>
 </div>
-{% endif %}
 
 {% endblock %}
