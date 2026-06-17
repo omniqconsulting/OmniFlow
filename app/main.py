@@ -1857,8 +1857,21 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         if employee_id:
             upcoming_q = upcoming_q.filter(ChecklistAssignment.user_id == employee_id)
             overdue_q = overdue_q.filter(ChecklistAssignment.user_id == employee_id)
-        upcoming = upcoming_q.order_by(ChecklistAssignment.due_at).all()
-        overdue_team = overdue_q.order_by(ChecklistAssignment.due_at).all()
+        # Deduplicate upcoming: one row per template — earliest due_at wins
+        _all_upcoming = upcoming_q.order_by(ChecklistAssignment.due_at).all()
+        _seen_tmpl = {}
+        for _a in _all_upcoming:
+            if _a.template_id not in _seen_tmpl:
+                _seen_tmpl[_a.template_id] = _a
+        upcoming = list(_seen_tmpl.values())
+
+        # Deduplicate overdue: one row per template — earliest due_at wins
+        _all_overdue = overdue_q.order_by(ChecklistAssignment.due_at).all()
+        _seen_od = {}
+        for _a in _all_overdue:
+            if _a.template_id not in _seen_od:
+                _seen_od[_a.template_id] = _a
+        overdue_team = list(_seen_od.values())
 
         # Failed assignments (explicitly marked FAILED, last 90 days)
         failed_q = db.query(ChecklistAssignment).filter(
