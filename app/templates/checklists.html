@@ -502,24 +502,24 @@
   </div>
   {% if templates_list %}
   <div style="overflow-x:auto">
-  <table>
+  <table id="cl-table">
     <thead>
       <tr>
-        <th>{{ L.Checklist }}</th>
-        <th>Frequency</th>
-        <th>Assigned To</th>
-        <th>Last Completed</th>
-        <th>Next Due</th>
-        <th style="text-align:center">Failures</th>
-        <th style="text-align:center">Compliance</th>
-        <th>Status</th>
+        <th onclick="sortTable(0)" style="cursor:pointer;user-select:none">{{ L.Checklist }} <span class="sort-icon" data-col="0">⇅</span></th>
+        <th onclick="sortTable(1)" style="cursor:pointer;user-select:none">Frequency <span class="sort-icon" data-col="1">⇅</span></th>
+        <th onclick="sortTable(2)" style="cursor:pointer;user-select:none">Assigned To <span class="sort-icon" data-col="2">⇅</span></th>
+        <th onclick="sortTable(3)" style="cursor:pointer;user-select:none">Last Completed <span class="sort-icon" data-col="3">⇅</span></th>
+        <th onclick="sortTable(4)" style="cursor:pointer;user-select:none">Next Due <span class="sort-icon" data-col="4">⇅</span></th>
+        <th onclick="sortTable(5)" style="cursor:pointer;user-select:none;text-align:center">Failures <span class="sort-icon" data-col="5">⇅</span></th>
+        <th onclick="sortTable(6)" style="cursor:pointer;user-select:none;text-align:center">Compliance <span class="sort-icon" data-col="6">⇅</span></th>
+        <th onclick="sortTable(7)" style="cursor:pointer;user-select:none">Status <span class="sort-icon" data-col="7">⇅</span></th>
         <th></th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="cl-tbody">
     {% for t in templates_list %}
     {% set s = t._stats %}
-    <tr>
+    <tr class="cl-row" data-idx="{{ loop.index0 }}" {% if loop.index0 >= 20 %}style="display:none"{% endif %}>
       <td>
         <div style="font-weight:500;color:var(--text-primary)">{{ t.title }}</div>
         <div style="font-size:10px;color:var(--text-faint);margin-top:2px">{{ t.description[:60] }}{% if t.description|length > 60 %}…{% endif %}</div>
@@ -606,6 +606,13 @@
     </tbody>
   </table>
   </div>
+  {% if templates_list|length > 20 %}
+  <div style="text-align:center;margin-top:12px">
+    <button id="cl-show-more" onclick="toggleAllRows()" class="btn btn-outline" style="font-size:12px;padding:6px 20px">
+      Show all {{ templates_list|length }} checklists ▼
+    </button>
+  </div>
+  {% endif %}
   {% else %}
   <p style="color:var(--text-faint);font-size:13px;padding:8px 0">No checklists yet.
     {% if user.role == 'ADMIN' %}<button onclick="show('create-modal')" class="btn btn-sm btn-primary" style="margin-left:10px">Create one →</button>{% endif %}
@@ -916,6 +923,47 @@ function clearClSelection() {
   const master = document.getElementById('cl-chk-all');
   if (master) master.checked = false;
   updateClBulkBar();
+}
+
+/* ── Show/hide all rows ──────────────────────────────────────────────────── */
+var _allRowsVisible = false;
+function toggleAllRows() {
+  _allRowsVisible = !_allRowsVisible;
+  var rows = document.querySelectorAll('#cl-tbody .cl-row');
+  rows.forEach(function(r) { r.style.display = _allRowsVisible ? '' : (parseInt(r.dataset.idx) >= 20 ? 'none' : ''); });
+  var btn = document.getElementById('cl-show-more');
+  if (btn) btn.textContent = _allRowsVisible ? 'Show fewer ▲' : 'Show all ' + rows.length + ' checklists ▼';
+}
+
+/* ── Table sorting ───────────────────────────────────────────────────────── */
+var _sortCol = -1, _sortAsc = true;
+function sortTable(col) {
+  var tbody = document.getElementById('cl-tbody');
+  if (!tbody) return;
+  var rows = Array.from(tbody.querySelectorAll('.cl-row'));
+  _sortAsc = (_sortCol === col) ? !_sortAsc : true;
+  _sortCol = col;
+  rows.sort(function(a, b) {
+    var av = a.cells[col] ? a.cells[col].innerText.trim() : '';
+    var bv = b.cells[col] ? b.cells[col].innerText.trim() : '';
+    // numeric cols: Failures (5), Compliance (6)
+    if (col === 5 || col === 6) {
+      av = parseFloat(av) || 0;
+      bv = parseFloat(bv) || 0;
+      return _sortAsc ? av - bv : bv - av;
+    }
+    return _sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+  rows.forEach(function(r, i) {
+    r.dataset.idx = i;
+    r.style.display = (!_allRowsVisible && i >= 20) ? 'none' : '';
+    tbody.appendChild(r);
+  });
+  // Update sort icons
+  document.querySelectorAll('.sort-icon').forEach(function(el) {
+    var c = parseInt(el.dataset.col);
+    el.textContent = (c === col) ? (_sortAsc ? '▲' : '▼') : '⇅';
+  });
 }
 </script>
 
