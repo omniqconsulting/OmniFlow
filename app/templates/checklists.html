@@ -161,7 +161,7 @@
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
     <div>
       <h2 style="margin:0">Upcoming — Next {{ next_days }} Days</h2>
-      <div style="font-size:11px;color:var(--text-faint);margin-top:2px">Scheduled for the team in this window</div>
+      <div style="font-size:11px;color:var(--text-faint);margin-top:2px">One entry per checklist — next immediate occurrence shown</div>
     </div>
     {% if upcoming %}<span class="badge badge-blue">{{ upcoming|length }}</span>{% endif %}
   </div>
@@ -659,9 +659,37 @@
         <input type="checkbox" name="evidence_required" id="etm-evreq" value="true">
         Evidence Required on completion
       </label>
-      <input type="hidden" name="assigned_to_role" id="etm-role">
-      <input type="hidden" name="assigned_to_dept_id" id="etm-dept">
-      <input type="hidden" name="assigned_to_user_id" id="etm-user">
+
+      <div class="form-group">
+        <label>Assign To Employee</label>
+        <select name="assigned_to_user_id" id="etm-user" class="form-input" onchange="onEtmUserChange(this)">
+          <option value="">— Assign to a role or department instead —</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}" data-role="{{ e.role }}">{{ e.name }} ({{ e.role }}{% if e.department %} · {{ e.department.name }}{% endif %})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Or Assign To Role</label>
+          <select name="assigned_to_role" id="etm-role" class="form-input">
+            <option value="EMPLOYEE">EMPLOYEE</option>
+            <option value="MANAGER">MANAGER</option>
+            <option value="ADMIN">ADMIN</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Narrow to Department</label>
+          <select name="assigned_to_dept_id" id="etm-dept" class="form-input">
+            <option value="">All of selected role</option>
+            {% for d in departments %}
+            <option value="{{ d.id }}">{{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <button type="button" onclick="closeEditModal()" class="btn btn-outline">Cancel</button>
         <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -840,6 +868,12 @@ _tmplData['{{ t.id }}'] = {
 };
 {% endfor %}
 {% endif %}
+
+function onEtmUserChange(sel) {
+  var opt = sel.options[sel.selectedIndex];
+  var roleEl = document.getElementById('etm-role');
+  if (sel.value && roleEl && opt.dataset.role) roleEl.value = opt.dataset.role;
+}
 
 function openEditModal(tmplId) {
   var d = _tmplData[tmplId];
