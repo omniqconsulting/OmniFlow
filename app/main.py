@@ -132,6 +132,17 @@ app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 @app.on_event("startup")
 async def startup():
+    # Run Alembic migrations so Render/PostgreSQL schema stays current
+    try:
+        from alembic.config import Config as _AlembicConfig
+        from alembic import command as _alembic_cmd
+        import os as _os
+        _ini = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "alembic.ini")
+        _alembic_cfg = _AlembicConfig(_ini)
+        _alembic_cmd.upgrade(_alembic_cfg, "head")
+    except Exception as _e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("Alembic upgrade failed (non-fatal): %s", _e)
     create_tables()
     # Phase 1-2/3: capture the running event loop for sync→async WS broadcasts
     set_main_loop(asyncio.get_event_loop())
