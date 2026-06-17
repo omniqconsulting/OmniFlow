@@ -3137,37 +3137,37 @@ def employee_performance(
     # FMS score: prefer on-time rate if due_at data exists, fall back to completion rate
     fms_score    = fms_on_time_pct if (fms_done > 0 and fms_on_time > 0) else (fms_complete_pct if fms_total > 0 else None)
 
-    score_components = []
-    if ticket_score is not None:
-        score_components.append({
+    # Always include all 3 components; value=None means no data yet (shown as placeholder)
+    fms_metric = "On-Time Rate" if (fms_done > 0 and fms_on_time > 0) else "Completion Rate"
+    fms_detail = (f"{fms_on_time} of {fms_done} on time" if (fms_done > 0 and fms_on_time > 0)
+                  else (f"{fms_done} of {fms_total} completed" if fms_total > 0 else "No flow ticket data yet"))
+    score_components = [
+        {
             "label": "Tickets",
             "metric": "On-Time Rate",
             "value": ticket_score,
             "detail": (f"{ticket_kpis.get('on_time_rate',0)}% of {_closed_30d} closed"
-                       if _closed_30d > 0 else f"{_active_count} active — no closed tickets yet"),
+                       if _closed_30d > 0 else (f"{_active_count} active — no closed tickets yet"
+                       if _active_count > 0 else "No tickets assigned yet")),
             "color": "#3b82f6",
-        })
-    if cl_score is not None:
-        score_components.append({
+        },
+        {
             "label": "Checklists",
             "metric": "Compliance Rate",
             "value": cl_score,
-            "detail": f"{cl_done} of {cl_total} completed",
+            "detail": f"{cl_done} of {cl_total} completed" if cl_total > 0 else "No checklists assigned yet",
             "color": "#10b981",
-        })
-    if fms_score is not None:
-        fms_metric  = "On-Time Rate" if (fms_done > 0 and fms_on_time > 0) else "Completion Rate"
-        fms_detail  = (f"{fms_on_time} of {fms_done} on time" if (fms_done > 0 and fms_on_time > 0)
-                       else f"{fms_done} of {fms_total} completed")
-        score_components.append({
+        },
+        {
             "label": "Flow Tickets",
             "metric": fms_metric,
             "value": fms_score,
             "detail": fms_detail,
             "color": "#8b5cf6",
-        })
+        },
+    ]
 
-    active_components = [c for c in score_components]
+    active_components = [c for c in score_components if c["value"] is not None]
     overall_score = round(sum(c["value"] for c in active_components) / len(active_components)) if active_components else 0
 
     return templates.TemplateResponse(request, "employee_performance.html", {
