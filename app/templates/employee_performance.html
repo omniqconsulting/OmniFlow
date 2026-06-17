@@ -38,7 +38,7 @@
       {{ overall_score }}%
     </div>
     <div style="font-size:11px;color:var(--text-xfaint);margin-top:10px">
-      {% if overall_score >= 80 %}Excellent{% elif overall_score >= 60 %}Good{% elif overall_score > 0 %}Needs Improvement{% else %}No Data{% endif %}
+      {% if overall_score >= 80 %}Excellent{% elif overall_score >= 60 %}Good{% elif overall_score > 0 or score_components %}Needs Improvement{% else %}No Data{% endif %}
     </div>
   </div>
 
@@ -251,7 +251,7 @@
         {{ overall_score }}%
       </div>
       <div style="font-size:11px;color:var(--text-xfaint);margin-top:6px">
-        {% if overall_score >= 80 %}Excellent{% elif overall_score >= 60 %}Good{% elif overall_score > 0 %}Needs Improvement{% else %}No Data{% endif %}
+        {% if overall_score >= 80 %}Excellent{% elif overall_score >= 60 %}Good{% elif overall_score > 0 or score_components %}Needs Improvement{% else %}No Data{% endif %}
       </div>
     </div>
   </div>
