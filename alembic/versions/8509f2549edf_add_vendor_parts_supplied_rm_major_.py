@@ -19,31 +19,43 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Drop inventory tables and removed label columns (Inventory module removed in V2.2)."""
+    """Drop inventory tables and removed label columns using IF EXISTS to avoid transaction abort."""
     conn = op.get_bind()
-    dialect = conn.dialect.name
 
-    # Drop inventory tables (removed from scope in V2.2)
-    for tbl in ('purchase_order_items', 'stock_movements', 'material_requests',
-                'purchase_orders', 'materials'):
-        try:
-            op.drop_table(tbl)
-        except Exception:
-            pass  # already dropped or never existed on this DB
+    # Drop inventory tables children-first using IF EXISTS (safe on both SQLite and PostgreSQL)
+    for tbl in (
+        'stock_movements',
+        'material_requests',
+        'purchase_order_items',
+        'purchase_orders',
+        'materials',
+    ):
+        conn.execute(sa.text(f"DROP TABLE IF EXISTS {tbl}"))
 
-    # Drop obsolete inventory-related label columns from tenant_label_configs
+    # Drop obsolete inventory-related label columns using IF EXISTS
     obsolete_cols = [
-        'material_s', 'material_p', 'store_manager_s', 'store_manager_p',
-        'inventory_s', 'inventory_p', 'purchase_order_s', 'purchase_order_p',
-        'supplier_s', 'supplier_p', 'stock_in_s', 'stock_out_s',
+        'material_s', 'material_p',
+        'store_manager_s', 'store_manager_p',
+        'inventory_s', 'inventory_p',
+        'purchase_order_s', 'purchase_order_p',
+        'supplier_s', 'supplier_p',
+        'stock_in_s', 'stock_out_s',
         'adjustment_s',
     ]
+    dialect = conn.dialect.name
     for col in obsolete_cols:
-        try:
-            with op.batch_alter_table('tenant_label_configs') as batch_op:
-                batch_op.drop_column(col)
-        except Exception:
-            pass  # already dropped or column doesn't exist
+        if dialect == 'sqlite':
+            # SQLite doesn't support IF EXISTS on DROP COLUMN — use batch_alter_table
+            try:
+                with op.batch_alter_table('tenant_label_configs') as batch_op:
+                    batch_op.drop_column(col)
+            except Exception:
+                pass
+        else:
+            # PostgreSQL supports IF EXISTS on ALTER TABLE DROP COLUMN
+            conn.execute(sa.text(
+                f"ALTER TABLE tenant_label_configs DROP COLUMN IF EXISTS {col}"
+            ))
 
 
 def downgrade() -> None:

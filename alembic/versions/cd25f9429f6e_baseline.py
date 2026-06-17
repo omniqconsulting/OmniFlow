@@ -19,16 +19,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Drop removed inventory tables (children first) and obsolete label columns.
+    """Drop removed inventory tables and obsolete label columns.
 
-    Note: all alter_column calls from the original autogenerate were SQLite-specific
-    type differences (INTEGER vs BOOLEAN, TEXT vs VARCHAR) — they are no-ops on
-    PostgreSQL where SQLAlchemy already creates the correct types, so they are omitted
-    here to avoid errors on production.
+    Uses IF EXISTS so no exception is raised on missing tables/columns — this prevents
+    PostgreSQL from aborting the transaction (which would block the alembic_version update).
+
+    All alter_column type-change ops from the original autogenerate are omitted — they
+    were SQLite-specific false positives (SQLite stores Boolean as INTEGER; PostgreSQL
+    already uses the correct types).
     """
     conn = op.get_bind()
+    dialect = conn.dialect.name
 
-    # Drop inventory tables — children before parents to avoid FK constraint errors
+    # Drop inventory tables children-first using IF EXISTS
     for tbl in (
         'stock_movements',       # refs materials, purchase_order_items
         'material_requests',     # refs materials
@@ -36,12 +39,9 @@ def upgrade() -> None:
         'purchase_orders',       # parent
         'materials',             # parent
     ):
-        try:
-            op.drop_table(tbl)
-        except Exception:
-            pass  # already dropped or never existed
+        conn.execute(sa.text(f"DROP TABLE IF EXISTS {tbl}"))
 
-    # Drop obsolete inventory-related label columns from tenant_label_configs
+    # Drop obsolete inventory-related label columns
     obsolete_cols = [
         'material_s', 'material_p',
         'store_manager_s', 'store_manager_p',
@@ -52,11 +52,16 @@ def upgrade() -> None:
         'adjustment_s',
     ]
     for col in obsolete_cols:
-        try:
-            with op.batch_alter_table('tenant_label_configs') as batch_op:
-                batch_op.drop_column(col)
-        except Exception:
-            pass  # already dropped or column doesn't exist
+        if dialect == 'sqlite':
+            try:
+                with op.batch_alter_table('tenant_label_configs') as batch_op:
+                    batch_op.drop_column(col)
+            except Exception:
+                pass
+        else:
+            conn.execute(sa.text(
+                f"ALTER TABLE tenant_label_configs DROP COLUMN IF EXISTS {col}"
+            ))
 
 
 def downgrade() -> None:
