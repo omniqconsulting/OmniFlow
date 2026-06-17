@@ -2495,19 +2495,41 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
                                  db: Session = Depends(get_db)):
     import csv, io
     from fastapi.responses import StreamingResponse as _SR
-    content = (await file.read()).decode("utf-8-sig")
+    raw = await file.read()
+    # Try UTF-8 first, fall back to Windows-1252 for files saved by Excel
+    try:
+        content = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        content = raw.decode("cp1252", errors="replace")
+    # Normalise frequency aliases so common variants are accepted
+    _FREQ_ALIASES = {
+        "TWICE A MONTH": "TWICE_A_MONTH",
+        "TWICE-A-MONTH": "TWICE_A_MONTH",
+        "BI-MONTHLY":    "TWICE_A_MONTH",
+        "BIMONTHLY":     "TWICE_A_MONTH",
+        "QUATERLY":      "QUARTERLY",    # common misspelling
+        "QUATER":        "QUARTERLY",
+        "ANNUAL":        "YEARLY",
+        "ANNUALLY":      "YEARLY",
+    }
+    _VALID_FREQS = {"DAILY","WEEKLY","TWICE_A_MONTH","MONTHLY","QUARTERLY","YEARLY","PER_SHIFT"}
     reader = csv.DictReader(io.StringIO(content))
     errors = []
     created = 0
     for i, row in enumerate(reader, start=1):
         title = (row.get("title") or "").strip()
         desc  = (row.get("description") or "").strip()
-        freq  = (row.get("frequency") or "DAILY").strip().upper()
-        if not title or not desc:
-            errors.append((i, title or "(blank)", "title and description are required"))
+        # If title is blank but description has content, use description as title
+        if not title and desc:
+            title = desc
+            desc  = ""
+        freq_raw = (row.get("frequency") or "DAILY").strip().upper()
+        freq = _FREQ_ALIASES.get(freq_raw, freq_raw)
+        if not title:
+            errors.append((i, "(blank)", "title is required"))
             continue
-        if freq not in ("DAILY","WEEKLY","TWICE_A_MONTH","MONTHLY","QUARTERLY","YEARLY","PER_SHIFT"):
-            errors.append((i, title, f"Invalid frequency: {freq}"))
+        if freq not in _VALID_FREQS:
+            errors.append((i, title, f"Invalid frequency '{freq_raw}' — valid values: {', '.join(sorted(_VALID_FREQS))}"))
             continue
         # Resolve assignee
         role = (row.get("assigned_to_role") or "EMPLOYEE").strip().upper()
@@ -2532,7 +2554,8 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
                 errors.append((i, title, f"Department not found: {dept_name}"))
                 continue
             dept_id = d.id
-        ev_req = (row.get("evidence_required") or "FALSE").strip().upper() == "TRUE"
+        ev_raw = (row.get("evidence_required") or "").strip().upper()
+        ev_req = ev_raw in ("TRUE", "YES", "1", "Y")
         try:
             remind_b = int((row.get("reminder_hours_before") or "2").strip() or 2)
         except ValueError:
