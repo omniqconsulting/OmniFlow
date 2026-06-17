@@ -132,6 +132,17 @@ app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 @app.on_event("startup")
 async def startup():
+    # Run Alembic migrations so Render/PostgreSQL schema stays current
+    try:
+        from alembic.config import Config as _AlembicConfig
+        from alembic import command as _alembic_cmd
+        import os as _os
+        _ini = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "alembic.ini")
+        _alembic_cfg = _AlembicConfig(_ini)
+        _alembic_cmd.upgrade(_alembic_cfg, "head")
+    except Exception as _e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("Alembic upgrade failed (non-fatal): %s", _e)
     create_tables()
     # Phase 1-2/3: capture the running event loop for sync→async WS broadcasts
     set_main_loop(asyncio.get_event_loop())
@@ -1698,16 +1709,19 @@ async def upload_ticket_media(ticket_id: str, file: UploadFile = File(...),
 # ── Checklists ────────────────────────────────────────────────────────────────
 
 def _next_due_from(freq: str, from_dt: datetime) -> datetime:
-    """Compute next due datetime based on frequency."""
-    if freq == "DAILY":
-        return from_dt + timedelta(days=1)
-    elif freq == "WEEKLY":
-        return from_dt + timedelta(weeks=1)
-    elif freq == "MONTHLY":
-        return from_dt + timedelta(days=30)
-    elif freq == "PER_SHIFT":
-        return from_dt + timedelta(hours=8)
-    return from_dt + timedelta(days=1)
+    """Compute next due datetime based on frequency. Always returns a future datetime."""
+    _delta = {
+        "DAILY":     timedelta(days=1),
+        "WEEKLY":    timedelta(weeks=1),
+        "MONTHLY":   timedelta(days=30),
+        "PER_SHIFT": timedelta(hours=8),
+    }.get(freq, timedelta(days=1))
+    nxt = from_dt + _delta
+    _now = datetime.utcnow()
+    # If the computed next date is already in the past, keep advancing until future
+    while nxt < _now:
+        nxt += _delta
+    return nxt
 
 
 def _checklist_stats(db: Session, tmpl) -> dict:
@@ -1740,33 +1754,145 @@ def _checklist_stats(db: Session, tmpl) -> dict:
 @app.get("/checklists", response_class=HTMLResponse)
 def checklists(request: Request, user: User = Depends(get_current_user),
                db: Session = Depends(get_db),
-               dept_id: str = "", manager_id: str = ""):
+               dept_id: str = "", manager_id: str = "",
+               employee_id: str = "", branch_id: str = "",
+               next_days: int = 7):
     tid = user.tenant_id
     now = datetime.utcnow()
 
-    my_assignments = db.query(ChecklistAssignment).filter(
+    # My overdue: date already gone, not done
+    my_overdue = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.tenant_id == tid,
         ChecklistAssignment.user_id == user.id,
+        ChecklistAssignment.due_at < now,
         ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
         ChecklistAssignment.is_deleted == False,
     ).order_by(ChecklistAssignment.due_at).all()
 
-    # Upcoming assignments (next 7 days — scoped to manager's team)
-    upcoming = []
+    # My upcoming: due in the future, not done
+    my_upcoming = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.tenant_id == tid,
+        ChecklistAssignment.user_id == user.id,
+        ChecklistAssignment.due_at >= now,
+        ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+        ChecklistAssignment.is_deleted == False,
+    ).order_by(ChecklistAssignment.due_at).all()
+
+    # For backwards-compat: my_assignments = overdue + upcoming (for my-section rendering)
+    my_assignments = my_overdue + my_upcoming
+
+    # ── Auto-repair: silently schedule missing next-occurrences for recurring checklists ──
     if user.role in ("ADMIN", "MANAGER"):
-        upcoming_q = db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.tenant_id == tid,
-            ChecklistAssignment.due_at >= now,
-            ChecklistAssignment.due_at <= now + timedelta(days=7),
-            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
-        )
+        _all_t = db.query(ChecklistTemplate).filter(
+            ChecklistTemplate.tenant_id == tid,
+            ChecklistTemplate.is_deleted == False,
+            ChecklistTemplate.is_active == True,
+        ).all()
+        _repaired = False
+        for _t in _all_t:
+            if not (getattr(_t, 'is_recurring', True) and _t.assigned_to_user_id):
+                continue
+            _has = db.query(ChecklistAssignment).filter(
+                ChecklistAssignment.template_id == _t.id,
+                ChecklistAssignment.user_id == _t.assigned_to_user_id,
+                ChecklistAssignment.is_deleted == False,
+                ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+            ).first()
+            if _has:
+                continue
+            _last = db.query(ChecklistAssignment).filter(
+                ChecklistAssignment.template_id == _t.id,
+                ChecklistAssignment.user_id == _t.assigned_to_user_id,
+                ChecklistAssignment.status == "DONE",
+            ).order_by(ChecklistAssignment.due_at.desc()).first()
+            _base = (_last.due_at if (_last and _last.due_at) else now)
+            _nxt = _next_due_from(_t.frequency, _base)
+            db.add(ChecklistAssignment(
+                template_id=_t.id, tenant_id=tid,
+                user_id=_t.assigned_to_user_id, due_at=_nxt,
+                evidence_required=bool(_t.evidence_required),
+            ))
+            _repaired = True
+        if _repaired:
+            db.commit()
+
+    # Upcoming + overdue assignments for admin/manager across team
+    next_days = max(1, min(next_days, 90))
+    upcoming = []
+    overdue_team = []
+    failed_team = []
+    cl_team_ids = []
+    if user.role in ("ADMIN", "MANAGER"):
         if user.role == "MANAGER":
             cl_team_ids = [u.id for u in db.query(User).filter(
                 User.manager_id == user.id, User.is_deleted == False).all()]
             cl_team_ids.append(user.id)
-            upcoming_q = upcoming_q.filter(
-                ChecklistAssignment.user_id.in_(cl_team_ids))
+        upcoming_q = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.due_at >= now,
+            ChecklistAssignment.due_at <= now + timedelta(days=next_days),
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+            ChecklistAssignment.is_deleted == False,
+        )
+        overdue_q = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.due_at < now,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+            ChecklistAssignment.is_deleted == False,
+        )
+        if cl_team_ids:
+            upcoming_q = upcoming_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
+            overdue_q = overdue_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
+        if employee_id:
+            upcoming_q = upcoming_q.filter(ChecklistAssignment.user_id == employee_id)
+            overdue_q = overdue_q.filter(ChecklistAssignment.user_id == employee_id)
         upcoming = upcoming_q.order_by(ChecklistAssignment.due_at).all()
+        overdue_team = overdue_q.order_by(ChecklistAssignment.due_at).all()
+
+        # Failed assignments (explicitly marked FAILED, last 90 days)
+        failed_q = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.status == "FAILED",
+            ChecklistAssignment.is_deleted == False,
+        )
+        if cl_team_ids:
+            failed_q = failed_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
+        if employee_id:
+            failed_q = failed_q.filter(ChecklistAssignment.user_id == employee_id)
+        failed_assignments = failed_q.order_by(ChecklistAssignment.due_at.desc()).limit(50).all()
+
+        # Missed assignments: PENDING/OVERDUE past due_at and superseded by a newer occurrence
+        old_overdue_q = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+            ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.due_at < now,
+        )
+        if cl_team_ids:
+            old_overdue_q = old_overdue_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
+        if employee_id:
+            old_overdue_q = old_overdue_q.filter(ChecklistAssignment.user_id == employee_id)
+        old_overdue_candidates = old_overdue_q.all()
+
+        # Keep only those that have a newer sibling (= they were skipped / superseded)
+        missed_assignments = []
+        for _a in old_overdue_candidates:
+            _newer = db.query(ChecklistAssignment.id).filter(
+                ChecklistAssignment.template_id == _a.template_id,
+                ChecklistAssignment.user_id == _a.user_id,
+                ChecklistAssignment.due_at > _a.due_at,
+                ChecklistAssignment.is_deleted == False,
+            ).first()
+            if _newer:
+                missed_assignments.append(_a)
+
+        # Merge and deduplicate by id, sort by due_at desc
+        _seen = set()
+        failed_team = []
+        for _a in sorted(failed_assignments + missed_assignments, key=lambda x: x.due_at or now, reverse=True):
+            if _a.id not in _seen:
+                _seen.add(_a.id)
+                failed_team.append(_a)
 
     templates_list = []
     if user.role in ("ADMIN", "MANAGER"):
@@ -1777,11 +1903,17 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         if dept_id:
             q = q.filter(ChecklistTemplate.assigned_to_dept_id == dept_id)
         if manager_id:
-            # filter by templates whose assigned user reports to this manager
             sub_user_ids = [u.id for u in db.query(User).filter(
                 User.tenant_id == tid, User.manager_id == manager_id,
                 User.is_deleted == False).all()]
             q = q.filter(ChecklistTemplate.assigned_to_user_id.in_(sub_user_ids))
+        if employee_id:
+            q = q.filter(ChecklistTemplate.assigned_to_user_id == employee_id)
+        if branch_id:
+            branch_user_ids = [u.id for u in db.query(User).filter(
+                User.tenant_id == tid, User.branch_id == branch_id,
+                User.is_deleted == False).all()]
+            q = q.filter(ChecklistTemplate.assigned_to_user_id.in_(branch_user_ids))
         templates_list = q.order_by(ChecklistTemplate.created_at.desc()).all()
         for tmpl in templates_list:
             tmpl._stats = _checklist_stats(db, tmpl)
@@ -1813,12 +1945,14 @@ def checklists(request: Request, user: User = Depends(get_current_user),
 
     _raw_depts = db.query(Department).filter(
         Department.tenant_id == tid, Department.is_deleted == False).all()
-    # Deduplicate by name — same dept name can exist per-branch
     departments = list({d.name: d for d in sorted(_raw_depts, key=lambda d: d.name)}.values())
     employees = db.query(User).filter(
         User.tenant_id == tid, User.is_deleted == False, User.is_active == True,
     ).order_by(User.name).all()
     managers = [e for e in employees if e.role in ("MANAGER", "ADMIN")]
+    branches = db.query(Branch).filter(
+        Branch.tenant_id == tid, Branch.is_deleted == False,
+    ).order_by(Branch.name).all()
 
     from .linked_entities import get_linked_entity_options as _geo
     entity_options = _geo(db, user.tenant_id)
@@ -1826,11 +1960,18 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "my_assignments": my_assignments,
+        "my_overdue": my_overdue,
+        "my_upcoming": my_upcoming,
         "upcoming": upcoming,
+        "overdue_team": overdue_team,
+        "failed_team": failed_team,
         "templates_list": templates_list,
         "departments": departments, "employees": employees, "managers": managers,
+        "branches": branches,
         "chart_weeks": chart_weeks,
         "dept_id": dept_id, "manager_id": manager_id,
+        "employee_id": employee_id, "branch_id": branch_id,
+        "next_days": next_days,
         "entity_options": entity_options,
         "now": now,
         "checklist_notif_hours": getattr(user.tenant, "checklist_notif_hours", None) or "8,13,18",
@@ -1950,6 +2091,22 @@ async def checklists_bulk_complete(
         for a in assignments:
             a.status = "DONE"
             a.completed_at = datetime.utcnow()
+            # auto-schedule next occurrence
+            tmpl = a.template
+            if tmpl and getattr(tmpl, "is_recurring", True):
+                next_due = _next_due_from(tmpl.frequency, a.due_at or datetime.utcnow())
+                existing = db.query(ChecklistAssignment).filter(
+                    ChecklistAssignment.template_id == tmpl.id,
+                    ChecklistAssignment.user_id == a.user_id,
+                    ChecklistAssignment.due_at == next_due,
+                    ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+                ).first()
+                if not existing:
+                    db.add(ChecklistAssignment(
+                        template_id=tmpl.id, tenant_id=a.tenant_id,
+                        user_id=a.user_id, due_at=next_due,
+                        evidence_required=bool(tmpl.evidence_required),
+                    ))
         db.commit()
     return redirect("/checklists")
 
@@ -1995,11 +2152,11 @@ async def complete_checklist(assignment_id: str, request: Request,
         raise HTTPException(404)
     # P6-01: delay_reason required for OVERDUE
     if a.status == "OVERDUE" and not delay_reason.strip():
-        raise HTTPException(400, "Delay reason is required for overdue assignments")
+        return redirect("/checklists?err=Delay+reason+is+required+for+overdue+assignments")
     # P6-06: evidence required gate
     ev_required = bool(a.evidence_required or (a.template and a.template.evidence_required))
     if ev_required and (not evidence_file or not evidence_file.filename):
-        raise HTTPException(400, "Evidence file is required for this checklist")
+        return redirect("/checklists?err=Evidence+file+is+required+for+this+checklist+%E2%80%94+please+use+the+Complete+button+which+opens+the+upload+form")
     a.status = "DONE"
     a.completed_at = datetime.utcnow()
     if delay_reason.strip():
@@ -2146,6 +2303,7 @@ def edit_checklist_template(
     title: str = Form(...), description: str = Form(...),
     frequency: str = Form("DAILY"),
     evidence_required: bool = Form(False),
+    is_active: str = Form("1"),
     reminder_hours_before: int = Form(2),
     reminder_repeat_hours: int = Form(4),
     assigned_to_user_id: str = Form(""),
@@ -2164,6 +2322,7 @@ def edit_checklist_template(
     tmpl.description = description
     tmpl.frequency = frequency
     tmpl.evidence_required = evidence_required
+    tmpl.is_active = (is_active == "1")
     tmpl.reminder_hours_before = reminder_hours_before
     tmpl.reminder_repeat_hours = reminder_repeat_hours
     tmpl.assigned_to_user_id = assigned_to_user_id or None
@@ -2185,8 +2344,58 @@ def delete_checklist_template(template_id: str,
         raise HTTPException(404)
     tmpl.is_deleted = True
     tmpl.is_active = False
+    # cascade soft-delete all pending/in-progress assignments so they stop appearing in upcoming
+    db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.template_id == template_id,
+        ChecklistAssignment.tenant_id == user.tenant_id,
+        ChecklistAssignment.status.notin_(["DONE", "FAILED"]),
+        ChecklistAssignment.is_deleted == False,
+    ).update({"is_deleted": True}, synchronize_session=False)
     db.commit()
     return redirect("/checklists")
+
+
+@app.post("/checklists/repair-schedules")
+def repair_checklist_schedules(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Create missing next-occurrence assignments for all recurring checklists with no pending assignment."""
+    tid = user.tenant_id
+    templates = db.query(ChecklistTemplate).filter(
+        ChecklistTemplate.tenant_id == tid,
+        ChecklistTemplate.is_deleted == False,
+        ChecklistTemplate.is_active == True,
+    ).all()
+    created = 0
+    for tmpl in templates:
+        if not getattr(tmpl, "is_recurring", True):
+            continue
+        assigned_user_id = tmpl.assigned_to_user_id
+        if not assigned_user_id:
+            continue
+        # Check if a pending/in-progress assignment already exists
+        pending = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.template_id == tmpl.id,
+            ChecklistAssignment.user_id == assigned_user_id,
+            ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+        ).first()
+        if pending:
+            continue
+        # Find the last completed assignment to compute next_due
+        last_done = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.template_id == tmpl.id,
+            ChecklistAssignment.user_id == assigned_user_id,
+            ChecklistAssignment.status == "DONE",
+        ).order_by(ChecklistAssignment.due_at.desc()).first()
+        base_dt = (last_done.due_at if last_done and last_done.due_at else datetime.utcnow())
+        next_due = _next_due_from(tmpl.frequency, base_dt)
+        db.add(ChecklistAssignment(
+            template_id=tmpl.id, tenant_id=tid,
+            user_id=assigned_user_id, due_at=next_due,
+            evidence_required=bool(tmpl.evidence_required),
+        ))
+        created += 1
+    db.commit()
+    return redirect(f"/checklists?msg=Repaired+{created}+missing+schedules")
 
 
 @app.post("/checklists/assignments/{assignment_id}/edit")
@@ -2218,6 +2427,32 @@ def delete_checklist_assignment(assignment_id: str,
     if not a:
         raise HTTPException(404)
     a.is_deleted = True
+    db.commit()
+    return redirect("/checklists")
+
+
+@app.post("/checklists/assignments/{assignment_id}/notify")
+def notify_checklist_assignment(assignment_id: str,
+                                 user: User = Depends(require_manager),
+                                 db: Session = Depends(get_db)):
+    """Manually trigger a reminder notification for a checklist assignment."""
+    from .notifications import create_notification
+    a = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.id == assignment_id,
+        ChecklistAssignment.tenant_id == user.tenant_id,
+        ChecklistAssignment.is_deleted == False,
+    ).first()
+    if not a:
+        raise HTTPException(404)
+    title = a.template.title if a.template else "Checklist Reminder"
+    due_str = a.due_at.strftime("%d %b, %I:%M %p") if a.due_at else "—"
+    create_notification(
+        db, user.tenant_id, a.user_id,
+        "CHECKLIST_DUE_SOON",
+        f"Reminder: {title}",
+        f"Due: {due_str}",
+        "/checklists",
+    )
     db.commit()
     return redirect("/checklists")
 
@@ -2884,7 +3119,10 @@ def employee_performance(
     fms_complete_pct = round(fms_done / fms_total * 100)   if fms_total > 0 else 0
 
     # ── Score components (transparent calculation) ──────────────────────────
-    ticket_score = ticket_kpis.get("on_time_rate", 0) if ticket_kpis.get("closed_30d", 0) > 0 else None
+    _closed_30d   = ticket_kpis.get("closed_30d", 0)
+    _active_count = ticket_kpis.get("active_count", 0)
+    ticket_score = (ticket_kpis.get("on_time_rate", 0) if _closed_30d > 0
+                    else (0 if _active_count > 0 else None))
     cl_score     = cl_compliance if cl_total > 0 else None
     # FMS score: prefer on-time rate if due_at data exists, fall back to completion rate
     fms_score    = fms_on_time_pct if (fms_done > 0 and fms_on_time > 0) else (fms_complete_pct if fms_total > 0 else None)
@@ -2895,7 +3133,8 @@ def employee_performance(
             "label": "Tickets",
             "metric": "On-Time Rate",
             "value": ticket_score,
-            "detail": f"{ticket_kpis.get('on_time_rate',0)}% of {ticket_kpis.get('closed_30d',0)} closed",
+            "detail": (f"{ticket_kpis.get('on_time_rate',0)}% of {_closed_30d} closed"
+                       if _closed_30d > 0 else f"{_active_count} active — no closed tickets yet"),
             "color": "#3b82f6",
         })
     if cl_score is not None:
@@ -3115,27 +3354,51 @@ def delete_branch(branch_id: str, user: User = Depends(require_admin), db: Sessi
     return redirect("/setup")
 
 @app.post("/setup/department")
-def add_department(name: str = Form(...),
-                   branch_id: str = Form(""),
-                   redirect_to: str = Form("/setup?open=dept"),
-                   user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    db.add(Department(tenant_id=user.tenant_id, name=name.strip(),
-                      branch_id=branch_id.strip() or None))
+async def add_department(
+    request: Request,
+    redirect_to: str = Form("/setup?open=dept"),
+    user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    branch_ids = form.getlist("branch_ids")
+    if not name:
+        return redirect(redirect_to)
+    if branch_ids:
+        for bid in branch_ids:
+            bid = bid.strip()
+            if bid:
+                db.add(Department(tenant_id=user.tenant_id, name=name, branch_id=bid))
+    else:
+        db.add(Department(tenant_id=user.tenant_id, name=name, branch_id=None))
     db.commit()
     return redirect(redirect_to)
 
 @app.post("/setup/department/{dept_id}/edit")
-def edit_department(dept_id: str, name: str = Form(...), branch_id: str = Form(""),
-                    user: User = Depends(require_admin), db: Session = Depends(get_db)):
+async def edit_department(
+    request: Request,
+    dept_id: str,
+    user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    branch_ids = [b.strip() for b in form.getlist("branch_ids") if b.strip()]
     d = db.query(Department).filter(Department.id == dept_id, Department.tenant_id == user.tenant_id).first()
-    if d:
+    if d and name:
         old_name = d.name
-        new_bid = branch_id.strip() or None
+        # Remove all existing dept records with this name
         db.query(Department).filter(
             Department.tenant_id == user.tenant_id,
             Department.name == old_name,
-            Department.is_deleted == False
-        ).update({"name": name.strip(), "branch_id": new_bid})
+            Department.is_deleted == False,
+        ).update({"is_deleted": True})
+        db.flush()
+        # Re-create with new name and selected branches
+        if branch_ids:
+            for bid in branch_ids:
+                db.add(Department(tenant_id=user.tenant_id, name=name, branch_id=bid))
+        else:
+            db.add(Department(tenant_id=user.tenant_id, name=name, branch_id=None))
         db.commit()
     return redirect("/setup")
 

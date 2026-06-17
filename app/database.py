@@ -848,6 +848,7 @@ class Vendor(Base):
     phone          = Column(String)
     email          = Column(String)
     address        = Column(Text)
+    parts_supplied = Column(Text)
     notes          = Column(Text)
     is_active      = Column(Boolean, default=True)
     is_deleted     = Column(Boolean, default=False)
@@ -861,12 +862,13 @@ class Vendor(Base):
 
 class RawMaterial(Base):
     __tablename__ = "raw_materials"
-    id            = Column(String,  primary_key=True, default=new_id)
-    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
-    name          = Column(String,  nullable=False)
-    unit          = Column(String)
-    description   = Column(Text)
-    notes         = Column(Text)
+    id             = Column(String,  primary_key=True, default=new_id)
+    tenant_id      = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name           = Column(String,  nullable=False)
+    unit           = Column(String)
+    description    = Column(Text)
+    major_supplier = Column(String)
+    notes          = Column(Text)
     is_active     = Column(Boolean, default=True)
     is_deleted    = Column(Boolean, default=False)
     created_by_id = Column(String,  ForeignKey("users.id"))

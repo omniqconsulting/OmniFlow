@@ -189,13 +189,20 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
             <input name="name" placeholder="e.g. Production, Quality, HR" required autofocus>
           </div>
           <div class="form-group">
-            <label>Branch (optional)</label>
-            <select name="branch_id" class="filter-select" style="width:100%;padding:9px 12px;font-size:13px">
-              <option value="">— No specific branch —</option>
+            <label>{{ L.Branches }} (select one or more)</label>
+            {% if branches %}
+            <div style="display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:8px 10px">
               {% for b in branches %}
-              <option value="{{ b.id }}">{{ b.name }}</option>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;font-weight:400">
+                <input type="checkbox" name="branch_ids" value="{{ b.id }}" style="accent-color:#3b82f6">
+                {{ b.name }}
+              </label>
               {% endfor %}
-            </select>
+            </div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">Leave all unchecked to create an unassigned department.</div>
+            {% else %}
+            <div style="font-size:12px;color:var(--text-faint);padding:8px 0">No branches yet — add a branch first.</div>
+            {% endif %}
           </div>
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-primary btn-sm">Save Department</button>
@@ -242,22 +249,28 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
       </tr>
       <tr id="edit-dept-{{ dg.id }}" style="display:none">
         <td colspan="3" style="padding:10px 12px;background:var(--bg-input)">
-          <form method="post" action="/setup/department/{{ dg.id }}/edit" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <form method="post" action="/setup/department/{{ dg.id }}/edit" style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
             <div class="form-group" style="margin:0;flex:1;min-width:140px">
               <label>Department Name</label>
               <input name="name" value="{{ dg.name }}" required style="font-size:12px;padding:6px 10px">
             </div>
-            <div class="form-group" style="margin:0;flex:1;min-width:140px">
-              <label>Branch</label>
-              <select name="branch_id" style="width:100%;background:var(--bg-card);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
-                <option value="">— No specific branch —</option>
+            {% if branches %}
+            <div class="form-group" style="margin:0;flex:1;min-width:160px">
+              <label>{{ L.Branches }}</label>
+              <div style="display:flex;flex-direction:column;gap:3px;max-height:120px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px">
                 {% for b in branches %}
-                <option value="{{ b.id }}" {{ 'selected' if dg.branch_id == b.id }}>{{ b.name }}</option>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;font-weight:400">
+                  <input type="checkbox" name="branch_ids" value="{{ b.id }}" style="accent-color:#3b82f6" {% if b.name in dg.branches %}checked{% endif %}>
+                  {{ b.name }}
+                </label>
                 {% endfor %}
-              </select>
+              </div>
             </div>
-            <button type="submit" class="btn btn-sm btn-primary">Save</button>
-            <button type="button" onclick="toggleForm('edit-dept-{{ dg.id }}')" class="btn btn-sm btn-gray">Cancel</button>
+            {% endif %}
+            <div style="display:flex;gap:6px;align-self:flex-end;padding-bottom:2px">
+              <button type="submit" class="btn btn-sm btn-primary">Save</button>
+              <button type="button" onclick="toggleForm('edit-dept-{{ dg.id }}')" class="btn btn-sm btn-gray">Cancel</button>
+            </div>
           </form>
         </td>
       </tr>

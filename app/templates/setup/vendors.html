@@ -15,7 +15,11 @@
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
       <h2 style="margin:0">Vendors</h2>
-      <button onclick="document.getElementById('addModal').style.display='flex'" class="btn btn-sm btn-primary">+ Add Vendor</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a href="/setup/vendors/template" class="btn btn-sm btn-outline">⬇ CSV Template</a>
+        <button onclick="document.getElementById('importModal').style.display='flex'" class="btn btn-sm btn-outline">⬆ Import CSV</button>
+        <button onclick="document.getElementById('addModal').style.display='flex'" class="btn btn-sm btn-primary">+ Add Vendor</button>
+      </div>
     </div>
 
     <div style="margin-bottom:12px">
@@ -30,7 +34,7 @@
             <th>Name</th>
             <th>Contact Person</th>
             <th>Phone</th>
-            <th>Email</th>
+            <th>Parts Supplied</th>
             <th>Status</th>
             <th style="width:120px">Actions</th>
           </tr>
@@ -41,7 +45,7 @@
             <td><strong>{{ v.name }}</strong></td>
             <td>{{ v.contact_person or '—' }}</td>
             <td>{{ v.phone or '—' }}</td>
-            <td>{{ v.email or '—' }}</td>
+            <td style="color:var(--text-muted);font-size:12px">{{ v.parts_supplied or '—' }}</td>
             <td>
               <span class="badge {{ 'badge-green' if v.is_active else 'badge-gray' }}">
                 {{ 'Active' if v.is_active else 'Inactive' }}
@@ -75,7 +79,7 @@
 
 <!-- Add Vendor Modal -->
 <div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
-  <div class="modal-box" style="max-width:480px;width:100%">
+  <div class="modal-box" style="max-width:480px;width:100%;max-height:92vh;overflow-y:auto">
     <div class="modal-title">Add Vendor</div>
     <form method="post" action="/setup/vendors/add">
       <div class="form-group">
@@ -89,7 +93,9 @@
       <div class="form-group">
         <label class="form-label">Phone</label>
         <input name="phone" class="form-input" placeholder="e.g. +91 98765 43210"
-               pattern="[0-9+\-\s()]{7,20}" title="Numbers, +, -, spaces and () only — 7 to 20 characters">
+               pattern="[0-9+\-\s()]{7,20}" title="Numbers, +, -, spaces and () only — 7 to 20 characters"
+               oninput="validatePhone(this)">
+        <div id="add_phone_err" style="display:none;font-size:11px;color:#f87171;margin-top:3px">Enter 7–20 characters using digits, +, -, spaces or () only.</div>
       </div>
       <div class="form-group">
         <label class="form-label">Email</label>
@@ -98,6 +104,11 @@
       <div class="form-group">
         <label class="form-label">Address</label>
         <textarea name="address" class="form-input" rows="2" placeholder="Vendor address"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Parts / Materials Supplied</label>
+        <textarea name="parts_supplied" class="form-input" rows="2" placeholder="e.g. Steel rods, Copper wire, Bolts (comma-separated)"></textarea>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">Enter the parts or materials this vendor supplies, comma-separated.</div>
       </div>
       <div class="form-group">
         <label class="form-label">Notes</label>
@@ -113,7 +124,7 @@
 
 <!-- Edit Vendor Modal -->
 <div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
-  <div class="modal-box" style="max-width:480px;width:100%">
+  <div class="modal-box" style="max-width:480px;width:100%;max-height:92vh;overflow-y:auto">
     <div class="modal-title">Edit Vendor</div>
     <form method="post" id="editForm">
       <div class="form-group">
@@ -127,7 +138,9 @@
       <div class="form-group">
         <label class="form-label">Phone</label>
         <input name="phone" id="edit_phone" class="form-input"
-               pattern="[0-9+\-\s()]{7,20}" title="Numbers, +, -, spaces and () only — 7 to 20 characters">
+               pattern="[0-9+\-\s()]{7,20}" title="Numbers, +, -, spaces and () only — 7 to 20 characters"
+               oninput="validatePhone(this)">
+        <div id="edit_phone_err" style="display:none;font-size:11px;color:#f87171;margin-top:3px">Enter 7–20 characters using digits, +, -, spaces or () only.</div>
       </div>
       <div class="form-group">
         <label class="form-label">Email</label>
@@ -136,6 +149,10 @@
       <div class="form-group">
         <label class="form-label">Address</label>
         <textarea name="address" id="edit_address" class="form-input" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Parts / Materials Supplied</label>
+        <textarea name="parts_supplied" id="edit_parts_supplied" class="form-input" rows="2" placeholder="e.g. Steel rods, Copper wire (comma-separated)"></textarea>
       </div>
       <div class="form-group">
         <label class="form-label">Notes</label>
@@ -156,6 +173,26 @@
   </div>
 </div>
 
+<!-- Import CSV Modal -->
+<div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal-box" style="max-width:440px;width:100%">
+    <div class="modal-title">Import Vendors via CSV</div>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:8px">
+      Download the template, fill it in, then upload. Rows with errors are skipped and shown in a downloadable report.
+    </p>
+    <a href="/setup/vendors/template" class="btn btn-sm btn-outline" style="margin-bottom:12px;display:inline-block">⬇ Download Template</a>
+    <div id="import-result" style="display:none;border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px"></div>
+    <div class="form-group">
+      <label class="form-label">Upload CSV</label>
+      <input type="file" id="importFile" accept=".csv" class="form-input" required>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button type="button" onclick="document.getElementById('importModal').style.display='none'" class="btn btn-outline">Cancel</button>
+      <button type="button" onclick="runImport()" id="importBtn" class="btn btn-primary">Upload & Import</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function filterTable() {
   const q = document.getElementById('searchInput').value.toLowerCase();
@@ -169,10 +206,51 @@ function openEdit(v) {
   document.getElementById('edit_phone').value = v.phone || '';
   document.getElementById('edit_email').value = v.email || '';
   document.getElementById('edit_address').value = v.address || '';
+  document.getElementById('edit_parts_supplied').value = v.parts_supplied || '';
   document.getElementById('edit_notes').value = v.notes || '';
   document.getElementById('edit_is_active').value = v.is_active ? '1' : '0';
   document.getElementById('editForm').action = '/setup/vendors/' + v.id + '/edit';
   document.getElementById('editModal').style.display = 'flex';
+}
+function validatePhone(input) {
+  const errId = input.id === 'edit_phone' ? 'edit_phone_err' : 'add_phone_err';
+  const errEl = document.getElementById(errId);
+  if (!errEl) return;
+  const val = input.value.trim();
+  const ok = val === '' || /^[0-9+\-\s()]{7,20}$/.test(val);
+  errEl.style.display = ok ? 'none' : 'block';
+  input.style.borderColor = ok ? '' : '#f87171';
+}
+async function runImport() {
+  const fileEl = document.getElementById('importFile');
+  if (!fileEl.files.length) { alert('Please select a CSV file.'); return; }
+  const btn = document.getElementById('importBtn');
+  const resultEl = document.getElementById('import-result');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  resultEl.style.display = 'none';
+  const fd = new FormData();
+  fd.append('file', fileEl.files[0]);
+  try {
+    const resp = await fetch('/setup/vendors/import', { method: 'POST', body: fd });
+    const ct = resp.headers.get('Content-Type') || '';
+    if (ct.includes('text/csv')) {
+      const imported = resp.headers.get('X-Imported') || '0';
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'vendors_errors.csv'; a.click();
+      resultEl.style.cssText = 'display:block;background:rgba(245,158,11,0.12);color:#b45309;border:1px solid rgba(245,158,11,0.3);border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px';
+      resultEl.innerHTML = '⚠ ' + imported + ' row(s) imported. Some rows had errors — error report downloaded.';
+      if (parseInt(imported) > 0) setTimeout(() => location.reload(), 2500);
+    } else {
+      resultEl.style.cssText = 'display:block;background:rgba(16,185,129,0.12);color:#065f46;border:1px solid rgba(16,185,129,0.3);border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px';
+      resultEl.textContent = '✓ Import successful!';
+      setTimeout(() => location.reload(), 1200);
+    }
+  } catch(e) {
+    resultEl.style.cssText = 'display:block;background:rgba(239,68,68,0.12);color:#991b1b;border:1px solid rgba(239,68,68,0.3);border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px';
+    resultEl.textContent = '✗ Upload failed. Please try again.';
+  }
+  btn.disabled = false; btn.textContent = 'Upload & Import';
 }
 </script>
 {% endblock %}

@@ -99,7 +99,7 @@ def _build_L(**overrides) -> dict[str, str]:
     L["Ticket"]      = L.get("Ticket",      DEFAULTS["ticket"][0])
     L["Tickets"]     = L.get("Tickets",     DEFAULTS["ticket"][1])
     L["Branch"]      = L.get("Branch",      DEFAULTS["branch"][0])
-    L["Branches"]    = L.get("Branchs",     DEFAULTS["branch"][1])
+    L["Branches"]    = L.get("Branches",     DEFAULTS["branch"][1])
     L["Department"]  = L.get("Department",  DEFAULTS["department"][0])
     L["Departments"] = L.get("Departments", DEFAULTS["department"][1])
     L["Employee"]    = L.get("Employee",    DEFAULTS["employee"][0])

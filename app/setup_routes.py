@@ -4,7 +4,9 @@ Deployed Config, and Inventory Reference routes.
 """
 from __future__ import annotations
 
-import csv, io, json
+import csv, io, json, re
+
+_PHONE_RE = re.compile(r'^[0-9+\-\s()]{7,20}$')
 from datetime import datetime, date as _date
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -103,6 +105,24 @@ _CUSTOM_ITEM_COLS = [
     ("sort_order",  "Optional. Integer. Determines display order. Defaults to 0."),
 ]
 
+_VENDOR_COLS = [
+    ("name",           "Mandatory. Vendor / supplier name. Max 200 characters."),
+    ("contact_person", "Optional. Primary contact name at the vendor."),
+    ("phone",          "Optional. Contact phone. Numbers, +, -, spaces and () only, 7–20 characters."),
+    ("email",          "Optional. Contact email address."),
+    ("address",        "Optional. Vendor address. Free text."),
+    ("parts_supplied", "Optional. Comma-separated list of parts or materials supplied by this vendor."),
+    ("notes",          "Optional. Any additional notes. Free text."),
+]
+
+_RAW_MATERIAL_COLS = [
+    ("name",           "Mandatory. Raw material name. Max 200 characters."),
+    ("unit",           "Optional. Unit of measure. E.g. kg, pcs, litres, box."),
+    ("description",    "Optional. Material description. Free text."),
+    ("major_supplier", "Optional. Primary supplier name for this material."),
+    ("notes",          "Optional. Any additional notes. Free text."),
+]
+
 
 def _csv_template(rows: list[tuple[str, str]], filename: str) -> StreamingResponse:
     buf = io.StringIO()
@@ -175,10 +195,13 @@ def add_customer(
 ):
     if not name.strip():
         return _redir("/setup/customers?err=Name+is+required")
+    p = phone.strip()
+    if p and not _PHONE_RE.match(p):
+        return _redir("/setup/customers?err=Invalid+phone+number+format")
     db.add(Customer(
         tenant_id=user.tenant_id,
         name=name.strip(), contact_person=contact_person.strip() or None,
-        phone=phone.strip() or None, email=email.strip() or None,
+        phone=p or None, email=email.strip() or None,
         address=address.strip() or None, notes=notes.strip() or None,
         created_by_id=user.id,
     ))
@@ -205,9 +228,12 @@ def edit_customer(
     ).first()
     if not c:
         return _redir("/setup/customers?err=Not+found")
+    p = phone.strip()
+    if p and not _PHONE_RE.match(p):
+        return _redir("/setup/customers?err=Invalid+phone+number+format")
     c.name = name.strip()
     c.contact_person = contact_person.strip() or None
-    c.phone = phone.strip() or None
+    c.phone = p or None
     c.email = email.strip() or None
     c.address = address.strip() or None
     c.notes = notes.strip() or None
@@ -669,14 +695,20 @@ def vendors_page(request: Request, page: int = 1,
 
 @router.post("/setup/vendors/add")
 def add_vendor(name: str = Form(...), contact_person: str = Form(""), phone: str = Form(""),
-               email: str = Form(""), address: str = Form(""), notes: str = Form(""),
+               email: str = Form(""), address: str = Form(""), parts_supplied: str = Form(""),
+               notes: str = Form(""),
                user: User = Depends(require_admin), db: Session = Depends(get_db)):
     if not name.strip():
         return _redir("/setup/vendors?err=Name+is+required")
+    p = phone.strip()
+    if p and not _PHONE_RE.match(p):
+        return _redir("/setup/vendors?err=Invalid+phone+number+format")
     db.add(Vendor(tenant_id=user.tenant_id, name=name.strip(),
                   contact_person=contact_person.strip() or None,
-                  phone=phone.strip() or None, email=email.strip() or None,
-                  address=address.strip() or None, notes=notes.strip() or None,
+                  phone=p or None, email=email.strip() or None,
+                  address=address.strip() or None,
+                  parts_supplied=parts_supplied.strip() or None,
+                  notes=notes.strip() or None,
                   created_by_id=user.id))
     db.commit()
     return _redir("/setup/vendors?msg=Vendor+added")
@@ -684,14 +716,19 @@ def add_vendor(name: str = Form(...), contact_person: str = Form(""), phone: str
 @router.post("/setup/vendors/{vendor_id}/edit")
 def edit_vendor(vendor_id: str, name: str = Form(...), contact_person: str = Form(""),
                 phone: str = Form(""), email: str = Form(""), address: str = Form(""),
-                notes: str = Form(""), is_active: str = Form("1"),
+                parts_supplied: str = Form(""), notes: str = Form(""), is_active: str = Form("1"),
                 user: User = Depends(require_admin), db: Session = Depends(get_db)):
     v = db.query(Vendor).filter(Vendor.id == vendor_id, Vendor.tenant_id == user.tenant_id, Vendor.is_deleted == False).first()
     if not v:
         return _redir("/setup/vendors?err=Not+found")
+    p = phone.strip()
+    if p and not _PHONE_RE.match(p):
+        return _redir("/setup/vendors?err=Invalid+phone+number+format")
     v.name = name.strip(); v.contact_person = contact_person.strip() or None
-    v.phone = phone.strip() or None; v.email = email.strip() or None
-    v.address = address.strip() or None; v.notes = notes.strip() or None
+    v.phone = p or None; v.email = email.strip() or None
+    v.address = address.strip() or None
+    v.parts_supplied = parts_supplied.strip() or None
+    v.notes = notes.strip() or None
     v.is_active = (is_active == "1"); v.updated_at = datetime.utcnow()
     db.commit()
     return _redir("/setup/vendors?msg=Vendor+updated")
@@ -702,6 +739,51 @@ def delete_vendor(vendor_id: str, user: User = Depends(require_admin), db: Sessi
     if v:
         v.is_deleted = True; db.commit()
     return _redir("/setup/vendors?msg=Vendor+deleted")
+
+@router.get("/setup/vendors/template")
+def vendors_template(user: User = Depends(require_admin)):
+    return _csv_template(_VENDOR_COLS, "vendors_template.csv")
+
+@router.post("/setup/vendors/import")
+async def import_vendors(
+    file: UploadFile = File(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    content = (await file.read()).decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(content))
+    errors, imported = [], 0
+    for i, row in enumerate(reader, start=2):
+        name = (row.get("name") or "").strip()
+        if not name or name.startswith("Mandatory") or name.startswith("Optional"):
+            if name and not name.startswith("Mandatory"):
+                errors.append({"row": i, "error": "name is required", "data": dict(row)})
+            continue
+        if len(name) > 200:
+            errors.append({"row": i, "error": "name exceeds 200 characters", "data": dict(row)})
+            continue
+        phone = (row.get("phone") or "").strip()
+        if phone and not _PHONE_RE.match(phone):
+            errors.append({"row": i, "error": "invalid phone number format", "data": dict(row)})
+            continue
+        db.add(Vendor(
+            tenant_id=user.tenant_id,
+            name=name,
+            contact_person=(row.get("contact_person") or "").strip() or None,
+            phone=phone or None,
+            email=(row.get("email") or "").strip() or None,
+            address=(row.get("address") or "").strip() or None,
+            parts_supplied=(row.get("parts_supplied") or "").strip() or None,
+            notes=(row.get("notes") or "").strip() or None,
+            created_by_id=user.id,
+        ))
+        imported += 1
+    db.commit()
+    if errors:
+        r = _exception_report(errors, "vendors_exceptions.csv")
+        r.headers["X-Imported"] = str(imported)
+        return r
+    return _redir(f"/setup/vendors?msg=Imported+{imported}+vendor(s)")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -724,24 +806,29 @@ def raw_materials_page(request: Request, page: int = 1,
 
 @router.post("/setup/raw-materials/add")
 def add_raw_material(name: str = Form(...), unit: str = Form(""), description: str = Form(""),
-                     notes: str = Form(""), user: User = Depends(require_admin), db: Session = Depends(get_db)):
+                     major_supplier: str = Form(""), notes: str = Form(""),
+                     user: User = Depends(require_admin), db: Session = Depends(get_db)):
     if not name.strip():
         return _redir("/setup/raw-materials?err=Name+is+required")
     db.add(RawMaterial(tenant_id=user.tenant_id, name=name.strip(),
                        unit=unit.strip() or None, description=description.strip() or None,
+                       major_supplier=major_supplier.strip() or None,
                        notes=notes.strip() or None, created_by_id=user.id))
     db.commit()
     return _redir("/setup/raw-materials?msg=Raw+material+added")
 
 @router.post("/setup/raw-materials/{item_id}/edit")
 def edit_raw_material(item_id: str, name: str = Form(...), unit: str = Form(""),
-                      description: str = Form(""), notes: str = Form(""), is_active: str = Form("1"),
+                      description: str = Form(""), major_supplier: str = Form(""),
+                      notes: str = Form(""), is_active: str = Form("1"),
                       user: User = Depends(require_admin), db: Session = Depends(get_db)):
     m = db.query(RawMaterial).filter(RawMaterial.id == item_id, RawMaterial.tenant_id == user.tenant_id, RawMaterial.is_deleted == False).first()
     if not m:
         return _redir("/setup/raw-materials?err=Not+found")
     m.name = name.strip(); m.unit = unit.strip() or None
-    m.description = description.strip() or None; m.notes = notes.strip() or None
+    m.description = description.strip() or None
+    m.major_supplier = major_supplier.strip() or None
+    m.notes = notes.strip() or None
     m.is_active = (is_active == "1"); m.updated_at = datetime.utcnow()
     db.commit()
     return _redir("/setup/raw-materials?msg=Raw+material+updated")
@@ -752,6 +839,45 @@ def delete_raw_material(item_id: str, user: User = Depends(require_admin), db: S
     if m:
         m.is_deleted = True; db.commit()
     return _redir("/setup/raw-materials?msg=Raw+material+deleted")
+
+@router.get("/setup/raw-materials/template")
+def raw_materials_template(user: User = Depends(require_admin)):
+    return _csv_template(_RAW_MATERIAL_COLS, "raw_materials_template.csv")
+
+@router.post("/setup/raw-materials/import")
+async def import_raw_materials(
+    file: UploadFile = File(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    content = (await file.read()).decode("utf-8", errors="replace")
+    reader = csv.DictReader(io.StringIO(content))
+    errors, imported = [], 0
+    for i, row in enumerate(reader, start=2):
+        name = (row.get("name") or "").strip()
+        if not name or name.startswith("Mandatory") or name.startswith("Optional"):
+            if name and not name.startswith("Mandatory"):
+                errors.append({"row": i, "error": "name is required", "data": dict(row)})
+            continue
+        if len(name) > 200:
+            errors.append({"row": i, "error": "name exceeds 200 characters", "data": dict(row)})
+            continue
+        db.add(RawMaterial(
+            tenant_id=user.tenant_id,
+            name=name,
+            unit=(row.get("unit") or "").strip() or None,
+            description=(row.get("description") or "").strip() or None,
+            major_supplier=(row.get("major_supplier") or "").strip() or None,
+            notes=(row.get("notes") or "").strip() or None,
+            created_by_id=user.id,
+        ))
+        imported += 1
+    db.commit()
+    if errors:
+        r = _exception_report(errors, "raw_materials_exceptions.csv")
+        r.headers["X-Imported"] = str(imported)
+        return r
+    return _redir(f"/setup/raw-materials?msg=Imported+{imported}+item(s)")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
