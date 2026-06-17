@@ -41,6 +41,15 @@ def generate_recurring_checklists():
                 y = now.year + (1 if now.month == 12 else 0)
                 next_due = now.replace(year=y, month=m, day=1,
                                        hour=18, minute=0, second=0, microsecond=0)
+            elif tmpl.frequency == "TWICE_A_MONTH":
+                lookback = timedelta(days=16)
+                next_due = now + timedelta(days=15)
+            elif tmpl.frequency == "QUARTERLY":
+                lookback = timedelta(days=92)
+                next_due = now + timedelta(days=91)
+            elif tmpl.frequency == "YEARLY":
+                lookback = timedelta(days=366)
+                next_due = now + timedelta(days=365)
             elif tmpl.frequency == "PER_SHIFT":
                 lookback = timedelta(hours=8)
                 next_due = now + timedelta(hours=8)
