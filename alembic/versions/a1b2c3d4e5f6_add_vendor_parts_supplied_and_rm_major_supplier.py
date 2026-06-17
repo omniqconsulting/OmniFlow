@@ -16,10 +16,22 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('vendors', sa.Column('parts_supplied', sa.Text(), nullable=True))
-    op.add_column('raw_materials', sa.Column('major_supplier', sa.String(), nullable=True))
+    try:
+        op.add_column('vendors', sa.Column('parts_supplied', sa.Text(), nullable=True))
+    except Exception:
+        pass  # column already exists
+    try:
+        op.add_column('raw_materials', sa.Column('major_supplier', sa.String(), nullable=True))
+    except Exception:
+        pass  # column already exists
 
 
 def downgrade() -> None:
-    op.drop_column('vendors', 'parts_supplied')
-    op.drop_column('raw_materials', 'major_supplier')
+    try:
+        op.drop_column('vendors', 'parts_supplied')
+    except Exception:
+        pass
+    try:
+        op.drop_column('raw_materials', 'major_supplier')
+    except Exception:
+        pass
