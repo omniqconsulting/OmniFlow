@@ -1827,18 +1827,26 @@ def checklists(request: Request, user: User = Depends(get_current_user),
             cl_team_ids = [u.id for u in db.query(User).filter(
                 User.manager_id == user.id, User.is_deleted == False).all()]
             cl_team_ids.append(user.id)
+        # Only show assignments whose template still exists and is active (not deleted)
+        _active_tmpl_ids = db.query(ChecklistTemplate.id).filter(
+            ChecklistTemplate.tenant_id == tid,
+            ChecklistTemplate.is_deleted == False,
+            ChecklistTemplate.is_active == True,
+        ).subquery()
         upcoming_q = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.tenant_id == tid,
             ChecklistAssignment.due_at >= now,
             ChecklistAssignment.due_at <= now + timedelta(days=next_days),
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
             ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.template_id.in_(_active_tmpl_ids),
         )
         overdue_q = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.tenant_id == tid,
             ChecklistAssignment.due_at < now,
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
             ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.template_id.in_(_active_tmpl_ids),
         )
         if cl_team_ids:
             upcoming_q = upcoming_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
@@ -1854,6 +1862,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
             ChecklistAssignment.tenant_id == tid,
             ChecklistAssignment.status == "FAILED",
             ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.template_id.in_(_active_tmpl_ids),
         )
         if cl_team_ids:
             failed_q = failed_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
@@ -1867,6 +1876,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
             ChecklistAssignment.is_deleted == False,
             ChecklistAssignment.due_at < now,
+            ChecklistAssignment.template_id.in_(_active_tmpl_ids),
         )
         if cl_team_ids:
             old_overdue_q = old_overdue_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
