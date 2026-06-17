@@ -1835,7 +1835,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
             ChecklistTemplate.tenant_id == tid,
             ChecklistTemplate.is_deleted == False,
             ChecklistTemplate.is_active == True,
-        ).subquery()
+        ).scalar_subquery()
         upcoming_q = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.tenant_id == tid,
             ChecklistAssignment.due_at >= now,
@@ -2479,9 +2479,9 @@ def checklist_bulk_template(user: User = Depends(require_admin)):
     w = csv.writer(buf)
     w.writerow(["title","description","frequency","assigned_to_role",
                 "assigned_to_department","assigned_to_phone",
-                "evidence_required","reminder_hours_before","reminder_repeat_hours"])
+                "evidence_required","is_recurring","reminder_hours_before","reminder_repeat_hours"])
     w.writerow(["Daily Machine Check","Inspect all machines before shift","DAILY","EMPLOYEE",
-                "","","FALSE","2","4"])
+                "","","FALSE","TRUE","2","4"])
     buf.seek(0)
     from fastapi.responses import StreamingResponse as _SR
     return _SR(iter([buf.read().encode()]),
@@ -2533,17 +2533,33 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
                 continue
             dept_id = d.id
         ev_req = (row.get("evidence_required") or "FALSE").strip().upper() == "TRUE"
-        remind_b = int((row.get("reminder_hours_before") or "2").strip() or 2)
-        remind_r = int((row.get("reminder_repeat_hours") or "4").strip() or 4)
-        db.add(ChecklistTemplate(
-            tenant_id=user.tenant_id, title=title, description=desc,
-            frequency=freq, assigned_to_role=role,
-            assigned_to_dept_id=dept_id, assigned_to_user_id=user_id,
-            evidence_required=ev_req,
-            reminder_hours_before=remind_b, reminder_repeat_hours=remind_r,
-        ))
-        created += 1
-    db.commit()
+        try:
+            remind_b = int((row.get("reminder_hours_before") or "2").strip() or 2)
+        except ValueError:
+            remind_b = 2
+        try:
+            remind_r = int((row.get("reminder_repeat_hours") or "4").strip() or 4)
+        except ValueError:
+            remind_r = 4
+        is_rec_raw = (row.get("is_recurring") or "TRUE").strip().upper()
+        is_rec = is_rec_raw != "FALSE"
+        try:
+            db.add(ChecklistTemplate(
+                tenant_id=user.tenant_id, title=title, description=desc,
+                frequency=freq, assigned_to_role=role,
+                assigned_to_dept_id=dept_id, assigned_to_user_id=user_id,
+                evidence_required=ev_req, is_recurring=is_rec,
+                reminder_hours_before=remind_b, reminder_repeat_hours=remind_r,
+            ))
+            db.flush()
+            created += 1
+        except Exception as exc:
+            db.rollback()
+            errors.append((i, title, f"DB error: {exc}"))
+    if not errors:
+        db.commit()
+    else:
+        db.rollback()
     if errors:
         buf = io.StringIO()
         w = csv.writer(buf)
