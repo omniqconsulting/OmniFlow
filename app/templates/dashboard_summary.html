@@ -128,26 +128,32 @@ html.light .preset-btn.active { background:rgba(29,78,216,0.12); color:#1d4ed8; 
       </select>
     </div>
 
-    <!-- Department — deduplicated by name across branches -->
+    <!-- Department — multi-select checkboxes -->
+    {% if departments %}
     <div class="filter-group">
       <div class="filter-label">{{ L.Department }}</div>
-      <select name="dept_name" class="filter-select" onchange="this.form.submit()">
-        <option value="">All {{ L.Departments }}</option>
-        {% for d in departments %}
-        <option value="{{ d.name }}" {{ 'selected' if dept_name == d.name }}>{{ d.name }}</option>
-        {% endfor %}
-      </select>
+      {% for d in departments %}
+      <label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;cursor:pointer;color:var(--text-primary)">
+        <input type="checkbox" name="dept_ids" value="{{ d.id }}"
+               {{ 'checked' if d.id in dept_ids }}
+               style="accent-color:#3b82f6;cursor:pointer">
+        {{ d.name }}
+      </label>
+      {% endfor %}
     </div>
+    {% endif %}
 
     {% if user.role == 'ADMIN' and managers %}
     <div class="filter-group">
       <div class="filter-label">Manager</div>
-      <select name="manager_id" class="filter-select" onchange="this.form.submit()">
-        <option value="">All Managers</option>
-        {% for m in managers %}
-        <option value="{{ m.id }}" {{ 'selected' if manager_id == m.id }}>{{ m.name }}</option>
-        {% endfor %}
-      </select>
+      {% for m in managers %}
+      <label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;cursor:pointer;color:var(--text-primary)">
+        <input type="checkbox" name="manager_ids" value="{{ m.id }}"
+               {{ 'checked' if m.id in manager_ids }}
+               style="accent-color:#3b82f6;cursor:pointer">
+        {{ m.name }}
+      </label>
+      {% endfor %}
     </div>
     {% endif %}
 
@@ -162,7 +168,7 @@ html.light .preset-btn.active { background:rgba(29,78,216,0.12); color:#1d4ed8; 
         <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-strong)">Overview</h2>
         <div style="font-size:12px;color:var(--text-faint);margin-top:2px">{{ date_from }} → {{ date_to }}</div>
       </div>
-      <a href="/dashboard?view=detailed&date_from={{ date_from }}&date_to={{ date_to }}&dept_id={{ dept_id or '' }}&manager_id={{ manager_id or '' }}"
+      <a href="/dashboard?view=detailed&date_from={{ date_from }}&date_to={{ date_to }}{% for did in dept_ids %}&dept_ids={{ did }}{% endfor %}{% for mid in manager_ids %}&manager_ids={{ mid }}{% endfor %}"
          class="btn btn-sm btn-primary">Detailed Analysis →</a>
     </div>
 
@@ -315,7 +321,7 @@ html.light .preset-btn.active { background:rgba(29,78,216,0.12); color:#1d4ed8; 
       </div>
       <div class="dept-strip">
         {% for dh in dept_health %}
-        <a href="/dashboard?view=detailed&dept_id={{ dh.dept_id }}&date_from={{ date_from }}&date_to={{ date_to }}"
+        <a href="/dashboard?view=detailed&dept_ids={{ dh.dept_id }}&date_from={{ date_from }}&date_to={{ date_to }}"
            class="dept-chip {{ 'green' if dh.rate >= 80 else 'amber' if dh.rate >= 60 else 'red' }}"
            title="{{ dh.rate }}% compliance">
           {{ dh.name }} <span style="font-size:10px;opacity:0.7">{{ dh.rate }}%</span>
