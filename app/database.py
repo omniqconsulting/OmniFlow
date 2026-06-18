@@ -1010,10 +1010,14 @@ def create_tables():
 
 
 def _pg_add_columns():
-    """Add new columns to existing PostgreSQL tables that predate the model changes."""
+    """Add new columns to existing PostgreSQL tables that predate the model changes.
+    SQLite gets these via create_all / migrate.py — skip it here."""
     import logging
     from sqlalchemy import text as _text
     _log = logging.getLogger(__name__)
+    with engine.connect() as _probe:
+        if _probe.dialect.name != "postgresql":
+            return
     _migrations = [
         # Flow Board label columns — TenantLabelConfig
         "ALTER TABLE tenant_label_configs ADD COLUMN IF NOT EXISTS fms_s VARCHAR",
