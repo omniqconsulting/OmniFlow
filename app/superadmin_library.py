@@ -692,6 +692,7 @@ def lib_label_create(
     branch_s: str = Form(""), branch_p: str = Form(""),
     department_s: str = Form(""), department_p: str = Form(""),
     employee_s: str = Form(""), employee_p: str = Form(""),
+    fms_s: str = Form(""), fms_p: str = Form(""),
     sa: SuperAdmin = Depends(get_current_sa), db: Session = Depends(get_db),
 ):
     lb = LibraryLabelBundle(
@@ -702,6 +703,7 @@ def lib_label_create(
         branch_s=branch_s or None,    branch_p=branch_p or None,
         department_s=department_s or None, department_p=department_p or None,
         employee_s=employee_s or None, employee_p=employee_p or None,
+        fms_s=fms_s or None,          fms_p=fms_p or None,
     )
     db.add(lb); db.commit()
     return _r(f"/superadmin/library/labels?msg=created")
@@ -726,6 +728,7 @@ def lib_label_save(
     branch_s: str = Form(""), branch_p: str = Form(""),
     department_s: str = Form(""), department_p: str = Form(""),
     employee_s: str = Form(""), employee_p: str = Form(""),
+    fms_s: str = Form(""), fms_p: str = Form(""),
     bump_version: bool = Form(False),
     sa: SuperAdmin = Depends(get_current_sa), db: Session = Depends(get_db),
 ):
@@ -737,6 +740,7 @@ def lib_label_save(
     bundle.branch_s=branch_s or None;    bundle.branch_p=branch_p or None
     bundle.department_s=department_s or None; bundle.department_p=department_p or None
     bundle.employee_s=employee_s or None; bundle.employee_p=employee_p or None
+    bundle.fms_s=fms_s or None;          bundle.fms_p=fms_p or None
     bundle.updated_at = datetime.utcnow()
     if bump_version:
         bundle.version += 1
@@ -966,6 +970,7 @@ def _apply_label_bundle(db, bundle: LibraryLabelBundle, tenant_id: str):
     row.branch_s=bundle.branch_s;      row.branch_p=bundle.branch_p
     row.department_s=bundle.department_s; row.department_p=bundle.department_p
     row.employee_s=bundle.employee_s;  row.employee_p=bundle.employee_p
+    row.fms_s=bundle.fms_s;            row.fms_p=bundle.fms_p
     row.industry=bundle.industry; row.updated_at=datetime.utcnow()
 
 

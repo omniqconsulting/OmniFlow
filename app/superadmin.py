@@ -16,7 +16,7 @@ from .database import (
     Ticket, ChecklistTemplate, ChecklistAssignment,
     TenantFeatureOverride, TenantLabelConfig, PlanUpgradeRequest,
     FMSFlow, FMSStage, FMSTicket, LibraryFlowTemplate, TenantDeployedItem,
-    TenantAIUsage,
+    TenantAIUsage, LoginEvent,
 )
 from .labels import INDUSTRY_NAMES, INDUSTRY_PRESETS as _PRESETS
 from .constants import (
@@ -67,23 +67,20 @@ def _tenant_stats(db: Session, tenant_id: str) -> dict:
                                     User.is_deleted == False).count()
     tickets = db.query(Ticket).filter(Ticket.tenant_id == tenant_id,
                                       Ticket.is_deleted == False).count()
-    open_t  = db.query(Ticket).filter(Ticket.tenant_id == tenant_id,
-                                      Ticket.is_deleted == False,
-                                      Ticket.status.notin_(["CLOSED","DONE"])).count()
-    cls_tot = db.query(ChecklistAssignment).filter(
+    checklists = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.tenant_id == tenant_id).count()
-    cls_done= db.query(ChecklistAssignment).filter(
-        ChecklistAssignment.tenant_id == tenant_id,
-        ChecklistAssignment.status == "DONE").count()
-    compliance = round(cls_done / cls_tot * 100) if cls_tot else 100
-    last_ticket = db.query(Ticket).filter(
-        Ticket.tenant_id == tenant_id,
-        Ticket.is_deleted == False,
-    ).order_by(Ticket.created_at.desc()).first()
-    last_activity = last_ticket.created_at if last_ticket else None
+    flow_tickets = db.query(FMSTicket).filter(
+        FMSTicket.tenant_id == tenant_id,
+        FMSTicket.is_deleted == False).count()
+    last_user = db.query(User).filter(
+        User.tenant_id == tenant_id,
+        User.is_deleted == False,
+        User.last_login.isnot(None),
+    ).order_by(User.last_login.desc()).first()
+    last_activity = last_user.last_login if last_user else None
     return {
-        "users": users, "tickets": tickets, "open_tickets": open_t,
-        "compliance": compliance, "last_activity": last_activity,
+        "users": users, "tickets": tickets, "checklists": checklists,
+        "flow_tickets": flow_tickets, "last_activity": last_activity,
     }
 
 
@@ -402,6 +399,87 @@ def sa_tenant_detail(request: Request, tenant_id: str,
     ).all()
     ai_usage_month = sum(r.call_count for r in ai_month_rows)
 
+    # Login activity chart — built from LoginEvent history
+    from datetime import timedelta
+    today = _date.today()
+
+    # Fetch all login events for this tenant (last 365 days is plenty)
+    cutoff = datetime.utcnow() - timedelta(days=365)
+    events = db.query(LoginEvent).filter(
+        LoginEvent.tenant_id == tenant_id,
+        LoginEvent.logged_in_at >= cutoff,
+    ).all()
+
+    # ── Day: last 30 days ──────────────────────────────────────────────────
+    day_keys   = [(today - timedelta(days=29 - i)).isoformat() for i in range(30)]
+    day_labels = [(today - timedelta(days=29 - i)).strftime("%d %b") for i in range(30)]
+    day_total:  dict = {k: 0 for k in day_keys}
+    day_unique: dict = {k: set() for k in day_keys}
+
+    # ── Week: last 12 ISO weeks ────────────────────────────────────────────
+    week_keys: list = []
+    week_labels: list = []
+    week_total:  dict = {}
+    week_unique: dict = {}
+    for i in range(11, -1, -1):
+        d = today - timedelta(weeks=i)
+        iso = d.isocalendar()
+        k = f"{iso[0]}-W{iso[1]:02d}"
+        if k not in week_total:
+            week_keys.append(k)
+            week_labels.append(f"W{iso[1]} '{str(iso[0])[2:]}")
+            week_total[k]  = 0
+            week_unique[k] = set()
+
+    # ── Month: last 12 months ──────────────────────────────────────────────
+    month_keys: list = []
+    month_labels: list = []
+    month_total:  dict = {}
+    month_unique: dict = {}
+    for i in range(11, -1, -1):
+        # step back i months from today's month
+        m = (today.replace(day=1) - timedelta(days=i * 28)).replace(day=1)
+        k = m.strftime("%Y-%m")
+        if k not in month_total:
+            month_keys.append(k)
+            month_labels.append(m.strftime("%b %Y"))
+            month_total[k]  = 0
+            month_unique[k] = set()
+
+    for ev in events:
+        d = ev.logged_in_at.date()
+        dk = d.isoformat()
+        if dk in day_total:
+            day_total[dk]  += 1
+            day_unique[dk].add(ev.user_id)
+        iso = d.isocalendar()
+        wk = f"{iso[0]}-W{iso[1]:02d}"
+        if wk in week_total:
+            week_total[wk]  += 1
+            week_unique[wk].add(ev.user_id)
+        mk = d.strftime("%Y-%m")
+        if mk in month_total:
+            month_total[mk]  += 1
+            month_unique[mk].add(ev.user_id)
+
+    login_chart = {
+        "day": {
+            "labels":       day_labels,
+            "total":        [day_total[k]        for k in day_keys],
+            "unique":       [len(day_unique[k])  for k in day_keys],
+        },
+        "week": {
+            "labels":       week_labels,
+            "total":        [week_total[k]        for k in week_keys],
+            "unique":       [len(week_unique[k])  for k in week_keys],
+        },
+        "month": {
+            "labels":       month_labels,
+            "total":        [month_total[k]        for k in month_keys],
+            "unique":       [len(month_unique[k])  for k in month_keys],
+        },
+    }
+
     return templates.TemplateResponse(request, "superadmin/tenant_detail.html", {
         "sa": sa, "tenant": tenant, "stats": stats,
         "users": users, "recent_tickets": recent_tickets,
@@ -419,6 +497,7 @@ def sa_tenant_detail(request: Request, tenant_id: str,
         "fms_tickets": fms_tickets,
         "ai_usage_today": ai_usage_today,
         "ai_usage_month": ai_usage_month,
+        "login_chart": login_chart,
         "now": datetime.utcnow(),
     })
 
@@ -475,6 +554,7 @@ def sa_set_ai_limit(tenant_id: str,
 def sa_edit_tenant(tenant_id: str,
                    factory_name: str = Form(...), industry: str = Form(""),
                    contact_name: str = Form(""), contact_email: str = Form(""),
+                   fms_label: str = Form(""),
                    sa: SuperAdmin = Depends(get_current_sa),
                    db: Session = Depends(get_db)):
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
@@ -484,22 +564,26 @@ def sa_edit_tenant(tenant_id: str,
     tenant.industry      = industry or None
     tenant.contact_name  = contact_name or None
     tenant.contact_email = contact_email or None
-    # Apply / update label preset when industry matches a known preset
+    # Ensure label row exists
+    row = db.query(TenantLabelConfig).filter(
+        TenantLabelConfig.tenant_id == tenant_id).first()
+    if row is None:
+        row = TenantLabelConfig(tenant_id=tenant_id)
+        db.add(row)
+    # Apply industry preset if selected
     if industry and industry in _PRESETS:
         overrides = _PRESETS[industry]
         def _get(c, i): e = overrides.get(c); return e[i] if e else None
-        row = db.query(TenantLabelConfig).filter(
-            TenantLabelConfig.tenant_id == tenant_id).first()
-        if row is None:
-            row = TenantLabelConfig(tenant_id=tenant_id)
-            db.add(row)
         row.ticket_s=_get("ticket",0);       row.ticket_p=_get("ticket",1)
         row.checklist_s=_get("checklist",0); row.checklist_p=_get("checklist",1)
         row.branch_s=_get("branch",0);       row.branch_p=_get("branch",1)
         row.department_s=_get("department",0);row.department_p=_get("department",1)
         row.employee_s=_get("employee",0);   row.employee_p=_get("employee",1)
         row.industry=industry
-        row.updated_at=datetime.utcnow()
+    # Always save Flow Board custom label (blank = revert to default "Flow Board")
+    row.fms_s = fms_label.strip() or None
+    row.fms_p = None
+    row.updated_at = datetime.utcnow()
     db.commit()
     return _redirect(f"/superadmin/tenants/{tenant_id}?msg=updated")
 

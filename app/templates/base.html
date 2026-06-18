@@ -309,9 +309,11 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
   }
 
   // ── P10-03: Web Audio API chime ──────────────────────────────────────────
-  // Browsers block audio until after a user gesture; keep one AudioContext and
-  // resume it on first interaction, then reuse it for every subsequent chime.
+  // Key fix: when the tab is backgrounded Chrome suspends the AudioContext.
+  // ctx.resume() from a WebSocket handler (non-user-gesture) is rejected.
+  // Solution: queue a pending chime and fire it on the next user interaction.
   let _audioCtx = null;
+  let _pendingChime = false;
 
   function _getAudioCtx(){
     if(!_audioCtx){
@@ -321,8 +323,23 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
     return _audioCtx;
   }
 
-  // Unlock the context on any user interaction — play a 1-sample silent buffer
-  // so browsers that require actual audio output (not just resume()) fully unlock.
+  function _doPlayChime(ctx){
+    try{
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880,  ctx.currentTime);
+      osc.frequency.setValueAtTime(1108, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+    }catch(e){}
+  }
+
+  // Called on every click/keydown — resumes suspended context and plays
+  // any queued chime (e.g. one that arrived while the tab was backgrounded).
   function _unlockAudio(){
     const ctx = _getAudioCtx(); if(!ctx) return;
     if(ctx.state === 'suspended'){
@@ -332,7 +349,10 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
           const src = ctx.createBufferSource();
           src.buffer = buf; src.connect(ctx.destination); src.start(0);
         }catch(e){}
-      });
+        if(_pendingChime){ _pendingChime = false; _doPlayChime(ctx); }
+      }).catch(()=>{});
+    } else if(_pendingChime){
+      _pendingChime = false; _doPlayChime(ctx);
     }
   }
   document.addEventListener('click',   _unlockAudio, { once: false, capture: true });
@@ -343,21 +363,11 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
     try{
       const ctx = _getAudioCtx();
       if(!ctx) return;
-      // If still suspended (no gesture yet), resume then play
-      const resume = ctx.state === 'suspended' ? ctx.resume() : Promise.resolve();
-      resume.then(()=>{
-        const osc  = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880,  ctx.currentTime);       // A5
-        osc.frequency.setValueAtTime(1108, ctx.currentTime + 0.1); // C#6
-        gain.gain.setValueAtTime(0.18, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + 0.5);
-      });
+      if(ctx.state !== 'running'){
+        _pendingChime = true; // play on next user gesture
+        return;
+      }
+      _doPlayChime(ctx);
     } catch(e){}
   }
 
@@ -486,8 +496,141 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
     const muted = localStorage.getItem('sound_muted') === '1';
     localStorage.setItem('sound_muted', muted ? '0' : '1');
     applyMute();
+    if(muted) setTimeout(playChime, 80); // play test chime on unmute to unlock context
   };
 })();
+</script>
+{% endif %}
+
+{% if user %}
+<!-- ── Floating "Need Help" button ───────────────────────────────────────── -->
+<style>
+.help-fab{position:fixed;bottom:28px;right:28px;z-index:900;background:#ef4444;color:#fff;border:none;border-radius:99px;padding:12px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(239,68,68,0.45);display:flex;align-items:center;gap:7px;transition:background .15s,transform .15s;animation:help-pulse 2.4s infinite}
+.help-fab:hover{background:#dc2626;transform:scale(1.05);animation:none}
+@keyframes help-pulse{0%,100%{box-shadow:0 4px 16px rgba(239,68,68,0.45)}50%{box-shadow:0 4px 28px rgba(239,68,68,0.75)}}
+#help-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:1000}
+#help-modal-bg.open{display:flex}
+#help-modal{background:var(--bg-modal,#131c2e);border:1px solid var(--border-med,rgba(255,255,255,0.12));border-radius:14px;padding:28px;width:440px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6)}
+.help-modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.help-modal-hdr h3{font-size:16px;font-weight:700;color:var(--text-strong,#f1f5f9);margin:0}
+.help-modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint,#64748b);line-height:1;padding:0}
+.help-modal-sub{font-size:12px;color:var(--text-faint,#64748b);margin-bottom:20px}
+.help-field{margin-bottom:14px}
+.help-field label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted,#94a3b8);margin-bottom:5px}
+.help-field input,.help-field textarea{width:100%;background:var(--bg-input,#0d1424);border:1px solid var(--border-med,rgba(255,255,255,0.12));border-radius:8px;padding:10px 12px;font-size:14px;color:var(--text-primary,#e2e8f0);font-family:inherit;outline:none;box-sizing:border-box;transition:border-color .12s}
+.help-field input:focus,.help-field textarea:focus{border-color:var(--accent,#3b82f6);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+.help-field textarea{resize:vertical;min-height:90px}
+.help-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
+.help-success{display:none;text-align:center;padding:12px 0}
+.help-success .help-success-icon{font-size:42px;margin-bottom:10px}
+.help-success .help-success-title{font-size:16px;font-weight:700;color:var(--text-strong,#f1f5f9);margin-bottom:4px}
+.help-success .help-success-sub{font-size:13px;color:var(--text-faint,#64748b)}
+</style>
+
+<button class="help-fab" onclick="openHelpModal()">🆘 Need Help</button>
+
+<div id="help-modal-bg" onclick="if(event.target===this)closeHelpModal()">
+  <div id="help-modal">
+    <div class="help-modal-hdr">
+      <h3>🆘 Need Help?</h3>
+      <button class="help-modal-close" onclick="closeHelpModal()">×</button>
+    </div>
+    <div class="help-modal-sub">Describe your issue — a manager or admin will be notified immediately.</div>
+
+    <div id="help-form-body">
+      <div class="help-field">
+        <label>Who do you need help from?</label>
+        <select id="help-assignee" style="width:100%;background:var(--bg-input,#0d1424);border:1px solid var(--border-med,rgba(255,255,255,0.12));border-radius:8px;padding:9px 12px;color:var(--text-strong,#f1f5f9);font-size:13px;font-family:inherit">
+          <option value="">Loading…</option>
+        </select>
+      </div>
+      <div class="help-field">
+        <label>What do you need help with?</label>
+        <input type="text" id="help-title" placeholder="e.g. Machine stopped working, access issue…" maxlength="120">
+      </div>
+      <div class="help-field">
+        <label>Details <span style="font-weight:400;opacity:.6">(optional)</span></label>
+        <textarea id="help-desc" placeholder="Describe the problem, location, or anything useful…"></textarea>
+      </div>
+      <div class="help-modal-footer">
+        <button class="btn btn-outline" type="button" onclick="closeHelpModal()">Cancel</button>
+        <button class="btn btn-primary" type="button" id="help-submit-btn" onclick="submitHelpRequest()">Send Help Request →</button>
+      </div>
+    </div>
+
+    <div class="help-success" id="help-success">
+      <div class="help-success-icon">✅</div>
+      <div class="help-success-title">Help request sent!</div>
+      <div class="help-success-sub" id="help-success-sub">Your ticket has been created and a manager has been notified.</div>
+      <div class="help-modal-footer" style="justify-content:center;margin-top:16px">
+        <button class="btn btn-outline" type="button" onclick="closeHelpModal()">Close</button>
+        <a id="help-ticket-link" href="/tickets?ticket_category=HELP" class="btn btn-primary">View Help Tickets →</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function _loadHelpAssignees(){
+  const sel = document.getElementById('help-assignee');
+  try{
+    const r = await fetch('/api/team-members');
+    const members = await r.json();
+    sel.innerHTML = '<option value="">— Anyone available (auto-assign) —</option>';
+    members.forEach(m => {
+      const o = document.createElement('option');
+      o.value = m.id;
+      o.textContent = m.name + ' (' + m.role + ')';
+      sel.appendChild(o);
+    });
+  }catch(e){
+    sel.innerHTML = '<option value="">— Anyone available (auto-assign) —</option>';
+  }
+}
+function openHelpModal(){
+  document.getElementById('help-title').value = '';
+  document.getElementById('help-desc').value = '';
+  document.getElementById('help-form-body').style.display = '';
+  document.getElementById('help-success').style.display = 'none';
+  document.getElementById('help-submit-btn').disabled = false;
+  document.getElementById('help-submit-btn').textContent = 'Send Help Request →';
+  document.getElementById('help-modal-bg').classList.add('open');
+  _loadHelpAssignees();
+  setTimeout(()=>document.getElementById('help-title').focus(), 80);
+}
+function closeHelpModal(){
+  document.getElementById('help-modal-bg').classList.remove('open');
+}
+async function submitHelpRequest(){
+  const title = document.getElementById('help-title').value.trim();
+  if(!title){ document.getElementById('help-title').focus(); return; }
+  const btn = document.getElementById('help-submit-btn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try{
+    const fd = new FormData();
+    fd.append('title', title);
+    fd.append('description', document.getElementById('help-desc').value.trim());
+    fd.append('assignee_id', document.getElementById('help-assignee').value);
+    const r = await fetch('/help-request', {method:'POST', body: fd});
+    if(r.ok){
+      const data = await r.json();
+      document.getElementById('help-form-body').style.display = 'none';
+      const who = data.assignee ? ' — notified ' + data.assignee + '.' : '.';
+      document.getElementById('help-success-sub').textContent =
+        'Ticket ' + (data.display_id || '') + ' created' + who;
+      document.getElementById('help-success').style.display = 'block';
+    } else {
+      btn.disabled = false; btn.textContent = 'Send Help Request →';
+      alert('Something went wrong. Please try again.');
+    }
+  }catch(e){
+    btn.disabled = false; btn.textContent = 'Send Help Request →';
+    alert('Network error. Please try again.');
+  }
+}
+document.addEventListener('keydown', function(e){
+  if(e.key==='Escape') closeHelpModal();
+});
 </script>
 {% endif %}
 </body>

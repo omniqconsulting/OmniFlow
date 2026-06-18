@@ -621,6 +621,27 @@
 </div>
 {% endif %}
 
+<!-- Safe JSON data block for edit modal — avoids JS syntax errors from special chars in template fields -->
+{% if user.role == 'ADMIN' %}
+<script type="application/json" id="cl-tmpl-json">
+{
+{% for t in templates_list %}
+  {{ t.id|tojson }}: {
+    "title": {{ t.title|tojson }},
+    "description": {{ (t.description or '')|tojson }},
+    "frequency": {{ t.frequency|tojson }},
+    "evidence_required": {{ 'true' if t.evidence_required else 'false' }},
+    "assigned_to_role": {{ (t.assigned_to_role or 'EMPLOYEE')|tojson }},
+    "assigned_to_dept_id": {{ (t.assigned_to_dept_id or '')|tojson }},
+    "assigned_to_user_id": {{ (t.assigned_to_user_id or '')|tojson }},
+    "is_active": {{ 'true' if t.is_active else 'false' }}
+  }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+}
+</script>
+{% endif %}
+
 <!-- ── Edit Checklist Template Modal ─────────────────────────────────────── -->
 {% if user.role == 'ADMIN' %}
 <div id="edit-tmpl-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:150">
@@ -855,18 +876,9 @@ function onClUserChange(sel) {
 // ── Edit template modal ────────────────────────────────────────────────────
 var _tmplData = {};
 {% if user.role == 'ADMIN' %}
-{% for t in templates_list %}
-_tmplData['{{ t.id }}'] = {
-  title: {{ t.title|tojson }},
-  description: {{ (t.description or '')|tojson }},
-  frequency: {{ t.frequency|tojson }},
-  evidence_required: {{ 'true' if t.evidence_required else 'false' }},
-  assigned_to_role: {{ (t.assigned_to_role or 'EMPLOYEE')|tojson }},
-  assigned_to_dept_id: {{ (t.assigned_to_dept_id or '')|tojson }},
-  assigned_to_user_id: {{ (t.assigned_to_user_id or '')|tojson }},
-  is_active: {{ 'true' if t.is_active else 'false' }},
-};
-{% endfor %}
+try {
+  _tmplData = JSON.parse(document.getElementById('cl-tmpl-json').textContent);
+} catch(e) { console.warn('Failed to parse checklist template data', e); }
 {% endif %}
 
 function onEtmUserChange(sel) {

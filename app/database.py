@@ -146,6 +146,7 @@ class User(Base):
     address       = Column(Text)
     status        = Column(String, default="ACTIVE")   # ACTIVE / TERMINATED
     terminated_at = Column(DateTime)
+    last_login    = Column(DateTime)
 
     tenant = relationship("Tenant", back_populates="users")
     department = relationship("Department", back_populates="users")
@@ -326,6 +327,8 @@ class TenantLabelConfig(Base):
     department_p  = Column(String)
     employee_s    = Column(String)
     employee_p    = Column(String)
+    fms_s         = Column(String)   # Flow Board singular label e.g. "Production Board"
+    fms_p         = Column(String)   # Flow Board plural label
     industry      = Column(String)   # which preset was last applied
     updated_at    = Column(DateTime, default=datetime.utcnow)
 
@@ -481,6 +484,8 @@ class LibraryLabelBundle(Base):
     department_p= Column(String)
     employee_s  = Column(String)
     employee_p  = Column(String)
+    fms_s       = Column(String)   # Flow Board singular label
+    fms_p       = Column(String)   # Flow Board plural label
     created_at  = Column(DateTime, default=datetime.utcnow)
     updated_at  = Column(DateTime, default=datetime.utcnow)
 
@@ -966,6 +971,17 @@ class LinkedEntityReference(Base):
 
     tenant     = relationship("Tenant")
     created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class LoginEvent(Base):
+    __tablename__ = "login_events"
+    id         = Column(String, primary_key=True, default=new_id)
+    tenant_id  = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id    = Column(String, ForeignKey("users.id"), nullable=False)
+    logged_in_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    tenant = relationship("Tenant")
+    user   = relationship("User")
 
 
 def create_tables():
