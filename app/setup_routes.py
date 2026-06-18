@@ -131,8 +131,8 @@ def _csv_template(rows: list[tuple[str, str]], filename: str) -> StreamingRespon
     w.writerow([r[1] for r in rows])
     buf.seek(0)
     return StreamingResponse(
-        iter([buf.read()]),
-        media_type="text/csv",
+        iter([buf.read().encode("utf-8-sig")]),
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
@@ -145,8 +145,8 @@ def _exception_report(errors: list[dict], filename: str) -> StreamingResponse:
         w.writerow({"row": e["row"], "error": e["error"], "data": str(e.get("data", ""))})
     buf.seek(0)
     return StreamingResponse(
-        iter([buf.read()]),
-        media_type="text/csv",
+        iter([buf.read().encode("utf-8-sig")]),
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
