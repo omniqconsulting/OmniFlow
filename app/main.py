@@ -2455,8 +2455,109 @@ def edit_checklist_template(
     tmpl.assigned_to_user_id = assigned_to_user_id or None
     tmpl.assigned_to_dept_id = assigned_to_dept_id or None
     tmpl.assigned_to_role = assigned_to_role
+    # Sync future pending assignments so "Upcoming" reflects the updated settings.
+    # Completed/failed/missed (past) assignments are never touched — they are history.
+    _sync_pending_assignments(db, tmpl, user.tenant_id)
     db.commit()
     return redirect("/checklists")
+
+
+def _sync_pending_assignments(db: Session, tmpl, tid: str) -> None:
+    """Reconcile future PENDING/IN_PROGRESS assignments against a just-edited template.
+
+    Rules:
+    - If template deactivated → soft-delete all future pending assignments.
+    - If assignment rule changed → remove assignments for users no longer targeted,
+      create assignments for newly targeted users (inheriting the earliest existing due_at).
+    - Past/completed/failed assignments are never touched (history).
+    """
+    now = datetime.utcnow()
+
+    # Deactivated template: clear all future pending assignments
+    if not tmpl.is_active:
+        db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.template_id == tmpl.id,
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.due_at >= now,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+            ChecklistAssignment.is_deleted == False,
+        ).update({"is_deleted": True}, synchronize_session=False)
+        return
+
+    # Resolve new target user set
+    if tmpl.assigned_to_user_id:
+        new_targets = db.query(User).filter(
+            User.id == tmpl.assigned_to_user_id,
+            User.tenant_id == tid,
+            User.is_active == True,
+            User.is_deleted == False,
+        ).all()
+    elif tmpl.assigned_to_dept_id:
+        new_targets = db.query(User).filter(
+            User.department_id == tmpl.assigned_to_dept_id,
+            User.tenant_id == tid,
+            User.is_active == True,
+            User.is_deleted == False,
+        ).all()
+    elif tmpl.assigned_to_role:
+        new_targets = db.query(User).filter(
+            User.role == tmpl.assigned_to_role,
+            User.tenant_id == tid,
+            User.is_active == True,
+            User.is_deleted == False,
+        ).all()
+    else:
+        return
+
+    new_target_ids = {u.id for u in new_targets}
+
+    # Existing future pending assignments
+    existing = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.template_id == tmpl.id,
+        ChecklistAssignment.tenant_id == tid,
+        ChecklistAssignment.due_at >= now,
+        ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+        ChecklistAssignment.is_deleted == False,
+    ).all()
+
+    existing_by_user = {a.user_id: a for a in existing}
+
+    # Also collect users who have an active OVERDUE assignment (past due_at, not yet resolved)
+    # so we don't create a duplicate pending on top of it
+    overdue_user_ids = {
+        a.user_id for a in db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.template_id == tmpl.id,
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+            ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.due_at < now,
+        ).all()
+    }
+
+    # Soft-delete future assignments for users who are no longer targets
+    for uid, a in existing_by_user.items():
+        if uid not in new_target_ids:
+            a.is_deleted = True
+
+    # Create assignments for target users who have no future pending AND no active overdue
+    for uid in new_target_ids:
+        if uid not in existing_by_user and uid not in overdue_user_ids:
+            # Use per-user last completion to compute the correct next due date
+            last_done = db.query(ChecklistAssignment).filter(
+                ChecklistAssignment.template_id == tmpl.id,
+                ChecklistAssignment.user_id == uid,
+                ChecklistAssignment.status == "DONE",
+                ChecklistAssignment.is_deleted == False,
+            ).order_by(ChecklistAssignment.due_at.desc()).first()
+            base_dt = last_done.due_at if last_done and last_done.due_at else now
+            due = _next_due_from(tmpl.frequency, base_dt)
+            db.add(ChecklistAssignment(
+                template_id=tmpl.id,
+                tenant_id=tid,
+                user_id=uid,
+                due_at=due,
+                evidence_required=bool(tmpl.evidence_required),
+            ))
 
 
 @app.post("/checklists/templates/{template_id}/delete")
@@ -2484,70 +2585,36 @@ def delete_checklist_template(template_id: str,
 
 @app.post("/checklists/repair-schedules")
 def repair_checklist_schedules(user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    """Create missing next-occurrence assignments for all recurring checklists with no pending assignment."""
+    """Sync all active checklist templates: remove stale assignments, create missing ones."""
     tid = user.tenant_id
     templates = db.query(ChecklistTemplate).filter(
         ChecklistTemplate.tenant_id == tid,
         ChecklistTemplate.is_deleted == False,
         ChecklistTemplate.is_active == True,
     ).all()
-    created = 0
+    synced = 0
     for tmpl in templates:
         if not getattr(tmpl, "is_recurring", True):
             continue
-
-        # Resolve target user list (same logic as the scheduler)
-        if tmpl.assigned_to_user_id:
-            target_users = db.query(User).filter(
-                User.id == tmpl.assigned_to_user_id,
-                User.tenant_id == tid,
-                User.is_active == True,
-                User.is_deleted == False,
-            ).all()
-        elif tmpl.assigned_to_dept_id:
-            target_users = db.query(User).filter(
-                User.department_id == tmpl.assigned_to_dept_id,
-                User.tenant_id == tid,
-                User.is_active == True,
-                User.is_deleted == False,
-            ).all()
-        elif tmpl.assigned_to_role:
-            target_users = db.query(User).filter(
-                User.role == tmpl.assigned_to_role,
-                User.tenant_id == tid,
-                User.is_active == True,
-                User.is_deleted == False,
-            ).all()
-        else:
-            continue
-
-        for target_user in target_users:
-            uid = target_user.id
-            # Skip if a pending/in-progress assignment already exists for this user
-            pending = db.query(ChecklistAssignment).filter(
-                ChecklistAssignment.template_id == tmpl.id,
-                ChecklistAssignment.user_id == uid,
-                ChecklistAssignment.is_deleted == False,
-                ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
-            ).first()
-            if pending:
-                continue
-            # Base next_due on last completed assignment, otherwise now
-            last_done = db.query(ChecklistAssignment).filter(
-                ChecklistAssignment.template_id == tmpl.id,
-                ChecklistAssignment.user_id == uid,
-                ChecklistAssignment.status == "DONE",
-            ).order_by(ChecklistAssignment.due_at.desc()).first()
-            base_dt = (last_done.due_at if last_done and last_done.due_at else datetime.utcnow())
-            next_due = _next_due_from(tmpl.frequency, base_dt)
-            db.add(ChecklistAssignment(
-                template_id=tmpl.id, tenant_id=tid,
-                user_id=uid, due_at=next_due,
-                evidence_required=bool(tmpl.evidence_required),
-            ))
-            created += 1
+        before = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.template_id == tmpl.id,
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.due_at >= datetime.utcnow(),
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+            ChecklistAssignment.is_deleted == False,
+        ).count()
+        _sync_pending_assignments(db, tmpl, tid)
+        after = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.template_id == tmpl.id,
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.due_at >= datetime.utcnow(),
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+            ChecklistAssignment.is_deleted == False,
+        ).count()
+        if before != after:
+            synced += 1
     db.commit()
-    return redirect(f"/checklists?msg=Repaired+{created}+missing+schedules")
+    return redirect(f"/checklists?msg=Synced+{synced}+checklists")
 
 
 @app.post("/checklists/assignments/{assignment_id}/edit")
