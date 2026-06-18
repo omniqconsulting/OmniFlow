@@ -501,12 +501,15 @@
     </div>
   </div>
 
-  <!-- Bulk action bar — shown only when ≥1 checkbox is ticked -->
+  <!-- Bulk action bar — shown only when ≥1 template checkbox is ticked -->
   {% if user.role == 'ADMIN' %}
-  <div id="cl-bulk-bar" style="display:none;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:none;align-items:center;gap:12px;flex-wrap:wrap">
-    <span id="cl-bulk-count" style="font-size:13px;font-weight:600;color:#a5b4fc">0 selected</span>
-    <button type="button" onclick="openBulkEditModal()" class="btn btn-sm btn-primary" style="font-size:11px">✏ Bulk Edit Selected</button>
-    <button type="button" onclick="clearBulkSelection()" class="btn btn-sm btn-gray" style="font-size:11px">✕ Clear Selection</button>
+  <div id="tmpl-bulk-bar" style="display:none;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:12px;flex-wrap:wrap">
+    <span id="tmpl-bulk-count" style="font-size:13px;font-weight:600;color:#a5b4fc">0 selected</span>
+    <button type="button" onclick="openBulkEditModal()" class="btn btn-sm btn-primary" style="font-size:11px">✏ Bulk Edit</button>
+    <button type="button" onclick="bulkActivate(1)" class="btn btn-sm btn-green" style="font-size:11px">✓ Activate</button>
+    <button type="button" onclick="bulkActivate(0)" class="btn btn-sm btn-gray" style="font-size:11px">⏸ Deactivate</button>
+    <button type="button" onclick="bulkDelete()" class="btn btn-sm" style="font-size:11px;background:#dc2626;color:#fff;border-color:#dc2626">🗑 Delete</button>
+    <button type="button" onclick="clearBulkSelection()" class="btn btn-sm btn-gray" style="font-size:11px;margin-left:auto">✕ Clear</button>
   </div>
   {% endif %}
 
@@ -1015,11 +1018,13 @@ function closeEditModal() {
 
 // ── Bulk selection & bulk edit ────────────────────────────────────────────────
 function updateBulkBar() {
-  var checked = document.querySelectorAll('.cl-chk:checked');
-  var bar = document.getElementById('cl-bulk-bar');
-  var count = document.getElementById('cl-bulk-count');
+  var table = document.getElementById('cl-table');
+  if (!table) return;
+  var checked = table.querySelectorAll('.cl-chk:checked');
+  var all    = table.querySelectorAll('.cl-chk');
+  var bar    = document.getElementById('tmpl-bulk-bar');
+  var count  = document.getElementById('tmpl-bulk-count');
   var selAll = document.getElementById('cl-select-all');
-  var all = document.querySelectorAll('.cl-chk');
   if (!bar) return;
   if (checked.length > 0) {
     bar.style.display = 'flex';
@@ -1027,13 +1032,16 @@ function updateBulkBar() {
   } else {
     bar.style.display = 'none';
   }
-  selAll.indeterminate = checked.length > 0 && checked.length < all.length;
-  selAll.checked = all.length > 0 && checked.length === all.length;
+  if (selAll) {
+    selAll.indeterminate = checked.length > 0 && checked.length < all.length;
+    selAll.checked = all.length > 0 && checked.length === all.length;
+  }
 }
 
 function toggleAllCheckboxes(masterCb) {
-  // Only toggle visible rows
-  document.querySelectorAll('.cl-row').forEach(function(row) {
+  var table = document.getElementById('cl-table');
+  if (!table) return;
+  table.querySelectorAll('.cl-row').forEach(function(row) {
     if (row.style.display !== 'none') {
       var cb = row.querySelector('.cl-chk');
       if (cb) cb.checked = masterCb.checked;
@@ -1043,17 +1051,58 @@ function toggleAllCheckboxes(masterCb) {
 }
 
 function clearBulkSelection() {
-  document.querySelectorAll('.cl-chk').forEach(function(cb){ cb.checked = false; });
+  var table = document.getElementById('cl-table');
+  if (table) table.querySelectorAll('.cl-chk').forEach(function(cb){ cb.checked = false; });
   var selAll = document.getElementById('cl-select-all');
   if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
   updateBulkBar();
 }
 
-function openBulkEditModal() {
-  var checked = document.querySelectorAll('.cl-chk:checked');
+function _getCheckedTemplates() {
+  var table = document.getElementById('cl-table');
+  return table ? Array.from(table.querySelectorAll('.cl-chk:checked')) : [];
+}
+
+function bulkActivate(active) {
+  var checked = _getCheckedTemplates();
   if (!checked.length) return;
-  // Inject hidden template_id inputs
+  if (!confirm((active ? 'Activate' : 'Deactivate') + ' ' + checked.length + ' checklist(s)?')) return;
+  var form = document.createElement('form');
+  form.method = 'post';
+  form.action = '/checklists/templates/bulk-activate';
+  checked.forEach(function(cb) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'template_ids'; inp.value = cb.value;
+    form.appendChild(inp);
+  });
+  var activeInp = document.createElement('input');
+  activeInp.type = 'hidden'; activeInp.name = 'is_active'; activeInp.value = active ? '1' : '0';
+  form.appendChild(activeInp);
+  document.body.appendChild(form);
+  form.submit();
+}
+
+function bulkDelete() {
+  var checked = _getCheckedTemplates();
+  if (!checked.length) return;
+  if (!confirm('Delete ' + checked.length + ' checklist template(s)? This cannot be undone.')) return;
+  var form = document.createElement('form');
+  form.method = 'post';
+  form.action = '/checklists/templates/bulk-delete';
+  checked.forEach(function(cb) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'template_ids'; inp.value = cb.value;
+    form.appendChild(inp);
+  });
+  document.body.appendChild(form);
+  form.submit();
+}
+
+function openBulkEditModal() {
+  var checked = _getCheckedTemplates();
+  if (!checked.length) return;
   var container = document.getElementById('bulk-tmpl-ids');
+  if (!container) return;
   container.innerHTML = '';
   var names = [];
   checked.forEach(function(cb) {
