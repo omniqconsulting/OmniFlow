@@ -794,13 +794,19 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
         Ticket.status.in_(open_statuses),
     ).count() if hasattr(Ticket, "ticket_category") else 0
 
-    # Checklist compliance
+    # Checklist compliance — exclude soft-deleted assignments and deleted templates
     try:
-        from .database import ChecklistAssignment as _CA
+        from .database import ChecklistAssignment as _CA, ChecklistTemplate as _CT
+        _active_tmpl_ids = [t.id for t in db.query(_CT.id).filter(
+            _CT.tenant_id == tid, _CT.is_deleted == False).all()]
         cl_due  = db.query(_CA).filter(
-            _CA.tenant_id == tid, _CA.due_at >= df, _CA.due_at <= dt).count()
+            _CA.tenant_id == tid, _CA.is_deleted == False,
+            _CA.template_id.in_(_active_tmpl_ids),
+            _CA.due_at >= df, _CA.due_at <= dt).count()
         cl_done = db.query(_CA).filter(
-            _CA.tenant_id == tid, _CA.due_at >= df, _CA.due_at <= dt,
+            _CA.tenant_id == tid, _CA.is_deleted == False,
+            _CA.template_id.in_(_active_tmpl_ids),
+            _CA.due_at >= df, _CA.due_at <= dt,
             _CA.status == "DONE").count()
         cl_compliance_pct = round(cl_done / max(cl_due, 1) * 100)
     except Exception:
