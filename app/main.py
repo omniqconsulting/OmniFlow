@@ -2466,6 +2466,54 @@ def bulk_edit_checklist_templates(
     return redirect(f"/checklists?msg=Updated+{updated}+checklists")
 
 
+@app.post("/checklists/templates/bulk-activate")
+def bulk_activate_checklist_templates(
+    template_ids: list[str] = Form(...),
+    is_active: str = Form("1"),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    active = is_active == "1"
+    updated = 0
+    for tid in template_ids:
+        tmpl = db.query(ChecklistTemplate).filter(
+            ChecklistTemplate.id == tid,
+            ChecklistTemplate.tenant_id == user.tenant_id,
+            ChecklistTemplate.is_deleted == False,
+        ).first()
+        if not tmpl:
+            continue
+        tmpl.is_active = active
+        _sync_pending_assignments(db, tmpl, user.tenant_id)
+        updated += 1
+    db.commit()
+    action = "Activated" if active else "Deactivated"
+    return redirect(f"/checklists?msg={action}+{updated}+checklists")
+
+
+@app.post("/checklists/templates/bulk-delete")
+def bulk_delete_checklist_templates(
+    template_ids: list[str] = Form(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    deleted = 0
+    for tid in template_ids:
+        tmpl = db.query(ChecklistTemplate).filter(
+            ChecklistTemplate.id == tid,
+            ChecklistTemplate.tenant_id == user.tenant_id,
+            ChecklistTemplate.is_deleted == False,
+        ).first()
+        if not tmpl:
+            continue
+        tmpl.is_deleted = True
+        # Soft-delete all future pending assignments
+        _sync_pending_assignments(db, tmpl, user.tenant_id)
+        deleted += 1
+    db.commit()
+    return redirect(f"/checklists?msg=Deleted+{deleted}+checklists")
+
+
 @app.post("/checklists/templates/{template_id}/edit")
 def edit_checklist_template(
     template_id: str,
