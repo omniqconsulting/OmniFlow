@@ -79,7 +79,7 @@ def get_employee_kpis(db: Session, user_id: str, tenant_id: str) -> dict:
         1 for t in closed
         if t.due_at and (t.closed_at or now) <= t.due_at
     )
-    on_time_rate = round(on_time / len(closed) * 100) if closed else 100
+    on_time_rate = round(on_time / len(closed) * 100) if closed else 0
 
     # ── Active tickets by priority ────────────────────────────────────────────
     active = db.query(Ticket).filter(
@@ -106,7 +106,7 @@ def get_employee_kpis(db: Session, user_id: str, tenant_id: str) -> dict:
         ChecklistAssignment.due_at >= since_30,
         ChecklistAssignment.due_at <= now,
     ).count()
-    compliance_rate = round(done_cl / total_cl * 100) if total_cl else 100
+    compliance_rate = round(done_cl / total_cl * 100) if total_cl else 0
 
     # ── 8-week compliance trend ───────────────────────────────────────────────
     weekly_compliance = []
