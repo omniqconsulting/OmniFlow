@@ -2522,23 +2522,40 @@ def _sync_pending_assignments(db: Session, tmpl, tid: str) -> None:
 
     existing_by_user = {a.user_id: a for a in existing}
 
-    # Use the earliest pending due_at as the reference date for any new assignments
-    ref_due = min((a.due_at for a in existing if a.due_at), default=None) or \
-              _next_due_from(tmpl.frequency, now)
+    # Also collect users who have an active OVERDUE assignment (past due_at, not yet resolved)
+    # so we don't create a duplicate pending on top of it
+    overdue_user_ids = {
+        a.user_id for a in db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.template_id == tmpl.id,
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+            ChecklistAssignment.is_deleted == False,
+            ChecklistAssignment.due_at < now,
+        ).all()
+    }
 
-    # Soft-delete assignments for users who are no longer targets
+    # Soft-delete future assignments for users who are no longer targets
     for uid, a in existing_by_user.items():
         if uid not in new_target_ids:
             a.is_deleted = True
 
-    # Create assignments for new target users who don't already have one
+    # Create assignments for target users who have no future pending AND no active overdue
     for uid in new_target_ids:
-        if uid not in existing_by_user:
+        if uid not in existing_by_user and uid not in overdue_user_ids:
+            # Use per-user last completion to compute the correct next due date
+            last_done = db.query(ChecklistAssignment).filter(
+                ChecklistAssignment.template_id == tmpl.id,
+                ChecklistAssignment.user_id == uid,
+                ChecklistAssignment.status == "DONE",
+                ChecklistAssignment.is_deleted == False,
+            ).order_by(ChecklistAssignment.due_at.desc()).first()
+            base_dt = last_done.due_at if last_done and last_done.due_at else now
+            due = _next_due_from(tmpl.frequency, base_dt)
             db.add(ChecklistAssignment(
                 template_id=tmpl.id,
                 tenant_id=tid,
                 user_id=uid,
-                due_at=ref_due,
+                due_at=due,
                 evidence_required=bool(tmpl.evidence_required),
             ))
 
