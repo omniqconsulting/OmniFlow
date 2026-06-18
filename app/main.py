@@ -501,10 +501,9 @@ def register(request: Request, factory_name: str = Form(...), slug: str = Form(.
 
 @app.get("/api/team-members")
 def api_team_members(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Return admins and managers in the same tenant — used by the Help modal dropdown."""
+    """Return all active users in the same tenant — used by the Help modal dropdown."""
     members = db.query(User).filter(
         User.tenant_id == user.tenant_id,
-        User.role.in_(["ADMIN", "MANAGER"]),
         User.is_deleted == False,
         User.id != user.id,
     ).order_by(User.role, User.name).all()

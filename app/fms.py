@@ -449,7 +449,7 @@ def fms_dashboard(
         )
         compliance = int(on_time / len(all_history) * 100)
     else:
-        compliance = 100
+        compliance = 0
 
     # ── Per-flow ticket counts for flow cards ─────────────────────────────────
     flow_counts = {}
@@ -1424,7 +1424,7 @@ def fms_analytics(
         if h.stage and h.stage.target_tat_hours and
            (h.exited_at - h.entered_at).total_seconds() / 3600 <= h.stage.target_tat_hours
     )
-    my_compliance = int(my_ontime / my_total * 100) if my_total else 100
+    my_compliance = int(my_ontime / my_total * 100) if my_total else 0
 
     # 2-F-1: Per-employee TaT analysis (Professional+ admin/manager only)
     emp_analytics = []
