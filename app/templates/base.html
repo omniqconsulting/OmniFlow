@@ -576,7 +576,7 @@ async function _loadHelpAssignees(){
   try{
     const r = await fetch('/api/team-members');
     const members = await r.json();
-    sel.innerHTML = '<option value="">— Anyone available (auto-assign) —</option>';
+    sel.innerHTML = '<option value="">— Select a person —</option>';
     members.forEach(m => {
       const o = document.createElement('option');
       o.value = m.id;
@@ -584,7 +584,7 @@ async function _loadHelpAssignees(){
       sel.appendChild(o);
     });
   }catch(e){
-    sel.innerHTML = '<option value="">— Anyone available (auto-assign) —</option>';
+    sel.innerHTML = '<option value="">— Select a person —</option>';
   }
 }
 function openHelpModal(){
@@ -602,6 +602,8 @@ function closeHelpModal(){
   document.getElementById('help-modal-bg').classList.remove('open');
 }
 async function submitHelpRequest(){
+  const assignee = document.getElementById('help-assignee').value;
+  if(!assignee){ document.getElementById('help-assignee').focus(); alert('Please select who you need help from.'); return; }
   const title = document.getElementById('help-title').value.trim();
   if(!title){ document.getElementById('help-title').focus(); return; }
   const btn = document.getElementById('help-submit-btn');
