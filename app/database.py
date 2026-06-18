@@ -995,8 +995,9 @@ def create_tables():
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning("Alembic upgrade skipped: %s", e)
-    _seed_builtin_submodules()    
-    # Auto-migrate: add any columns present in models but missing from the DB
+    # PostgreSQL column additions — must run before any seed that queries these columns
+    _pg_add_columns()
+    # Auto-migrate: add any columns present in models but missing from the DB (SQLite)
     try:
         import sys, os
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1006,6 +1007,32 @@ def create_tables():
         import logging
         logging.getLogger(__name__).warning("migrate.py skipped: %s", _e)
     _seed_builtin_submodules()
+
+
+def _pg_add_columns():
+    """Add new columns to existing PostgreSQL tables that predate the model changes."""
+    import logging
+    from sqlalchemy import text as _text
+    _log = logging.getLogger(__name__)
+    _migrations = [
+        # Flow Board label columns — TenantLabelConfig
+        "ALTER TABLE tenant_label_configs ADD COLUMN IF NOT EXISTS fms_s VARCHAR",
+        "ALTER TABLE tenant_label_configs ADD COLUMN IF NOT EXISTS fms_p VARCHAR",
+        # Flow Board label columns — LibraryLabelBundle
+        "ALTER TABLE library_label_bundles ADD COLUMN IF NOT EXISTS fms_s VARCHAR",
+        "ALTER TABLE library_label_bundles ADD COLUMN IF NOT EXISTS fms_p VARCHAR",
+        # Login tracking
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP",
+    ]
+    try:
+        with engine.begin() as conn:
+            for stmt in _migrations:
+                try:
+                    conn.execute(_text(stmt))
+                except Exception as col_err:
+                    _log.warning("Column migration skipped (%s): %s", stmt, col_err)
+    except Exception as e:
+        _log.warning("_pg_add_columns skipped: %s", e)
 
 
 # Fixed IDs so they survive re-seeds (never change these)
