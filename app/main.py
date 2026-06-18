@@ -1569,7 +1569,7 @@ def tickets_bulk_template(user: User = Depends(require_manager)):
     w.writerow(["title","description","priority","ticket_category","assignee_phone","due_at","evidence_required"])
     w.writerow(["Mandatory. Short title, max 200 chars.","Mandatory. Full task description.","LOW / MEDIUM / HIGH / CRITICAL","NORMAL or HELP (default NORMAL)","Mandatory. 10-digit phone of assignee.","Mandatory. YYYY-MM-DD HH:MM","TRUE or FALSE (default FALSE)"])
     buf.seek(0)
-    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+    return StreamingResponse(iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=tickets_template.csv"})
 
 
@@ -2726,15 +2726,16 @@ def checklist_bulk_template(user: User = Depends(require_admin)):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["title","description","frequency","assigned_to_role",
-                "assigned_to_department","assigned_to_phone",
+                "assigned_to_department","assigned_to_name","assigned_to_phone",
                 "evidence_required","is_recurring","reminder_hours_before","reminder_repeat_hours"])
     w.writerow([
         "Mandatory. Checklist title.",
         "Mandatory. Step-by-step instructions.",
         "DAILY / WEEKLY / TWICE_A_MONTH / MONTHLY / QUARTERLY / YEARLY / PER_SHIFT",
-        "EMPLOYEE / MANAGER / ADMIN — ignored if assigned_to_phone is set.",
-        "Optional. Department name to assign to (leave blank if using phone or role).",
-        "Optional. 10-digit phone of a specific employee to assign to.",
+        "EMPLOYEE / MANAGER / ADMIN (ignored if assigned_to_name or assigned_to_phone is set).",
+        "Optional. Department name (leave blank if assigning to a specific person).",
+        "Optional. Full name of the employee to assign to (preferred over phone).",
+        "Optional. 10-digit phone of the employee (used only if assigned_to_name is blank).",
         "TRUE or FALSE (default FALSE)",
         "TRUE or FALSE (default TRUE)",
         "Optional. Hours before due to send reminder (default 2).",
@@ -2742,8 +2743,8 @@ def checklist_bulk_template(user: User = Depends(require_admin)):
     ])
     buf.seek(0)
     from fastapi.responses import StreamingResponse as _SR
-    return _SR(iter([buf.read().encode()]),
-               media_type="text/csv",
+    return _SR(iter([buf.read().encode("utf-8-sig")]),
+               media_type="text/csv; charset=utf-8",
                headers={"Content-Disposition": "attachment; filename=checklist_template.csv"})
 
 
@@ -2797,8 +2798,17 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
         dept_id = None
         user_id = None
         dept_name = (row.get("assigned_to_department") or "").strip()
+        emp_name = (row.get("assigned_to_name") or "").strip()
         phone = (row.get("assigned_to_phone") or "").strip()
-        if phone:
+        if emp_name:
+            u = db.query(User).filter(User.tenant_id == user.tenant_id,
+                                       User.name == emp_name, User.is_deleted == False).first()
+            if not u:
+                errors.append((i, title, f"No employee named '{emp_name}'"))
+                continue
+            user_id = u.id
+            role = u.role
+        elif phone:
             u = db.query(User).filter(User.tenant_id == user.tenant_id,
                                        User.phone == phone, User.is_deleted == False).first()
             if not u:
@@ -2982,8 +2992,8 @@ def download_csv_template(entity: str = "employees",
         w.writerow(["Mandatory. Branch name.", "Optional. Branch address."])
     buf.seek(0)
     return StreamingResponse(
-        iter([buf.getvalue()]),
-        media_type="text/csv",
+        iter([buf.getvalue().encode("utf-8-sig")]),
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={entity}_template.csv"},
     )
 
