@@ -2801,10 +2801,17 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
         emp_name = (row.get("assigned_to_name") or "").strip()
         phone = (row.get("assigned_to_phone") or "").strip()
         if emp_name:
-            u = db.query(User).filter(User.tenant_id == user.tenant_id,
-                                       User.name == emp_name, User.is_deleted == False).first()
+            from sqlalchemy import func as _func
+            u = db.query(User).filter(
+                User.tenant_id == user.tenant_id,
+                _func.lower(User.name) == emp_name.lower(),
+                User.is_deleted == False,
+            ).first()
             if not u:
-                errors.append((i, title, f"No employee named '{emp_name}'"))
+                # Build a helpful list of available names for the error message
+                all_names = [r.name for r in db.query(User.name).filter(
+                    User.tenant_id == user.tenant_id, User.is_deleted == False).all()]
+                errors.append((i, title, f"No employee named '{emp_name}'. Available: {', '.join(sorted(all_names))}"))
                 continue
             user_id = u.id
             role = u.role
