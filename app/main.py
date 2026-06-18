@@ -1566,9 +1566,8 @@ def tickets_bulk_template(user: User = Depends(require_manager)):
     import io as _io
     buf = _io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["title","description","priority","ticket_category","assignee_phone","due_at","evidence_required","department_name"])
-    w.writerow(["Short title (max 200)","Full task description","LOW/MEDIUM/HIGH/CRITICAL","NORMAL or HELP","10-digit phone of assignee","YYYY-MM-DD HH:MM","TRUE or FALSE (default FALSE)","Department name (optional)"])
-    w.writerow(["Fix machine oil leak","Check and refill oil in machine #3","HIGH","NORMAL","9876543210","2026-08-01 18:00","FALSE","Production"])
+    w.writerow(["title","description","priority","ticket_category","assignee_phone","due_at","evidence_required"])
+    w.writerow(["Mandatory. Short title, max 200 chars.","Mandatory. Full task description.","LOW / MEDIUM / HIGH / CRITICAL","NORMAL or HELP (default NORMAL)","Mandatory. 10-digit phone of assignee.","Mandatory. YYYY-MM-DD HH:MM","TRUE or FALSE (default FALSE)"])
     buf.seek(0)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=tickets_template.csv"})
@@ -1586,16 +1585,16 @@ async def tickets_bulk_upload(file: UploadFile = File(...),
     created = 0
     tenant = db.query(Tenant).get(tid)
     for i, row in enumerate(reader, start=2):
-        if i == 3:  # skip description row
-            continue
         title = (row.get("title") or "").strip()
+        # Skip description/header-like rows
+        if title.lower().startswith("mandatory") or title.lower().startswith("optional"):
+            continue
         description = (row.get("description") or "").strip()
         priority = (row.get("priority") or "MEDIUM").strip().upper()
         category = (row.get("ticket_category") or "NORMAL").strip().upper()
         phone = (row.get("assignee_phone") or "").strip()
         due_str = (row.get("due_at") or "").strip()
         ev_req = (row.get("evidence_required") or "FALSE").strip().upper() == "TRUE"
-        dept_name = (row.get("department_name") or "").strip()
 
         if not title:
             errors.append(f"Row {i}: title is required"); continue
@@ -2729,8 +2728,18 @@ def checklist_bulk_template(user: User = Depends(require_admin)):
     w.writerow(["title","description","frequency","assigned_to_role",
                 "assigned_to_department","assigned_to_phone",
                 "evidence_required","is_recurring","reminder_hours_before","reminder_repeat_hours"])
-    w.writerow(["Daily Machine Check","Inspect all machines before shift","DAILY","EMPLOYEE",
-                "","","FALSE","TRUE","2","4"])
+    w.writerow([
+        "Mandatory. Checklist title.",
+        "Mandatory. Step-by-step instructions.",
+        "DAILY / WEEKLY / TWICE_A_MONTH / MONTHLY / QUARTERLY / YEARLY / PER_SHIFT",
+        "EMPLOYEE / MANAGER / ADMIN — ignored if assigned_to_phone is set.",
+        "Optional. Department name to assign to (leave blank if using phone or role).",
+        "Optional. 10-digit phone of a specific employee to assign to.",
+        "TRUE or FALSE (default FALSE)",
+        "TRUE or FALSE (default TRUE)",
+        "Optional. Hours before due to send reminder (default 2).",
+        "Optional. Repeat reminder every N hours (default 4).",
+    ])
     buf.seek(0)
     from fastapi.responses import StreamingResponse as _SR
     return _SR(iter([buf.read().encode()]),
@@ -2767,6 +2776,9 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
     created = 0
     for i, row in enumerate(reader, start=1):
         title = (row.get("title") or "").strip()
+        # Skip description/header-like rows
+        if title.lower().startswith("mandatory") or title.lower().startswith("optional"):
+            continue
         desc  = (row.get("description") or "").strip()
         # If title is blank but description has content, use description as title
         if not title and desc:
@@ -2959,13 +2971,15 @@ def download_csv_template(entity: str = "employees",
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(cols)
-    # One example row — no description row so any row from row 2 onwards is treated as data
     if entity == "employees":
-        w.writerow(["Ravi Kumar", "9876543210", "Pass@123", "EMPLOYEE", "Sales", "Main Branch", "", "ravi@example.com", "2024-01-15", "Mumbai"])
+        w.writerow(["Mandatory. Full name.", "Mandatory. 10-digit phone (unique).", "Mandatory. Login password (min 6 chars).",
+                    "EMPLOYEE / MANAGER / ADMIN (default EMPLOYEE)", "Optional. Must match existing department name exactly.",
+                    "Optional. Must match existing branch name exactly.", "Optional. Phone of manager (must exist in system).",
+                    "Optional. Email address.", "Optional. YYYY-MM-DD", "Optional. Address."])
     elif entity == "departments":
-        w.writerow(["Example Dept", "Main Branch"])
+        w.writerow(["Mandatory. Department name.", "Optional. Must match existing branch name exactly."])
     else:
-        w.writerow(["Main Branch", "123 Main St"])
+        w.writerow(["Mandatory. Branch name.", "Optional. Branch address."])
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]),
@@ -3018,8 +3032,8 @@ async def bulk_import_employees(file: UploadFile = File(...),
         password = (row.get("password") or "").strip()
         role = (row.get("role") or "EMPLOYEE").strip().upper()
 
-        # Skip rows that look like the template description row
-        if name.lower() in ("full name", "name") and phone.lower() in ("10-digit phone", "phone"):
+        # Skip description rows
+        if name.lower().startswith("mandatory") or name.lower().startswith("optional"):
             continue
 
         if not name:
@@ -3496,7 +3510,7 @@ async def bulk_import_departments(file: UploadFile = File(...),
         Branch.tenant_id == user.tenant_id, Branch.is_deleted == False).all()}
     for row in reader:
         name = (row.get("name") or "").strip()
-        if not name:
+        if not name or name.lower().startswith("mandatory") or name.lower().startswith("optional"):
             continue
         branch_name = (row.get("branch_name") or "").strip()
         branch_id = _branch_lookup.get(branch_name.lower()) if branch_name else None
@@ -3527,7 +3541,7 @@ async def bulk_import_branches(file: UploadFile = File(...),
     count = 0
     for row in reader:
         name = (row.get("name") or "").strip()
-        if not name:
+        if not name or name.lower().startswith("mandatory") or name.lower().startswith("optional"):
             continue
         db.add(Branch(tenant_id=user.tenant_id, name=name,
                       address=(row.get("address") or "").strip()))
