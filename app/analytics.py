@@ -3,7 +3,29 @@ KPI & analytics calculation engine — Phase 0-E-9, 0-G-1 through 0-G-11
 """
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from .database import Ticket, ChecklistAssignment, User
+from sqlalchemy import or_ as _or
+from .database import Ticket, ChecklistAssignment, ChecklistTemplate, User, Department
+
+
+def _resolve_filter_uids(db, tenant_id, dept_ids=None, manager_ids=None):
+    """Return list of user IDs matching any selected dept or manager, or None for no filter."""
+    if not dept_ids and not manager_ids:
+        return None
+    q = db.query(User).filter(User.tenant_id==tenant_id, User.is_deleted==False)
+    conds = []
+    if dept_ids:
+        # Expand dept names: collect all dept IDs with the same name (cross-branch)
+        names = [d.name for d in db.query(Department).filter(
+            Department.id.in_(dept_ids), Department.tenant_id==tenant_id).all()]
+        all_dept_ids = [d.id for d in db.query(Department).filter(
+            Department.tenant_id==tenant_id, Department.name.in_(names),
+            Department.is_deleted==False).all()]
+        conds.append(User.department_id.in_(all_dept_ids))
+    if manager_ids:
+        conds.append(User.id.in_(manager_ids))
+        conds.append(User.manager_id.in_(manager_ids))
+    q = q.filter(_or(*conds))
+    return [u.id for u in q.all()]
 
 
 def calc_tat_hours(ticket) -> float | None:
@@ -205,23 +227,14 @@ def _date_bounds(date_from: str = None, date_to: str = None):
 
 def get_delegation_scorecards(db: Session, tenant_id: str,
                                date_from: str = None, date_to: str = None,
-                               dept_id: str = None,
-                               manager_id: str = None) -> dict:
+                               dept_ids: list = None,
+                               manager_ids: list = None) -> dict:
     start, now = _date_bounds(date_from, date_to)
+    _uids = _resolve_filter_uids(db, tenant_id, dept_ids, manager_ids)
 
     def _scope(q):
-        if dept_id:
-            uids = [u.id for u in db.query(User).filter(
-                User.tenant_id == tenant_id,
-                User.department_id == dept_id,
-                User.is_deleted == False).all()]
-            q = q.filter(Ticket.current_assignee_id.in_(uids))
-        if manager_id:
-            uids = [u.id for u in db.query(User).filter(
-                User.manager_id == manager_id,
-                User.is_deleted == False).all()]
-            uids.append(manager_id)
-            q = q.filter(Ticket.current_assignee_id.in_(uids))
+        if _uids is not None:
+            q = q.filter(Ticket.current_assignee_id.in_(_uids))
         return q
 
     base = lambda: _scope(db.query(Ticket).filter(
@@ -255,19 +268,10 @@ def get_delegation_scorecards(db: Session, tenant_id: str,
 
 
 def get_delegation_weekly(db: Session, tenant_id: str,
-                           dept_id: str = None, manager_id: str = None) -> dict:
+                           dept_ids: list = None, manager_ids: list = None) -> dict:
     now = datetime.utcnow()
     labels, created_list, closed_list = [], [], []
-
-    def _uids():
-        q = db.query(User).filter(User.tenant_id == tenant_id, User.is_deleted == False)
-        if dept_id: q = q.filter(User.department_id == dept_id)
-        if manager_id:
-            ids = [u.id for u in q.filter(User.manager_id == manager_id).all()]
-            ids.append(manager_id); return ids
-        return [u.id for u in q.all()] if (dept_id) else None
-
-    uids = _uids()
+    uids = _resolve_filter_uids(db, tenant_id, dept_ids, manager_ids)
     for i in range(7, -1, -1):
         w0 = now - timedelta(weeks=i+1)
         w1 = now - timedelta(weeks=i)
@@ -329,32 +333,26 @@ def get_delegation_by_manager(db: Session, tenant_id: str, date_from: str = None
 
 
 def get_delegation_by_priority(db: Session, tenant_id: str,
-                                dept_id: str = None, manager_id: str = None) -> dict:
+                                dept_ids: list = None, manager_ids: list = None) -> dict:
     q = db.query(Ticket).filter(Ticket.tenant_id==tenant_id,
         Ticket.is_deleted==False, Ticket.status.notin_(["CLOSED","DONE"]))
-    if dept_id:
-        uids = [u.id for u in db.query(User).filter(
-            User.tenant_id==tenant_id, User.department_id==dept_id,
-            User.is_deleted==False).all()]
-        q = q.filter(Ticket.current_assignee_id.in_(uids))
-    if manager_id:
-        uids = [u.id for u in db.query(User).filter(
-            User.manager_id==manager_id, User.is_deleted==False).all()]
-        uids.append(manager_id)
-        q = q.filter(Ticket.current_assignee_id.in_(uids))
+    scoped_uids = _resolve_filter_uids(db, tenant_id, dept_ids, manager_ids)
+    if scoped_uids is not None:
+        q = q.filter(Ticket.current_assignee_id.in_(scoped_uids))
     counts = {"CRITICAL":0,"HIGH":0,"MEDIUM":0,"LOW":0}
     for t in q.all(): counts[t.priority] = counts.get(t.priority,0)+1
     return counts
 
 
 def get_employee_tat_ranking(db: Session, tenant_id: str, date_from: str = None, date_to: str = None,
-                              dept_id: str = None, manager_id: str = None) -> list:
+                              dept_ids: list = None, manager_ids: list = None) -> list:
     start, _ = _date_bounds(date_from, date_to)
     org_avg = get_org_avg_tat(db, tenant_id)
+    scoped_uids = _resolve_filter_uids(db, tenant_id, dept_ids, manager_ids)
     eq = db.query(User).filter(User.tenant_id==tenant_id,
         User.is_deleted==False, User.is_active==True)
-    if dept_id:   eq = eq.filter(User.department_id==dept_id)
-    if manager_id: eq = eq.filter(User.manager_id==manager_id)
+    if scoped_uids is not None:
+        eq = eq.filter(User.id.in_(scoped_uids))
     result = []
     for emp in eq.all():
         closed = db.query(Ticket).filter(Ticket.tenant_id==tenant_id,
@@ -378,22 +376,24 @@ def get_employee_tat_ranking(db: Session, tenant_id: str, date_from: str = None,
 # ── Checklist scorecards ──────────────────────────────────────────────────────
 
 def get_checklist_scorecards(db: Session, tenant_id: str, date_from: str = None, date_to: str = None,
-                              dept_id: str = None, manager_id: str = None) -> dict:
+                              dept_ids: list = None, manager_ids: list = None) -> dict:
     start, now = _date_bounds(date_from, date_to)
     distinct = db.query(ChecklistTemplate).filter(
         ChecklistTemplate.tenant_id==tenant_id, ChecklistTemplate.is_active==True,
         ChecklistTemplate.is_deleted==False).count()
 
-    uids = None
-    if dept_id or manager_id:
-        q = db.query(User).filter(User.tenant_id==tenant_id, User.is_deleted==False)
-        if dept_id:    q = q.filter(User.department_id==dept_id)
-        if manager_id: q = q.filter(User.manager_id==manager_id)
-        uids = [u.id for u in q.all()]
+    uids = _resolve_filter_uids(db, tenant_id, dept_ids, manager_ids)
+
+    # Only include assignments whose template still exists (not deleted)
+    _active_tmpl_ids = [t.id for t in db.query(ChecklistTemplate.id).filter(
+        ChecklistTemplate.tenant_id==tenant_id,
+        ChecklistTemplate.is_deleted==False).all()]
 
     def cl(extra=[]):
         q = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.tenant_id==tenant_id,
+            ChecklistAssignment.is_deleted==False,
+            ChecklistAssignment.template_id.in_(_active_tmpl_ids),
             ChecklistAssignment.due_at>=start, ChecklistAssignment.due_at<=now)
         if uids: q = q.filter(ChecklistAssignment.user_id.in_(uids))
         for f in extra: q = q.filter(f)
@@ -411,6 +411,8 @@ def get_checklist_scorecards(db: Session, tenant_id: str, date_from: str = None,
 
     all_done = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.tenant_id==tenant_id,
+        ChecklistAssignment.is_deleted==False,
+        ChecklistAssignment.template_id.in_(_active_tmpl_ids),
         ChecklistAssignment.status=="DONE",
         ChecklistAssignment.completed_at!=None,
         ChecklistAssignment.due_at>=now-timedelta(days=30)).all()
@@ -420,6 +422,8 @@ def get_checklist_scorecards(db: Session, tenant_id: str, date_from: str = None,
 
     due_q = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.tenant_id==tenant_id,
+        ChecklistAssignment.is_deleted==False,
+        ChecklistAssignment.template_id.in_(_active_tmpl_ids),
         ChecklistAssignment.status.in_(["PENDING","IN_PROGRESS"]),
         ChecklistAssignment.due_at>=now,
         ChecklistAssignment.due_at<=now+timedelta(hours=24))
@@ -442,14 +446,9 @@ def get_checklist_scorecards(db: Session, tenant_id: str, date_from: str = None,
 
 
 def get_checklist_weekly(db: Session, tenant_id: str,
-                          dept_id: str = None, manager_id: str = None) -> dict:
+                          dept_ids: list = None, manager_ids: list = None) -> dict:
     now = datetime.utcnow()
-    uids = None
-    if dept_id or manager_id:
-        q = db.query(User).filter(User.tenant_id==tenant_id, User.is_deleted==False)
-        if dept_id:    q = q.filter(User.department_id==dept_id)
-        if manager_id: q = q.filter(User.manager_id==manager_id)
-        uids = [u.id for u in q.all()]
+    uids = _resolve_filter_uids(db, tenant_id, dept_ids, manager_ids)
     labels, rates = [], []
     for i in range(7,-1,-1):
         w0 = now-timedelta(weeks=i+1); w1 = now-timedelta(weeks=i)

@@ -90,57 +90,56 @@
   {% endif %}
   <div class="sb-divider"></div>
   <div class="sb-section">Filters</div>
-  <div style="padding:2px 8px 4px;font-size:10px;color:#4b5568">Date range</div>
-  <form method="get" action="/dashboard" style="padding:4px 8px 8px">
-    {% if dept_id %}<input type="hidden" name="dept_id" value="{{ dept_id }}">{% endif %}
-    {% if manager_id and user.role=='ADMIN' %}<input type="hidden" name="manager_id" value="{{ manager_id }}">{% endif %}
+  <form method="get" action="/dashboard" id="dash-filter-form" style="padding:4px 8px 8px">
+    <input type="hidden" name="view" value="detailed">
+    <div style="padding:2px 0 4px;font-size:10px;color:#4b5568">Date range</div>
     <div style="margin-bottom:6px">
       <label style="font-size:9px;color:#4b5568;display:block;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.07em">From</label>
       <input type="date" name="date_from" value="{{ date_from }}"
              style="width:100%;background:var(--bg-card);border:1px solid var(--border-med);border-radius:5px;padding:5px 7px;font-size:11px;color:var(--text-primary);outline:none;font-family:inherit;color-scheme:dark">
     </div>
-    <div style="margin-bottom:8px">
+    <div style="margin-bottom:6px">
       <label style="font-size:9px;color:#4b5568;display:block;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.07em">To</label>
       <input type="date" name="date_to" value="{{ date_to }}"
              style="width:100%;background:var(--bg-card);border:1px solid var(--border-med);border-radius:5px;padding:5px 7px;font-size:11px;color:var(--text-primary);outline:none;font-family:inherit;color-scheme:dark">
     </div>
-    <button type="submit"
-            style="width:100%;background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">
-      Apply
-    </button>
-    <div style="display:flex;gap:4px;margin-top:6px">
-      <a href="?date_from={{ (now - timedelta(days=7)).strftime('%Y-%m-%d') }}&date_to={{ now.strftime('%Y-%m-%d') }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
-         style="flex:1;text-align:center;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:4px;padding:3px 0;font-size:9px;color:var(--text-faint);text-decoration:none">7d</a>
-      <a href="?date_from={{ (now - timedelta(days=30)).strftime('%Y-%m-%d') }}&date_to={{ now.strftime('%Y-%m-%d') }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
-         style="flex:1;text-align:center;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:4px;padding:3px 0;font-size:9px;color:var(--text-faint);text-decoration:none">30d</a>
-      <a href="?date_from={{ now.strftime('%Y-%m-01') }}&date_to={{ now.strftime('%Y-%m-%d') }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
-         style="flex:1;text-align:center;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:4px;padding:3px 0;font-size:9px;color:var(--text-faint);text-decoration:none">MTD</a>
+    <div style="display:flex;gap:4px;margin-bottom:8px">
+      <button type="button" onclick="_dashPreset(7)"
+              style="flex:1;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:4px;padding:3px 0;font-size:9px;color:var(--text-faint);cursor:pointer;font-family:inherit">7d</button>
+      <button type="button" onclick="_dashPreset(30)"
+              style="flex:1;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:4px;padding:3px 0;font-size:9px;color:var(--text-faint);cursor:pointer;font-family:inherit">30d</button>
+      <button type="button" onclick="_dashPresetMTD()"
+              style="flex:1;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:4px;padding:3px 0;font-size:9px;color:var(--text-faint);cursor:pointer;font-family:inherit">MTD</button>
     </div>
+    {% if departments %}
+    <div style="padding:4px 0 3px;font-size:10px;color:#4b5568;text-transform:uppercase;letter-spacing:.05em">{{ L.Department }}</div>
+    {% for d in departments %}
+    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;cursor:pointer;color:var(--text-primary)">
+      <input type="checkbox" name="dept_ids" value="{{ d.id }}"
+             {{ 'checked' if d.id in dept_ids }}
+             style="accent-color:#3b82f6;cursor:pointer">
+      {{ d.name[:24] }}
+    </label>
+    {% endfor %}
+    {% endif %}
+    {% if user.role=='ADMIN' and managers %}
+    <div style="padding:6px 0 3px;font-size:10px;color:#4b5568;text-transform:uppercase;letter-spacing:.05em">Manager</div>
+    {% for m in managers %}
+    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;cursor:pointer;color:var(--text-primary)">
+      <input type="checkbox" name="manager_ids" value="{{ m.id }}"
+             {{ 'checked' if m.id in manager_ids }}
+             style="accent-color:#3b82f6;cursor:pointer">
+      {{ m.name[:24] }}
+    </label>
+    {% endfor %}
+    {% endif %}
+    <button type="submit"
+            style="width:100%;background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:8px">
+      Apply Filters
+    </button>
+    <a href="/dashboard?view=detailed"
+       style="display:block;text-align:center;font-size:10px;color:var(--text-faint);margin-top:5px;text-decoration:none">Reset</a>
   </form>
-  {% if departments %}
-  <div style="padding:8px 8px 4px;font-size:10px;color:#4b5568">{{ L.Department }}</div>
-  <a class="sb-link {% if not dept_id %}active{% endif %}"
-     href="?date_from={{ date_from }}&date_to={{ date_to }}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}">
-    <i class="ti ti-building"></i> All
-  </a>
-  {% for d in departments %}
-  <a class="sb-link {% if dept_id==d.id %}active{% endif %}"
-     href="?date_from={{ date_from }}&date_to={{ date_to }}&dept_id={{ d.id }}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}"
-     style="padding-left:22px;font-size:11px">{{ d.name[:22] }}</a>
-  {% endfor %}
-  {% endif %}
-  {% if user.role=='ADMIN' and managers %}
-  <div style="padding:8px 8px 4px;font-size:10px;color:#4b5568">Manager</div>
-  <a class="sb-link {% if not manager_id %}active{% endif %}"
-     href="?date_from={{ date_from }}&date_to={{ date_to }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}">
-    <i class="ti ti-users"></i> All
-  </a>
-  {% for m in managers %}
-  <a class="sb-link {% if manager_id==m.id %}active{% endif %}"
-     href="?date_from={{ date_from }}&date_to={{ date_to }}&manager_id={{ m.id }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}"
-     style="padding-left:22px;font-size:11px">{{ m.name[:22] }}</a>
-  {% endfor %}
-  {% endif %}
   <div class="sb-divider"></div>
   {% if can_export %}
   <a class="sb-link" href="/analytics/export?export_type=tickets">
@@ -190,13 +189,13 @@
 
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
     <div style="display:flex;align-items:center;gap:10px">
-      <a href="/dashboard?view=summary&date_from={{ date_from }}&date_to={{ date_to }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id %}&manager_id={{ manager_id }}{% endif %}"
+      <a href="/dashboard?view=summary&date_from={{ date_from }}&date_to={{ date_to }}{% for did in dept_ids %}&dept_ids={{ did }}{% endfor %}{% for mid in manager_ids %}&manager_ids={{ mid }}{% endfor %}"
          class="btn btn-sm btn-outline">← Summary</a>
       <div style="font-size:16px;font-weight:600;color:var(--text-strong)">Detailed Analysis</div>
     </div>
     <div style="font-size:11px;color:#374151">
       {{ date_from }} → {{ date_to }}
-      {% if dept_id %}· {{ departments|selectattr('id','equalto',dept_id)|map(attribute='name')|first|default('') }}{% endif %}
+      {% if dept_ids %}· {{ departments|selectattr('id','in',dept_ids)|map(attribute='name')|join(', ') }}{% endif %}
     </div>
   </div>
 
@@ -484,7 +483,7 @@
           <td>{{ flow.avg_stage_tat }}h</td>
           <td style="color:{% if flow.breaches > 0 %}#f87171{% else %}#10b981{% endif %}">{{ flow.breaches }}</td>
           <td>
-            <a href="?date_from={{ date_from }}&date_to={{ date_to }}{% if dept_id %}&dept_id={{ dept_id }}{% endif %}{% if manager_id and user.role=='ADMIN' %}&manager_id={{ manager_id }}{% endif %}&expand_flow={% if expand_flow==flow.id %}{% else %}{{ flow.id }}{% endif %}#fms"
+            <a href="?date_from={{ date_from }}&date_to={{ date_to }}{% for did in dept_ids %}&dept_ids={{ did }}{% endfor %}{% for mid in manager_ids %}&manager_ids={{ mid }}{% endfor %}&expand_flow={% if expand_flow==flow.id %}{% else %}{{ flow.id }}{% endif %}#fms"
                class="btn-xs {% if expand_flow==flow.id %}on{% endif %}">
               {% if expand_flow==flow.id %}Collapse ↑{% else %}Expand ↓{% endif %}
             </a>
@@ -646,12 +645,30 @@ window._fmsChart = new Chart(document.getElementById('fmsWkChart'),{type:'bar',
   ]},options:CO});
 {% endif %}
 
+// ── Date preset helpers ───────────────────────────────────────────────────────
+function _dashPreset(days) {
+  var f = document.getElementById('dash-filter-form');
+  var to = new Date(); var from = new Date(to); from.setDate(from.getDate() - days);
+  f.querySelector('[name=date_from]').value = from.toISOString().slice(0,10);
+  f.querySelector('[name=date_to]').value   = to.toISOString().slice(0,10);
+  f.submit();
+}
+function _dashPresetMTD() {
+  var f = document.getElementById('dash-filter-form');
+  var to = new Date(); var from = new Date(to.getFullYear(), to.getMonth(), 1);
+  f.querySelector('[name=date_from]').value = from.toISOString().slice(0,10);
+  f.querySelector('[name=date_to]').value   = to.toISOString().slice(0,10);
+  f.submit();
+}
+
 // ── Real-time polling: refresh chart data every 30 s ─────────────────────────
 (function() {
   var _params = new URLSearchParams(window.location.search);
-  var _qs = ['dept_id','manager_id','date_from','date_to']
-    .map(k => _params.get(k) ? k+'='+encodeURIComponent(_params.get(k)) : '')
-    .filter(Boolean).join('&');
+  var _parts = [];
+  ['date_from','date_to'].forEach(function(k){ if(_params.get(k)) _parts.push(k+'='+encodeURIComponent(_params.get(k))); });
+  _params.getAll('dept_ids').forEach(function(v){ if(v) _parts.push('dept_ids='+encodeURIComponent(v)); });
+  _params.getAll('manager_ids').forEach(function(v){ if(v) _parts.push('manager_ids='+encodeURIComponent(v)); });
+  var _qs = _parts.join('&');
 
   function _setEl(id, val) {
     var el = document.getElementById(id);

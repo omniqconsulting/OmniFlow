@@ -360,7 +360,6 @@ def api_poll(request: Request, since: Optional[str] = None,
 @app.get("/api/charts/live")
 def api_charts_live(
     request: Request,
-    dept_id: str = "", manager_id: str = "",
     date_from: str = "", date_to: str = "",
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -370,14 +369,17 @@ def api_charts_live(
     tenant = db.query(Tenant).get(tid)
     now = datetime.utcnow()
 
+    _dept_ids    = [v for v in request.query_params.getlist("dept_ids") if v] or None
+    _manager_ids = [v for v in request.query_params.getlist("manager_ids") if v] or None
+
     # delegation
-    deleg_wk = get_delegation_weekly(db, tid, dept_id or None, manager_id or None)
+    deleg_wk = get_delegation_weekly(db, tid, _dept_ids, _manager_ids)
     deleg_sc = get_delegation_scorecards(db, tid, date_from or None, date_to or None,
-                                          dept_id or None, manager_id or None)
+                                          _dept_ids, _manager_ids)
     # checklists
-    cl_wk = get_checklist_weekly(db, tid, dept_id or None, manager_id or None)
+    cl_wk = get_checklist_weekly(db, tid, _dept_ids, _manager_ids)
     cl_sc = get_checklist_scorecards(db, tid, date_from or None, date_to or None,
-                                      dept_id or None, manager_id or None)
+                                      _dept_ids, _manager_ids)
     # checklist weekly bar chart (done/failed)
     checklist_bars = []
     for i in range(7, -1, -1):
@@ -740,7 +742,7 @@ def pending_approval(request: Request, user: User = Depends(get_current_user),
                                        "L": _L(db, user)})
 
 
-def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manager_id=None, dept_name=None):
+def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manager_ids=None, dept_name=None):
     """Compute lightweight KPIs for the Summary dashboard view."""
     from datetime import date as _date, datetime as _dt
     try:
@@ -753,33 +755,16 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_id=None, manage
 
     q = db.query(Ticket).filter(
         Ticket.tenant_id == tid, Ticket.is_deleted == False)
-    if dept_name:
-        # Filter across ALL branches with matching dept name
-        dept_ids = [d.id for d in db.query(Department).filter(
+    from .analytics import _resolve_filter_uids as _rfu
+    # Expand dept_name into IDs for the list-based resolver
+    _dept_ids = list(dept_ids or [])
+    if dept_name and not _dept_ids:
+        _dept_ids = [d.id for d in db.query(Department).filter(
             Department.tenant_id == tid, Department.name == dept_name,
             Department.is_deleted == False).all()]
-        dept_users = [u.id for u in db.query(User).filter(
-            User.tenant_id == tid, User.department_id.in_(dept_ids),
-            User.is_deleted == False).all()]
-        q = q.filter(Ticket.current_assignee_id.in_(dept_users))
-    elif dept_id:
-        # Legacy single-ID filter; expand to name-based match
-        dept = db.query(Department).filter(Department.id == dept_id).first()
-        if dept:
-            dept_ids = [d.id for d in db.query(Department).filter(
-                Department.tenant_id == tid, Department.name == dept.name,
-                Department.is_deleted == False).all()]
-        else:
-            dept_ids = [dept_id]
-        dept_users = [u.id for u in db.query(User).filter(
-            User.tenant_id == tid, User.department_id.in_(dept_ids),
-            User.is_deleted == False).all()]
-        q = q.filter(Ticket.current_assignee_id.in_(dept_users))
-    if manager_id:
-        team_ids = [u.id for u in db.query(User).filter(
-            User.manager_id == manager_id, User.is_deleted == False).all()]
-        team_ids.append(manager_id)
-        q = q.filter(Ticket.current_assignee_id.in_(team_ids))
+    scoped_uids = _rfu(db, tid, _dept_ids or None, manager_ids or None)
+    if scoped_uids is not None:
+        q = q.filter(Ticket.current_assignee_id.in_(scoped_uids))
 
     open_statuses   = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
     closed_statuses = ("DONE", "CLOSED")
@@ -923,17 +908,17 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
     if user.role in ("ADMIN", "MANAGER"):
         from datetime import date as _date
         _today = _date.today()
-        date_from  = request.query_params.get("date_from") or (_today - timedelta(days=30)).isoformat()
-        date_to    = request.query_params.get("date_to") or _today.isoformat()
-        dept_id    = request.query_params.get("dept_id", None) or None
-        dept_name  = request.query_params.get("dept_name", None) or None
-        manager_id = request.query_params.get("manager_id", None) or None
-        expand_flow= request.query_params.get("expand_flow", None) or None
-        view       = request.query_params.get("view", "summary")
+        date_from   = request.query_params.get("date_from") or (_today - timedelta(days=30)).isoformat()
+        date_to     = request.query_params.get("date_to") or _today.isoformat()
+        dept_ids    = [v for v in request.query_params.getlist("dept_ids") if v] or None
+        dept_name   = request.query_params.get("dept_name", None) or None
+        manager_ids = [v for v in request.query_params.getlist("manager_ids") if v] or None
+        expand_flow = request.query_params.get("expand_flow", None) or None
+        view        = request.query_params.get("view", "summary")
 
         # Managers locked to their own team
         if user.role == "MANAGER":
-            manager_id = user.id
+            manager_ids = [user.id]
 
         # Distinct department names (avoid duplicates across branches)
         all_depts = db.query(Department).filter(
@@ -975,7 +960,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
                     active_preset = label
                     break
 
-            kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_id, manager_id, dept_name)
+            kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids, dept_name)
             dept_health= _calc_dept_health(db, tid, date_from, date_to)
 
             # ── Summary Performance Score ─────────────────────────────────────
@@ -994,7 +979,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
                 "now": datetime.utcnow(),
                 **_nav_ctx(db, user, tenant=tenant),
                 "date_from": date_from, "date_to": date_to,
-                "dept_id": dept_id, "dept_name": dept_name, "manager_id": manager_id,
+                "dept_ids": dept_ids or [], "dept_name": dept_name, "manager_ids": manager_ids or [],
                 "branch_id": branch_id,
                 "departments": departments, "managers": managers, "branches": branches,
                 "date_presets": date_presets, "active_preset": active_preset,
@@ -1005,12 +990,12 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
 
         # ── Detailed View ─────────────────────────────────────────────────────
         # Delegation
-        deleg_sc   = get_delegation_scorecards(db, tid, date_from, date_to, dept_id, manager_id)
-        deleg_wk   = get_delegation_weekly(db, tid, dept_id, manager_id)
+        deleg_sc   = get_delegation_scorecards(db, tid, date_from, date_to, dept_ids, manager_ids)
+        deleg_wk   = get_delegation_weekly(db, tid, dept_ids, manager_ids)
         deleg_dept = get_delegation_by_dept(db, tid, date_from, date_to)
         deleg_mgr  = get_delegation_by_manager(db, tid, date_from, date_to) if user.role == "ADMIN" else []
-        deleg_pri  = get_delegation_by_priority(db, tid, dept_id, manager_id)
-        emp_tat    = get_employee_tat_ranking(db, tid, date_from, date_to, dept_id, manager_id)
+        deleg_pri  = get_delegation_by_priority(db, tid, dept_ids, manager_ids)
+        emp_tat    = get_employee_tat_ranking(db, tid, date_from, date_to, dept_ids, manager_ids)
 
         # Flagged tickets (scoped to manager's team — 'ever worked on')
         ticket_q = db.query(Ticket).filter(
@@ -1029,8 +1014,8 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         flagged = ticket_q.filter(Ticket.is_flagged == True).all()
 
         # Checklists
-        cl_sc   = get_checklist_scorecards(db, tid, date_from, date_to, dept_id, manager_id)
-        cl_wk   = get_checklist_weekly(db, tid, dept_id, manager_id)
+        cl_sc   = get_checklist_scorecards(db, tid, date_from, date_to, dept_ids, manager_ids)
+        cl_wk   = get_checklist_weekly(db, tid, dept_ids, manager_ids)
         cl_tmpl = get_checklist_by_template(db, tid, date_from, date_to)
         cl_dept = get_checklist_by_dept(db, tid, date_from, date_to)
 
@@ -1042,7 +1027,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
                       if (has_fms and expand_flow) else None
 
         # ── Overall Performance Score (same metrics as summary page) ─────────
-        _sk = _calc_summary_kpis(db, tid, date_from, date_to, dept_id, manager_id)
+        _sk = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids)
         perf_components: list = []
         if _sk.total_count > 0:
             perf_components.append({"label": "Ticket On-Time Rate",   "value": _sk.on_time_pct,       "color": "#3b82f6"})
@@ -1060,8 +1045,8 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             **_nav_ctx(db, user, tenant=tenant),
             # Filters
             "date_from": date_from, "date_to": date_to,
-            "dept_id": dept_id,
-            "manager_id": manager_id, "expand_flow": expand_flow,
+            "dept_ids": dept_ids or [],
+            "manager_ids": manager_ids or [], "expand_flow": expand_flow,
             "departments": departments, "managers": managers,
             # Delegation
             "deleg_sc": deleg_sc, "deleg_wk": deleg_wk,
