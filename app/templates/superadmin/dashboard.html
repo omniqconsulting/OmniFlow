@@ -218,8 +218,8 @@ new Chart(document.getElementById('industryChart'), {
   <table>
     <thead>
       <tr>
-        <th>Factory</th><th>Plan</th><th>Users</th><th>Open Tickets</th>
-        <th>Compliance</th><th>Member Since</th><th>Last Activity</th><th></th>
+        <th>Factory</th><th>Plan</th><th>Users</th><th>Tickets</th>
+        <th>Checklists</th><th>Flow Tickets</th><th>Member Since</th><th>Last Login</th><th></th>
       </tr>
     </thead>
     <tbody>
@@ -235,10 +235,11 @@ new Chart(document.getElementById('industryChart'), {
         {% else %}<span class="badge badge-gray">STARTER</span>{% endif %}
       </td>
       <td>{{ stats.users }}</td>
-      <td style="color:{% if stats.open_tickets > 0 %}#f87171{% else %}#6ee7b7{% endif %}">{{ stats.open_tickets }}</td>
-      <td style="color:{% if stats.compliance >= 80 %}#6ee7b7{% elif stats.compliance >= 50 %}#fcd34d{% else %}#f87171{% endif %}">{{ stats.compliance }}%</td>
+      <td>{{ stats.tickets }}</td>
+      <td>{{ stats.checklists }}</td>
+      <td>{{ stats.flow_tickets }}</td>
       <td class="muted">{{ tenant.created_at.strftime('%d %b %Y') if tenant.created_at else '—' }}</td>
-      <td class="muted">{{ stats.last_activity.strftime('%d %b') if stats.last_activity else '—' }}</td>
+      <td class="muted">{{ stats.last_activity.strftime('%d %b, %H:%M') if stats.last_activity else '—' }}</td>
       <td><a href="/superadmin/tenants/{{ tenant.id }}" class="btn btn-sm btn-gray">View</a></td>
     </tr>
     {% else %}

@@ -32,8 +32,8 @@
     <thead>
       <tr>
         <th>Factory</th><th>Plan</th><th>Contact</th>
-        <th>Users</th><th>Tickets</th><th>Compliance</th>
-        <th>Status</th><th>Joined</th><th></th>
+        <th>Users</th><th>Tickets</th><th>Checklists</th><th>Flow Tickets</th>
+        <th>Status</th><th>Last Login</th><th>Joined</th><th></th>
       </tr>
     </thead>
     <tbody>
@@ -54,13 +54,9 @@
         <div class="muted">{{ tenant.contact_email or '' }}</div>
       </td>
       <td>{{ stats.users }}</td>
-      <td>
-        <div>{{ stats.tickets }} total</div>
-        <div style="color:{% if stats.open_tickets > 0 %}#f87171{% else %}#6ee7b7{% endif %};font-size:11px">{{ stats.open_tickets }} open</div>
-      </td>
-      <td style="color:{% if stats.compliance >= 80 %}#6ee7b7{% elif stats.compliance >= 50 %}#fcd34d{% else %}#f87171{% endif %}">
-        {{ stats.compliance }}%
-      </td>
+      <td>{{ stats.tickets }}</td>
+      <td>{{ stats.checklists }}</td>
+      <td>{{ stats.flow_tickets }}</td>
       <td>
         {% if tenant.is_suspended %}
         <span class="badge badge-red">SUSPENDED</span>
@@ -68,6 +64,7 @@
         <span class="badge badge-green">ACTIVE</span>
         {% endif %}
       </td>
+      <td class="muted">{{ stats.last_activity.strftime('%d %b, %H:%M') if stats.last_activity else '—' }}</td>
       <td class="muted">{{ tenant.created_at.strftime('%d %b %Y') }}</td>
       <td><a href="/superadmin/tenants/{{ tenant.id }}" class="btn btn-sm btn-gray">Manage</a></td>
     </tr>

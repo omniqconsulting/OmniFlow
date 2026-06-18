@@ -16,6 +16,7 @@ from .database import (
     Notification, MediaUpload, WebSocketSession,
     FMSFlow, FMSTicket, FMSStageHistory, FMSTicketHelper, FMSEvent,
     TicketStatus, Priority, ChecklistStatus, new_id,
+    LoginEvent,
 )
 from .auth import (
     hash_password, verify_password, create_token,
@@ -448,11 +449,111 @@ def login(request: Request, slug: str = Form(...), phone: str = Form(...),
     ).first()
     if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(request, "login.html", {"error": "Invalid credentials"})
+    user.last_login = datetime.utcnow()
+    db.add(LoginEvent(tenant_id=tenant.id, user_id=user.id))
+    db.commit()
     token = create_token(user.id, tenant.id, user.role)
     landing = "/dashboard"
     resp = redirect(landing)
     resp.set_cookie("token", token, httponly=True, max_age=86400)
     return resp
+
+
+@app.get("/check-slug")
+def check_slug_public(slug: str, db: Session = Depends(get_db)):
+    """Public slug availability check for the self-registration form."""
+    from fastapi.responses import JSONResponse as _J
+    exists = db.query(Tenant).filter(Tenant.slug == slug).first()
+    return _J({"available": exists is None})
+
+
+@app.get("/register", response_class=HTMLResponse)
+def register_page(request: Request):
+    return templates.TemplateResponse(request, "register.html", {"error": None})
+
+@app.post("/register")
+def register(request: Request, factory_name: str = Form(...), slug: str = Form(...),
+             name: str = Form(...), phone: str = Form(...), password: str = Form(...),
+             contact_email: str = Form(""),
+             db: Session = Depends(get_db)):
+    if db.query(Tenant).filter(Tenant.slug == slug).first():
+        return templates.TemplateResponse(request, "register.html",
+                                          {"error": "Factory ID already taken"})
+    # Self-registered tenants start as TRIAL + unapproved
+    tenant = Tenant(
+        name=factory_name, slug=slug,
+        plan="TRIAL", is_approved=False,
+        contact_name=name, contact_email=contact_email or None,
+        trial_started_at=datetime.utcnow(),
+    )
+    db.add(tenant)
+    db.flush()
+    user = User(tenant_id=tenant.id, name=name, phone=phone,
+                password_hash=hash_password(password), role="ADMIN")
+    db.add(user)
+    db.commit()
+    return templates.TemplateResponse(request, "register_pending.html", {
+        "factory_name": factory_name, "slug": slug, "name": name,
+    })
+
+
+@app.get("/api/team-members")
+def api_team_members(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return admins and managers in the same tenant — used by the Help modal dropdown."""
+    members = db.query(User).filter(
+        User.tenant_id == user.tenant_id,
+        User.role.in_(["ADMIN", "MANAGER"]),
+        User.is_deleted == False,
+        User.id != user.id,
+    ).order_by(User.role, User.name).all()
+    return JSONResponse([
+        {"id": m.id, "name": m.name, "role": m.role.title()}
+        for m in members
+    ])
+
+
+@app.post("/help-request")
+async def submit_help_request(
+    title: str = Form(...),
+    description: str = Form(""),
+    assignee_id: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from datetime import timedelta
+    # Resolve assignee: use selected person, fallback to first admin, fallback to self
+    assignee = None
+    if assignee_id:
+        assignee = db.query(User).filter(
+            User.id == assignee_id,
+            User.tenant_id == user.tenant_id,
+            User.is_deleted == False,
+        ).first()
+    if not assignee:
+        assignee = db.query(User).filter(
+            User.tenant_id == user.tenant_id,
+            User.role == "ADMIN",
+            User.is_deleted == False,
+        ).first() or user
+    ticket = Ticket(
+        tenant_id=user.tenant_id,
+        title=title,
+        description=description or "(no description)",
+        priority="HIGH",
+        created_by_id=user.id,
+        current_assignee_id=assignee.id,
+        due_at=datetime.utcnow() + timedelta(hours=24),
+        ticket_type="D",
+    )
+    if hasattr(ticket, "ticket_category"):
+        ticket.ticket_category = "HELP"
+    db.add(ticket)
+    db.flush()
+    tenant = db.query(Tenant).get(user.tenant_id)
+    tenant.ticket_seq = (tenant.ticket_seq or 0) + 1
+    ticket.display_id = f"T-{tenant.ticket_seq:04d}"
+    db.commit()
+    return JSONResponse({"ok": True, "display_id": ticket.display_id, "assignee": assignee.name})
 
 
 @app.get("/help", response_class=HTMLResponse)
@@ -2326,7 +2427,7 @@ async def upload_checklist_proof(assignment_id: str, file: UploadFile = File(...
 @app.post("/checklists/templates/{template_id}/edit")
 def edit_checklist_template(
     template_id: str,
-    title: str = Form(...), description: str = Form(...),
+    title: str = Form(...), description: str = Form(""),
     frequency: str = Form("DAILY"),
     evidence_required: bool = Form(False),
     is_active: str = Form("1"),

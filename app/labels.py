@@ -104,6 +104,9 @@ def _build_L(**overrides) -> dict[str, str]:
     L["Departments"] = L.get("Departments", DEFAULTS["department"][1])
     L["Employee"]    = L.get("Employee",    DEFAULTS["employee"][0])
     L["Employees"]   = L.get("Employees",   DEFAULTS["employee"][1])
+    # Flow Board (FMS) — special case: key uses underscore to survive Jinja attr access
+    L["Flow_Board"]  = overrides.get("fms_s") or "Flow Board"
+    L["Flow_Boards"] = overrides.get("fms_p") or "Flow Boards"
     return L
 
 
@@ -134,6 +137,7 @@ def get_labels(db, tenant_id: Optional[str]) -> dict[str, str]:
         branch_s=row.branch_s,       branch_p=row.branch_p,
         department_s=row.department_s, department_p=row.department_p,
         employee_s=row.employee_s,   employee_p=row.employee_p,
+        fms_s=row.fms_s,             fms_p=row.fms_p,
     )
 
 

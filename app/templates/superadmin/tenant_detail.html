@@ -42,21 +42,23 @@
     <div class="value">{{ stats.users }}</div>
   </div>
   <div class="kpi-tile">
-    <div class="label">Total Tickets</div>
+    <div class="label">Tickets</div>
     <div class="value">{{ stats.tickets }}</div>
   </div>
   <div class="kpi-tile">
-    <div class="label">Open Tickets</div>
-    <div class="value" style="color:{% if stats.open_tickets > 0 %}#f87171{% else %}#6ee7b7{% endif %}">{{ stats.open_tickets }}</div>
+    <div class="label">Checklists</div>
+    <div class="value">{{ stats.checklists }}</div>
   </div>
   <div class="kpi-tile">
-    <div class="label">Compliance</div>
-    <div class="value" style="color:{% if stats.compliance >= 80 %}#6ee7b7{% elif stats.compliance >= 50 %}#fcd34d{% else %}#f87171{% endif %}">{{ stats.compliance }}%</div>
+    <div class="label">Flow Tickets</div>
+    <div class="value">{{ stats.flow_tickets }}</div>
   </div>
   <div class="kpi-tile">
-    <div class="label">Last Activity</div>
-    <div class="value" style="font-size:16px;margin-top:10px">
-      {{ stats.last_activity.strftime('%d %b') if stats.last_activity else '—' }}
+    <div class="label">Last Login</div>
+    <div class="value" style="font-size:14px;margin-top:8px">
+      {% if stats.last_activity %}
+        {{ stats.last_activity.strftime('%d %b, %H:%M') }}
+      {% else %}—{% endif %}
     </div>
   </div>
 </div>
@@ -84,6 +86,11 @@
           Currently: <strong style="color:#93c5fd">{{ label_row.industry }}</strong>
           {% endif %}
         </div>
+      </div>
+      <div class="form-group">
+        <label>Flow Board Name <span style="font-weight:400;color:#64748b;font-size:11px">(leave blank for default)</span></label>
+        <input type="text" name="fms_label" value="{{ label_row.fms_s if label_row and label_row.fms_s else '' }}" placeholder="Flow Board">
+        <div style="font-size:11px;color:#64748b;margin-top:3px">e.g. "Production Board", "Maintenance Pipeline", "Work Orders"</div>
       </div>
       <div class="form-group">
         <label>Contact Name</label>
@@ -183,7 +190,7 @@
   </div>
   <table>
     <thead>
-      <tr><th>Name</th><th>Phone</th><th>Role</th><th>Dept</th><th>Status</th><th>Joined</th><th>Reset Password</th></tr>
+      <tr><th>Name</th><th>Phone</th><th>Role</th><th>Dept</th><th>Status</th><th>Joined</th><th>Last Login</th><th>Reset Password</th></tr>
     </thead>
     <tbody>
     {% for u in users %}
@@ -197,6 +204,7 @@
         {% else %}<span class="badge badge-red">Inactive</span>{% endif %}
       </td>
       <td class="muted">{{ u.created_at.strftime('%d %b %Y') }}</td>
+      <td class="muted">{{ u.last_login.strftime('%d %b %Y, %H:%M') if u.last_login else '—' }}</td>
       <td>
         <button class="btn btn-sm btn-gray"
                 onclick="openResetModal('{{ u.id }}','{{ u.name|replace("'","\\'")|e }}')">
@@ -205,11 +213,110 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="7" style="color:#64748b;text-align:center;padding:20px">No users yet.</td></tr>
+    <tr><td colspan="8" style="color:#64748b;text-align:center;padding:20px">No users yet.</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
+
+<!-- Login Activity Chart -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <div>
+      <h2 style="margin:0">Login Activity</h2>
+      <div class="muted" style="margin-top:3px">Total logins and unique employees per period</div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <!-- Metric toggle -->
+      <div style="display:flex;background:rgba(255,255,255,0.05);border-radius:7px;padding:2px;gap:2px;margin-right:6px">
+        <button id="metricTotal"  onclick="setMetric('total')"  style="border:none;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;background:#6366f1;color:#fff;font-family:inherit">Total</button>
+        <button id="metricUnique" onclick="setMetric('unique')" style="border:none;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;background:transparent;color:#64748b;font-family:inherit">Unique</button>
+      </div>
+      <!-- Period drill -->
+      <button class="btn btn-sm btn-gray" id="drillDay"   onclick="setDrill('day')"   style="opacity:1">Day</button>
+      <button class="btn btn-sm btn-gray" id="drillWeek"  onclick="setDrill('week')"  style="opacity:0.45">Week</button>
+      <button class="btn btn-sm btn-gray" id="drillMonth" onclick="setDrill('month')" style="opacity:0.45">Month</button>
+    </div>
+  </div>
+  <div style="position:relative;height:240px">
+    <canvas id="loginChart"></canvas>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const _loginData = {{ login_chart | tojson }};
+let _chart = null;
+let _period = 'day';
+let _metric = 'total';
+
+function _refreshChart() {
+  const d = _loginData[_period];
+  const isTotal = _metric === 'total';
+  if (_chart) {
+    _chart.data.labels = d.labels;
+    _chart.data.datasets[0].data   = isTotal ? d.total : d.unique;
+    _chart.data.datasets[0].label  = isTotal ? 'Total Logins' : 'Unique Employees';
+    _chart.data.datasets[0].backgroundColor = isTotal ? 'rgba(99,102,241,0.55)' : 'rgba(16,185,129,0.50)';
+    _chart.data.datasets[0].borderColor     = isTotal ? 'rgba(99,102,241,1)'    : 'rgba(16,185,129,1)';
+    _chart.update();
+  }
+}
+
+function setDrill(period) {
+  _period = period;
+  ['day','week','month'].forEach(p => {
+    document.getElementById('drill' + p.charAt(0).toUpperCase() + p.slice(1)).style.opacity = p === period ? '1' : '0.45';
+  });
+  _refreshChart();
+}
+
+function setMetric(metric) {
+  _metric = metric;
+  const activeStyle  = 'border:none;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;background:#6366f1;color:#fff';
+  const inactiveStyle= 'border:none;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;background:transparent;color:#64748b';
+  document.getElementById('metricTotal').style.cssText  = metric === 'total'  ? activeStyle : inactiveStyle;
+  document.getElementById('metricUnique').style.cssText = metric === 'unique' ? activeStyle : inactiveStyle;
+  _refreshChart();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const ctx = document.getElementById('loginChart').getContext('2d');
+  const d = _loginData['day'];
+  _chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: d.labels,
+      datasets: [{
+        label: 'Total Logins',
+        data: d.total,
+        backgroundColor: 'rgba(99,102,241,0.55)',
+        borderColor: 'rgba(99,102,241,1)',
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: c => _metric === 'total'
+              ? ` ${c.parsed.y} login${c.parsed.y !== 1 ? 's' : ''}`
+              : ` ${c.parsed.y} unique employee${c.parsed.y !== 1 ? 's' : ''}`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#64748b', maxRotation: 45, font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#64748b', precision: 0 }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true }
+      }
+    }
+  });
+});
+</script>
 
 <!-- Recent Tickets -->
 {% if recent_tickets %}

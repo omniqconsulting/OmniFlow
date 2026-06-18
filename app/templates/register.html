@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OmniFlow — Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── CSS variables: dark (default) ── */
+:root {
+  --bg-base:       #0b0f1a;
+  --bg-card:       #111827;
+  --bg-input:      #0d1424;
+  --bg-elevated:   #1e293b;
+  --text-primary:  #e2e8f0;
+  --text-strong:   #f1f5f9;
+  --text-muted:    #94a3b8;
+  --text-faint:    #64748b;
+  --border-subtle: rgba(255,255,255,0.08);
+  --border-med:    rgba(255,255,255,0.12);
+  --accent:        #3b82f6;
+}
+/* ── Light theme overrides ── */
+html.light {
+  --bg-base:       #f0f4f8;
+  --bg-card:       #ffffff;
+  --bg-input:      #f8fafc;
+  --bg-elevated:   #e8edf4;
+  --text-primary:  #1e3a5f;
+  --text-strong:   #0c2340;
+  --text-muted:    #3a5a7a;
+  --text-faint:    #5a7a9a;
+  --border-subtle: rgba(30,58,95,0.10);
+  --border-med:    rgba(30,58,95,0.18);
+  --accent:        #1d4ed8;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg-base);display:flex;align-items:center;justify-content:center;min-height:100vh;color:var(--text-primary);padding:24px;transition:background .2s,color .2s}
+.wrap{width:420px}
+.logo-row{text-align:center;margin-bottom:32px}
+.logo{font-size:22px;font-weight:700;color:var(--text-strong);letter-spacing:-0.4px}
+.logo-sub{font-size:13px;color:var(--text-faint);margin-top:4px}
+.card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.12)}
+html.light .card{box-shadow:0 2px 12px rgba(0,0,0,0.10),0 1px 3px rgba(0,0,0,0.06)}
+.card-title{font-size:16px;font-weight:600;color:var(--text-strong);margin-bottom:4px}
+.card-sub{font-size:12px;color:var(--text-faint);margin-bottom:24px}
+.form-group{margin-bottom:14px}
+label{display:block;font-size:11px;font-weight:600;margin-bottom:5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em}
+input,select{width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:8px;padding:10px 12px;font-size:14px;color:var(--text-primary);outline:none;font-family:inherit;transition:border-color 0.12s}
+input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,0.15)}
+input::placeholder{color:var(--text-faint)}
+select{cursor:pointer}
+select option{background:var(--bg-card)}
+.hint{font-size:11px;color:var(--text-faint);margin-top:4px}
+.btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;font-family:inherit;transition:background 0.12s}
+.btn:hover{filter:brightness(1.08)}
+.error{background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:16px}
+html.light .error{color:#dc2626}
+.footer{text-align:center;font-size:12px;color:var(--text-faint);margin-top:20px}
+.footer a{color:var(--accent);text-decoration:none}
+.footer a:hover{text-decoration:underline}
+.divider{border:none;border-top:1px solid var(--border-subtle);margin:20px 0}
+.section-label{font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-faint);margin:18px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border-subtle)}
+.phone-row{display:flex;gap:8px}
+.phone-row select{width:120px;flex-shrink:0;font-size:13px;padding:10px 8px}
+.phone-row input{flex:1}
+
+/* ── Theme toggle ── */
+.theme-toggle{position:fixed;top:16px;right:16px;background:var(--bg-card);border:1px solid var(--border-med);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:15px;color:var(--text-muted);transition:all .15s;z-index:10;line-height:1}
+.theme-toggle:hover{color:var(--text-primary);background:var(--bg-elevated)}
+</style>
+</head>
+<body>
+<button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
+<div class="wrap">
+  <div class="logo-row">
+    <div class="logo">OmniFlow</div>
+    <div class="logo-sub">Set up your factory in 2 minutes</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Create factory account</div>
+    <div class="card-sub">You'll be the Admin — employees can be added after setup</div>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post" action="/register" id="regForm" novalidate>
+      <div class="section-label">Factory Details</div>
+      <div class="form-group">
+        <label>Factory Name</label>
+        <input name="factory_name" placeholder="Acme Industries Pvt Ltd" required>
+      </div>
+      <div class="form-group">
+        <label>Factory ID</label>
+        <input name="slug" id="slugField" placeholder="acme-industries"
+               pattern="[a-z0-9\-]+" autocomplete="off" required>
+        <div class="hint">Lowercase letters, numbers and hyphens only · Used to login</div>
+        <div id="slugStatus" style="font-size:11px;margin-top:4px;display:none"></div>
+      </div>
+
+      <div class="section-label">Your Details (Admin Account)</div>
+      <div class="form-group">
+        <label>Your Name</label>
+        <input name="name" placeholder="Your full name" required>
+      </div>
+      <div class="form-group">
+        <label>Phone Number</label>
+        <div class="phone-row">
+          <select id="countryCode">
+            <option value="+91"  data-len="10">🇮🇳 +91</option>
+            <option value="+1"   data-len="10">🇺🇸 +1</option>
+            <option value="+44"  data-len="10">🇬🇧 +44</option>
+            <option value="+971" data-len="9" >🇦🇪 +971</option>
+            <option value="+65"  data-len="8" >🇸🇬 +65</option>
+            <option value="+60"  data-len="9" >🇲🇾 +60</option>
+            <option value="+880" data-len="10">🇧🇩 +880</option>
+            <option value="+92"  data-len="10">🇵🇰 +92</option>
+          </select>
+          <input type="tel" id="phoneLocal" placeholder="XXXXXXXXXX" required>
+        </div>
+        <input type="hidden" name="phone" id="phoneFull">
+        <div id="phoneHint" class="hint">Enter 10-digit number, e.g. 9876543210</div>
+      </div>
+      <div class="form-group">
+        <label>Contact Email <span style="font-weight:400;color:var(--text-faint)">(optional)</span></label>
+        <input type="email" name="contact_email" placeholder="you@company.com">
+        <div class="hint">We'll notify you when your account is approved</div>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" id="pwField" minlength="6" required placeholder="Min. 6 characters">
+        <div class="hint">Minimum 6 characters</div>
+      </div>
+      <button class="btn" type="button" onclick="submitReg()">Create Factory Account →</button>
+      <div class="hint" style="text-align:center;margin-top:10px">
+        Your account will be reviewed and activated within a few hours
+      </div>
+    </form>
+    <hr class="divider">
+    <div class="footer">Already registered? <a href="/login">Sign in</a></div>
+  </div>
+</div>
+
+<script>
+// ── Theme ──────────────────────────────────────────────────────────────────
+(function(){
+  var t = localStorage.getItem('omniflow-theme') || 'dark';
+  if(t === 'light') document.documentElement.classList.add('light');
+  document.addEventListener('DOMContentLoaded', function(){
+    var btn = document.getElementById('themeBtn');
+    if(btn) btn.textContent = (t === 'light') ? '🌙' : '☀️';
+  });
+})();
+
+function toggleTheme(){
+  var isLight = document.documentElement.classList.toggle('light');
+  localStorage.setItem('omniflow-theme', isLight ? 'light' : 'dark');
+  document.getElementById('themeBtn').textContent = isLight ? '🌙' : '☀️';
+}
+
+// ── Country config ─────────────────────────────────────────────────────────
+const COUNTRIES = {
+  '+91':  [10, '10-digit number, e.g. 9876543210'],
+  '+1':   [10, '10-digit number, e.g. 2025551234'],
+  '+44':  [10, '10-digit number after +44'],
+  '+971': [9,  '9-digit number, e.g. 501234567'],
+  '+65':  [8,  '8-digit number, e.g. 81234567'],
+  '+60':  [9,  '9–11 digit number after +60'],
+  '+880': [10, '10-digit number after +880'],
+  '+92':  [10, '10-digit number after +92'],
+};
+
+const countrySelect = document.getElementById('countryCode');
+const phoneLocal    = document.getElementById('phoneLocal');
+const phoneFull     = document.getElementById('phoneFull');
+const phoneHint     = document.getElementById('phoneHint');
+
+function updateHint() {
+  const cfg = COUNTRIES[countrySelect.value];
+  if (cfg) phoneHint.textContent = cfg[1];
+}
+function validatePhone() {
+  const cfg = COUNTRIES[countrySelect.value];
+  if (!cfg) return true;
+  const digits = phoneLocal.value.replace(/\D/g, '');
+  const ok = digits.length === cfg[0];
+  phoneLocal.style.borderColor = phoneLocal.value && !ok ? '#ef4444' : '';
+  return ok;
+}
+countrySelect.addEventListener('change', () => { updateHint(); validatePhone(); });
+phoneLocal.addEventListener('input', () => {
+  phoneLocal.value = phoneLocal.value.replace(/\D/g, '');
+  validatePhone();
+});
+updateHint();
+
+// ── Auto-slug from factory name ────────────────────────────────────────────
+const slugField = document.getElementById('slugField');
+document.querySelector('[name="factory_name"]').addEventListener('input', function() {
+  if (!slugField._touched) {
+    slugField.value = this.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    checkSlug();
+  }
+});
+slugField.addEventListener('input', function() { this._touched = true; checkSlug(); });
+
+// ── Slug availability check ────────────────────────────────────────────────
+const slugStatus = document.getElementById('slugStatus');
+let slugTimer = null;
+function checkSlug() {
+  const slug = slugField.value.trim();
+  if (slug.length < 2) { slugStatus.style.display = 'none'; return; }
+  clearTimeout(slugTimer);
+  slugTimer = setTimeout(async () => {
+    try {
+      const r = await fetch(`/check-slug?slug=${encodeURIComponent(slug)}`);
+      const d = await r.json();
+      slugStatus.style.display = 'block';
+      if (d.available) {
+        slugStatus.textContent = '✓ Available';
+        slugStatus.style.color = '#10b981';
+        slugField.setCustomValidity('');
+      } else {
+        slugStatus.textContent = '✗ Already taken — choose a different Factory ID';
+        slugStatus.style.color = '#f87171';
+        slugField.setCustomValidity('This Factory ID is already taken');
+      }
+    } catch(e) { slugStatus.style.display = 'none'; }
+  }, 400);
+}
+
+// ── Submit ─────────────────────────────────────────────────────────────────
+function submitReg() {
+  const cfg = COUNTRIES[countrySelect.value];
+  const digits = phoneLocal.value.replace(/\D/g, '');
+  if (!cfg || digits.length !== cfg[0]) {
+    phoneLocal.focus();
+    phoneLocal.style.borderColor = '#ef4444';
+    phoneHint.style.color = '#f87171';
+    phoneHint.textContent = `⚠ Enter exactly ${cfg ? cfg[0] : '?'} digits for this country`;
+    return;
+  }
+  phoneFull.value = countrySelect.value + digits;
+  if (slugField.validationMessage) { slugField.focus(); return; }
+  const form = document.getElementById('regForm');
+  if (!form.checkValidity()) { form.reportValidity(); return; }
+  form.submit();
+}
+</script>
+</body>
+</html>
