@@ -2424,6 +2424,49 @@ async def upload_checklist_proof(assignment_id: str, file: UploadFile = File(...
 
 # ── P6-03: Edit / Delete checklist templates & assignments ────────────────────
 
+@app.post("/checklists/templates/bulk-edit")
+def bulk_edit_checklist_templates(
+    template_ids: list[str] = Form(...),
+    frequency: str = Form(""),
+    is_active: str = Form(""),
+    evidence_required: str = Form(""),
+    assigned_to_user_id: str = Form(""),
+    assigned_to_role: str = Form(""),
+    assigned_to_dept_id: str = Form(""),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    updated = 0
+    assignment_rule_changed = (
+        assigned_to_user_id != "" or
+        assigned_to_role != "" or
+        assigned_to_dept_id != ""
+    )
+    for tmpl_id in template_ids:
+        tmpl = db.query(ChecklistTemplate).filter(
+            ChecklistTemplate.id == tmpl_id,
+            ChecklistTemplate.tenant_id == user.tenant_id,
+            ChecklistTemplate.is_deleted == False,
+        ).first()
+        if not tmpl:
+            continue
+        if frequency:
+            tmpl.frequency = frequency
+        if is_active != "":
+            tmpl.is_active = (is_active == "1")
+        if evidence_required != "":
+            tmpl.evidence_required = (evidence_required == "true")
+        if assignment_rule_changed:
+            tmpl.assigned_to_user_id = assigned_to_user_id or None
+            tmpl.assigned_to_role = assigned_to_role or tmpl.assigned_to_role
+            tmpl.assigned_to_dept_id = assigned_to_dept_id or None
+        # Sync future pending assignments to reflect any changes
+        _sync_pending_assignments(db, tmpl, user.tenant_id)
+        updated += 1
+    db.commit()
+    return redirect(f"/checklists?msg=Updated+{updated}+checklists")
+
+
 @app.post("/checklists/templates/{template_id}/edit")
 def edit_checklist_template(
     template_id: str,

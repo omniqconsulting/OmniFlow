@@ -500,11 +500,27 @@
       </form>
     </div>
   </div>
+
+  <!-- Bulk action bar — shown only when ≥1 checkbox is ticked -->
+  {% if user.role == 'ADMIN' %}
+  <div id="cl-bulk-bar" style="display:none;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:none;align-items:center;gap:12px;flex-wrap:wrap">
+    <span id="cl-bulk-count" style="font-size:13px;font-weight:600;color:#a5b4fc">0 selected</span>
+    <button type="button" onclick="openBulkEditModal()" class="btn btn-sm btn-primary" style="font-size:11px">✏ Bulk Edit Selected</button>
+    <button type="button" onclick="clearBulkSelection()" class="btn btn-sm btn-gray" style="font-size:11px">✕ Clear Selection</button>
+  </div>
+  {% endif %}
+
   {% if templates_list %}
   <div style="overflow-x:auto">
   <table id="cl-table">
     <thead>
       <tr>
+        {% if user.role == 'ADMIN' %}
+        <th style="width:32px;padding-right:0">
+          <input type="checkbox" id="cl-select-all" title="Select all" onchange="toggleAllCheckboxes(this)"
+                 style="cursor:pointer;width:14px;height:14px">
+        </th>
+        {% endif %}
         <th onclick="sortTable(0)" style="cursor:pointer;user-select:none">{{ L.Checklist }} <span class="sort-icon" data-col="0">⇅</span></th>
         <th onclick="sortTable(1)" style="cursor:pointer;user-select:none">Frequency <span class="sort-icon" data-col="1">⇅</span></th>
         <th onclick="sortTable(2)" style="cursor:pointer;user-select:none">Assigned To <span class="sort-icon" data-col="2">⇅</span></th>
@@ -520,6 +536,12 @@
     {% for t in templates_list %}
     {% set s = t._stats %}
     <tr class="cl-row" data-idx="{{ loop.index0 }}" {% if loop.index0 >= 20 %}style="display:none"{% endif %}>
+      {% if user.role == 'ADMIN' %}
+      <td style="padding-right:0;vertical-align:middle">
+        <input type="checkbox" class="cl-chk" value="{{ t.id }}" onchange="updateBulkBar()"
+               style="cursor:pointer;width:14px;height:14px">
+      </td>
+      {% endif %}
       <td>
         <div style="font-weight:500;color:var(--text-primary)">{{ t.title }}</div>
         <div style="font-size:10px;color:var(--text-faint);margin-top:2px">{{ t.description[:60] }}{% if t.description|length > 60 %}…{% endif %}</div>
@@ -720,6 +742,92 @@
 </div>
 {% endif %}
 
+<!-- ── Bulk Edit Modal ───────────────────────────────────────────────────── -->
+{% if user.role == 'ADMIN' %}
+<div id="bulk-edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:150">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 24px 48px rgba(0,0,0,0.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Bulk Edit Checklists</h3>
+      <button onclick="closeBulkEditModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
+    </div>
+    <div id="bulk-edit-names" style="font-size:11px;color:var(--text-faint);margin-bottom:18px;line-height:1.6"></div>
+    <p style="font-size:12px;color:var(--text-faint);margin-bottom:16px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:6px;padding:8px 12px">
+      Only fields you change will be updated. Leave a field on <strong style="color:#a5b4fc">— Keep existing —</strong> to leave it unchanged across all selected checklists.
+    </p>
+    <form method="post" action="/checklists/templates/bulk-edit" id="bulk-edit-form">
+      <div id="bulk-tmpl-ids"></div><!-- hidden inputs injected by JS -->
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Frequency</label>
+          <select name="frequency" class="form-input">
+            <option value="">— Keep existing —</option>
+            {% for f in ['DAILY','WEEKLY','TWICE_A_MONTH','MONTHLY','QUARTERLY','YEARLY','PER_SHIFT'] %}
+            <option value="{{ f }}">{{ f }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select name="is_active" class="form-input">
+            <option value="">— Keep existing —</option>
+            <option value="1">Active</option>
+            <option value="0">Inactive</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Evidence Required</label>
+        <select name="evidence_required" class="form-input">
+          <option value="">— Keep existing —</option>
+          <option value="true">Yes — require evidence on completion</option>
+          <option value="false">No — no evidence needed</option>
+        </select>
+      </div>
+
+      <div style="border-top:1px solid var(--border-subtle);margin:16px 0 14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:12px">Assignment (leave all blank to keep existing)</div>
+        <div class="form-group">
+          <label>Assign to a specific employee</label>
+          <select name="assigned_to_user_id" class="form-input" onchange="onBulkUserChange(this)">
+            <option value="">— Keep existing / use role —</option>
+            {% for e in employees %}
+            <option value="{{ e.id }}" data-role="{{ e.role }}">{{ e.name }} ({{ e.role }}{% if e.department %} · {{ e.department.name }}{% endif %})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px" id="bulk-role-dept-row">
+          <div class="form-group">
+            <label>Or assign to role</label>
+            <select name="assigned_to_role" id="bulk-role" class="form-input">
+              <option value="">— Keep existing —</option>
+              <option value="EMPLOYEE">EMPLOYEE</option>
+              <option value="MANAGER">MANAGER</option>
+              <option value="ADMIN">ADMIN</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Narrow to department</label>
+            <select name="assigned_to_dept_id" class="form-input">
+              <option value="">— Keep existing —</option>
+              {% for d in departments %}
+              <option value="{{ d.id }}">{{ d.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+        <button type="button" onclick="closeBulkEditModal()" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-primary">Apply to Selected →</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <!-- ── Complete modal (delay reason + evidence) ─────────────────────────── -->
 <div id="complete-modal" class="ev-modal-bg">
   <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:12px;padding:24px;width:420px;max-width:95vw">
@@ -904,6 +1012,91 @@ function openEditModal(tmplId) {
 function closeEditModal() {
   document.getElementById('edit-tmpl-modal').style.display = 'none';
 }
+
+// ── Bulk selection & bulk edit ────────────────────────────────────────────────
+function updateBulkBar() {
+  var checked = document.querySelectorAll('.cl-chk:checked');
+  var bar = document.getElementById('cl-bulk-bar');
+  var count = document.getElementById('cl-bulk-count');
+  var selAll = document.getElementById('cl-select-all');
+  var all = document.querySelectorAll('.cl-chk');
+  if (!bar) return;
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    count.textContent = checked.length + ' selected';
+  } else {
+    bar.style.display = 'none';
+  }
+  selAll.indeterminate = checked.length > 0 && checked.length < all.length;
+  selAll.checked = all.length > 0 && checked.length === all.length;
+}
+
+function toggleAllCheckboxes(masterCb) {
+  // Only toggle visible rows
+  document.querySelectorAll('.cl-row').forEach(function(row) {
+    if (row.style.display !== 'none') {
+      var cb = row.querySelector('.cl-chk');
+      if (cb) cb.checked = masterCb.checked;
+    }
+  });
+  updateBulkBar();
+}
+
+function clearBulkSelection() {
+  document.querySelectorAll('.cl-chk').forEach(function(cb){ cb.checked = false; });
+  var selAll = document.getElementById('cl-select-all');
+  if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+  updateBulkBar();
+}
+
+function openBulkEditModal() {
+  var checked = document.querySelectorAll('.cl-chk:checked');
+  if (!checked.length) return;
+  // Inject hidden template_id inputs
+  var container = document.getElementById('bulk-tmpl-ids');
+  container.innerHTML = '';
+  var names = [];
+  checked.forEach(function(cb) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'template_ids'; inp.value = cb.value;
+    container.appendChild(inp);
+    var row = cb.closest('tr');
+    if (row) {
+      var titleEl = row.querySelector('td:nth-child(2) div');
+      if (titleEl) names.push(titleEl.textContent.trim());
+    }
+  });
+  // Show selected names
+  document.getElementById('bulk-edit-names').textContent =
+    'Editing: ' + names.slice(0, 5).join(', ') + (names.length > 5 ? ' +' + (names.length - 5) + ' more' : '');
+  // Reset all selects to "keep existing"
+  document.querySelectorAll('#bulk-edit-form select').forEach(function(s){ s.selectedIndex = 0; });
+  var modal = document.getElementById('bulk-edit-modal');
+  modal.style.display = 'flex';
+}
+
+function closeBulkEditModal() {
+  document.getElementById('bulk-edit-modal').style.display = 'none';
+}
+
+function onBulkUserChange(sel) {
+  var roleRow = document.getElementById('bulk-role-dept-row');
+  var roleSelect = document.getElementById('bulk-role');
+  if (sel.value) {
+    // specific employee chosen — auto-fill role, hide role/dept selects
+    var opt = sel.options[sel.selectedIndex];
+    roleSelect.value = opt.dataset.role || 'EMPLOYEE';
+    roleRow.style.opacity = '0.4';
+    roleRow.style.pointerEvents = 'none';
+  } else {
+    roleRow.style.opacity = '';
+    roleRow.style.pointerEvents = '';
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeBulkEditModal();
+});
 
 function openCompleteModal(assignmentId, isOverdue, evidenceRequired) {
   var modal = document.getElementById('complete-modal');
