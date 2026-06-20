@@ -2,6 +2,7 @@
 Feature Flag System — Phase 0-I
 Centralised feature catalog, plan limits, and gate helpers.
 """
+import os
 
 # ── Plans ──────────────────────────────────────────────────────────────────────
 PLAN_TRIAL        = "TRIAL"
@@ -144,3 +145,19 @@ def next_plan(current_plan: str) -> "str | None":
         return order[idx + 1] if idx + 1 < len(order) else None
     except ValueError:
         return PLAN_STARTER
+
+
+# ── WhatsApp / MSG91 Templates ────────────────────────────────────────────────
+# Foundation registry. Each pipeline brief appends ONE entry here as that
+# template is wired to a real trigger. variable_order documents param order
+# matching the approved Meta template — the actual send call takes a plain list.
+WHATSAPP_TEMPLATES = {
+    "omniflow_ticket_assigned": {
+        "msg91_template_id": 417221,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["name", "ticket_title", "priority", "due_date"],
+    },
+}
+
+MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "")
+MSG91_WA_NUMBER = os.environ.get("MSG91_WA_NUMBER", "")

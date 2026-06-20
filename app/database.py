@@ -147,10 +147,15 @@ class User(Base):
     status        = Column(String, default="ACTIVE")   # ACTIVE / TERMINATED
     terminated_at = Column(DateTime)
     last_login    = Column(DateTime)
+    # WhatsApp validation — Brief 1
+    mobile_verified    = Column(Boolean, default=False, nullable=False)
+    mobile_verified_at = Column(DateTime, nullable=True)
+    mobile_verified_by = Column(String, ForeignKey("users.id"), nullable=True)
 
     tenant = relationship("Tenant", back_populates="users")
     department = relationship("Department", back_populates="users")
     manager = relationship("User", remote_side="User.id", foreign_keys="User.manager_id", backref="reports")
+    mobile_verified_by_user = relationship("User", remote_side="User.id", foreign_keys="[User.mobile_verified_by]")
     created_tickets = relationship("Ticket", foreign_keys="Ticket.created_by_id", back_populates="created_by")
     assigned_tickets = relationship("Ticket", foreign_keys="Ticket.current_assignee_id", back_populates="current_assignee")
 
@@ -185,6 +190,12 @@ class Ticket(Base):
     events = relationship("TicketEvent", back_populates="ticket", order_by="TicketEvent.created_at")
     helpers = relationship("TicketAssignee", back_populates="ticket", foreign_keys="TicketAssignee.ticket_id")
     media = relationship("MediaUpload", primaryjoin="and_(MediaUpload.entity_type=='ticket', foreign(MediaUpload.entity_id)==Ticket.id)", viewonly=True)
+    whatsapp_logs = relationship(
+        "WhatsAppMessageLog",
+        primaryjoin="and_(WhatsAppMessageLog.related_entity_type=='ticket', foreign(WhatsAppMessageLog.related_entity_id)==Ticket.id)",
+        viewonly=True,
+        order_by="WhatsAppMessageLog.created_at",
+    )
 
 class TicketAssignee(Base):
     """Additional helpers on a ticket — Phase 0-C-1"""
@@ -982,6 +993,30 @@ class LoginEvent(Base):
 
     tenant = relationship("Tenant")
     user   = relationship("User")
+
+
+class WhatsAppMessageLog(Base):
+    """
+    Foundation table — every outbound WhatsApp send attempt across all pipelines
+    is logged here. Built once; reused by every template brief going forward.
+    """
+    __tablename__ = "whatsapp_message_log"
+    id                   = Column(String, primary_key=True, default=new_id)
+    tenant_id            = Column(String, ForeignKey("tenants.id"), nullable=False)
+    template_name        = Column(String, nullable=False)
+    recipient_user_id    = Column(String, ForeignKey("users.id"), nullable=True)
+    recipient_phone      = Column(String, nullable=False)
+    variables_json       = Column(Text, nullable=False)   # JSON list, approved order
+    status               = Column(String, nullable=False)  # SENT / FAILED / SKIPPED_UNVERIFIED
+    error_message        = Column(Text, nullable=True)
+    related_entity_type  = Column(String, nullable=True)   # 'ticket' for this brief
+    related_entity_id    = Column(String, nullable=True)
+    attempt_count        = Column(Integer, default=1)
+    created_at           = Column(DateTime, default=datetime.utcnow)
+    last_attempted_at    = Column(DateTime, default=datetime.utcnow)
+
+    tenant    = relationship("Tenant")
+    recipient = relationship("User", foreign_keys=[recipient_user_id])
 
 
 def create_tables():

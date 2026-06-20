@@ -344,25 +344,41 @@
     <div class="card" style="margin:0">
       <h2 style="margin-bottom:14px">{{ L.Ticket }} Journey</h2>
       {% set journey_events = ticket.events | selectattr('event_type', 'ne', 'COMMENT') | list %}
-      {% set all_items = (journey_events | list) + (ticket.comments | list) %}
+      {% set all_items = (journey_events | list) + (ticket.comments | list) + (ticket.whatsapp_logs | list) %}
       {% set all_sorted = all_items | sort(attribute='created_at') %}
       {% if all_sorted %}
       <div style="position:relative;padding-left:20px">
         {% for item in all_sorted %}
         <div style="position:relative;padding-bottom:16px">
           <div class="timeline-dot"></div>
+          {% if item.__tablename__ == 'whatsapp_message_log' %}
+          <div class="timeline-meta">{{ item.created_at | ist }} · WhatsApp</div>
+          <div class="timeline-body">
+            {% if item.status == 'SENT' %}
+              WhatsApp sent to {{ item.recipient.name if item.recipient else item.recipient_phone }}
+            {% elif item.status == 'SKIPPED_UNVERIFIED' %}
+              WhatsApp skipped — number not validated
+            {% else %}
+              WhatsApp not sent — {{ item.error_message or 'unknown error' }}
+              <form method="post" action="/whatsapp-log/{{ item.id }}/resend" style="display:inline;margin-left:8px">
+                <button type="submit" class="btn btn-sm btn-outline">Resend</button>
+              </form>
+            {% endif %}
+          </div>
+          {% else %}
           <div class="timeline-meta">
             {% if item.__tablename__ == 'ticket_events' %}
               <strong>{{ item.actor.name if item.actor else '—' }}</strong> · {{ item.event_type.replace('_',' ') }}
             {% else %}
               <strong>{{ item.user.name if item.user else '—' }}</strong> · comment
             {% endif %}
-            · {{ item.created_at.strftime('%d %b, %I:%M %p') }}
+            · {{ item.created_at | ist }}
           </div>
           {% if item.__tablename__ == 'ticket_comments' %}
           <div class="timeline-body">{{ item.body }}</div>
           {% elif item.detail %}
           <div class="timeline-detail">{{ item.detail }}</div>
+          {% endif %}
           {% endif %}
         </div>
         {% endfor %}

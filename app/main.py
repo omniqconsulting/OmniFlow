@@ -87,6 +87,16 @@ from markupsafe import Markup as _Markup
 templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
 templates.env.filters["tojson"]    = lambda v: _Markup(_json.dumps(v, cls=_OrmEncoder))
 
+def _to_ist(dt, fmt="%d %b, %I:%M %p"):
+    """Convert a naive UTC datetime to IST (UTC+5:30) and format it."""
+    if dt is None:
+        return ""
+    from datetime import timezone, timedelta
+    IST = timezone(timedelta(hours=5, minutes=30))
+    return dt.replace(tzinfo=timezone.utc).astimezone(IST).strftime(fmt)
+
+templates.env.filters["ist"] = _to_ist
+
 # ── P10-04: Validation helpers ──────────────────────────────────────────────
 import re as _re
 
@@ -3417,6 +3427,62 @@ def delete_employee(
     emp.is_active = False
     db.commit()
     return redirect("/employees?msg=Employee+removed")
+
+
+# ── WhatsApp: toggle mobile_verified on an employee ──────────────────────────
+@app.post("/employees/{emp_id}/toggle-validated")
+def toggle_employee_validated(
+    emp_id: str, request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    emp = db.query(User).filter(
+        User.id == emp_id,
+        User.tenant_id == user.tenant_id,
+        User.is_deleted == False,
+    ).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    if emp.mobile_verified:
+        emp.mobile_verified = False
+        emp.mobile_verified_at = None
+        emp.mobile_verified_by = None
+    else:
+        emp.mobile_verified = True
+        emp.mobile_verified_at = datetime.utcnow()
+        emp.mobile_verified_by = user.id
+    db.commit()
+    return RedirectResponse("/employees", status_code=303)
+
+
+# ── WhatsApp: resend a failed message log entry ───────────────────────────────
+@app.post("/whatsapp-log/{log_id}/resend")
+def resend_whatsapp(
+    log_id: str, request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from .database import WhatsAppMessageLog
+    from .services.msg91 import send_whatsapp_template
+    import json as _json_resend
+
+    log = db.query(WhatsAppMessageLog).filter(
+        WhatsAppMessageLog.id == log_id,
+        WhatsAppMessageLog.tenant_id == user.tenant_id,
+    ).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Log entry not found")
+    if log.status != "FAILED":
+        raise HTTPException(status_code=400, detail="Only failed sends can be resent")
+
+    variables = _json_resend.loads(log.variables_json)
+    success, error = send_whatsapp_template(log.recipient_phone, log.template_name, variables)
+    log.status = "SENT" if success else "FAILED"
+    log.error_message = error
+    log.attempt_count += 1
+    log.last_attempted_at = datetime.utcnow()
+    db.commit()
+    return RedirectResponse(request.headers.get("referer", "/"), status_code=303)
 
 
 # ── P8-03: Per-employee performance dashboard ─────────────────────────────────
