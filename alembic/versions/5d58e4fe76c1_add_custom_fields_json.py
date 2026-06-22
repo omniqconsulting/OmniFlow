@@ -19,8 +19,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('fms_stages', sa.Column('custom_fields_json', sa.Text(), nullable=True))
-    op.add_column('library_flow_stages', sa.Column('custom_fields_json', sa.Text(), nullable=True))
+    bind = op.get_bind()
+    if bind.dialect.name == 'postgresql':
+        bind.execute(sa.text("ALTER TABLE fms_stages ADD COLUMN IF NOT EXISTS custom_fields_json TEXT DEFAULT '[]'"))
+        bind.execute(sa.text("ALTER TABLE library_flow_stages ADD COLUMN IF NOT EXISTS custom_fields_json TEXT DEFAULT '[]'"))
+    else:
+        try:
+            op.add_column('fms_stages', sa.Column('custom_fields_json', sa.Text(), nullable=True))
+        except Exception:
+            pass
+        try:
+            op.add_column('library_flow_stages', sa.Column('custom_fields_json', sa.Text(), nullable=True))
+        except Exception:
+            pass
 
 
 def downgrade() -> None:
