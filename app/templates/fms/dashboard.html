@@ -651,11 +651,14 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 <!-- Column visibility toggles -->
 <div class="ctv-col-toggle" style="margin-bottom:12px">
   <span style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-right:4px">Show:</span>
-  <label><input type="checkbox" class="ctv-toggle" data-col="assignee" checked> Assignee</label>
-  <label><input type="checkbox" class="ctv-toggle" data-col="entered"  checked> Entry Time</label>
-  <label><input type="checkbox" class="ctv-toggle" data-col="exited"   checked> Completed</label>
-  <label><input type="checkbox" class="ctv-toggle" data-col="duration" checked> Duration</label>
-  <label><input type="checkbox" class="ctv-toggle" data-col="cfdata"   checked> Stage Data</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="assignee"  checked> Assignee</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="entered"   checked> Actual Start</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="exited"    checked> Actual End</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="duration"  checked> Duration</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="inh-delay" checked> ⬆ Inherited Delay</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="own-delay" checked> 🔧 Own Delay</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="slip"      checked> 📉 Total Slip</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="cfdata"    checked> Stage Data</label>
 </div>
 
 <div class="ctv-wrap">
@@ -670,7 +673,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     {% for s in stage_table_stages %}
     {% set hex = s.color or '#3b82f6' %}
     {% set cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
-    <th colspan="{{ 4 + (cf_defs | length) }}"
+    <th colspan="{{ 7 + (cf_defs | length) }}"
         style="background:{{ hex }};color:#fff;text-align:center;border-radius:0">
       {{ s.name }}
     </th>
@@ -681,12 +684,15 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     {% for s in stage_table_stages %}
     {% set hex = s.color or '#3b82f6' %}
     {% set cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
-    <th class="ctv-sub ctv-col-assignee" style="background:{{ hex }}20;color:{{ hex }}">Who</th>
-    <th class="ctv-sub ctv-col-entered"  style="background:{{ hex }}20;color:{{ hex }}">Entry</th>
-    <th class="ctv-sub ctv-col-exited"   style="background:{{ hex }}20;color:{{ hex }}">Done</th>
-    <th class="ctv-sub ctv-col-duration" style="background:{{ hex }}20;color:{{ hex }}">Hours</th>
+    <th class="ctv-sub ctv-col-assignee"  style="background:{{ hex }}20;color:{{ hex }}">Who</th>
+    <th class="ctv-sub ctv-col-entered"   style="background:{{ hex }}20;color:{{ hex }}">Actual Start</th>
+    <th class="ctv-sub ctv-col-exited"    style="background:{{ hex }}20;color:{{ hex }}">Actual End</th>
+    <th class="ctv-sub ctv-col-duration"  style="background:{{ hex }}20;color:{{ hex }}">Hours</th>
+    <th class="ctv-sub ctv-col-inh-delay" style="background:{{ hex }}20;color:{{ hex }}" title="How late this stage started vs plan (upstream delay)">⬆ Inherited</th>
+    <th class="ctv-sub ctv-col-own-delay" style="background:{{ hex }}20;color:{{ hex }}" title="Extra time this stage itself took beyond its TaT">🔧 Own</th>
+    <th class="ctv-sub ctv-col-slip"      style="background:{{ hex }}20;color:{{ hex }}" title="Total slip vs original planned end">📉 Total Slip</th>
     {% for fdef in cf_defs %}
-    <th class="ctv-sub ctv-col-cfdata"   style="background:{{ hex }}20;color:{{ hex }};max-width:120px">{{ fdef.label }}</th>
+    <th class="ctv-sub ctv-col-cfdata"    style="background:{{ hex }}20;color:{{ hex }};max-width:120px">{{ fdef.label }}</th>
     {% endfor %}
     {% endfor %}
   </tr>
@@ -705,23 +711,73 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     {% set sd = row.stage_data.get(s.id) %}
     {% if sd %}
     {% set bg = 'ctv-active' if sd.is_active else 'ctv-done' %}
-    <td class="ctv-cell ctv-col-assignee {{ bg }}" style="font-size:11px">{{ sd.assignee_name }}</td>
-    <td class="ctv-cell ctv-col-entered  {{ bg }}" style="font-size:10px;color:var(--text-faint)">
+    {# ── Delay calculations ── #}
+    {# inherited = entered_at − planned_start #}
+    {% if sd.planned_start and sd.entered_at %}
+      {% set inh_h = ((sd.entered_at - sd.planned_start).total_seconds() / 3600) | round(1) %}
+    {% else %}
+      {% set inh_h = none %}
+    {% endif %}
+    {# own = actual_duration − target_tat_hours #}
+    {% if sd.duration_h is not none and s.target_tat_hours %}
+      {% set own_h = (sd.duration_h - s.target_tat_hours) | round(1) %}
+    {% else %}
+      {% set own_h = none %}
+    {% endif %}
+    {# total slip = exited_at − planned_end #}
+    {% if sd.planned_end and sd.exited_at %}
+      {% set slip_h = ((sd.exited_at - sd.planned_end).total_seconds() / 3600) | round(1) %}
+    {% else %}
+      {% set slip_h = none %}
+    {% endif %}
+    <td class="ctv-cell ctv-col-assignee  {{ bg }}" style="font-size:11px">{{ sd.assignee_name }}</td>
+    <td class="ctv-cell ctv-col-entered   {{ bg }}" style="font-size:10px;color:var(--text-faint)">
       {{ sd.entered_at.strftime('%d %b, %H:%M') if sd.entered_at else '—' }}
+      {% if sd.planned_start %}<div style="font-size:9px;color:#64748b">plan {{ sd.planned_start.strftime('%d %b') }}</div>{% endif %}
     </td>
-    <td class="ctv-cell ctv-col-exited   {{ bg }}" style="font-size:10px;color:{% if sd.is_active %}#60a5fa{% else %}#6ee7b7{% endif %}">
-      {% if sd.is_active %}<span style="font-weight:600">● Active</span>{% elif sd.exited_at %}{{ sd.exited_at.strftime('%d %b, %H:%M') }}{% else %}—{% endif %}
+    <td class="ctv-cell ctv-col-exited    {{ bg }}" style="font-size:10px;color:{% if sd.is_active %}#60a5fa{% else %}#6ee7b7{% endif %}">
+      {% if sd.is_active %}<span style="font-weight:600">● Active</span>
+      {% elif sd.exited_at %}{{ sd.exited_at.strftime('%d %b, %H:%M') }}{% else %}—{% endif %}
+      {% if sd.planned_end %}<div style="font-size:9px;color:#64748b">plan {{ sd.planned_end.strftime('%d %b') }}</div>{% endif %}
     </td>
-    <td class="ctv-cell ctv-col-duration {{ bg }}" style="font-size:10px">
+    <td class="ctv-cell ctv-col-duration  {{ bg }}" style="font-size:10px">
       {% if sd.duration_h is not none %}{{ sd.duration_h }}h{% elif sd.is_active %}<span style="color:#60a5fa">ongoing</span>{% else %}—{% endif %}
     </td>
+    {# Inherited delay cell #}
+    <td class="ctv-cell ctv-col-inh-delay {{ bg }}" style="font-size:10px;text-align:center">
+      {% if inh_h is not none %}
+        {% if inh_h <= 0 %}<span style="color:#6ee7b7">✓ on time</span>
+        {% elif inh_h < 8 %}<span style="color:#fbbf24">+{{ inh_h }}h</span>
+        {% else %}<span style="color:#f87171;font-weight:600">+{{ inh_h }}h</span>{% endif %}
+      {% else %}<span style="color:#374151">—</span>{% endif %}
+    </td>
+    {# Own delay cell #}
+    <td class="ctv-cell ctv-col-own-delay {{ bg }}" style="font-size:10px;text-align:center">
+      {% if own_h is not none %}
+        {% if own_h <= 0 %}<span style="color:#6ee7b7">✓ within TaT</span>
+        {% elif own_h < 8 %}<span style="color:#fbbf24">+{{ own_h }}h</span>
+        {% else %}<span style="color:#f87171;font-weight:600">+{{ own_h }}h</span>{% endif %}
+      {% elif sd.is_active and s.target_tat_hours %}
+        <span style="color:#60a5fa">ongoing</span>
+      {% else %}<span style="color:#374151">—</span>{% endif %}
+    </td>
+    {# Total slip cell #}
+    <td class="ctv-cell ctv-col-slip      {{ bg }}" style="font-size:10px;text-align:center">
+      {% if slip_h is not none %}
+        {% if slip_h <= 0 %}<span style="color:#6ee7b7">✓ ahead</span>
+        {% elif slip_h < 8 %}<span style="color:#fbbf24">+{{ slip_h }}h</span>
+        {% else %}<span style="color:#f87171;font-weight:600">+{{ slip_h }}h</span>{% endif %}
+      {% elif sd.is_active and sd.planned_end %}
+        <span style="color:#60a5fa">in progress</span>
+      {% else %}<span style="color:#374151">—</span>{% endif %}
+    </td>
     {% for fdef in cf_defs %}
-    <td class="ctv-cell ctv-col-cfdata   {{ bg }}" style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis">
+    <td class="ctv-cell ctv-col-cfdata    {{ bg }}" style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis">
       {{ sd.cf.get(fdef.label, '—') }}
     </td>
     {% endfor %}
     {% else %}
-    <td class="ctv-cell ctv-col-assignee ctv-empty" colspan="{{ 4 + (cf_defs | length) }}" style="color:#1f2937;font-size:10px;text-align:center">—</td>
+    <td class="ctv-cell ctv-col-assignee ctv-empty" colspan="{{ 7 + (cf_defs | length) }}" style="color:#1f2937;font-size:10px;text-align:center">—</td>
     {% endif %}
     {% endfor %}
   </tr>

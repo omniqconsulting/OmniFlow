@@ -90,6 +90,26 @@
             </select>
           </div>
 
+          <!-- Stage Timeline -->
+          <div id="stageTimelineSection" style="display:none">
+            <hr class="my-3">
+            <div class="mb-2 d-flex align-items-center gap-3 flex-wrap">
+              <span class="fw-semibold">Stage Timeline</span>
+              <span class="text-muted" style="font-size:12px">Set the planned schedule — delays will be tracked against this</span>
+            </div>
+            <div class="row g-2 mb-3">
+              <div class="col-md-5">
+                <label class="form-label" style="font-size:12px;font-weight:600">Work starts on</label>
+                <input type="datetime-local" id="scheduleStartDate" name="schedule_start_date"
+                       class="form-control form-control-sm" oninput="autoFillTimeline()">
+              </div>
+              <div class="col-md-7 d-flex align-items-end">
+                <span class="text-muted" style="font-size:11px">Each stage's end date is auto-calculated from its TaT target. You can override individual stages below.</span>
+              </div>
+            </div>
+            <div id="stageTimelineRows" class="d-flex flex-column gap-2"></div>
+          </div>
+
           <!-- Stage Pre-Assignments -->
           <div id="stageAssignmentsSection" style="display:none">
             <hr class="my-3">
@@ -136,6 +156,7 @@ function loadStages() {
   cards.innerHTML = '';
   if (!fid) {
     row.style.display = 'none';
+    document.getElementById('stageTimelineSection').style.display = 'none';
     document.getElementById('stageAssignmentsSection').style.display = 'none';
     return;
   }
@@ -152,7 +173,12 @@ function loadStages() {
   });
   if (stages.length) cards.children[0].click();
 
-  // Render stage assignment rows (skip first — covered by main Assignee field)
+  // Stage Timeline section
+  const timelineSection = document.getElementById('stageTimelineSection');
+  timelineSection.style.display = stages.length ? '' : 'none';
+  renderTimelineRows(stages);
+
+  // Stage Assignment rows (skip first — covered by main Assignee field)
   const assignSection = document.getElementById('stageAssignmentsSection');
   const assignRows = document.getElementById('stageAssignmentRows');
   assignRows.innerHTML = '';
@@ -160,20 +186,14 @@ function loadStages() {
     assignSection.style.display = '';
     stages.forEach((s, i) => {
       const dot = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.color};margin-right:6px;flex-shrink:0"></span>`;
-      const badge = i === 0
-        ? `<span class="badge bg-secondary ms-1" style="font-size:10px">← from Assignee field above</span>`
-        : '';
       const select = i === 0
-        ? `<select class="form-select form-select-sm" disabled style="opacity:.5;flex:1">
-             <option>Set via Assignee field above</option>
-           </select>`
-        : `<select name="stage_assignee_${s.id}" class="form-select form-select-sm" style="flex:1">
-             ${employeeOptions}
-           </select>`;
+        ? `<select class="form-select form-select-sm" disabled style="opacity:.5;flex:1"><option>Set via Assignee field above</option></select>`
+        : `<select name="stage_assignee_${s.id}" class="form-select form-select-sm" style="flex:1">${employeeOptions}</select>`;
       assignRows.innerHTML += `
         <div style="display:flex;align-items:center;gap:10px">
-          <div style="min-width:180px;display:flex;align-items:center;font-size:13px">
-            ${dot}<strong>${s.order+1}. ${s.name}</strong>${badge}
+          <div style="min-width:200px;display:flex;align-items:center;font-size:13px">
+            ${dot}<strong>${s.order+1}. ${s.name}</strong>
+            ${i===0?'<span class="badge bg-secondary ms-1" style="font-size:10px">↑ from above</span>':''}
           </div>
           ${select}
         </div>`;
@@ -181,6 +201,72 @@ function loadStages() {
   } else {
     assignSection.style.display = 'none';
   }
+}
+
+// Render editable planned-end date inputs for each stage
+function renderTimelineRows(stages) {
+  const container = document.getElementById('stageTimelineRows');
+  container.innerHTML = '';
+  stages.forEach((s, i) => {
+    const dot = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.color};margin-right:6px;flex-shrink:0"></span>`;
+    const tatLabel = s.target_tat_hours ? `${s.target_tat_hours}h TaT` : 'no TaT set';
+    container.innerHTML += `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="min-width:200px;display:flex;align-items:center;font-size:13px">
+          ${dot}<strong>${s.order+1}. ${s.name}</strong>
+          <span class="text-muted ms-2" style="font-size:11px">(${tatLabel})</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+          <span class="text-muted">Expected end:</span>
+          <input type="datetime-local" name="stage_planned_end_${s.id}"
+                 id="tl_${s.id}" class="form-control form-control-sm" style="width:200px"
+                 oninput="cascadeTimeline('${s.id}')">
+        </div>
+      </div>`;
+  });
+}
+
+// Auto-fill all planned-end fields from the start date + cumulative TAT
+function autoFillTimeline() {
+  const fid = document.getElementById('flowSelect').value;
+  const startVal = document.getElementById('scheduleStartDate').value;
+  if (!fid || !startVal) return;
+  const stages = (allFlowStages[fid]||[]).filter(s=>!s.is_deleted).sort((a,b)=>a.order-b.order);
+  let cursor = new Date(startVal);
+  stages.forEach(s => {
+    const tat = s.target_tat_hours || 24;
+    cursor = new Date(cursor.getTime() + tat * 3600000);
+    const inp = document.getElementById(`tl_${s.id}`);
+    if (inp && !inp.dataset.manuallySet) {
+      inp.value = toDatetimeLocal(cursor);
+    }
+  });
+}
+
+// Cascade: when user edits one stage's end, push the remaining forward
+function cascadeTimeline(changedStageId) {
+  const fid = document.getElementById('flowSelect').value;
+  if (!fid) return;
+  const stages = (allFlowStages[fid]||[]).filter(s=>!s.is_deleted).sort((a,b)=>a.order-b.order);
+  const changedIdx = stages.findIndex(s => s.id === changedStageId);
+  if (changedIdx < 0) return;
+  const changedInp = document.getElementById(`tl_${changedStageId}`);
+  changedInp.dataset.manuallySet = '1';
+  let cursor = new Date(changedInp.value);
+  if (isNaN(cursor)) return;
+  for (let i = changedIdx + 1; i < stages.length; i++) {
+    const s = stages[i];
+    const inp = document.getElementById(`tl_${s.id}`);
+    if (!inp || inp.dataset.manuallySet) continue; // don't overwrite manual entries
+    const tat = s.target_tat_hours || 24;
+    cursor = new Date(cursor.getTime() + tat * 3600000);
+    inp.value = toDatetimeLocal(cursor);
+  }
+}
+
+function toDatetimeLocal(d) {
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function selectStage(id, btn, color) {

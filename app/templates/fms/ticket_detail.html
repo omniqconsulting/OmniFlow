@@ -328,6 +328,62 @@ select option{background:var(--bg-card)}
               </div>
             </div>
 
+            <!-- Schedule / delay breakdown (only when planned dates exist) -->
+            {% if v.history.planned_start or v.history.planned_end %}
+            {% set ps = v.history.planned_start %}
+            {% set pe = v.history.planned_end %}
+            {% set ea = v.history.entered_at %}
+            {% set xa = v.history.exited_at %}
+            {# inherited delay = entered_at − planned_start (mins) #}
+            {% if ps and ea %}
+              {% set inh_min = ((ea - ps).total_seconds() / 60) | round | int %}
+            {% else %}
+              {% set inh_min = none %}
+            {% endif %}
+            {# own delay = actual_duration − target_tat (mins) #}
+            {% if ea and xa and p.stage and p.stage.target_tat_hours %}
+              {% set actual_min = ((xa - ea).total_seconds() / 60) | round | int %}
+              {% set target_min = (p.stage.target_tat_hours * 60) | int %}
+              {% set own_min = actual_min - target_min %}
+            {% else %}
+              {% set own_min = none %}
+            {% endif %}
+            {# total slip = exited_at − planned_end (mins) #}
+            {% if pe and xa %}
+              {% set slip_min = ((xa - pe).total_seconds() / 60) | round | int %}
+            {% else %}
+              {% set slip_min = none %}
+            {% endif %}
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;padding:6px 8px;background:rgba(0,0,0,0.15);border-radius:5px;font-size:10px">
+              {% if ps %}
+              <span style="color:var(--text-faint)">📅 Planned: {{ ps.strftime('%d %b %H:%M') }}
+                {% if pe %} → {{ pe.strftime('%d %b %H:%M') }}{% endif %}
+              </span>
+              {% endif %}
+              {% if inh_min is not none %}
+              {% set inh_clr = '#6ee7b7' if inh_min <= 0 else ('#fbbf24' if inh_min < 480 else '#f87171') %}
+              <span style="color:{{ inh_clr }}" title="How late this stage started vs plan">
+                ⬆ Inherited: {% if inh_min <= 0 %}on time{% else %}+{{ (inh_min/60)|round(1) }}h late start{% endif %}
+              </span>
+              {% endif %}
+              {% if own_min is not none %}
+              {% set own_clr = '#6ee7b7' if own_min <= 0 else ('#fbbf24' if own_min < 480 else '#f87171') %}
+              <span style="color:{{ own_clr }}" title="Extra time this stage itself took beyond its TaT target">
+                🔧 Own: {% if own_min <= 0 %}within TaT{% else %}+{{ (own_min/60)|round(1) }}h over TaT{% endif %}
+              </span>
+              {% endif %}
+              {% if slip_min is not none and xa %}
+              {% set slip_clr = '#6ee7b7' if slip_min <= 0 else ('#fbbf24' if slip_min < 480 else '#f87171') %}
+              <span style="color:{{ slip_clr }}" title="Total slip vs original plan">
+                📉 Total slip: {% if slip_min <= 0 %}✓ on/ahead of plan{% else %}+{{ (slip_min/60)|round(1) }}h{% endif %}
+              </span>
+              {% endif %}
+              {% if v.is_open and ps %}
+              <span style="color:#a5b4fc">⏳ Active — planned end {{ pe.strftime('%d %b %H:%M') if pe else '—' }}</span>
+              {% endif %}
+            </div>
+            {% endif %}
+
             <!-- Assignee for this visit -->
             {% if v.history.assignee_id %}
             {% set va = employees | selectattr('id','equalto',v.history.assignee_id) | first | default(none) %}
