@@ -1,11 +1,13 @@
 {% extends "superadmin/base.html" %}
 {% block content %}
 {% set msg = request.query_params.get('msg','') %}
-{% if msg == 'created'    %}<div class="alert alert-green">✓ Flow template created.</div>{% endif %}
-{% if msg == 'saved'      %}<div class="alert alert-green">✓ Changes saved.</div>{% endif %}
-{% if msg == 'deployed'   %}<div class="alert alert-green">✓ Flow deployed to tenant.</div>{% endif %}
-{% if msg == 'bulk_pushed'%}<div class="alert alert-green">✓ Bulk push complete — all deployments updated.</div>{% endif %}
-{% if msg == 'duplicated' %}<div class="alert alert-blue">Flow duplicated as draft.</div>{% endif %}
+{% if msg == 'created'       %}<div class="alert alert-green">✓ Flow template created.</div>{% endif %}
+{% if msg == 'saved'         %}<div class="alert alert-green">✓ Changes saved.</div>{% endif %}
+{% if msg == 'deployed'      %}<div class="alert alert-green">✓ Flow deployed to tenant.</div>{% endif %}
+{% if msg == 'bulk_pushed'   %}<div class="alert alert-green">✓ Bulk push complete — all deployments updated.</div>{% endif %}
+{% if msg == 'duplicated'    %}<div class="alert alert-blue">Flow duplicated as draft.</div>{% endif %}
+{% if msg == 'flow_deleted'  %}<div class="alert alert-green">✓ Flow template removed from library.</div>{% endif %}
+{% if msg == 'delete_blocked'%}<div class="alert alert-red">⚠ Cannot delete — one or more tenants have active tickets on this flow. Close all tickets first, or deactivate the flow from the tenant page.</div>{% endif %}
 
 {% include "superadmin/library_nav.html" %}
 
@@ -49,6 +51,12 @@
           <form method="post" action="/superadmin/library/flows/{{ f.id }}/duplicate" style="display:inline">
             <button class="btn btn-sm btn-outline">Duplicate</button>
           </form>
+          {% if not f.is_system %}
+          <form method="post" action="/superadmin/library/flows/{{ f.id }}/delete" style="display:inline"
+                onsubmit="return confirm('Remove \'{{ f.name }}\' from the library? All tenant deployments with no active tickets will also be deactivated.')">
+            <button class="btn btn-sm btn-red">Delete</button>
+          </form>
+          {% endif %}
         </div>
       </td>
     </tr>

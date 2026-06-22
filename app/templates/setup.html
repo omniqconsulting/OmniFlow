@@ -298,8 +298,9 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
 <div class="card" id="notifications" style="margin-bottom:16px">
   <h2 style="margin-bottom:4px">Checklist Notification Schedule</h2>
   <p style="font-size:12px;color:var(--text-faint);margin-bottom:16px;line-height:1.6">
-    Employees receive a consolidated list of their pending checklists at each configured time.
-    Times are in <strong>IST</strong>. Default: 08:00, 13:00, 18:00 IST.
+    <strong>Reminder hours</strong> — employees receive a consolidated list of pending checklists at each hour.
+    <strong>End of day hour</strong> — sends the overdue checklist summary and alerts Admins and Managers about any tickets that remain unacknowledged for more than 2 hours.
+    All times in <strong>IST</strong>.
   </p>
 
   {% if request.query_params.get('saved') %}
@@ -325,6 +326,22 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
         {% endfor %}
       </div>
     </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:6px">
+        Overdue reminder hour (IST, single hour, 0–23)
+      </label>
+      <input type="text" name="overdue_hour" value="{{ checklist_overdue_hour or '' }}"
+             placeholder="e.g. 19 (leave blank to disable)"
+             pattern="^(\d{1,2})?$"
+             style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:9px 12px;font-size:13px;color:var(--text-primary);outline:none;width:100%;box-sizing:border-box;font-family:monospace">
+      <div style="font-size:11px;color:var(--text-faint);margin-top:5px">
+        {% if checklist_overdue_hour %}
+        Overdue WhatsApp sends at <strong>{{ '%02d:00'|format(checklist_overdue_hour|int) }} IST</strong> listing today's incomplete checklists.
+        {% else %}
+        Overdue WhatsApp is disabled. Set an hour to enable it.
+        {% endif %}
+      </div>
+    </div>
     <button type="submit" class="btn btn-primary btn-sm">Save Schedule</button>
   </form>
 
@@ -339,6 +356,13 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
         <span style="color:var(--text-faint)">— each employee receives their full pending checklist for the day</span>
       </div>
       {% endfor %}
+      {% if checklist_overdue_hour %}
+      <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+        <span style="width:7px;height:7px;border-radius:50%;background:#f87171;flex-shrink:0"></span>
+        <span style="color:var(--text-muted)">{{ '%02d:00'|format(checklist_overdue_hour|int) }} IST</span>
+        <span style="color:var(--text-faint)">— overdue WhatsApp sent listing all incomplete checklists for the day</span>
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>

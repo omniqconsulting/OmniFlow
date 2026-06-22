@@ -159,7 +159,8 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     {% endif %}
     <div class="view-toggle">
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=stage_table" class="{{ 'active' if view == 'stage_table' else '' }}">Stages</a>
-      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=list"     class="{{ 'active' if view == 'list' else '' }}">List</a>
+      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=list"        class="{{ 'active' if view == 'list' else '' }}">List</a>
+      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=consolidated" class="{{ 'active' if view == 'consolidated' else '' }}">Table</a>
     </div>
   </div>
 </div>
@@ -519,7 +520,12 @@ select option{background:var(--bg-card);color:var(--text-primary)}
             <div style="font-size:12px;color:var(--text-primary)">{{ row.stage_name }}</div>
             {% if row.stage_entered_at %}<div style="font-size:10px;color:var(--text-faint)">since {{ row.stage_entered_at.strftime('%d %b') }}</div>{% endif %}
           </td>
-          <td style="font-size:12px">{{ row.assignee_name }}</td>
+          <td style="font-size:12px">
+            {{ row.assignee_name }}
+            {% if user.role == 'EMPLOYEE' and t.current_assignee_id != user.id %}
+            <span title="Your task on this ticket is done" style="font-size:10px;background:rgba(16,185,129,0.15);color:#6ee7b7;border-radius:4px;padding:1px 5px;margin-left:4px;white-space:nowrap">✓ task done</span>
+            {% endif %}
+          </td>
           <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
           <td><span class="st-badge st-{{ t.status }}">{{ t.status.replace('_',' ') }}</span>{% if t.is_flagged %} 🚩{% endif %}</td>
           <td>
@@ -591,6 +597,143 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 {% endif %}
 {% endif %}
 
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     CONSOLIDATED TABLE VIEW
+══════════════════════════════════════════════════════════════════════════ -->
+{% if view == 'consolidated' %}
+{% if active_flow and stage_table_stages %}
+
+<style>
+.ctv-wrap{overflow-x:auto;border:1px solid var(--border-subtle);border-radius:10px;background:var(--bg-card)}
+.ctv-table{border-collapse:collapse;white-space:nowrap;font-size:11px;min-width:100%}
+.ctv-table th,.ctv-table td{padding:8px 12px;border-bottom:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle);vertical-align:top}
+.ctv-table th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:2}
+.ctv-table td:last-child,.ctv-table th:last-child{border-right:none}
+.ctv-table tr:last-child td{border-bottom:none}
+.ctv-table tr:hover td{background:var(--row-hover);cursor:pointer}
+/* Sticky left columns */
+.ctv-table .ctv-sticky{position:sticky;z-index:3;background:var(--bg-card)}
+.ctv-table thead .ctv-sticky{background:var(--bg-input);z-index:4}
+.ctv-table tr:hover .ctv-sticky{background:var(--row-hover)}
+.ctv-s0{left:0;   min-width:72px; max-width:72px}
+.ctv-s1{left:72px; min-width:180px;max-width:180px}
+.ctv-s2{left:252px;min-width:90px; max-width:90px}
+.ctv-s3{left:342px;min-width:90px; max-width:90px;border-right:2px solid var(--border-med) !important}
+.ctv-stage-hdr{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:4px 12px;text-align:center;border-bottom:2px solid rgba(0,0,0,0.15)}
+.ctv-sub-hdr{font-size:8px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:rgba(255,255,255,0.55);text-align:center;padding:4px 10px}
+.ctv-cell{text-align:center;color:var(--text-muted)}
+.ctv-done{background:rgba(16,185,129,0.06)}
+.ctv-active{background:rgba(59,130,246,0.06)}
+.ctv-empty{color:#374151;font-size:10px}
+/* toggle cols */
+.ctv-col-toggle{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.ctv-col-toggle label{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);cursor:pointer;padding:3px 8px;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-input)}
+.ctv-col-toggle label:hover{border-color:var(--border-med)}
+.ctv-col-toggle input{accent-color:#60a5fa;cursor:pointer}
+</style>
+
+<!-- Column visibility toggles -->
+<div class="ctv-col-toggle" style="margin-bottom:12px">
+  <span style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-right:4px">Show:</span>
+  <label><input type="checkbox" class="ctv-toggle" data-col="assignee" checked> Assignee</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="entered"  checked> Entry Time</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="exited"   checked> Completed</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="duration" checked> Duration</label>
+  <label><input type="checkbox" class="ctv-toggle" data-col="cfdata"   checked> Stage Data</label>
+</div>
+
+<div class="ctv-wrap">
+<table class="ctv-table" id="ctvTable">
+<thead>
+  <!-- Row 1: static cols + stage name spans -->
+  <tr>
+    <th rowspan="2" class="ctv-sticky ctv-s0" style="text-align:left">ID</th>
+    <th rowspan="2" class="ctv-sticky ctv-s1" style="text-align:left">Title</th>
+    <th rowspan="2" class="ctv-sticky ctv-s2" style="text-align:center">Priority</th>
+    <th rowspan="2" class="ctv-sticky ctv-s3" style="text-align:center">Status</th>
+    {% for s in stage_table_stages %}
+    {% set hex = s.color or '#3b82f6' %}
+    {% set cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
+    <th colspan="{{ 4 + (cf_defs | length) }}"
+        style="background:{{ hex }};color:#fff;text-align:center;border-radius:0">
+      {{ s.name }}
+    </th>
+    {% endfor %}
+  </tr>
+  <!-- Row 2: sub-column headers per stage -->
+  <tr>
+    {% for s in stage_table_stages %}
+    {% set hex = s.color or '#3b82f6' %}
+    {% set cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
+    <th class="ctv-sub ctv-col-assignee" style="background:{{ hex }}20;color:{{ hex }}">Who</th>
+    <th class="ctv-sub ctv-col-entered"  style="background:{{ hex }}20;color:{{ hex }}">Entry</th>
+    <th class="ctv-sub ctv-col-exited"   style="background:{{ hex }}20;color:{{ hex }}">Done</th>
+    <th class="ctv-sub ctv-col-duration" style="background:{{ hex }}20;color:{{ hex }}">Hours</th>
+    {% for fdef in cf_defs %}
+    <th class="ctv-sub ctv-col-cfdata"   style="background:{{ hex }}20;color:{{ hex }};max-width:120px">{{ fdef.label }}</th>
+    {% endfor %}
+    {% endfor %}
+  </tr>
+</thead>
+<tbody>
+{% if consolidated_rows %}
+  {% for row in consolidated_rows %}
+  {% set t = row.ticket %}
+  <tr onclick="location.href='/fms/tickets/{{ t.id }}'">
+    <td class="ctv-sticky ctv-s0"><span style="font-family:monospace;color:#60a5fa;font-size:10px">{{ t.display_id or t.id[:8] }}</span></td>
+    <td class="ctv-sticky ctv-s1" style="font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis">{{ t.title[:40] }}{% if t.title|length > 40 %}…{% endif %}</td>
+    <td class="ctv-sticky ctv-s2 ctv-cell"><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
+    <td class="ctv-sticky ctv-s3 ctv-cell"><span class="st-badge st-{{ t.status }}">{{ t.status.replace('_',' ') }}</span>{% if t.is_flagged %} 🚩{% endif %}</td>
+    {% for s in stage_table_stages %}
+    {% set cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
+    {% set sd = row.stage_data.get(s.id) %}
+    {% if sd %}
+    {% set bg = 'ctv-active' if sd.is_active else 'ctv-done' %}
+    <td class="ctv-cell ctv-col-assignee {{ bg }}" style="font-size:11px">{{ sd.assignee_name }}</td>
+    <td class="ctv-cell ctv-col-entered  {{ bg }}" style="font-size:10px;color:var(--text-faint)">
+      {{ sd.entered_at.strftime('%d %b, %H:%M') if sd.entered_at else '—' }}
+    </td>
+    <td class="ctv-cell ctv-col-exited   {{ bg }}" style="font-size:10px;color:{% if sd.is_active %}#60a5fa{% else %}#6ee7b7{% endif %}">
+      {% if sd.is_active %}<span style="font-weight:600">● Active</span>{% elif sd.exited_at %}{{ sd.exited_at.strftime('%d %b, %H:%M') }}{% else %}—{% endif %}
+    </td>
+    <td class="ctv-cell ctv-col-duration {{ bg }}" style="font-size:10px">
+      {% if sd.duration_h is not none %}{{ sd.duration_h }}h{% elif sd.is_active %}<span style="color:#60a5fa">ongoing</span>{% else %}—{% endif %}
+    </td>
+    {% for fdef in cf_defs %}
+    <td class="ctv-cell ctv-col-cfdata   {{ bg }}" style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis">
+      {{ sd.cf.get(fdef.label, '—') }}
+    </td>
+    {% endfor %}
+    {% else %}
+    <td class="ctv-cell ctv-col-assignee ctv-empty" colspan="{{ 4 + (cf_defs | length) }}" style="color:#1f2937;font-size:10px;text-align:center">—</td>
+    {% endif %}
+    {% endfor %}
+  </tr>
+  {% endfor %}
+{% else %}
+<tr><td colspan="100" style="text-align:center;padding:40px;color:#374151;font-size:13px">No tickets found for this flow.</td></tr>
+{% endif %}
+</tbody>
+</table>
+</div>
+
+<script>
+document.querySelectorAll('.ctv-toggle').forEach(cb => {
+  cb.addEventListener('change', () => {
+    const col = cb.dataset.col;
+    const show = cb.checked;
+    document.querySelectorAll('.ctv-col-' + col).forEach(el => {
+      el.style.display = show ? '' : 'none';
+    });
+  });
+});
+</script>
+
+{% else %}
+<div style="text-align:center;padding:50px 0;color:#374151;font-size:13px">Select a flow to see the consolidated table.</div>
+{% endif %}
+{% endif %}
 
 <!-- ── Escalations panel ──────────────────────────────────────────────────── -->
 {% if flagged_tickets and user.role in ('ADMIN','MANAGER') %}

@@ -3,6 +3,9 @@ In-app notification helpers — Phase 0-D
 Phase 1 addition: each helper also fires a WebSocket broadcast so connected
 clients get the event in real-time without polling.
 """
+import json, logging
+logger = logging.getLogger("notifications")
+
 from .database import Notification
 from .ws_manager import (
     broadcast_sync,
@@ -37,6 +40,43 @@ def create_notification(db, tenant_id: str, user_id: str,
     })
 
 
+def send_whatsapp_for_ticket_assigned(db, ticket, assignee):
+    """
+    WhatsApp send for ticket_assigned — Pipeline 1.
+    Never allowed to raise back into the caller.
+    Always logs an attempt row regardless of outcome.
+    """
+    from .database import WhatsAppMessageLog
+    from .services.msg91 import send_whatsapp_template, format_wa_date
+
+    due_str = format_wa_date(ticket.due_at) if ticket.due_at else "N/A"
+    variables = [assignee.name, ticket.title, ticket.priority, due_str]
+
+    try:
+        if not assignee.mobile_verified:
+            status, error = "SKIPPED_UNVERIFIED", None
+        else:
+            success, error = send_whatsapp_template(
+                assignee.phone, "omniflow_ticket_assigned", variables)
+            status = "SENT" if success else "FAILED"
+
+        db.add(WhatsAppMessageLog(
+            tenant_id=ticket.tenant_id,
+            template_name="omniflow_ticket_assigned",
+            recipient_user_id=assignee.id,
+            recipient_phone=assignee.phone,
+            variables_json=json.dumps(variables),
+            status=status,
+            error_message=error,
+            related_entity_type="ticket",
+            related_entity_id=ticket.id,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("WhatsApp send_for_ticket_assigned failed")
+
+
 def notify_ticket_assigned(db, ticket, assignee):
     """Phase 0-D-2  |  1-6: TICKET_ASSIGNED — audience: assignee"""
     due_str = ticket.due_at.strftime("%d %b") if ticket.due_at else "N/A"
@@ -54,6 +94,7 @@ def notify_ticket_assigned(db, ticket, assignee):
         "priority":    ticket.priority,
         "link":        f"/tickets/{ticket.id}",
     })
+    send_whatsapp_for_ticket_assigned(db, ticket, assignee)
 
 
 def notify_ticket_reminder(db, ticket, assignee):
@@ -128,10 +169,12 @@ def notify_ticket_commented(db, ticket, commenter_id: str, helper_ids: list):
     })
 
 
-def notify_ticket_flagged(db, ticket, actor_id: str, admin_ids: list):
+def notify_ticket_flagged(db, ticket, actor_id: str, admin_ids: list,
+                          manager_ids: list = None, actor_name: str = ""):
     """
     1-6: TICKET_FLAGGED
-    Audience: admin + assignee.
+    Audience (in-app/WS): admin + assignee — unchanged.
+    Audience (WhatsApp): admin + direct manager only — not assignee.
     """
     audience = list(set(admin_ids + [ticket.current_assignee_id or ""]))
     audience = [uid for uid in audience if uid]
@@ -141,6 +184,41 @@ def notify_ticket_flagged(db, ticket, actor_id: str, admin_ids: list):
         "flagged_reason": ticket.flagged_reason or "",
         "link":          f"/tickets/{ticket.id}",
     })
+    _send_wa_ticket_escalated(db, ticket, admin_ids, manager_ids or [], actor_name)
+
+
+def _send_wa_ticket_escalated(db, ticket, admin_ids: list, manager_ids: list, actor_name: str):
+    """Pipeline 3B — omniflow_ticket_escalated. Never raises."""
+    from .database import WhatsAppMessageLog, User
+    from .services.msg91 import send_whatsapp_template
+    import json
+    try:
+        wa_recipient_ids = list(set(admin_ids + manager_ids))
+        for uid in wa_recipient_ids:
+            recipient = db.query(User).filter(User.id == uid).first()
+            if not recipient or not recipient.phone:
+                continue
+            variables = [recipient.name, ticket.title, actor_name or "a team member"]
+            status, error = "SKIPPED_UNVERIFIED", None
+            if recipient.mobile_verified:
+                ok, error = send_whatsapp_template(
+                    recipient.phone, "omniflow_ticket_escalated", variables)
+                status = "SENT" if ok else "FAILED"
+            db.add(WhatsAppMessageLog(
+                tenant_id=ticket.tenant_id,
+                template_name="omniflow_ticket_escalated",
+                recipient_user_id=uid,
+                recipient_phone=recipient.phone,
+                variables_json=json.dumps(variables),
+                status=status,
+                error_message=error,
+                related_entity_type="ticket",
+                related_entity_id=ticket.id,
+            ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("_send_wa_ticket_escalated failed for ticket=%s", ticket.id)
 
 
 def notify_ticket_help_requested(db, ticket, actor_id: str,

@@ -21,6 +21,11 @@
 {% if request.query_params.get('reminded') %}
 <div class="alert alert-green" style="margin:10px 0">✓ Reminder sent to {{ ticket.current_assignee.name if ticket.current_assignee else 'assignee' }}.</div>
 {% endif %}
+{% if request.query_params.get('escalation_error') %}
+<div class="alert alert-amber" style="margin:10px 0">
+  ⚠ You have already escalated this ticket in the last 24 hours. Please allow time for your manager to review before escalating again.
+</div>
+{% endif %}
 
 <div style="display:flex;align-items:flex-start;justify-content:space-between;margin:16px 0 6px;flex-wrap:wrap;gap:8px">
   <div>
@@ -258,6 +263,11 @@
           <button onclick="show('reassign-form')" class="btn btn-sm btn-purple">↩ Reassign</button>
           <button onclick="show('help-form')" class="btn btn-sm btn-orange">⚑ Help Request</button>
           {% endif %}
+          {% if ticket.current_assignee_id == user.id and not ticket.is_flagged and ticket.status not in ('DONE','CLOSED') %}
+          <button onclick="show('escalate-form')" class="btn btn-sm btn-red">⬆ Escalate</button>
+          {% endif %}
+        {% elif user.role in ('ADMIN','MANAGER') and ticket.status not in ('DONE','CLOSED') %}
+          <button onclick="show('reassign-form')" class="btn btn-sm btn-purple">↩ Reassign</button>
         {% endif %}
 
         {% if ticket.status == 'DONE' and (user.id == ticket.created_by_id or user.role in ('ADMIN','MANAGER')) %}
@@ -322,6 +332,22 @@
         </form>
       </div>
 
+      <!-- Escalate form (employee) -->
+      <div id="escalate-form" class="form-panel" style="display:none">
+        <p style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">Escalate {{ L.Ticket }}</p>
+        <form method="post" action="/tickets/{{ ticket.id }}/action">
+          <input type="hidden" name="action" value="flag">
+          <div class="form-group" style="margin-bottom:10px">
+            <label>Why are you escalating?</label>
+            <textarea name="flag_reason" required placeholder="Describe the issue that needs manager attention…"></textarea>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="submit" class="btn btn-sm btn-red">Confirm Escalate</button>
+            <button type="button" onclick="hide('escalate-form')" class="btn btn-sm btn-outline">Cancel</button>
+          </div>
+        </form>
+      </div>
+
       <!-- Flag form -->
       <div id="flag-form" class="form-panel" style="display:none">
         <p style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">Flag {{ L.Ticket }}</p>
@@ -344,25 +370,41 @@
     <div class="card" style="margin:0">
       <h2 style="margin-bottom:14px">{{ L.Ticket }} Journey</h2>
       {% set journey_events = ticket.events | selectattr('event_type', 'ne', 'COMMENT') | list %}
-      {% set all_items = (journey_events | list) + (ticket.comments | list) %}
+      {% set all_items = (journey_events | list) + (ticket.comments | list) + (ticket.whatsapp_logs | list) %}
       {% set all_sorted = all_items | sort(attribute='created_at') %}
       {% if all_sorted %}
       <div style="position:relative;padding-left:20px">
         {% for item in all_sorted %}
         <div style="position:relative;padding-bottom:16px">
           <div class="timeline-dot"></div>
+          {% if item.__tablename__ == 'whatsapp_message_log' %}
+          <div class="timeline-meta">{{ item.created_at | ist }} · WhatsApp</div>
+          <div class="timeline-body">
+            {% if item.status == 'SENT' %}
+              WhatsApp sent to {{ item.recipient.name if item.recipient else item.recipient_phone }}
+            {% elif item.status == 'SKIPPED_UNVERIFIED' %}
+              WhatsApp skipped — number not validated
+            {% else %}
+              WhatsApp not sent — {{ item.error_message or 'unknown error' }}
+              <form method="post" action="/whatsapp-log/{{ item.id }}/resend" style="display:inline;margin-left:8px">
+                <button type="submit" class="btn btn-sm btn-outline">Resend</button>
+              </form>
+            {% endif %}
+          </div>
+          {% else %}
           <div class="timeline-meta">
             {% if item.__tablename__ == 'ticket_events' %}
               <strong>{{ item.actor.name if item.actor else '—' }}</strong> · {{ item.event_type.replace('_',' ') }}
             {% else %}
               <strong>{{ item.user.name if item.user else '—' }}</strong> · comment
             {% endif %}
-            · {{ item.created_at.strftime('%d %b, %I:%M %p') }}
+            · {{ item.created_at | ist }}
           </div>
           {% if item.__tablename__ == 'ticket_comments' %}
           <div class="timeline-body">{{ item.body }}</div>
           {% elif item.detail %}
           <div class="timeline-detail">{{ item.detail }}</div>
+          {% endif %}
           {% endif %}
         </div>
         {% endfor %}

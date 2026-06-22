@@ -252,44 +252,124 @@ document.addEventListener('DOMContentLoaded', () => {
 
 <script>
 var stages = {{ stages_json | safe if stages_json else '[]' }};
-const SUBMODULES = {{ submodules_json | safe if submodules_json else '[]' }};
-const SM_TYPE_LABELS = {
-  PMS: '📊 Production Log', DISPATCH: '🚛 Dispatch', INVOICE: '🧾 Invoice',
-  MATERIAL_REQ: '📦 Material Req', CUSTOM: '📋 Custom Form'
-};
+const FIELD_TYPES = [
+  {v:'text',      l:'Text'},
+  {v:'longtext',  l:'Long Text'},
+  {v:'number',    l:'Number'},
+  {v:'date',      l:'Date'},
+  {v:'dropdown',  l:'Dropdown'},
+  {v:'entity_link', l:'Link to Entity (Customer / Vendor / Employee…)'},
+];
+const ENTITY_TYPES = [
+  {v:'customer',     l:'Customer'},
+  {v:'vendor',       l:'Vendor'},
+  {v:'raw_material', l:'Raw Material'},
+  {v:'employee',     l:'Employee'},
+];
 
 function renderPipeline() {
   const pip = document.getElementById('pipelinePreview');
-  const empty = document.getElementById('emptyPipeline');
   if (stages.length === 0) {
-    pip.innerHTML = '<span id="emptyPipeline" style="font-size:11px;color:#374151">No stages yet — add stages below</span>';
+    pip.innerHTML = '<span style="font-size:11px;color:#374151">No stages yet — add stages below</span>';
     return;
   }
   pip.innerHTML = stages.map((s, i) => `
     <span class="pip-chip-sm" style="background:${s.color}22;border:1px solid ${s.color}44;color:#e2e8f0">
       ${escHtml(s.name || 'Stage')}${s.is_terminal ? ' ✓' : ''}
-      ${s.sub_module_tag ? `<span class="sm-badge">${SM_TYPE_LABELS[s.sub_module_tag] || s.sub_module_tag}</span>` : ''}
+      ${(s.custom_fields||[]).length ? `<span style="font-size:9px;background:rgba(99,102,241,0.2);color:#a5b4fc;border-radius:4px;padding:1px 5px;font-weight:700">📋 ${s.custom_fields.length} field${s.custom_fields.length>1?'s':''}</span>` : ''}
       ${s.evidence_required ? '<span style="font-size:9px;background:rgba(245,158,11,0.2);color:#fcd34d;border-radius:4px;padding:1px 5px;font-weight:700">📎 Evidence</span>' : ''}
     </span>
     ${i < stages.length - 1 ? '<span style="color:#374151;font-size:14px">›</span>' : ''}
   `).join('');
 }
 
-function onSubmoduleChange(i, sel) {
-  const val = sel.value;
-  if (!val) {
-    stages[i].submodule_id = null;
-    stages[i].sub_module_tag = null;
-  } else {
-    stages[i].submodule_id = val;
-    const sm = SUBMODULES.find(s => s.id === val);
-    stages[i].sub_module_tag = sm ? sm.type : null;
-  }
+// ── Custom fields helpers ────────────────────────────────────────────
+function genId() { return Math.random().toString(36).slice(2,10); }
+
+function addField(stageIdx) {
+  if (!stages[stageIdx].custom_fields) stages[stageIdx].custom_fields = [];
+  stages[stageIdx].custom_fields.push({id: genId(), label:'', type:'text', description:'', required:false, options:[], entity_type:'customer'});
   syncJson();
+  renderFieldsFor(stageIdx);
   renderPipeline();
-  renderStages();
 }
 
+function removeField(stageIdx, fieldIdx) {
+  stages[stageIdx].custom_fields.splice(fieldIdx, 1);
+  syncJson();
+  renderFieldsFor(stageIdx);
+  renderPipeline();
+}
+
+function updateField(stageIdx, fieldIdx, key, value) {
+  if (!stages[stageIdx].custom_fields) stages[stageIdx].custom_fields = [];
+  stages[stageIdx].custom_fields[fieldIdx][key] = value;
+  syncJson();
+  if (key === 'type') renderFieldsFor(stageIdx); // re-render to show/hide entity/options sub-fields
+}
+
+function renderFieldsFor(stageIdx) {
+  const container = document.getElementById('fields-' + stageIdx);
+  if (!container) return;
+  const fields = stages[stageIdx].custom_fields || [];
+  if (fields.length === 0) {
+    container.innerHTML = '<div style="font-size:11px;color:#4b5563;padding:6px 0">No custom fields yet.</div>';
+    return;
+  }
+  container.innerHTML = fields.map((f, fi) => {
+    const typeOpts = FIELD_TYPES.map(t => `<option value="${t.v}" ${f.type===t.v?'selected':''}>${t.l}</option>`).join('');
+    const entityOpts = ENTITY_TYPES.map(t => `<option value="${t.v}" ${f.entity_type===t.v?'selected':''}>${t.l}</option>`).join('');
+    const isEntity = f.type === 'entity_link';
+    const isDropdown = f.type === 'dropdown';
+    return `
+    <div style="background:#111827;border:1px solid #1f2937;border-radius:6px;padding:10px;margin-bottom:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:start">
+        <div>
+          <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:3px">Label *</label>
+          <input type="text" value="${escHtml(f.label)}" placeholder="e.g. Customer Name"
+                 style="width:100%;box-sizing:border-box;background:#1f2937;border:1px solid #374151;border-radius:5px;padding:5px 8px;color:#e2e8f0;font-size:12px"
+                 oninput="updateField(${stageIdx},${fi},'label',this.value)">
+        </div>
+        <div>
+          <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:3px">Type</label>
+          <select style="width:100%;box-sizing:border-box;background:#1f2937;border:1px solid #374151;border-radius:5px;padding:5px 8px;color:#e2e8f0;font-size:12px"
+                  onchange="updateField(${stageIdx},${fi},'type',this.value)">
+            ${typeOpts}
+          </select>
+        </div>
+        <button type="button" onclick="removeField(${stageIdx},${fi})"
+                style="margin-top:18px;background:#7f1d1d;border:none;border-radius:4px;color:#fca5a5;padding:4px 8px;cursor:pointer;font-size:12px">✕</button>
+      </div>
+      <div style="margin-top:6px">
+        <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:3px">Description / Hint</label>
+        <input type="text" value="${escHtml(f.description||'')}" placeholder="Help text shown to the user"
+               style="width:100%;box-sizing:border-box;background:#1f2937;border:1px solid #374151;border-radius:5px;padding:5px 8px;color:#e2e8f0;font-size:12px"
+               oninput="updateField(${stageIdx},${fi},'description',this.value)">
+      </div>
+      ${isEntity ? `
+      <div style="margin-top:6px">
+        <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:3px">Entity to link</label>
+        <select style="background:#1f2937;border:1px solid #374151;border-radius:5px;padding:5px 8px;color:#e2e8f0;font-size:12px"
+                onchange="updateField(${stageIdx},${fi},'entity_type',this.value)">
+          ${entityOpts}
+        </select>
+      </div>` : ''}
+      ${isDropdown ? `
+      <div style="margin-top:6px">
+        <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:3px">Options (comma-separated)</label>
+        <input type="text" value="${escHtml((f.options||[]).join(', '))}" placeholder="Option A, Option B, Option C"
+               style="width:100%;box-sizing:border-box;background:#1f2937;border:1px solid #374151;border-radius:5px;padding:5px 8px;color:#e2e8f0;font-size:12px"
+               oninput="updateField(${stageIdx},${fi},'options',this.value.split(',').map(x=>x.trim()).filter(Boolean))">
+      </div>` : ''}
+      <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:#94a3b8;cursor:pointer">
+        <input type="checkbox" ${f.required?'checked':''} onchange="updateField(${stageIdx},${fi},'required',this.checked)">
+        Required field
+      </label>
+    </div>`;
+  }).join('');
+}
+
+// ── Stage card renderer — NO renderStages() calls from text oninput (fixes focus bug) ──
 function renderStages() {
   const el = document.getElementById('stagesList');
   const openIds = new Set([...el.querySelectorAll('.stage-card-body.open')].map(b => b.dataset.idx));
@@ -301,32 +381,7 @@ function renderStages() {
   }
 
   stages.forEach(function(s, i) {
-    // Group sub-modules by type for optgroup display
-    const typeOrder = ['PMS','DISPATCH','INVOICE','MATERIAL_REQ','CUSTOM'];
-    const grouped = {};
-    SUBMODULES.forEach(sm => {
-      if (!grouped[sm.type]) grouped[sm.type] = [];
-      grouped[sm.type].push(sm);
-    });
-    const smGroupedOptions = typeOrder
-      .filter(t => grouped[t] && grouped[t].length)
-      .map(t => {
-        const opts = grouped[t].map(sm =>
-          `<option value="${sm.id}" data-type="${sm.type}" ${s.submodule_id === sm.id ? 'selected' : ''}>${sm.name}</option>`
-        ).join('');
-        return `<optgroup label="${SM_TYPE_LABELS[t] || t}">${opts}</optgroup>`;
-      }).join('');
-    // Also include CUSTOM-type ones without a type label
-    const otherTypes = Object.keys(grouped).filter(t => !typeOrder.includes(t));
-    const otherOpts = otherTypes.map(t =>
-      grouped[t].map(sm =>
-        `<option value="${sm.id}" data-type="${sm.type}" ${s.submodule_id === sm.id ? 'selected' : ''}>${sm.name} (${sm.type})</option>`
-      ).join('')
-    ).join('');
-
-    const selectedSM = s.submodule_id ? SUBMODULES.find(sm => sm.id === s.submodule_id) : null;
-    const smLabel = selectedSM ? `<span class="sm-badge">${SM_TYPE_LABELS[selectedSM.type] || selectedSM.type}: ${selectedSM.name}</span>` : '';
-
+    const fields = s.custom_fields || [];
     const card = document.createElement('div');
     card.className = 'stage-card';
     card.innerHTML = `
@@ -334,10 +389,10 @@ function renderStages() {
         <input type="color" value="${s.color || '#3b82f6'}"
                style="width:28px;height:28px;padding:2px;border-radius:4px;border:none;cursor:pointer;background:none;flex-shrink:0"
                onclick="event.stopPropagation()"
-               onchange="stages[${i}].color=this.value;syncJson();renderPipeline()">
-        <span style="flex:1;font-weight:600;font-size:13px;color:#f1f5f9">${escHtml(s.name || 'Unnamed Stage')}</span>
+               onchange="stages[${i}].color=this.value;syncJson();renderPipeline();document.querySelector('#stage-header-name-${i}').textContent=stages[${i}].name||'Unnamed Stage'">
+        <span id="stage-header-name-${i}" style="flex:1;font-weight:600;font-size:13px;color:#f1f5f9">${escHtml(s.name || 'Unnamed Stage')}</span>
         ${s.is_terminal ? '<span class="badge badge-green" style="font-size:10px">terminal</span>' : ''}
-        ${smLabel}
+        ${fields.length ? `<span style="font-size:10px;color:#a5b4fc">📋 ${fields.length} field${fields.length>1?'s':''}</span>` : ''}
         ${s.target_tat_hours ? `<span style="font-size:10px;color:#64748b">⏱ ${s.target_tat_hours}h TaT</span>` : ''}
         <div style="display:flex;gap:4px;margin-left:auto">
           <button type="button" onclick="event.stopPropagation();moveStage(${i},-1)" class="btn btn-sm btn-outline" style="padding:2px 7px" ${i===0?'disabled':''}>↑</button>
@@ -351,7 +406,7 @@ function renderStages() {
           <div class="stage-field" style="grid-column:1/-1">
             <label>Stage Name *</label>
             <input type="text" value="${escHtml(s.name || '')}" placeholder="e.g. Quality Check"
-                   oninput="stages[${i}].name=this.value;syncJson();renderStages()">
+                   oninput="stages[${i}].name=this.value;syncJson();document.querySelector('#stage-header-name-${i}').textContent=this.value||'Unnamed Stage';renderPipeline()">
           </div>
           <div class="stage-field" style="grid-column:1/-1">
             <label>Description</label>
@@ -363,36 +418,38 @@ function renderStages() {
             <input type="number" min="0" value="${s.target_tat_hours || ''}" placeholder="e.g. 24"
                    oninput="stages[${i}].target_tat_hours=this.value?parseInt(this.value):null;syncJson();renderPipeline()">
           </div>
-          <div class="stage-field">
-            <label>Sub-module</label>
-            <select onchange="onSubmoduleChange(${i}, this)">
-              <option value="">— None —</option>
-              ${smGroupedOptions}${otherOpts}
-            </select>
-            <div style="font-size:11px;color:#4b5563;margin-top:4px">Attach a data-capture form to this stage.</div>
-          </div>
-          <div class="stage-field" style="grid-column:1/-1;display:flex;flex-wrap:wrap;gap:20px">
+          <div class="stage-field" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">
             <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:#94a3b8;cursor:pointer">
               <input type="checkbox" ${s.completion_note_required?'checked':''}
                      onchange="stages[${i}].completion_note_required=this.checked;syncJson()">
-              Completion note required
+              Note required
             </label>
-            <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:#fcd34d;cursor:pointer"
-                   title="Assignee must upload a file before this stage can be completed">
+            <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:#fcd34d;cursor:pointer">
               <input type="checkbox" ${s.evidence_required?'checked':''}
                      onchange="stages[${i}].evidence_required=this.checked;syncJson();renderPipeline();renderStages()">
-              Evidence upload required
+              Evidence required
             </label>
             <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:#94a3b8;cursor:pointer">
               <input type="checkbox" ${s.is_terminal?'checked':''}
                      onchange="stages[${i}].is_terminal=this.checked;syncJson();renderPipeline();renderStages()">
-              Terminal stage (marks flow as completed)
+              Terminal stage
             </label>
+          </div>
+
+          <!-- Custom Fields -->
+          <div class="stage-field" style="grid-column:1/-1">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <label style="margin:0">Custom Fields</label>
+              <button type="button" onclick="addField(${i})"
+                      style="background:#1e3a5f;border:1px solid #1d4ed8;border-radius:5px;color:#93c5fd;padding:3px 10px;font-size:11px;cursor:pointer">+ Add Field</button>
+            </div>
+            <div id="fields-${i}"></div>
           </div>
         </div>
       </div>
     `;
     el.appendChild(card);
+    renderFieldsFor(i);
   });
   renderPipeline();
 }
@@ -409,12 +466,10 @@ function toggleStage(i) {
 function addStage() {
   stages.push({name: 'New Stage', color: '#3b82f6', is_terminal: false,
                description: '', target_tat_hours: null,
-               sub_module_tag: null, submodule_id: null,
                completion_note_required: false, evidence_required: false,
-               order: stages.length});
+               custom_fields: [], order: stages.length});
   syncJson();
   renderStages();
-  // Auto-open the new stage
   const bodies = document.querySelectorAll('.stage-card-body');
   if (bodies.length > 0) bodies[bodies.length - 1].classList.add('open');
 }

@@ -302,34 +302,6 @@ select option{background:var(--bg-card)}
         </div>
         {% endif %}
 
-        <!-- ③ Sub-module -->
-        {% if p.sub_module_tag %}
-        <div class="sa-section">
-          <div class="sa-section-title">Sub-module</div>
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style="font-size:12px;color:#c4b5fd;font-weight:500">{{ sm_labels.get(p.sub_module_tag, p.sub_module_tag) }}</span>
-              {% if p.sub_module_tag == 'PMS' and ticket.target_qty %}
-              <span style="font-size:11px;color:var(--text-faint)">{{ p.qty_done }}/{{ ticket.target_qty }} {{ ticket.qty_unit or 'units' }}</span>
-              {% endif %}
-            </div>
-            <button
-              onclick="openSubmoduleModal('{{ ticket.id }}','{{ p.sub_module_tag }}','{{ s.id }}','{{ sm_labels.get(p.sub_module_tag, p.sub_module_tag) }}')"
-              class="btn-xs" style="background:#1e3a5f;border-color:rgba(96,165,250,0.3);color:#93c5fd;font-weight:600;padding:5px 12px">
-              📋 View Sub-module
-            </button>
-          </div>
-          {% if p.sub_module_tag == 'PMS' and ticket.target_qty %}
-          {% set pms_pct = [((p.qty_done / ticket.target_qty) * 100)|int, 100]|min %}
-          <div style="margin-top:8px">
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-faint);margin-bottom:3px">
-              <span>Production progress</span><span>{{ p.qty_done }}/{{ ticket.target_qty }} {{ ticket.qty_unit or '' }}</span>
-            </div>
-            <div class="prog"><div class="prog-fill" style="width:{{ pms_pct }}%;background:{% if pms_pct >= 100 %}#10b981{% elif pms_pct >= 50 %}#f59e0b{% else %}#3b82f6{% endif %}"></div></div>
-          </div>
-          {% endif %}
-        </div>
-        {% endif %}
 
         <!-- ④ Visit history (movements to/from this stage) -->
         {% if p.enriched_visits %}
@@ -430,34 +402,6 @@ select option{background:var(--bg-card)}
   </div>
   {% endif %}
 
-  <!-- ══ TICKET DETAILS ═══════════════════════════════════════════════════════ -->
-  <div class="card">
-    <div class="card-hdr"><span class="card-title">Ticket Details</span></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">
-      <div><span style="color:var(--text-faint)">Flow</span><br><span style="color:var(--text-primary);font-weight:500">{{ flow.name if flow else '—' }}</span></div>
-      <div><span style="color:var(--text-faint)">Current Stage</span><br><span style="color:var(--text-primary);font-weight:500">{{ ticket.current_stage.name if ticket.current_stage else '—' }}</span></div>
-      <div><span style="color:var(--text-faint)">Assignee</span><br><span style="color:var(--text-primary);font-weight:500">{{ ticket.current_assignee.name if ticket.current_assignee else '—' }}</span></div>
-      <div><span style="color:var(--text-faint)">Created by</span><br><span style="color:var(--text-primary)">{{ ticket.created_by.name if ticket.created_by else '—' }} · {{ ticket.created_at.strftime('%d %b %Y') if ticket.created_at else '—' }}</span></div>
-      {% if ticket.due_at %}
-      <div><span style="color:var(--text-faint)">Due</span><br>
-        <span style="color:{% if ticket.due_at < now and ticket.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-primary){% endif %};font-weight:500">
-          {{ ticket.due_at.strftime('%d %b %Y %H:%M') }}
-        </span>
-      </div>
-      {% endif %}
-      {% if ticket.target_qty %}
-      <div><span style="color:var(--text-faint)">Target Qty</span><br><span style="color:var(--text-primary)">{{ ticket.target_qty }} {{ ticket.qty_unit or '' }}</span></div>
-      {% endif %}
-    </div>
-    {% if ticket.description %}
-    <div style="font-size:12px;color:var(--text-muted);line-height:1.7;padding-top:10px;border-top:1px solid var(--hover-bg)">{{ ticket.description }}</div>
-    {% endif %}
-    {% if ticket.is_flagged and ticket.flagged_reason %}
-    <div style="margin-top:10px;padding:8px 12px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:7px;font-size:12px;color:#f87171">
-      🚩 {{ ticket.flagged_reason }}
-    </div>
-    {% endif %}
-  </div>
 
   <!-- ══ TRANSITION FORM ═══════════════════════════════════════════════════════ -->
   {% if can_transition and ticket.status not in ('COMPLETED','CLOSED') %}
@@ -514,6 +458,64 @@ select option{background:var(--bg-card)}
         </div>
       </div>
       {% endif %}
+      <!-- Custom fields for current stage -->
+      {% if current_stage_custom_fields %}
+      <div style="border:1px solid rgba(167,139,250,0.25);border-radius:8px;padding:12px 14px;margin-bottom:10px;background:rgba(167,139,250,0.04)">
+        <div style="font-size:11px;font-weight:600;color:#a78bfa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Stage Data — {{ ticket.current_stage.name }}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+          {% for fdef in current_stage_custom_fields %}
+          <div class="form-group" style="margin-bottom:0">
+            <label style="color:var(--text-muted)">
+              {{ fdef.label }}{% if fdef.required %} <span style="color:#ef4444">*</span>{% endif %}
+            </label>
+            {% if fdef.description %}
+            <div style="font-size:10px;color:var(--text-faint);margin-bottom:4px">{{ fdef.description }}</div>
+            {% endif %}
+            {% if fdef.type == 'longtext' %}
+            <textarea name="cf__{{ fdef.label }}" rows="2" placeholder="{{ fdef.description or '' }}"
+              style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);resize:vertical"
+              {{ 'required' if fdef.required }}></textarea>
+            {% elif fdef.type == 'number' %}
+            <input type="number" name="cf__{{ fdef.label }}" placeholder="0"
+              style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
+              {{ 'required' if fdef.required }}>
+            {% elif fdef.type == 'date' %}
+            <input type="date" name="cf__{{ fdef.label }}"
+              style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
+              {{ 'required' if fdef.required }}>
+            {% elif fdef.type == 'dropdown' %}
+            <select name="cf__{{ fdef.label }}"
+              style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
+              {{ 'required' if fdef.required }}>
+              <option value="">Choose…</option>
+              {% for opt in (fdef.options or '').split(',') %}
+              {% if opt.strip() %}<option value="{{ opt.strip() }}">{{ opt.strip() }}</option>{% endif %}
+              {% endfor %}
+            </select>
+            {% elif fdef.type == 'entity_link' and user.role == 'ADMIN' %}
+            <select name="cf__{{ fdef.label }}"
+              style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
+              {{ 'required' if fdef.required }}>
+              <option value="">Choose {{ fdef.entity_type or 'entity' }}…</option>
+              {% for item in entity_data.get(fdef.entity_type or '', []) %}
+              <option value="{{ item.name }}">{{ item.name }}</option>
+              {% endfor %}
+            </select>
+            {% elif fdef.type == 'entity_link' %}
+            <input type="text" name="cf__{{ fdef.label }}" placeholder="Enter {{ fdef.entity_type or 'entity' }} name"
+              style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
+              {{ 'required' if fdef.required }}>
+            {% else %}
+            <input type="text" name="cf__{{ fdef.label }}" placeholder="{{ fdef.description or '' }}"
+              style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
+              {{ 'required' if fdef.required }}>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
       <div id="returnReasonRow" style="display:none" class="form-group">
         <label style="color:#f59e0b">Return reason *</label>
         <input type="text" name="return_reason" placeholder="Why is this being returned?">

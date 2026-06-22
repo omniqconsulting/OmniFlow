@@ -87,6 +87,16 @@ from markupsafe import Markup as _Markup
 templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
 templates.env.filters["tojson"]    = lambda v: _Markup(_json.dumps(v, cls=_OrmEncoder))
 
+def _to_ist(dt, fmt="%d %b, %I:%M %p"):
+    """Convert a naive UTC datetime to IST (UTC+5:30) and format it."""
+    if dt is None:
+        return ""
+    from datetime import timezone, timedelta
+    IST = timezone(timedelta(hours=5, minutes=30))
+    return dt.replace(tzinfo=timezone.utc).astimezone(IST).strftime(fmt)
+
+templates.env.filters["ist"] = _to_ist
+
 # ── P10-04: Validation helpers ──────────────────────────────────────────────
 import re as _re
 
@@ -1519,6 +1529,7 @@ def ticket_edit(ticket_id: str, title: str = Form(...), description: str = Form(
     if not ticket:
         raise HTTPException(404)
     old = f"{ticket.title} | {ticket.priority} | {ticket.current_assignee_id}"
+    old_assignee_id = ticket.current_assignee_id
     ticket.title = title
     ticket.description = description
     ticket.priority = priority
@@ -1533,6 +1544,10 @@ def ticket_edit(ticket_id: str, title: str = Form(...), description: str = Form(
         ticket.ticket_category = ticket_category
     log_event(db, ticket_id, user.id, "EDITED", f"Previous: {old}")
     db.commit()
+    if assignee_id != old_assignee_id:
+        new_assignee = db.query(User).filter(User.id == assignee_id).first()
+        if new_assignee:
+            notify_ticket_assigned(db, ticket, new_assignee)
     return redirect(f"/tickets/{ticket_id}")
 
 
@@ -1681,6 +1696,14 @@ def ticket_action(ticket_id: str, action: str = Form(...),
         helper_ids = [h.user_id for h in ticket.helpers]
         notify_ticket_commented(db, ticket, user.id, helper_ids)
     elif action == "reassign" and new_assignee_id and what_completed and why_reassigning:
+        helper_ids_chk = [h.user_id for h in ticket.helpers]
+        can_reassign = (
+            user.id == ticket.current_assignee_id
+            or user.id in helper_ids_chk
+            or user.role in ("ADMIN", "MANAGER")
+        )
+        if not can_reassign:
+            raise HTTPException(status_code=403, detail="Not authorized to reassign this ticket")
         ticket.current_assignee_id = new_assignee_id
         ticket.status = "OPEN"
         log_event(db, ticket_id, user.id, "REASSIGNED",
@@ -1689,10 +1712,22 @@ def ticket_action(ticket_id: str, action: str = Form(...),
         if new_assignee:
             notify_ticket_assigned(db, ticket, new_assignee)
     elif action == "flag" and flag_reason:
+        if user.role == "EMPLOYEE":
+            if ticket.current_assignee_id != user.id:
+                raise HTTPException(status_code=403, detail="Only the current assignee can escalate")
+            recent_escalation = db.query(TicketEvent).filter(
+                TicketEvent.ticket_id == ticket_id,
+                TicketEvent.actor_id == user.id,
+                TicketEvent.event_type == "FLAGGED",
+                TicketEvent.created_at > (datetime.utcnow() - timedelta(hours=24)),
+            ).first()
+            if recent_escalation:
+                return redirect(f"/tickets/{ticket_id}?escalation_error=1")
         ticket.is_flagged = True
         ticket.flagged_reason = flag_reason
         log_event(db, ticket_id, user.id, "FLAGGED", flag_reason)
-        notify_ticket_flagged(db, ticket, user.id, admins)
+        notify_ticket_flagged(db, ticket, user.id, admins,
+                              manager_ids=managers, actor_name=user.name)
     elif action == "unflag":
         ticket.is_flagged = False
         ticket.flagged_reason = None
@@ -2091,6 +2126,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         "entity_options": entity_options,
         "now": now,
         "checklist_notif_hours": getattr(user.tenant, "checklist_notif_hours", None) or "8,13,18",
+        "checklist_overdue_hour": getattr(user.tenant, "checklist_overdue_hour", None) or "",
     })
 
 @app.post("/checklists/templates/create")
@@ -3419,6 +3455,62 @@ def delete_employee(
     return redirect("/employees?msg=Employee+removed")
 
 
+# ── WhatsApp: toggle mobile_verified on an employee ──────────────────────────
+@app.post("/employees/{emp_id}/toggle-validated")
+def toggle_employee_validated(
+    emp_id: str, request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    emp = db.query(User).filter(
+        User.id == emp_id,
+        User.tenant_id == user.tenant_id,
+        User.is_deleted == False,
+    ).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    if emp.mobile_verified:
+        emp.mobile_verified = False
+        emp.mobile_verified_at = None
+        emp.mobile_verified_by = None
+    else:
+        emp.mobile_verified = True
+        emp.mobile_verified_at = datetime.utcnow()
+        emp.mobile_verified_by = user.id
+    db.commit()
+    return RedirectResponse("/employees", status_code=303)
+
+
+# ── WhatsApp: resend a failed message log entry ───────────────────────────────
+@app.post("/whatsapp-log/{log_id}/resend")
+def resend_whatsapp(
+    log_id: str, request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from .database import WhatsAppMessageLog
+    from .services.msg91 import send_whatsapp_template
+    import json as _json_resend
+
+    log = db.query(WhatsAppMessageLog).filter(
+        WhatsAppMessageLog.id == log_id,
+        WhatsAppMessageLog.tenant_id == user.tenant_id,
+    ).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Log entry not found")
+    if log.status != "FAILED":
+        raise HTTPException(status_code=400, detail="Only failed sends can be resent")
+
+    variables = _json_resend.loads(log.variables_json)
+    success, error = send_whatsapp_template(log.recipient_phone, log.template_name, variables)
+    log.status = "SENT" if success else "FAILED"
+    log.error_message = error
+    log.attempt_count += 1
+    log.last_attempted_at = datetime.utcnow()
+    db.commit()
+    return RedirectResponse(request.headers.get("referer", "/"), status_code=303)
+
+
 # ── P8-03: Per-employee performance dashboard ─────────────────────────────────
 @app.get("/employees/{emp_id}/performance", response_class=HTMLResponse)
 def employee_performance(
@@ -3665,18 +3757,20 @@ def setup(request: Request, user: User = Depends(require_admin),
         "all_plan_limits": PLAN_LIMITS, "plan_labels": PLAN_LABELS,
         "current_plan": plan,
         "checklist_notif_hours": getattr(tenant, "checklist_notif_hours", None) or "8,13,18",
+        "checklist_overdue_hour": getattr(tenant, "checklist_overdue_hour", None) or "",
     })
 
 
 @app.post("/setup/checklist-notifications")
 def setup_checklist_notifications(
     notif_hours: str = Form("8,13,18"),
+    overdue_hour: str = Form(""),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Save the comma-separated UTC hours for consolidated checklist notifications."""
+    """Save checklist notification hours and optional overdue WhatsApp hour."""
     import re as _re
-    # Sanitise: keep only valid hours 0-23
+    # Sanitise reminder hours
     raw = [h.strip() for h in notif_hours.replace(";", ",").split(",")]
     valid = []
     for h in raw:
@@ -3684,9 +3778,16 @@ def setup_checklist_notifications(
             valid.append(str(int(h)))
     if not valid:
         valid = ["8", "13", "18"]
+    # Sanitise overdue hour — blank or invalid → None (disabled)
+    overdue_clean = overdue_hour.strip()
+    if overdue_clean and _re.fullmatch(r"\d{1,2}", overdue_clean) and 0 <= int(overdue_clean) <= 23:
+        tenant_overdue_hour = str(int(overdue_clean))
+    else:
+        tenant_overdue_hour = None
     tenant = db.query(Tenant).get(user.tenant_id)
     if tenant:
         tenant.checklist_notif_hours = ",".join(valid)
+        tenant.checklist_overdue_hour = tenant_overdue_hour
         db.commit()
     return redirect("/setup?open=notifications&saved=1")
 

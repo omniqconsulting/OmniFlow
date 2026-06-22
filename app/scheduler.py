@@ -262,6 +262,20 @@ def morning_ticket_summary():
 
 _DEFAULT_NOTIF_HOURS_IST = [8, 13, 18]   # IST hours — fallback when tenant has no custom config
 
+def _build_checklist_titles_csv(assignments: list) -> str:
+    """Build the comma-separated checklist title string for body_2.
+    Caps at 5 titles; appends '+ X more' if there are additional items.
+    Used by both Pipeline 2A (checklist_due) and 2B (checklist_overdue).
+    """
+    titles = [a.template.title for a in assignments if a.template]
+    if not titles:
+        return ""
+    csv = ", ".join(titles[:5])
+    if len(titles) > 5:
+        csv += f", +{len(titles) - 5} more"
+    return csv
+
+
 def _parse_notif_hours(raw: str | None) -> list[int]:
     """Parse comma-separated IST hour string into a sorted list of UTC hours for comparison."""
     if not raw:
@@ -362,10 +376,248 @@ def send_consolidated_checklist_notifications():
                     link="/checklists",
                 ))
 
+                # Pipeline 2A: WhatsApp for PENDING + IN_PROGRESS only (OVERDUE excluded)
+                wa_items = [a for a in items if a.status in ("PENDING", "IN_PROGRESS")]
+                if wa_items:
+                    _send_wa_checklist_due(db, tenant.id, uid, wa_items)
+
         db.commit()
         logger.info("Consolidated checklist notifications processed for %d tenants", len(tenants))
     except Exception as e:
         logger.error("send_consolidated_checklist_notifications error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _send_wa_checklist_due(db, tenant_id: str, user_id: str, assignments: list):
+    """Pipeline 2A — omniflow_checklist_due. Never raises."""
+    from .database import WhatsAppMessageLog, User
+    from .services.msg91 import send_whatsapp_template
+    import json
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user or not user.phone:
+            return
+        titles_csv = _build_checklist_titles_csv(assignments)
+        if not titles_csv:
+            return
+        variables = [user.name, titles_csv]
+        status, error = "SKIPPED_UNVERIFIED", None
+        if user.mobile_verified:
+            ok, error = send_whatsapp_template(user.phone, "omniflow_checklist_due", variables)
+            status = "SENT" if ok else "FAILED"
+        db.add(WhatsAppMessageLog(
+            tenant_id=tenant_id,
+            template_name="omniflow_checklist_due",
+            recipient_user_id=user_id,
+            recipient_phone=user.phone,
+            variables_json=json.dumps(variables),
+            status=status,
+            error_message=error,
+            related_entity_type="checklist_reminder",
+            related_entity_id=user_id,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("_send_wa_checklist_due failed for user=%s", user_id)
+
+
+def _send_wa_checklist_overdue(db, tenant_id: str, user_id: str, assignments: list):
+    """Pipeline 2B — omniflow_checklist_overdue. Never raises."""
+    from .database import WhatsAppMessageLog, User
+    from .services.msg91 import send_whatsapp_template
+    import json
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user or not user.phone:
+            return
+        titles_csv = _build_checklist_titles_csv(assignments)
+        if not titles_csv:
+            return
+        variables = [user.name, titles_csv]
+        status, error = "SKIPPED_UNVERIFIED", None
+        if user.mobile_verified:
+            ok, error = send_whatsapp_template(user.phone, "omniflow_checklist_overdue", variables)
+            status = "SENT" if ok else "FAILED"
+        db.add(WhatsAppMessageLog(
+            tenant_id=tenant_id,
+            template_name="omniflow_checklist_overdue",
+            recipient_user_id=user_id,
+            recipient_phone=user.phone,
+            variables_json=json.dumps(variables),
+            status=status,
+            error_message=error,
+            related_entity_type="checklist_overdue_reminder",
+            related_entity_id=user_id,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("_send_wa_checklist_overdue failed for user=%s", user_id)
+
+
+def send_consolidated_checklist_overdue_notifications():
+    """Pipeline 2B — omniflow_checklist_overdue.
+    Run every 30 minutes. At the single configured IST overdue hour, sends one
+    WhatsApp per employee listing all their today assignments that are not DONE
+    and not FAILED. Deduped per tenant per day. Fires only if
+    tenant.checklist_overdue_hour is set.
+    """
+    from datetime import date as _date
+    from .database import SessionLocal, Tenant, ChecklistAssignment, WhatsAppMessageLog
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        current_hour = now.hour
+        today_start = datetime.combine(_date.today(), datetime.min.time())
+        today_end   = datetime.combine(_date.today(), datetime.max.time())
+
+        tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
+        for tenant in tenants:
+            raw_overdue = getattr(tenant, "checklist_overdue_hour", None)
+            if not raw_overdue:
+                continue
+            try:
+                overdue_utc = (int(raw_overdue.strip()) - 5) % 24
+            except (ValueError, AttributeError):
+                continue
+            if current_hour != overdue_utc:
+                continue
+
+            # Dedup: already sent overdue WhatsApp for this tenant today?
+            already_sent = db.query(WhatsAppMessageLog).filter(
+                WhatsAppMessageLog.tenant_id == tenant.id,
+                WhatsAppMessageLog.template_name == "omniflow_checklist_overdue",
+                WhatsAppMessageLog.created_at >= today_start,
+            ).first()
+            if already_sent:
+                continue
+
+            # Today's assignments that are not DONE and not FAILED
+            incomplete = db.query(ChecklistAssignment).filter(
+                ChecklistAssignment.tenant_id == tenant.id,
+                ChecklistAssignment.due_at >= today_start,
+                ChecklistAssignment.due_at <= today_end,
+                ChecklistAssignment.status.notin_(["DONE", "FAILED"]),
+                ChecklistAssignment.is_deleted == False,
+            ).all()
+            if not incomplete:
+                continue
+
+            by_user: dict = {}
+            for a in incomplete:
+                by_user.setdefault(a.user_id, []).append(a)
+
+            for uid, items in by_user.items():
+                _send_wa_checklist_overdue(db, tenant.id, uid, items)
+
+        db.commit()
+        logger.info("Checklist overdue WhatsApp processed for %d tenants", len(tenants))
+    except Exception as e:
+        logger.error("send_consolidated_checklist_overdue_notifications error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def send_unacknowledged_ticket_notifications():
+    """Pipeline 3A — omniflow_ticket_unacknowledged.
+    Run every 30 minutes. At the configured end-of-day IST hour (shared
+    checklist_overdue_hour field), sends one personalised WhatsApp per Admin
+    and per direct Manager for every ticket that is OPEN, unacknowledged,
+    and older than 2 hours. Deduped per ticket per recipient per day.
+    """
+    from datetime import date as _date
+    from .database import SessionLocal, Tenant, Ticket, User, WhatsAppMessageLog
+    from .services.msg91 import send_whatsapp_template
+    import json
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        current_hour = now.hour
+        today_start = datetime.combine(_date.today(), datetime.min.time())
+        two_hours_ago = now - timedelta(hours=2)
+
+        tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
+        for tenant in tenants:
+            raw_hour = getattr(tenant, "checklist_overdue_hour", None)
+            if not raw_hour:
+                continue
+            try:
+                eod_utc = (int(raw_hour.strip()) - 5) % 24
+            except (ValueError, AttributeError):
+                continue
+            if current_hour != eod_utc:
+                continue
+
+            unacked = db.query(Ticket).filter(
+                Ticket.tenant_id == tenant.id,
+                Ticket.status == "OPEN",
+                Ticket.acknowledged_at == None,
+                Ticket.created_at < two_hours_ago,
+                Ticket.is_deleted == False,
+            ).all()
+            if not unacked:
+                continue
+
+            for ticket in unacked:
+                admins = db.query(User).filter(
+                    User.tenant_id == tenant.id,
+                    User.role == "ADMIN",
+                    User.is_deleted == False,
+                    User.is_active == True,
+                ).all()
+
+                manager = None
+                assignee_name = "the assignee"
+                if ticket.current_assignee_id:
+                    assignee = db.query(User).filter(User.id == ticket.current_assignee_id).first()
+                    if assignee:
+                        assignee_name = assignee.name
+                        if assignee.manager_id:
+                            manager = db.query(User).filter(User.id == assignee.manager_id).first()
+
+                recipients = list(admins)
+                if manager and manager not in recipients:
+                    recipients.append(manager)
+
+                hours_elapsed = str(int((now - ticket.created_at).total_seconds() / 3600))
+
+                for recipient in recipients:
+                    if not recipient.phone:
+                        continue
+                    already = db.query(WhatsAppMessageLog).filter(
+                        WhatsAppMessageLog.template_name == "omniflow_ticket_unacknowledged",
+                        WhatsAppMessageLog.recipient_user_id == recipient.id,
+                        WhatsAppMessageLog.related_entity_id == ticket.id,
+                        WhatsAppMessageLog.created_at >= today_start,
+                    ).first()
+                    if already:
+                        continue
+
+                    variables = [recipient.name, ticket.title, assignee_name, hours_elapsed]
+                    status, error = "SKIPPED_UNVERIFIED", None
+                    if recipient.mobile_verified:
+                        ok, error = send_whatsapp_template(
+                            recipient.phone, "omniflow_ticket_unacknowledged", variables)
+                        status = "SENT" if ok else "FAILED"
+                    db.add(WhatsAppMessageLog(
+                        tenant_id=tenant.id,
+                        template_name="omniflow_ticket_unacknowledged",
+                        recipient_user_id=recipient.id,
+                        recipient_phone=recipient.phone,
+                        variables_json=json.dumps(variables),
+                        status=status,
+                        error_message=error,
+                        related_entity_type="ticket",
+                        related_entity_id=ticket.id,
+                    ))
+            db.commit()
+        logger.info("Unacknowledged ticket WhatsApp job complete")
+    except Exception as e:
+        logger.error("send_unacknowledged_ticket_notifications error: %s", e)
         db.rollback()
     finally:
         db.close()
@@ -567,6 +819,10 @@ def start_scheduler():
     # Phase 6 jobs — consolidated per-employee, per-tenant notifications every 30 min
     scheduler.add_job(send_consolidated_checklist_notifications,
                       IntervalTrigger(minutes=30), id="cl_consolidated", replace_existing=True)
+    scheduler.add_job(send_consolidated_checklist_overdue_notifications,
+                      IntervalTrigger(minutes=30), id="cl_overdue", replace_existing=True)
+    scheduler.add_job(send_unacknowledged_ticket_notifications,
+                      IntervalTrigger(minutes=30), id="ticket_unacked_wa", replace_existing=True)
     scheduler.add_job(checklist_eod_overdue,
                       CronTrigger(hour=18, minute=0, timezone="UTC"), id="cl_eod", replace_existing=True)
     # Phase 3 jobs

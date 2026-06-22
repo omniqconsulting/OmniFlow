@@ -110,7 +110,14 @@
         {{ emp.name }}
         {% if emp.employee_id %}<span style="font-size:10px;color:var(--text-xfaint);margin-left:6px">{{ emp.employee_id }}</span>{% endif %}
       </td>
-      <td style="color:var(--text-muted)">{{ emp.phone }}</td>
+      <td style="color:var(--text-muted)">
+        {{ emp.phone }}
+        {% if emp.mobile_verified %}
+          <span class="badge badge-green" title="Validated by {{ emp.mobile_verified_by_user.name if emp.mobile_verified_by_user else '' }} on {{ emp.mobile_verified_at.strftime('%d %b %Y') if emp.mobile_verified_at }}">Validated</span>
+        {% else %}
+          <span class="badge badge-gray">Not validated</span>
+        {% endif %}
+      </td>
       <td>
         <span class="badge {% if emp.role=='ADMIN' %}badge-purple{% elif emp.role=='MANAGER' %}badge-blue{% else %}badge-gray{% endif %}">
           {{ emp.role }}
@@ -129,6 +136,9 @@
         <button onclick="toggleRow('mgr-{{ emp.id }}')" class="btn btn-sm btn-outline">Manager</button>
         <button onclick="toggleRow('pw-{{ emp.id }}')" class="btn btn-sm btn-gray">Reset PW</button>
         <button onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-outline" style="color:#fbbf24;border-color:rgba(251,191,36,.3)">Edit</button>
+        <form method="post" action="/employees/{{ emp.id }}/toggle-validated" style="display:inline">
+          <button type="submit" class="btn btn-sm btn-outline">{{ 'Unmark Validated' if emp.mobile_verified else 'Mark as Validated' }}</button>
+        </form>
         {% if emp.status != 'TERMINATED' and emp.id != user.id %}
         <button onclick="openTerminate('{{ emp.id }}','{{ emp.name | e }}')" class="btn btn-sm btn-outline" style="color:#f87171;border-color:rgba(248,113,113,.3)">Terminate</button>
         {% endif %}

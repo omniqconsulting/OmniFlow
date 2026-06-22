@@ -2,6 +2,7 @@
 Feature Flag System — Phase 0-I
 Centralised feature catalog, plan limits, and gate helpers.
 """
+import os
 
 # ── Plans ──────────────────────────────────────────────────────────────────────
 PLAN_TRIAL        = "TRIAL"
@@ -144,3 +145,39 @@ def next_plan(current_plan: str) -> "str | None":
         return order[idx + 1] if idx + 1 < len(order) else None
     except ValueError:
         return PLAN_STARTER
+
+
+# ── WhatsApp / MSG91 Templates ────────────────────────────────────────────────
+# Foundation registry. Each pipeline brief appends ONE entry here as that
+# template is wired to a real trigger. variable_order documents param order
+# matching the approved Meta template — the actual send call takes a plain list.
+WHATSAPP_TEMPLATES = {
+    "omniflow_ticket_assigned": {
+        "msg91_template_id": 417221,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["name", "ticket_title", "priority", "due_date"],
+    },
+    "omniflow_checklist_due": {
+        "msg91_template_id": 417222,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["name", "checklist_titles_csv"],
+    },
+    "omniflow_checklist_overdue": {
+        "msg91_template_id": 417223,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["name", "checklist_titles_csv"],
+    },
+    "omniflow_ticket_unacknowledged": {
+        "msg91_template_id": 417225,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["recipient_name", "ticket_title", "assignee_name", "hours"],
+    },
+    "omniflow_ticket_escalated": {
+        "msg91_template_id": 417224,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["recipient_name", "ticket_title", "actor_name"],
+    },
+}
+
+MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "")
+MSG91_WA_NUMBER = os.environ.get("MSG91_WA_NUMBER", "")
