@@ -81,7 +81,7 @@
         {% endif %}
         <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--text-faint)">
           {% if stage.target_tat_hours %}
-          <span>⏱ {{ stage.target_tat_hours }}h TaT target</span>
+          <span>⏱ {{ stage.target_tat_hours | format_tat }} TaT target</span>
           {% endif %}
         </div>
       </div>

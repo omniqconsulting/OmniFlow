@@ -9,6 +9,7 @@
 {% if msg == 'unsuspended'     %}<div class="alert alert-green">✓ Tenant is now active.</div>{% endif %}
 {% if msg == 'password_reset'  %}<div class="alert alert-green">✓ Password reset successfully.</div>{% endif %}
 {% if msg == 'flow_deployed'   %}<div class="alert alert-green">✓ Flow deployed successfully.</div>{% endif %}
+{% if msg == 'flow_synced'     %}<div class="alert alert-green">✓ Flow synced from library — {{ request.query_params.get('synced','?') }} stage(s) updated with latest custom fields and settings.</div>{% endif %}
 {% if msg == 'flow_deleted'    %}<div class="alert alert-green">✓ Flow removed from tenant.</div>{% endif %}
 {% if msg == 'flow_deactivated'%}<div class="alert alert-yellow">Flow deactivated — hidden from client until reactivated.</div>{% endif %}
 {% if msg == 'flow_activated'  %}<div class="alert alert-green">✓ Flow reactivated — now visible to client.</div>{% endif %}
@@ -410,6 +411,13 @@ document.addEventListener('DOMContentLoaded', function() {
               {% if f.is_active %}Deactivate{% else %}Reactivate{% endif %}
             </button>
           </form>
+          <!-- Sync from Library (only for library-sourced flows) -->
+          {% if f.library_flow_id %}
+          <form method="post" action="/superadmin/tenants/{{ tenant.id }}/sync-flow/{{ f.id }}" style="display:inline"
+                onsubmit="return confirm('Sync stage settings (custom fields, TAT, options) from the current library version into {{ f.name }}? Stage names and ticket data are not affected.')">
+            <button type="submit" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px;color:#7dd3fc;border-color:rgba(125,211,252,.3)">↻ Sync Library</button>
+          </form>
+          {% endif %}
           <!-- Delete — only when no active tickets -->
           {% if not f.active_ticket_count or f.active_ticket_count == 0 %}
           <form method="post" action="/superadmin/tenants/{{ tenant.id }}/delete-flow/{{ f.id }}" style="display:inline"

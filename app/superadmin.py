@@ -1001,6 +1001,55 @@ def sa_deploy_flow(
     return _redirect(f"/superadmin/tenants/{tenant_id}?msg=flow_deployed")
 
 
+# ── Sync deployed flow stages from library ────────────────────────────────────
+
+@router.post("/tenants/{tenant_id}/sync-flow/{flow_id}")
+def sa_sync_flow(
+    tenant_id: str, flow_id: str,
+    sa: SuperAdmin = Depends(get_current_sa),
+    db: Session = Depends(get_db),
+):
+    """Sync stage settings (custom fields, TAT, options) from current library version
+    into an already-deployed tenant flow. Matches stages by order position.
+    Never touches stage names, ticket data, or assignments."""
+    import json as _json
+    flow = db.query(FMSFlow).filter(
+        FMSFlow.id == flow_id, FMSFlow.tenant_id == tenant_id,
+    ).first()
+    if not flow or not flow.library_flow_id:
+        raise HTTPException(404, "Flow not found or not library-sourced")
+
+    lib_flow = db.query(LibraryFlowTemplate).get(flow.library_flow_id)
+    if not lib_flow:
+        raise HTTPException(404, "Library template not found")
+
+    # Build lookup: order → library stage
+    lib_stages_by_order = {
+        s.order: s for s in (lib_flow.stages or [])
+    }
+
+    tenant_stages = sorted(
+        [s for s in (flow.stages or []) if not s.is_deleted],
+        key=lambda s: s.order,
+    )
+
+    synced = 0
+    for ts in tenant_stages:
+        ls = lib_stages_by_order.get(ts.order)
+        if not ls:
+            continue
+        ts.custom_fields_json = getattr(ls, "custom_fields_json", "[]") or "[]"
+        ts.target_tat_hours = getattr(ls, "target_tat_hours", None)
+        ts.completion_note_required = getattr(ls, "completion_note_required", False)
+        ts.evidence_required = getattr(ls, "evidence_required", False)
+        ts.description = getattr(ls, "description", None) or ts.description
+        synced += 1
+
+    flow.library_version_at_deploy = lib_flow.version
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=flow_synced&synced={synced}")
+
+
 # ── Undeploy a library item (label bundle or flow) ────────────────────────────
 
 @router.post("/tenants/{tenant_id}/undeploy-item/{item_id}")
