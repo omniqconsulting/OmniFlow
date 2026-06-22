@@ -157,6 +157,26 @@ WHATSAPP_TEMPLATES = {
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
         "variable_order": ["name", "ticket_title", "priority", "due_date"],
     },
+    "omniflow_checklist_due": {
+        "msg91_template_id": 417222,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["name", "checklist_titles_csv"],
+    },
+    "omniflow_checklist_overdue": {
+        "msg91_template_id": 417223,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["name", "checklist_titles_csv"],
+    },
+    "omniflow_ticket_unacknowledged": {
+        "msg91_template_id": 417225,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["recipient_name", "ticket_title", "assignee_name", "hours"],
+    },
+    "omniflow_ticket_escalated": {
+        "msg91_template_id": 417224,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["recipient_name", "ticket_title", "actor_name"],
+    },
 }
 
 MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "")

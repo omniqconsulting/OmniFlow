@@ -942,11 +942,15 @@ def sa_deploy_flow(
             flow_id=flow.id,
             tenant_id=tenant_id,
             name=lib_stage.name,
+            description=getattr(lib_stage, "description", None),
             order=lib_stage.order or 0,
             color=getattr(lib_stage, "color", "#3b82f6"),
             is_terminal=getattr(lib_stage, "is_terminal", False),
             target_tat_hours=getattr(lib_stage, "target_tat_hours", None),
             is_mandatory=getattr(lib_stage, "is_mandatory", True),
+            completion_note_required=getattr(lib_stage, "completion_note_required", False),
+            evidence_required=getattr(lib_stage, "evidence_required", False),
+            custom_fields_json=getattr(lib_stage, "custom_fields_json", "[]") or "[]",
         ))
 
     # Record deployment in tenant_deployed_items
@@ -994,6 +998,25 @@ def sa_undeploy_item(
 
 
 # ── Delete (soft) an FMS flow from a tenant ───────────────────────────────────
+
+@router.post("/tenants/{tenant_id}/toggle-flow/{flow_id}")
+def sa_toggle_flow(
+    tenant_id: str, flow_id: str,
+    sa: SuperAdmin = Depends(get_current_sa),
+    db: Session = Depends(get_db),
+):
+    """Activate / deactivate a deployed flow without deleting it."""
+    flow = db.query(FMSFlow).filter(
+        FMSFlow.id == flow_id,
+        FMSFlow.tenant_id == tenant_id,
+    ).first()
+    if not flow:
+        raise HTTPException(404, "Flow not found")
+    flow.is_active = not flow.is_active
+    db.commit()
+    action = "flow_activated" if flow.is_active else "flow_deactivated"
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg={action}")
+
 
 @router.post("/tenants/{tenant_id}/delete-flow/{flow_id}")
 def sa_delete_flow(

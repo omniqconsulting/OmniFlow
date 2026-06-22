@@ -169,10 +169,12 @@ def notify_ticket_commented(db, ticket, commenter_id: str, helper_ids: list):
     })
 
 
-def notify_ticket_flagged(db, ticket, actor_id: str, admin_ids: list):
+def notify_ticket_flagged(db, ticket, actor_id: str, admin_ids: list,
+                          manager_ids: list = None, actor_name: str = ""):
     """
     1-6: TICKET_FLAGGED
-    Audience: admin + assignee.
+    Audience (in-app/WS): admin + assignee — unchanged.
+    Audience (WhatsApp): admin + direct manager only — not assignee.
     """
     audience = list(set(admin_ids + [ticket.current_assignee_id or ""]))
     audience = [uid for uid in audience if uid]
@@ -182,6 +184,41 @@ def notify_ticket_flagged(db, ticket, actor_id: str, admin_ids: list):
         "flagged_reason": ticket.flagged_reason or "",
         "link":          f"/tickets/{ticket.id}",
     })
+    _send_wa_ticket_escalated(db, ticket, admin_ids, manager_ids or [], actor_name)
+
+
+def _send_wa_ticket_escalated(db, ticket, admin_ids: list, manager_ids: list, actor_name: str):
+    """Pipeline 3B — omniflow_ticket_escalated. Never raises."""
+    from .database import WhatsAppMessageLog, User
+    from .services.msg91 import send_whatsapp_template
+    import json
+    try:
+        wa_recipient_ids = list(set(admin_ids + manager_ids))
+        for uid in wa_recipient_ids:
+            recipient = db.query(User).filter(User.id == uid).first()
+            if not recipient or not recipient.phone:
+                continue
+            variables = [recipient.name, ticket.title, actor_name or "a team member"]
+            status, error = "SKIPPED_UNVERIFIED", None
+            if recipient.mobile_verified:
+                ok, error = send_whatsapp_template(
+                    recipient.phone, "omniflow_ticket_escalated", variables)
+                status = "SENT" if ok else "FAILED"
+            db.add(WhatsAppMessageLog(
+                tenant_id=ticket.tenant_id,
+                template_name="omniflow_ticket_escalated",
+                recipient_user_id=uid,
+                recipient_phone=recipient.phone,
+                variables_json=json.dumps(variables),
+                status=status,
+                error_message=error,
+                related_entity_type="ticket",
+                related_entity_id=ticket.id,
+            ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("_send_wa_ticket_escalated failed for ticket=%s", ticket.id)
 
 
 def notify_ticket_help_requested(db, ticket, actor_id: str,

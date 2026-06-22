@@ -215,6 +215,38 @@ def lib_flow_save(
     return _r(f"/superadmin/library/flows/{flow_id}?msg=saved")
 
 
+@router.post("/flows/{flow_id}/delete")
+def lib_flow_delete(flow_id: str, sa: SuperAdmin = Depends(get_current_sa),
+                    db: Session = Depends(get_db)):
+    from .database import FMSFlow, FMSTicket
+    flow = _get_flow(db, flow_id)
+    if flow.is_system:
+        raise HTTPException(400, "System flows cannot be deleted")
+    # Block if any tenant has active tickets on this flow
+    active_deployments = db.query(FMSFlow).filter(
+        FMSFlow.library_flow_id == flow_id,
+        FMSFlow.is_deleted == False,
+    ).all()
+    for fms in active_deployments:
+        count = db.query(FMSTicket).filter(
+            FMSTicket.flow_id == fms.id,
+            FMSTicket.is_deleted == False,
+            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+        ).count()
+        if count > 0:
+            return _r(f"/superadmin/library/flows?msg=delete_blocked&flow={flow.name}")
+    # Safe to soft-delete — also deactivate all deployed instances
+    for fms in active_deployments:
+        fms.is_deleted = True
+        fms.is_active = False
+    flow.status = "DEPRECATED"
+    # Mark as deleted (add is_deleted if column exists, else just DEPRECATED)
+    if hasattr(flow, "is_deleted"):
+        flow.is_deleted = True
+    db.commit()
+    return _r("/superadmin/library/flows?msg=flow_deleted")
+
+
 @router.post("/flows/{flow_id}/duplicate")
 def lib_flow_duplicate(flow_id: str, sa: SuperAdmin = Depends(get_current_sa),
                         db: Session = Depends(get_db)):
@@ -902,25 +934,27 @@ def _get_or_404(db, model, item_id: str, label: str):
 
 
 def _stage_to_dict(s: LibraryFlowStage) -> dict:
+    import json as _json
     return {
         "id": s.id, "name": s.name,
         "description": s.description or "",
         "color": s.color, "order": s.order, "is_terminal": s.is_terminal,
         "target_tat_hours": s.target_tat_hours or "",
-        "sub_module_tag": s.sub_module_tag or "",
-        "submodule_id": s.submodule_id or "",
         "completion_note_required": bool(s.completion_note_required),
         "evidence_required": bool(s.evidence_required),
+        "custom_fields": _json.loads(s.custom_fields_json or "[]"),
     }
 
 
 def _save_stages(db, template_id: str, stages_json: str):
+    import json as _json
     try:
-        stages = json.loads(stages_json)
-    except (json.JSONDecodeError, TypeError):
+        stages = _json.loads(stages_json)
+    except (_json.JSONDecodeError, TypeError):
         stages = []
     for i, s in enumerate(stages):
         tat = s.get("target_tat_hours")
+        custom_fields = s.get("custom_fields", [])
         db.add(LibraryFlowStage(
             template_id=template_id,
             name=(s.get("name") or "Stage").strip(),
@@ -929,10 +963,9 @@ def _save_stages(db, template_id: str, stages_json: str):
             order=i,
             is_terminal=bool(s.get("is_terminal")),
             target_tat_hours=int(tat) if tat not in (None, "", 0, "0") else None,
-            sub_module_tag=s.get("sub_module_tag") or None,
-            submodule_id=s.get("submodule_id") or None,
             completion_note_required=bool(s.get("completion_note_required")),
             evidence_required=bool(s.get("evidence_required")),
+            custom_fields_json=_json.dumps(custom_fields) if custom_fields else "[]",
         ))
 
 

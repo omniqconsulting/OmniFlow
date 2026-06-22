@@ -92,6 +92,7 @@ class Tenant(Base):
     ticket_seq    = Column(Integer,  default=0)                # Auto-increment counter for display IDs
     ai_custom_limit = Column(Integer, nullable=True)           # SA override for daily AI call limit (None = use plan default)
     checklist_notif_hours = Column(String, nullable=True)      # Comma-separated UTC hours for checklist notifications e.g. "8,13,18"
+    checklist_overdue_hour = Column(String, nullable=True)     # Single IST hour for daily overdue WhatsApp e.g. "19". NULL = disabled.
     created_at    = Column(DateTime, default=datetime.utcnow)
 
     users = relationship("User", back_populates="tenant")
@@ -427,6 +428,7 @@ class LibraryFlowStage(Base):
     submodule_id                 = Column(String,  ForeignKey("library_submodule_definitions.id"), nullable=True)
     completion_note_required     = Column(Boolean, default=False)
     evidence_required            = Column(Boolean, default=False)   # P1-07
+    custom_fields_json           = Column(Text,    default="[]")    # JSON array of custom field defs
 
     template   = relationship("LibraryFlowTemplate", back_populates="stages")
     submodule  = relationship("LibrarySubmoduleDefinition", foreign_keys=[submodule_id])
@@ -611,6 +613,7 @@ class FMSStage(Base):
     completion_note_required= Column(Boolean, default=False)
     is_terminal             = Column(Boolean, default=False)         # reaching this = COMPLETED
     evidence_required       = Column(Boolean, default=False)         # P1-07: stage-level evidence
+    custom_fields_json      = Column(Text,    default="[]")          # JSON array of custom field defs
     is_deleted              = Column(Boolean, default=False)
 
     flow              = relationship("FMSFlow", back_populates="stages")
@@ -694,8 +697,9 @@ class FMSStageHistory(Base):
     qty_completed    = Column(Integer, default=0)
     from_stage_id    = Column(String,  nullable=True)
     from_stage_name  = Column(String,  nullable=True)
-    evidence_url     = Column(String,  nullable=True)   # uploaded file path/URL
-    evidence_filename= Column(String,  nullable=True)   # original filename for display
+    evidence_url          = Column(String,  nullable=True)   # uploaded file path/URL
+    evidence_filename     = Column(String,  nullable=True)   # original filename for display
+    custom_fields_data_json = Column(Text, nullable=True)    # JSON dict {field_label: value}
 
     ticket   = relationship("FMSTicket", back_populates="stage_history")
     stage    = relationship("FMSStage",  foreign_keys=[stage_id])

@@ -20,6 +20,7 @@ from .database import (
     LibrarySubmoduleDefinition, TenantDeployedItem,
     Notification, MediaUpload,
     PMSDailyLog, DispatchRecord, InvoiceRecord,
+    Customer, Vendor, RawMaterial,
 )
 from .auth import get_current_user, require_admin, require_manager
 from .labels import get_labels, DEFAULT_L
@@ -396,6 +397,7 @@ def fms_dashboard(
     # Role scoping — build team_ids once, reuse for all three queries
     team_ids = []
     mgr_all_fms_ids: set = set()
+    emp_all_fms_ids: set = set()
     if user.role == "MANAGER":
         team_ids = [u.id for u in db.query(User).filter(
             User.manager_id == user.id, User.is_deleted == False).all()]
@@ -413,9 +415,12 @@ def fms_dashboard(
     elif user.role == "EMPLOYEE":
         helper_tids = [h.ticket_id for h in db.query(FMSTicketHelper).filter(
             FMSTicketHelper.user_id == user.id).all()]
+        hist_tids_emp = [h.ticket_id for h in db.query(FMSStageHistory).filter(
+            FMSStageHistory.assignee_id == user.id).all()]
+        emp_all_fms_ids = set(helper_tids) | set(hist_tids_emp)
         base_q = base_q.filter(
             (FMSTicket.current_assignee_id == user.id) |
-            (FMSTicket.id.in_(helper_tids))
+            (FMSTicket.id.in_(emp_all_fms_ids))
         )
 
     active_tickets = base_q.filter(
@@ -479,7 +484,9 @@ def fms_dashboard(
             )
         elif user.role == "EMPLOYEE":
             swimlane_q = swimlane_q.filter(
-                FMSTicket.current_assignee_id == user.id)
+                (FMSTicket.current_assignee_id == user.id) |
+                (FMSTicket.id.in_(emp_all_fms_ids))
+            )
 
         for t in swimlane_q.all():
             sid = t.current_stage_id
@@ -521,11 +528,9 @@ def fms_dashboard(
                 (FMSTicket.id.in_(mgr_all_fms_ids))
             )
         elif user.role == "EMPLOYEE":
-            helper_tids = [h.ticket_id for h in db.query(FMSTicketHelper).filter(
-                FMSTicketHelper.user_id == user.id).all()]
             list_q = list_q.filter(
                 (FMSTicket.current_assignee_id == user.id) |
-                (FMSTicket.id.in_(helper_tids))
+                (FMSTicket.id.in_(emp_all_fms_ids))
             )
         # Flow filter
         if flow_id and active_flow:
@@ -653,7 +658,10 @@ def fms_dashboard(
                     (FMSTicket.id.in_(mgr_all_fms_ids))
                 )
             elif user.role == "EMPLOYEE":
-                q = q.filter(FMSTicket.current_assignee_id == user.id)
+                q = q.filter(
+                    (FMSTicket.current_assignee_id == user.id) |
+                    (FMSTicket.id.in_(emp_all_fms_ids))
+                )
             if f_priority:
                 q = q.filter(FMSTicket.priority == f_priority)
             if f_assignee_id:
@@ -683,6 +691,59 @@ def fms_dashboard(
         if i + 1 < len(stage_table_stages):
             next_stage_map[s.id] = stage_table_stages[i + 1]
 
+    # ── Consolidated table view ───────────────────────────────────────────────
+    import json as _json
+    consolidated_rows = []
+    if view == "consolidated" and active_flow and stage_table_stages:
+        # All tickets in this flow (role-scoped)
+        cq = db.query(FMSTicket).filter(
+            FMSTicket.flow_id == active_flow.id,
+            FMSTicket.is_deleted == False,
+        )
+        if user.role == "MANAGER":
+            cq = cq.filter(
+                (FMSTicket.current_assignee_id.in_(team_ids)) |
+                (FMSTicket.id.in_(mgr_all_fms_ids))
+            )
+        elif user.role == "EMPLOYEE":
+            cq = cq.filter(
+                (FMSTicket.current_assignee_id == user.id) |
+                (FMSTicket.id.in_(emp_all_fms_ids))
+            )
+        all_flow_tickets = cq.order_by(FMSTicket.created_at.desc()).all()
+
+        for t in all_flow_tickets:
+            # Get the most recent history row per stage
+            histories = db.query(FMSStageHistory).filter(
+                FMSStageHistory.ticket_id == t.id
+            ).order_by(FMSStageHistory.entered_at).all()
+
+            stage_data = {}  # stage_id -> dict
+            for h in histories:
+                cf_data = {}
+                if h.custom_fields_data_json:
+                    try:
+                        cf_data = _json.loads(h.custom_fields_data_json)
+                    except Exception:
+                        cf_data = {}
+                duration_h = None
+                if h.entered_at and h.exited_at:
+                    duration_h = round((h.exited_at - h.entered_at).total_seconds() / 3600, 1)
+                # Keep latest visit per stage
+                stage_data[h.stage_id] = {
+                    "assignee_name": h.assignee.name if h.assignee else "—",
+                    "entered_at": h.entered_at,
+                    "exited_at": h.exited_at,
+                    "duration_h": duration_h,
+                    "cf": cf_data,
+                    "is_active": h.exited_at is None,
+                }
+
+            consolidated_rows.append({
+                "ticket": t,
+                "stage_data": stage_data,
+            })
+
     from .linked_entities import get_linked_entity_options as _geo
     entity_options = _geo(db, tid)
 
@@ -702,6 +763,8 @@ def fms_dashboard(
         tat_info=tat_info,
         flagged_tickets=flagged_tickets,
         can_drag=can_drag,
+        # consolidated table view
+        consolidated_rows=consolidated_rows,
         # list view
         list_tickets=list_tickets,
         departments=departments,
@@ -1057,6 +1120,12 @@ def fms_ticket_detail(
             if u:
                 assignee_names.append(u.name)
 
+        import json as _json
+        try:
+            stage_custom_fields = _json.loads(s.custom_fields_json or "[]")
+        except Exception:
+            stage_custom_fields = []
+
         stage_panels.append({
             "stage":          s,
             "is_current":     is_current,
@@ -1070,7 +1139,8 @@ def fms_ticket_detail(
             "enriched_visits": enriched_visits,
             "assignee_names": assignee_names,
             "qty_done":       _stage_cumulative_qty(db, ticket_id, s.id),
-            "sub_module_tag": s.sub_module_tag,
+            "sub_module_tag": getattr(s, "sub_module_tag", None),
+            "custom_fields":  stage_custom_fields,
         })
 
     # Manager override window still open?
@@ -1091,8 +1161,33 @@ def fms_ticket_detail(
     can_transition = _can_transition(user, ticket)
     can_manage     = user.role in ("ADMIN", "MANAGER")
 
+    # Custom field definitions for the current active stage (for transition form)
+    import json as _json
+    current_stage_custom_fields = []
+    if ticket.current_stage:
+        try:
+            current_stage_custom_fields = _json.loads(ticket.current_stage.custom_fields_json or "[]")
+        except Exception:
+            current_stage_custom_fields = []
+
     from .linked_entities import get_linked_entity_options as _geo
     entity_options = _geo(db, user.tenant_id)
+
+    # Entity data for custom field entity_link dropdowns — Admin only
+    entity_data = {}
+    if user.role == "ADMIN":
+        entity_data = {
+            "customer": [{"id": c.id, "name": c.name} for c in
+                         db.query(Customer).filter(Customer.tenant_id == user.tenant_id,
+                                                   Customer.is_deleted == False).order_by(Customer.name).all()],
+            "vendor": [{"id": v.id, "name": v.name} for v in
+                       db.query(Vendor).filter(Vendor.tenant_id == user.tenant_id,
+                                               Vendor.is_deleted == False).order_by(Vendor.name).all()],
+            "raw_material": [{"id": r.id, "name": r.name} for r in
+                             db.query(RawMaterial).filter(RawMaterial.tenant_id == user.tenant_id,
+                                                          RawMaterial.is_deleted == False).order_by(RawMaterial.name).all()],
+            "employee": [{"id": e.id, "name": e.name} for e in employees],
+        }
 
     return templates.TemplateResponse(request, "fms/ticket_detail.html", _ctx(
         request, user, db,
@@ -1104,11 +1199,14 @@ def fms_ticket_detail(
         can_transition=can_transition, can_manage=can_manage,
         now=now,
         entity_options=entity_options,
+        entity_data=entity_data,
+        current_stage_custom_fields=current_stage_custom_fields,
     ))
 
 
 @router.post("/tickets/{ticket_id}/transition")
 async def fms_transition(
+    request: Request,
     ticket_id: str,
     next_stage_id: str = Form(...),
     new_assignee_id: str = Form(...),
@@ -1177,13 +1275,29 @@ async def fms_transition(
 
     qty = int(qty_completed) if qty_completed.strip().isdigit() else 0
 
+    # Collect custom field values for current stage
+    import json as _json
+    custom_fields_data = {}
+    if cur_stage:
+        try:
+            field_defs = _json.loads(cur_stage.custom_fields_json or "[]")
+        except Exception:
+            field_defs = []
+        form_data = await request.form()
+        for fdef in field_defs:
+            key = f"cf__{fdef.get('label','')}"
+            val = form_data.get(key, "")
+            if val:
+                custom_fields_data[fdef.get("label", "")] = str(val)
+
     # Close current stage history row
     if open_h:
-        open_h.exited_at        = datetime.utcnow()
-        open_h.completion_note  = completion_note.strip() or None
-        open_h.qty_completed    = qty
-        open_h.evidence_url     = evidence_url
-        open_h.evidence_filename= evidence_filename
+        open_h.exited_at              = datetime.utcnow()
+        open_h.completion_note        = completion_note.strip() or None
+        open_h.qty_completed          = qty
+        open_h.evidence_url           = evidence_url
+        open_h.evidence_filename      = evidence_filename
+        open_h.custom_fields_data_json = _json.dumps(custom_fields_data) if custom_fields_data else None
         _log(db, ticket_id, user.id, "STAGE_EXITED",
              f"From: {cur_stage.name if cur_stage else '?'} | "
              f"note: {completion_note[:80]}" if completion_note else "")

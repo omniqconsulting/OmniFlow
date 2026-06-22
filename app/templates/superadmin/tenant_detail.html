@@ -10,6 +10,8 @@
 {% if msg == 'password_reset'  %}<div class="alert alert-green">✓ Password reset successfully.</div>{% endif %}
 {% if msg == 'flow_deployed'   %}<div class="alert alert-green">✓ Flow deployed successfully.</div>{% endif %}
 {% if msg == 'flow_deleted'    %}<div class="alert alert-green">✓ Flow removed from tenant.</div>{% endif %}
+{% if msg == 'flow_deactivated'%}<div class="alert alert-yellow">Flow deactivated — hidden from client until reactivated.</div>{% endif %}
+{% if msg == 'flow_activated'  %}<div class="alert alert-green">✓ Flow reactivated — now visible to client.</div>{% endif %}
 {% if msg == 'item_undeployed' %}<div class="alert alert-green">✓ Item undeployed from tenant.</div>{% endif %}
 {% if msg == 'ai_limit_updated' %}<div class="alert alert-green">✓ AI call limit updated.</div>{% endif %}
 {% if err %}<div class="alert alert-red">{{ err }}</div>{% endif %}
@@ -401,14 +403,23 @@ document.addEventListener('DOMContentLoaded', function() {
       </td>
       <td class="muted">{{ f.created_at.strftime('%d %b %Y') if f.created_at else '—' }}</td>
       <td>
-        {% if f.active_ticket_count and f.active_ticket_count > 0 %}
-        <span class="muted" style="font-size:10px" title="Cannot delete — has active tickets">{{ f.active_ticket_count }} active</span>
-        {% else %}
-        <form method="post" action="/superadmin/tenants/{{ tenant.id }}/delete-flow/{{ f.id }}"
-              onsubmit="return confirm('Delete flow \'{{ f.name }}\' from {{ tenant.name }}? This cannot be undone.')">
-          <button type="submit" class="btn btn-sm btn-red" style="font-size:10px;padding:3px 8px">Delete</button>
-        </form>
-        {% endif %}
+        <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+          <!-- Deactivate / Reactivate (always available — hides flow from client without deleting) -->
+          <form method="post" action="/superadmin/tenants/{{ tenant.id }}/toggle-flow/{{ f.id }}" style="display:inline">
+            <button type="submit" class="btn btn-sm {% if f.is_active %}btn-outline{% else %}btn-gray{% endif %}" style="font-size:10px;padding:3px 8px">
+              {% if f.is_active %}Deactivate{% else %}Reactivate{% endif %}
+            </button>
+          </form>
+          <!-- Delete — only when no active tickets -->
+          {% if not f.active_ticket_count or f.active_ticket_count == 0 %}
+          <form method="post" action="/superadmin/tenants/{{ tenant.id }}/delete-flow/{{ f.id }}" style="display:inline"
+                onsubmit="return confirm('Permanently delete flow \'{{ f.name }}\' from {{ tenant.name }}? All ticket data will be soft-deleted.')">
+            <button type="submit" class="btn btn-sm btn-red" style="font-size:10px;padding:3px 8px">Delete</button>
+          </form>
+          {% else %}
+          <span class="muted" style="font-size:10px" title="Cannot delete — has active tickets">{{ f.active_ticket_count }} active tickets</span>
+          {% endif %}
+        </div>
       </td>
     </tr>
     {% endfor %}
