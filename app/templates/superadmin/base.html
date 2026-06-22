@@ -14,28 +14,126 @@ a:hover{color:#c4b5fd}
 
 /* ── Light theme overrides ── */
 html.sa-light body{background:#f1f5f9;color:#1e293b}
+
+/* Nav */
 html.sa-light .sa-nav{background:#ffffff;border-bottom-color:rgba(124,58,237,0.18)}
 html.sa-light .sa-nav a{color:#475569}
 html.sa-light .sa-nav a:hover{background:rgba(124,58,237,0.08);color:#1e293b}
 html.sa-light .sa-nav a.active{background:rgba(124,58,237,0.12);color:#7c3aed}
 html.sa-light .sa-nav .sa-info{color:#64748b}
 html.sa-light .sa-nav .logout{color:#64748b;border-color:rgba(124,58,237,0.25)}
+html.sa-light .sa-nav .logo{color:#1e293b}
+
+/* Cards */
 html.sa-light .card{background:#ffffff;border-color:rgba(0,0,0,0.08)}
 html.sa-light .card-purple{background:#faf5ff;border-color:rgba(124,58,237,0.2)}
 html.sa-light .card h2{color:#1e293b}
+
+/* Tables */
 html.sa-light th{color:#64748b;border-bottom-color:rgba(0,0,0,0.08)}
 html.sa-light td{color:#334155;border-bottom-color:rgba(0,0,0,0.05)}
 html.sa-light tr:hover td{background:rgba(0,0,0,0.02)}
-html.sa-light .form-group input,.sa-light .form-group select,.sa-light .form-group textarea{background:#f8fafc;border-color:rgba(0,0,0,0.15);color:#1e293b}
+html.sa-light table a{color:#7c3aed}
+
+/* Forms */
+html.sa-light .form-group input,
+html.sa-light .form-group select,
+html.sa-light .form-group textarea{background:#f8fafc;border-color:rgba(0,0,0,0.15);color:#1e293b}
+html.sa-light .form-group input:focus,
+html.sa-light .form-group select:focus{border-color:#7c3aed;box-shadow:0 0 0 3px rgba(124,58,237,0.12)}
+html.sa-light .form-group label{color:#475569}
+html.sa-light select option{background:#ffffff;color:#1e293b}
+
+/* KPI tiles */
 html.sa-light .kpi-tile{background:#ffffff;border-color:rgba(0,0,0,0.08)}
 html.sa-light .kpi-tile .value{color:#1e293b}
+html.sa-light .kpi-tile .label{color:#64748b}
+
+/* Modals */
 html.sa-light .modal-box{background:#ffffff;border-color:rgba(124,58,237,0.18)}
 html.sa-light .modal-title{color:#1e293b}
+html.sa-light .modal-close{color:#64748b}
+html.sa-light .modal-close:hover{color:#1e293b}
+html.sa-light .modal-overlay{background:rgba(0,0,0,0.3)}
+
+/* Buttons */
 html.sa-light .btn{background:#f1f5f9;border-color:rgba(0,0,0,0.12);color:#334155}
 html.sa-light .btn:hover{background:#e2e8f0;color:#1e293b}
+html.sa-light .btn-gray{background:#e2e8f0;border-color:rgba(0,0,0,0.12);color:#475569}
+html.sa-light .btn-gray:hover{background:#cbd5e1;color:#1e293b}
+html.sa-light .btn-outline{background:transparent;border-color:rgba(0,0,0,0.18);color:#475569}
+html.sa-light .btn-outline:hover{background:rgba(0,0,0,0.05);color:#1e293b}
+
+/* Badges */
+html.sa-light .badge-gray{background:rgba(0,0,0,0.07);color:#475569}
+html.sa-light .badge-blue{background:rgba(59,130,246,0.12);color:#1d4ed8}
+html.sa-light .badge-green{background:rgba(16,185,129,0.12);color:#065f46}
+html.sa-light .badge-purple{background:rgba(124,58,237,0.12);color:#6d28d9}
+html.sa-light .badge-amber{background:rgba(245,158,11,0.12);color:#92400e}
+html.sa-light .badge-red{background:rgba(239,68,68,0.12);color:#991b1b}
+
+/* Alerts */
+html.sa-light .alert-green{background:rgba(16,185,129,0.08);color:#065f46;border-color:rgba(16,185,129,0.2)}
+html.sa-light .alert-red{background:rgba(239,68,68,0.08);color:#991b1b;border-color:rgba(239,68,68,0.2)}
+html.sa-light .alert-purple{background:rgba(124,58,237,0.08);color:#6d28d9;border-color:rgba(124,58,237,0.2)}
+html.sa-light .alert-blue{background:rgba(59,130,246,0.08);color:#1d4ed8;border-color:rgba(59,130,246,0.2)}
+html.sa-light .alert-yellow{background:rgba(245,158,11,0.08);color:#92400e;border-color:rgba(245,158,11,0.2)}
+
+/* Text utilities */
+html.sa-light .muted{color:#64748b}
+html.sa-light .page-title{color:#1e293b}
 html.sa-light a{color:#7c3aed}
 html.sa-light a:hover{color:#6d28d9}
-html.sa-light .page-title{color:#1e293b}
+
+/* Scrollbar */
+html.sa-light ::-webkit-scrollbar-thumb{background:#cbd5e1}
+
+/* ── Override hardcoded dark hex colors in inline styles ──────────────────────
+   CSS attribute selectors match elements where style= contains these strings.
+   This avoids having to edit every template. */
+
+/* Dark backgrounds → light surface */
+html.sa-light [style*="background:#07090f"],
+html.sa-light [style*="background:#0b0f1a"],
+html.sa-light [style*="background:#0d1424"],
+html.sa-light [style*="background:#0f0a1e"],
+html.sa-light [style*="background:#110e1f"],
+html.sa-light [style*="background:#111827"],
+html.sa-light [style*="background:#131c2e"],
+html.sa-light [style*="background:#1a1033"],
+html.sa-light [style*="background:#1e293b"],
+html.sa-light [style*="background:#273549"]
+{ background:#f8fafc !important; border-color:rgba(0,0,0,0.08) !important; }
+
+/* Dark text colors → readable on light */
+html.sa-light [style*="color:#e2e8f0"],
+html.sa-light [style*="color:#f1f5f9"]
+{ color:#1e293b !important; }
+
+html.sa-light [style*="color:#cbd5e1"]
+{ color:#334155 !important; }
+
+html.sa-light [style*="color:#94a3b8"],
+html.sa-light [style*="color:#7dd3fc"]
+{ color:#475569 !important; }
+
+/* White/near-white borders → dark borders */
+html.sa-light [style*="border:1px solid rgba(255,255,255,0.08)"],
+html.sa-light [style*="border:1px solid rgba(255,255,255,0.07)"],
+html.sa-light [style*="border:1px solid rgba(255,255,255,0.12)"],
+html.sa-light [style*="border-bottom:1px solid rgba(255,255,255,0.08)"],
+html.sa-light [style*="border-bottom:1px solid rgba(255,255,255,0.05)"]
+{ border-color:rgba(0,0,0,0.08) !important; }
+
+/* Inline selects that have dark background hardcoded */
+html.sa-light select[style*="background:#0d1424"],
+html.sa-light select[style*="background:#111827"],
+html.sa-light select[style*="background:#0b0f1a"]
+{ background:#f8fafc !important; color:#1e293b !important; border-color:rgba(0,0,0,0.15) !important; }
+
+/* Stage color pills that use dark bg tints — keep their tint but lighter */
+html.sa-light [style*="border-radius:6px"][style*="background:"][style*="text-align:center"]
+{ border-color:rgba(0,0,0,0.1) !important; }
 
 /* ── Theme toggle button ── */
 .sa-theme-btn{background:none;border:1px solid rgba(167,139,250,0.2);border-radius:7px;cursor:pointer;font-size:15px;padding:4px 9px;color:#94a3b8;transition:all .12s;font-family:inherit;line-height:1}
