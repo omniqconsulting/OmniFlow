@@ -177,6 +177,14 @@ WHATSAPP_TEMPLATES = {
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
         "variable_order": ["recipient_name", "ticket_title", "actor_name"],
     },
+    # FMS stage transition — new assignee alert
+    # Hi {{1}}, a work order '{{2}}' has moved to stage '{{3}}' and is now
+    # assigned to you. Login to OmniFlow to acknowledge.
+    "omniflow_fms_stage_transition": {
+        "msg91_template_id": 417226,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["name", "ticket_title", "stage_name"],
+    },
 }
 
 MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "")

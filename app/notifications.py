@@ -287,12 +287,81 @@ def notify_checklist_completed(db, assignment, admin_ids: list, manager_ids: lis
 
 # ── Phase 2/4 stubs — routing logic defined now (per §18.2 plan) ─────────────
 
+def send_whatsapp_for_fms_stage_transition(db, tenant_id: str, ticket_id: str,
+                                            ticket_title: str, stage_name: str, assignee):
+    """
+    WhatsApp send for omniflow_fms_stage_transition — fires when a ticket
+    moves to a new stage and the incoming assignee is known.
+    Never raises — always logs an attempt row.
+    """
+    from .database import WhatsAppMessageLog
+    from .services.msg91 import send_whatsapp_template
+    variables = [assignee.name, ticket_title, stage_name]
+    try:
+        if not assignee.mobile_verified:
+            status, error = "SKIPPED_UNVERIFIED", None
+        else:
+            success, error = send_whatsapp_template(
+                assignee.phone, "omniflow_fms_stage_transition", variables)
+            status = "SENT" if success else "FAILED"
+        db.add(WhatsAppMessageLog(
+            tenant_id=tenant_id,
+            template_name="omniflow_fms_stage_transition",
+            recipient_user_id=assignee.id,
+            recipient_phone=assignee.phone,
+            variables_json=json.dumps(variables),
+            status=status,
+            error_message=error,
+            related_entity_type="fms_ticket",
+            related_entity_id=ticket_id,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("WhatsApp fms_stage_transition failed")
+
+
+def send_whatsapp_for_fms_ticket_created(db, fms_ticket, assignee):
+    """
+    WhatsApp send on FMS ticket creation — reuses omniflow_ticket_assigned
+    (same template, same variables) so no new Meta approval needed.
+    Never raises — always logs an attempt row.
+    """
+    from .database import WhatsAppMessageLog
+    from .services.msg91 import send_whatsapp_template, format_wa_date
+    due_str = format_wa_date(fms_ticket.due_at) if fms_ticket.due_at else "N/A"
+    variables = [assignee.name, fms_ticket.title, fms_ticket.priority, due_str]
+    try:
+        if not assignee.mobile_verified:
+            status, error = "SKIPPED_UNVERIFIED", None
+        else:
+            success, error = send_whatsapp_template(
+                assignee.phone, "omniflow_ticket_assigned", variables)
+            status = "SENT" if success else "FAILED"
+        db.add(WhatsAppMessageLog(
+            tenant_id=fms_ticket.tenant_id,
+            template_name="omniflow_ticket_assigned",
+            recipient_user_id=assignee.id,
+            recipient_phone=assignee.phone,
+            variables_json=json.dumps(variables),
+            status=status,
+            error_message=error,
+            related_entity_type="fms_ticket",
+            related_entity_id=fms_ticket.id,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("WhatsApp fms_ticket_created failed")
+
+
 def notify_fms_stage_transition(tenant_id: str, ticket_id: str, ticket_title: str,
                                  new_stage: str, actor_id: str,
                                  admin_ids: list, manager_ids: list, new_assignee_id: str):
     """
     1-6: FMS_STAGE_TRANSITION (used in Phase 2)
     Audience: admin + scoped managers + new assignee.
+    WhatsApp is sent separately via send_whatsapp_for_fms_stage_transition().
     """
     from .ws_manager import FMS_STAGE_TRANSITION
     audience = list(set(admin_ids + manager_ids + [new_assignee_id or ""]))

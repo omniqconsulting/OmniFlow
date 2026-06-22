@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}New FMS Ticket{% endblock %}
 {% block content %}
-<div class="page-header mb-4">
+<div class="page-header mb-3">
   <nav aria-label="breadcrumb">
     <ol class="breadcrumb mb-1">
       <li class="breadcrumb-item"><a href="/fms/dashboard">FMS Dashboard</a></li>
@@ -11,19 +11,25 @@
   <h2 class="mb-0"><i class="bi bi-ticket-perforated me-2"></i>Create FMS Ticket</h2>
 </div>
 
-<div class="row g-4 justify-content-center">
-  <div class="col-lg-8">
-    <form method="post" action="/fms/tickets/new" id="ticketForm">
-      <div class="card shadow-sm border-0">
-        <div class="card-body">
+<form method="post" action="/fms/tickets/new" id="ticketForm">
+  <!-- hidden fields populated by JS -->
+  <input type="hidden" name="starting_stage_id" id="stageIdField" required>
+  <input type="hidden" name="assignee_id" id="assigneeIdField" required>
+
+  <div class="row g-3">
+
+    <!-- ── LEFT: flow + stage list ─────────────────────────────────────────── -->
+    <div class="col-lg-4">
+      <div class="card shadow-sm border-0 h-100">
+        <div class="card-body d-flex flex-column gap-3">
 
           <!-- Flow selector -->
-          <div class="mb-4">
-            <label class="form-label fw-semibold">Workflow (Flow) <span class="text-danger">*</span></label>
+          <div>
+            <label class="form-label fw-semibold mb-1">Workflow <span class="text-danger">*</span></label>
             <select name="flow_id" id="flowSelect" class="form-select" required onchange="loadStages()">
-              <option value="">-- Select a flow --</option>
+              <option value="">— Select a flow —</option>
               {% for f in flows %}
-              <option value="{{ f.id }}" data-stages="{{ f.stages | tojson | e }}"
+              <option value="{{ f.id }}"
                       {{ 'selected' if selected_flow and selected_flow.id == f.id else '' }}>
                 {{ f.name }}
               </option>
@@ -31,23 +37,40 @@
             </select>
           </div>
 
-          <!-- Starting stage -->
-          <div class="mb-4" id="stageRow" style="{{ '' if selected_flow else 'display:none' }}">
-            <label class="form-label fw-semibold">Starting Stage <span class="text-danger">*</span></label>
-            <div id="stageCards" class="d-flex flex-wrap gap-2"></div>
-            <input type="hidden" name="starting_stage_id" id="stageIdField" required>
+          <!-- Stage list -->
+          <div id="stageListWrap" style="display:none;flex:1;min-height:0">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <span class="fw-semibold" style="font-size:13px">Stages &amp; Assignees</span>
+              <span class="text-muted" style="font-size:11px">Click to set starting stage</span>
+            </div>
+            <div id="stageList"
+                 style="overflow-y:auto;max-height:420px;display:flex;flex-direction:column;gap:6px">
+            </div>
           </div>
 
-          <hr class="my-3">
+          <div id="noFlowHint" class="text-muted" style="font-size:12px">
+            Select a workflow to see stages.
+          </div>
 
-          <!-- Title & description -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RIGHT: ticket fields ─────────────────────────────────────────────── -->
+    <div class="col-lg-8">
+      <div class="card shadow-sm border-0">
+        <div class="card-body">
+
           <div class="mb-3">
             <label class="form-label fw-semibold">Ticket Title <span class="text-danger">*</span></label>
-            <input type="text" name="title" class="form-control" required placeholder="e.g. PO-2024-001 – Steel Frame">
+            <input type="text" name="title" class="form-control" required
+                   placeholder="e.g. PO-2024-001 – Steel Frame Batch">
           </div>
+
           <div class="mb-3">
             <label class="form-label fw-semibold">Description</label>
-            <textarea name="description" class="form-control" rows="3" placeholder="Optional details…"></textarea>
+            <textarea name="description" class="form-control" rows="2"
+                      placeholder="Optional details…"></textarea>
           </div>
 
           <div class="row g-3 mb-3">
@@ -80,44 +103,25 @@
             </div>
           </div>
 
-          <div class="mb-4">
-            <label class="form-label fw-semibold">Assignee for First Stage <span class="text-danger">*</span></label>
-            <select name="assignee_id" class="form-select" required>
-              <option value="">-- Select employee --</option>
-              {% for emp in employees %}
-              <option value="{{ emp.id }}">{{ emp.name }} ({{ emp.role }})</option>
-              {% endfor %}
-            </select>
+          <!-- Stage Timeline (collapsible) -->
+          <div id="timelineToggleRow" style="display:none;margin-bottom:8px">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleTimeline()">
+              <i class="bi bi-calendar3 me-1"></i><span id="timelineToggleLabel">Set Stage Timeline</span>
+            </button>
+            <span class="text-muted ms-2" style="font-size:11px">
+              Plan start/end dates per stage — delays tracked automatically
+            </span>
           </div>
 
-          <!-- Stage Timeline -->
           <div id="stageTimelineSection" style="display:none">
-            <hr class="my-3">
-            <div class="mb-2 d-flex align-items-center gap-3 flex-wrap">
-              <span class="fw-semibold">Stage Timeline</span>
-              <span class="text-muted" style="font-size:12px">Set the planned schedule — delays will be tracked against this</span>
-            </div>
-            <div class="row g-2 mb-3">
+            <div class="row g-2 mb-2">
               <div class="col-md-5">
                 <label class="form-label" style="font-size:12px;font-weight:600">Work starts on</label>
                 <input type="datetime-local" id="scheduleStartDate" name="schedule_start_date"
                        class="form-control form-control-sm" oninput="autoFillTimeline()">
               </div>
-              <div class="col-md-7 d-flex align-items-end">
-                <span class="text-muted" style="font-size:11px">Each stage's end date is auto-calculated from its TaT target. You can override individual stages below.</span>
-              </div>
             </div>
             <div id="stageTimelineRows" class="d-flex flex-column gap-2"></div>
-          </div>
-
-          <!-- Stage Pre-Assignments -->
-          <div id="stageAssignmentsSection" style="display:none">
-            <hr class="my-3">
-            <div class="mb-2">
-              <span class="fw-semibold">Stage Assignments</span>
-              <span class="text-muted ms-2" style="font-size:12px">Optionally pre-assign who handles each stage so employees know what's coming</span>
-            </div>
-            <div id="stageAssignmentRows" class="d-flex flex-column gap-2"></div>
           </div>
 
         </div>
@@ -128,9 +132,9 @@
           </button>
         </div>
       </div>
-    </form>
-  </div>
-</div>
+    </div>
+  </div><!-- /row -->
+</form>
 
 <script>
 const allFlowStages = {};
@@ -138,95 +142,134 @@ const allFlowStages = {};
 allFlowStages["{{ f.id }}"] = {{ f.stages | tojson | safe }};
 {% endfor %}
 
-const employeeOptions = [
-  '<option value="">-- unassigned --</option>',
-  {% for emp in employees %}
-  '<option value="{{ emp.id }}">{{ emp.name }} ({{ emp.role }})</option>',
-  {% endfor %}
-].join('');
+const employeeOptions = `<option value="">— unassigned —</option>` +
+  [{% for emp in employees %}'<option value="{{ emp.id }}">{{ emp.name }} ({{ emp.role }})</option>',{% endfor %}].join('');
 
 let selectedStageId = null;
+let timelineVisible = false;
 
+// ── Load stages when flow changes ─────────────────────────────────────────────
 function loadStages() {
   const fid = document.getElementById('flowSelect').value;
-  const row = document.getElementById('stageRow');
-  const cards = document.getElementById('stageCards');
+  const wrap = document.getElementById('stageListWrap');
+  const hint = document.getElementById('noFlowHint');
+  const list = document.getElementById('stageList');
+  const timelineToggle = document.getElementById('timelineToggleRow');
+
   selectedStageId = null;
   document.getElementById('stageIdField').value = '';
-  cards.innerHTML = '';
+  document.getElementById('assigneeIdField').value = '';
+  list.innerHTML = '';
+  document.getElementById('stageTimelineRows').innerHTML = '';
+  document.getElementById('stageTimelineSection').style.display = 'none';
+  timelineVisible = false;
+  document.getElementById('timelineToggleLabel').textContent = 'Set Stage Timeline';
+
   if (!fid) {
-    row.style.display = 'none';
-    document.getElementById('stageTimelineSection').style.display = 'none';
-    document.getElementById('stageAssignmentsSection').style.display = 'none';
+    wrap.style.display = 'none';
+    hint.style.display = '';
+    timelineToggle.style.display = 'none';
     return;
   }
-  row.style.display = '';
-  const stages = (allFlowStages[fid]||[]).filter(s=>!s.is_deleted).sort((a,b)=>a.order-b.order);
-  stages.forEach(s => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn btn-sm btn-outline-secondary';
-    btn.style = `border-color:${s.color}; color:${s.color}`;
-    btn.textContent = `${s.order+1}. ${s.name}`;
-    btn.onclick = () => selectStage(s.id, btn, s.color);
-    cards.appendChild(btn);
-  });
-  if (stages.length) cards.children[0].click();
 
-  // Stage Timeline section
-  const timelineSection = document.getElementById('stageTimelineSection');
-  timelineSection.style.display = stages.length ? '' : 'none';
+  const stages = (allFlowStages[fid] || []).filter(s => !s.is_deleted).sort((a, b) => a.order - b.order);
+  wrap.style.display = stages.length ? 'flex' : 'none';
+  hint.style.display = stages.length ? 'none' : '';
+  timelineToggle.style.display = stages.length ? '' : 'none';
+
+  stages.forEach((s, i) => {
+    const row = document.createElement('div');
+    row.id = `srow_${s.id}`;
+    row.style.cssText = `
+      display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;
+      border:1px solid var(--border-faint,rgba(255,255,255,.08));cursor:pointer;
+      background:var(--bg-card,#0d1424);transition:border-color .15s;
+    `;
+    row.innerHTML = `
+      <span style="display:inline-block;width:9px;height:9px;border-radius:50%;
+                   background:${s.color};flex-shrink:0"></span>
+      <span style="font-size:12px;font-weight:600;min-width:18px;color:var(--text-muted)">${s.order+1}.</span>
+      <span style="font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+            title="${s.name}">${s.name}</span>
+      <select name="stage_assignee_${s.id}" id="sass_${s.id}"
+              class="form-select form-select-sm"
+              style="width:140px;flex-shrink:0;font-size:11px;padding:3px 6px"
+              onclick="event.stopPropagation()"
+              onchange="onAssigneeChange('${s.id}')">
+        ${employeeOptions}
+      </select>
+    `;
+    row.addEventListener('click', () => selectStage(s.id));
+    list.appendChild(row);
+  });
+
   renderTimelineRows(stages);
 
-  // Stage Assignment rows (skip first — covered by main Assignee field)
-  const assignSection = document.getElementById('stageAssignmentsSection');
-  const assignRows = document.getElementById('stageAssignmentRows');
-  assignRows.innerHTML = '';
-  if (stages.length > 1) {
-    assignSection.style.display = '';
-    stages.forEach((s, i) => {
-      const dot = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.color};margin-right:6px;flex-shrink:0"></span>`;
-      const select = i === 0
-        ? `<select class="form-select form-select-sm" disabled style="opacity:.5;flex:1"><option>Set via Assignee field above</option></select>`
-        : `<select name="stage_assignee_${s.id}" class="form-select form-select-sm" style="flex:1">${employeeOptions}</select>`;
-      assignRows.innerHTML += `
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="min-width:200px;display:flex;align-items:center;font-size:13px">
-            ${dot}<strong>${s.order+1}. ${s.name}</strong>
-            ${i===0?'<span class="badge bg-secondary ms-1" style="font-size:10px">↑ from above</span>':''}
-          </div>
-          ${select}
-        </div>`;
-    });
-  } else {
-    assignSection.style.display = 'none';
+  // Auto-select first stage
+  if (stages.length) selectStage(stages[0].id);
+}
+
+// ── Select a starting stage ───────────────────────────────────────────────────
+function selectStage(stageId) {
+  selectedStageId = stageId;
+  document.getElementById('stageIdField').value = stageId;
+
+  document.querySelectorAll('#stageList > div').forEach(row => {
+    row.style.borderColor = 'var(--border-faint,rgba(255,255,255,.08))';
+    row.style.background  = 'var(--bg-card,#0d1424)';
+  });
+  const sel = document.getElementById(`srow_${stageId}`);
+  if (sel) {
+    sel.style.borderColor = '#3b82f6';
+    sel.style.background  = 'rgba(59,130,246,.08)';
+  }
+
+  // Sync hidden assignee_id from this stage's dropdown
+  const sass = document.getElementById(`sass_${stageId}`);
+  document.getElementById('assigneeIdField').value = sass ? sass.value : '';
+}
+
+// When any stage's assignee dropdown changes
+function onAssigneeChange(stageId) {
+  if (stageId === selectedStageId) {
+    const sass = document.getElementById(`sass_${stageId}`);
+    document.getElementById('assigneeIdField').value = sass ? sass.value : '';
   }
 }
 
-// Render editable planned-end date inputs for each stage
+// ── Timeline toggle ───────────────────────────────────────────────────────────
+function toggleTimeline() {
+  timelineVisible = !timelineVisible;
+  document.getElementById('stageTimelineSection').style.display = timelineVisible ? '' : 'none';
+  document.getElementById('timelineToggleLabel').textContent =
+    timelineVisible ? 'Hide Stage Timeline' : 'Set Stage Timeline';
+}
+
+// ── Render per-stage planned-end inputs ───────────────────────────────────────
 function renderTimelineRows(stages) {
   const container = document.getElementById('stageTimelineRows');
   container.innerHTML = '';
-  stages.forEach((s, i) => {
-    const dot = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.color};margin-right:6px;flex-shrink:0"></span>`;
+  stages.forEach(s => {
     const tatLabel = s.target_tat_hours ? `${s.target_tat_hours}h TaT` : 'no TaT set';
-    container.innerHTML += `
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="min-width:200px;display:flex;align-items:center;font-size:13px">
-          ${dot}<strong>${s.order+1}. ${s.name}</strong>
-          <span class="text-muted ms-2" style="font-size:11px">(${tatLabel})</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px">
-          <span class="text-muted">Expected end:</span>
-          <input type="datetime-local" name="stage_planned_end_${s.id}"
-                 id="tl_${s.id}" class="form-control form-control-sm" style="width:200px"
-                 oninput="cascadeTimeline('${s.id}')">
-        </div>
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+    row.innerHTML = `
+      <div style="min-width:190px;display:flex;align-items:center;font-size:12px;gap:6px">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${s.color}"></span>
+        <strong>${s.order+1}. ${s.name}</strong>
+        <span class="text-muted" style="font-size:11px">(${tatLabel})</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+        <span class="text-muted">Planned end:</span>
+        <input type="datetime-local" name="stage_planned_end_${s.id}"
+               id="tl_${s.id}" class="form-control form-control-sm" style="width:195px"
+               oninput="cascadeTimeline('${s.id}')">
       </div>`;
+    container.appendChild(row);
   });
 }
 
-// Auto-fill all planned-end fields from the start date + cumulative TAT
+// ── Timeline auto-fill from start date ───────────────────────────────────────
 function autoFillTimeline() {
   const fid = document.getElementById('flowSelect').value;
   const startVal = document.getElementById('scheduleStartDate').value;
@@ -234,16 +277,13 @@ function autoFillTimeline() {
   const stages = (allFlowStages[fid]||[]).filter(s=>!s.is_deleted).sort((a,b)=>a.order-b.order);
   let cursor = new Date(startVal);
   stages.forEach(s => {
-    const tat = s.target_tat_hours || 24;
-    cursor = new Date(cursor.getTime() + tat * 3600000);
+    cursor = new Date(cursor.getTime() + (s.target_tat_hours || 24) * 3600000);
     const inp = document.getElementById(`tl_${s.id}`);
-    if (inp && !inp.dataset.manuallySet) {
-      inp.value = toDatetimeLocal(cursor);
-    }
+    if (inp && !inp.dataset.manuallySet) inp.value = toDatetimeLocal(cursor);
   });
 }
 
-// Cascade: when user edits one stage's end, push the remaining forward
+// ── Cascade timeline when user edits a stage's end ────────────────────────────
 function cascadeTimeline(changedStageId) {
   const fid = document.getElementById('flowSelect').value;
   if (!fid) return;
@@ -257,9 +297,8 @@ function cascadeTimeline(changedStageId) {
   for (let i = changedIdx + 1; i < stages.length; i++) {
     const s = stages[i];
     const inp = document.getElementById(`tl_${s.id}`);
-    if (!inp || inp.dataset.manuallySet) continue; // don't overwrite manual entries
-    const tat = s.target_tat_hours || 24;
-    cursor = new Date(cursor.getTime() + tat * 3600000);
+    if (!inp || inp.dataset.manuallySet) continue;
+    cursor = new Date(cursor.getTime() + (s.target_tat_hours || 24) * 3600000);
     inp.value = toDatetimeLocal(cursor);
   }
 }
@@ -269,20 +308,19 @@ function toDatetimeLocal(d) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function selectStage(id, btn, color) {
-  document.querySelectorAll('#stageCards button').forEach(b => {
-    b.classList.remove('btn-primary');
-    b.classList.add('btn-outline-secondary');
-    b.style.background='';
-  });
-  btn.classList.remove('btn-outline-secondary');
-  btn.classList.add('btn-primary');
-  btn.style.background = color;
-  btn.style.color = '#fff';
-  btn.style.borderColor = color;
-  selectedStageId = id;
-  document.getElementById('stageIdField').value = id;
-}
+// ── Submit guard — ensure assignee for starting stage is set ──────────────────
+document.getElementById('ticketForm').addEventListener('submit', function(e) {
+  const aid = document.getElementById('assigneeIdField').value;
+  if (!aid) {
+    e.preventDefault();
+    alert('Please assign an employee to the starting stage before creating the ticket.');
+    return;
+  }
+  // Also copy starting-stage assignee into its stage_assignee_ field so backend reads it
+  const stageId = document.getElementById('stageIdField').value;
+  const sass = document.getElementById(`sass_${stageId}`);
+  if (sass) sass.name = `stage_assignee_${stageId}`; // already set, harmless
+});
 
 {% if selected_flow %}
 window.addEventListener('DOMContentLoaded', () => loadStages());
