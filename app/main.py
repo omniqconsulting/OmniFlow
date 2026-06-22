@@ -230,6 +230,47 @@ def _unread_count(db: Session, user: User) -> int:
     ).count()
 
 
+def _send_wa_registration_received(phone: str, contact_name: str, company_name: str):
+    """Pipeline 5A — omniflow_registration_received. Sends to prospect phone. No mobile_verified gate. Never raises."""
+    from .services.msg91 import send_whatsapp_template, normalize_mobile
+    if not phone or not phone.strip():
+        return
+    try:
+        send_whatsapp_template(normalize_mobile(phone), "omniflow_registration_received", [contact_name, company_name])
+    except Exception:
+        import logging
+        logging.getLogger("main").exception("_send_wa_registration_received failed for phone=%s", phone)
+
+
+def _send_wa_registration_alert_sa(company_name: str, contact_name: str, contact_phone: str, tenant_id: str, db):
+    """Pipeline 5B — omniflow_registration_alert_sa. Sends to SA_ALERT_PHONE. Never raises."""
+    from .services.msg91 import send_whatsapp_template, normalize_mobile
+    from .database import WhatsAppMessageLog
+    from .constants import SA_ALERT_PHONE
+    import json
+    if not SA_ALERT_PHONE:
+        return
+    variables = [company_name, contact_name, contact_phone]
+    try:
+        ok, error = send_whatsapp_template(normalize_mobile(SA_ALERT_PHONE), "omniflow_registration_alert_sa", variables)
+        db.add(WhatsAppMessageLog(
+            tenant_id=tenant_id,
+            template_name="omniflow_registration_alert_sa",
+            recipient_user_id=None,
+            recipient_phone=SA_ALERT_PHONE,
+            variables_json=json.dumps(variables),
+            status="SENT" if ok else "FAILED",
+            error_message=error,
+            related_entity_type="registration",
+            related_entity_id=tenant_id,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        import logging
+        logging.getLogger("main").exception("_send_wa_registration_alert_sa failed")
+
+
 def _admin_ids(db: Session, tenant_id: str) -> list:
     """Return user IDs of all ADMIN users in a tenant (for broadcast audience)."""
     return [
@@ -507,6 +548,10 @@ def register(request: Request, factory_name: str = Form(...), slug: str = Form(.
                 password_hash=hash_password(password), role="ADMIN")
     db.add(user)
     db.commit()
+    # Pipeline 5A — registration received WhatsApp to prospect
+    _send_wa_registration_received(phone, name, factory_name)
+    # Pipeline 5B — registration alert WhatsApp to SA
+    _send_wa_registration_alert_sa(factory_name, name, phone, tenant.id, db)
     return templates.TemplateResponse(request, "register_pending.html", {
         "factory_name": factory_name, "slug": slug, "name": name,
     })

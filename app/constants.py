@@ -177,7 +177,33 @@ WHATSAPP_TEMPLATES = {
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
         "variable_order": ["recipient_name", "ticket_title", "actor_name"],
     },
+    # FMS stage transition — new assignee alert
+    # Hi {{1}}, a work order '{{2}}' has moved to stage '{{3}}' and is now
+    # assigned to you. Login to OmniFlow to acknowledge.
+    "omniflow_fms_stage_transition": {
+        "msg91_template_id": 417226,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["name", "ticket_title", "stage_name"],
+    },
+    # Brief 5 — Registration pipelines (5A, 5B, 5C)
+    "omniflow_registration_received": {
+        "msg91_template_id": 417218,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["contact_name", "company_name"],
+    },
+    "omniflow_registration_alert_sa": {
+        "msg91_template_id": 418092,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["company_name", "contact_name", "contact_phone"],
+    },
+    "omniflow_registration_rejected": {
+        "msg91_template_id": 417220,
+        "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "variable_order": ["reason"],
+    },
 }
 
 MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "")
 MSG91_WA_NUMBER = os.environ.get("MSG91_WA_NUMBER", "")
+# Brief 5 — SA alert phone (international format, no +, no spaces)
+SA_ALERT_PHONE = os.environ.get("SA_ALERT_PHONE", "")

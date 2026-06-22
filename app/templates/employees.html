@@ -133,7 +133,6 @@
       <td style="display:flex;gap:5px;flex-wrap:wrap">
         <a href="/employees/{{ emp.id }}/performance" class="btn btn-sm btn-outline" title="Performance">📊</a>
         {% if user.role == 'ADMIN' %}
-        <button onclick="toggleRow('mgr-{{ emp.id }}')" class="btn btn-sm btn-outline">Manager</button>
         <button onclick="toggleRow('pw-{{ emp.id }}')" class="btn btn-sm btn-gray">Reset PW</button>
         <button onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-outline" style="color:#fbbf24;border-color:rgba(251,191,36,.3)">Edit</button>
         <form method="post" action="/employees/{{ emp.id }}/toggle-validated" style="display:inline">
@@ -146,32 +145,6 @@
         <button onclick="confirmDelete('{{ emp.id }}','{{ emp.name | e }}')" class="btn btn-sm btn-red">Delete</button>
         {% endif %}
         {% endif %}
-      </td>
-    </tr>
-
-    <!-- Set Manager inline row -->
-    {% if user.role == 'ADMIN' %}
-    <tr id="mgr-{{ emp.id }}" style="display:none;background:rgba(59,130,246,0.04)">
-      <td colspan="7" style="padding:10px 16px">
-        <form method="post" action="/employees/{{ emp.id }}/assign-manager"
-              style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">
-            Manager for <strong style="color:var(--text-strong)">{{ emp.name }}</strong>:
-          </span>
-          <select name="manager_id"
-                  style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:200px">
-            <option value="">— None —</option>
-            {% for m in managers %}
-            {% if m.id != emp.id %}
-            <option value="{{ m.id }}" {% if emp.manager_id == m.id %}selected{% endif %}>
-              {{ m.name }} ({{ m.role }})
-            </option>
-            {% endif %}
-            {% endfor %}
-          </select>
-          <button type="submit" class="btn btn-sm btn-primary">Save</button>
-          <button type="button" onclick="toggleRow('mgr-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
-        </form>
       </td>
     </tr>
 

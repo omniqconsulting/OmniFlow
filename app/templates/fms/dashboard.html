@@ -866,17 +866,9 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
           <input type="hidden" name="flow_id" id="modalFlowId" required>
         </div>
 
-        <!-- Flow info box -->
-        <div class="flow-info-box" id="flowInfoBox">
-          <div id="flowInfoName" style="font-size:13px;font-weight:700;color:var(--text-strong);margin-bottom:4px"></div>
-          <div id="flowInfoDesc" style="font-size:11px;color:var(--text-faint);margin-bottom:8px;line-height:1.5"></div>
-          <div class="fml-label" style="margin-bottom:4px">Stage Pipeline</div>
-          <div class="flow-pipeline" id="flowPipeline"></div>
-        </div>
-
-        <!-- Stage picker -->
+        <!-- Stage picker (starting stage + per-stage assignees) -->
         <div id="stageSelectorWrap" style="display:none">
-          <div class="fml-label">Starting Stage</div>
+          <div class="fml-label">Starting Stage &amp; Assignees</div>
           <div class="stage-sel-wrap" id="stageBtnList"></div>
           <input type="hidden" name="starting_stage_id" id="modalStageId" required>
         </div>
@@ -920,17 +912,8 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
 
           <div style="height:12px"></div>
 
-          <div class="fm-group" style="margin-bottom:0">
-            <label>Assignee *</label>
-            <select name="assignee_id" id="modalAssignee" required>
-              <option value="">— Select employee —</option>
-              {% for emp in employees %}
-              <option value="{{ emp.id }}" data-name="{{ emp.name }}" data-role="{{ emp.role }}">
-                {{ emp.name }} · {{ emp.role }}
-              </option>
-              {% endfor %}
-            </select>
-          </div>
+          <!-- assignee_id auto-synced from starting stage's per-stage dropdown -->
+          <input type="hidden" name="assignee_id" id="modalAssignee" required>
 
           <!-- Linked entities -->
           {% if entity_options %}
@@ -1141,6 +1124,12 @@ const FLOWS_DATA = {
   {% endfor %}
 };
 
+const EMPLOYEES_DATA = [
+  {% for emp in employees %}
+  { id: "{{ emp.id }}", name: {{ emp.name | tojson }}, role: {{ emp.role | tojson }} }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+
 const SM_LABELS = {PMS:'📊 Production Log', DISPATCH:'🚛 Dispatch', INVOICE:'🧾 Invoice', MATERIAL_REQ:'📦 Material Req', CUSTOM:'📋 Custom Form'};
 
 let currentFlowId = null;
@@ -1181,55 +1170,63 @@ function selectFlow(fid) {
   }
 
   document.getElementById('modalFlowId').value = fid;
+  document.getElementById('modalAssignee').value = '';
+  document.getElementById('submitBtn').disabled = true;
 
-  // Show flow info
+  // Build stage buttons with per-stage assignee dropdowns
   const f = FLOWS_DATA[fid];
-  document.getElementById('flowInfoName').textContent = f.name;
-  document.getElementById('flowInfoDesc').textContent = f.description || '';
-  document.getElementById('flowInfoDesc').style.display = f.description ? '' : 'none';
+  const employeeOpts = [
+    '<option value="">— unassigned —</option>',
+    ...EMPLOYEES_DATA.map(e => `<option value="${e.id}">${e.name} · ${e.role}</option>`)
+  ].join('');
 
-  // Pipeline preview
-  const pip = document.getElementById('flowPipeline');
-  pip.innerHTML = '';
-  f.stages.forEach((s, i) => {
-    const chip = document.createElement('div');
-    chip.className = 'pip-step';
-    chip.innerHTML = `
-      <span class="pip-chip" style="background:${s.color}22;border:1px solid ${s.color}44;color:var(--text-primary)">
-        ${s.name}${s.is_terminal ? ' ✓' : ''}
-      </span>
-      ${i < f.stages.length - 1 ? '<span class="pip-arrow">›</span>' : ''}
-    `;
-    pip.appendChild(chip);
-  });
-  document.getElementById('flowInfoBox').classList.add('visible');
-
-  // Build stage buttons
   const stageList = document.getElementById('stageBtnList');
   stageList.innerHTML = '';
   if (f.stages.length === 0) {
     stageList.innerHTML = '<div class="stage-empty">No stages configured for this flow</div>';
   } else {
     f.stages.forEach(s => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'stage-btn';
-      btn.id = 'sbtn-' + s.id;
-      btn.setAttribute('data-stage-id', s.id);
-      btn.setAttribute('data-assignee', s.default_assignee_id || '');
-      btn.setAttribute('data-tat', s.target_tat_hours || '');
-      btn.setAttribute('data-note', s.completion_note_required ? '1' : '0');
-      btn.setAttribute('data-desc', s.description || '');
-      btn.innerHTML = `
-        <span class="stage-num" style="background:${s.color}33;color:var(--text-primary)">${s.order + 1}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:500">${s.name}</div>
-          ${s.description ? `<div style="font-size:10px;color:var(--text-faint);margin-top:2px;line-height:1.4;white-space:normal">${s.description}</div>` : ''}
+      const wrap = document.createElement('div');
+      wrap.id = 'swrap-' + s.id;
+      wrap.style.cssText = 'border:1.5px solid rgba(255,255,255,.08);border-radius:7px;overflow:hidden;transition:border-color .15s;cursor:pointer';
+
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg-input)';
+      row.innerHTML = `
+        <span class="stage-num" style="background:${s.color}33;color:var(--text-primary);flex-shrink:0">${s.order + 1}</span>
+        <div style="flex:1;min-width:0;overflow:hidden">
+          <div style="font-weight:500;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.name}</div>
+          ${s.is_terminal ? '<div style="font-size:9px;color:#6ee7b7">terminal</div>' : ''}
         </div>
-        ${s.is_terminal ? '<span style="font-size:9px;color:#6ee7b7;flex-shrink:0">terminal</span>' : ''}
       `;
-      btn.onclick = () => selectStage(s.id, s.color);
-      stageList.appendChild(btn);
+
+      const selRow = document.createElement('div');
+      selRow.style.cssText = 'padding:4px 10px 7px;background:var(--bg-input)';
+      selRow.innerHTML = `
+        <select name="stage_assignee_${s.id}" id="sass-${s.id}"
+                style="width:100%;background:var(--bg-card);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 8px;font-size:11px;color:var(--text-primary);font-family:inherit;outline:none"
+                onchange="onStageAssigneeChange('${s.id}')">
+          ${employeeOpts}
+        </select>
+      `;
+      if (s.default_assignee_id) {
+        setTimeout(() => {
+          const sel = document.getElementById('sass-' + s.id);
+          if (sel) sel.value = s.default_assignee_id;
+        }, 0);
+      }
+
+      wrap.appendChild(row);
+      wrap.appendChild(selRow);
+      wrap.setAttribute('data-stage-id', s.id);
+      wrap.setAttribute('data-tat', s.target_tat_hours || '');
+      wrap.setAttribute('data-note', s.completion_note_required ? '1' : '0');
+      wrap.addEventListener('click', function(e) {
+        if (e.target.tagName !== 'SELECT' && e.target.tagName !== 'OPTION') {
+          selectStage(s.id, s.color);
+        }
+      });
+      stageList.appendChild(wrap);
     });
   }
 
@@ -1247,29 +1244,21 @@ function selectStage(sid, color) {
   currentStageId = sid;
   document.getElementById('modalStageId').value = sid;
 
-  document.querySelectorAll('.stage-btn').forEach(b => {
-    b.classList.remove('selected');
-    b.style.borderColor = '';
-    b.style.background = '';
+  document.querySelectorAll('#stageBtnList > div').forEach(w => {
+    w.style.borderColor = 'rgba(255,255,255,.08)';
   });
-  const btn = document.getElementById('sbtn-' + sid);
-  if (btn) {
-    btn.classList.add('selected');
-    btn.style.borderColor = color;
-    btn.style.background = color + '18';
+  const wrap = document.getElementById('swrap-' + sid);
+  if (wrap) {
+    wrap.style.borderColor = color;
 
-    // Default assignee
-    const defAssignee = btn.getAttribute('data-assignee');
-    if (defAssignee) {
-      const sel = document.getElementById('modalAssignee');
-      if ([...sel.options].some(o => o.value === defAssignee)) sel.value = defAssignee;
-    }
+    // Sync assignee to hidden field
+    syncAssigneeFromStage(sid);
 
     // Stage hint
     const hint = document.getElementById('stageHint');
     const parts = [];
-    const tat  = btn.getAttribute('data-tat');
-    const note = btn.getAttribute('data-note');
+    const tat  = wrap.getAttribute('data-tat');
+    const note = wrap.getAttribute('data-note');
     if (tat)        parts.push(`⏱ TaT target: <strong style="color:var(--text-primary)">${tat}h</strong>`);
     if (note==='1') parts.push(`📝 Completion note required`);
     if (parts.length) { hint.innerHTML = parts.join(' &nbsp;·&nbsp; '); hint.style.display=''; }
@@ -1278,9 +1267,20 @@ function selectStage(sid, color) {
   checkReady();
 }
 
-// ── Enable submit when flow + stage selected ──────────────────────────────────
+function syncAssigneeFromStage(sid) {
+  const sel = document.getElementById('sass-' + sid);
+  document.getElementById('modalAssignee').value = sel ? sel.value : '';
+  checkReady();
+}
+
+function onStageAssigneeChange(sid) {
+  if (sid === currentStageId) syncAssigneeFromStage(sid);
+}
+
+// ── Enable submit when flow + stage + assignee selected ───────────────────────
 function checkReady() {
-  document.getElementById('submitBtn').disabled = !(currentFlowId && currentStageId);
+  const assignee = document.getElementById('modalAssignee').value;
+  document.getElementById('submitBtn').disabled = !(currentFlowId && currentStageId && assignee);
 }
 </script>
 {% endif %}

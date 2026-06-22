@@ -61,8 +61,8 @@
   <div id="reject-{{ tenant.id }}" style="display:none;margin-top:14px;background:#0d1424;border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:14px;gap:10px;align-items:flex-end;flex-wrap:wrap">
     <form method="post" action="/superadmin/tenants/{{ tenant.id }}/reject" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;width:100%">
       <div style="flex:1;min-width:200px">
-        <label style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:5px">Reason (optional)</label>
-        <input type="text" name="reason" placeholder="e.g. Duplicate account, spam…"
+        <label style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:5px">Reason (required)</label>
+        <input type="text" name="reason" placeholder="e.g. Duplicate account, spam…" required
                style="width:100%;background:#07090f;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:7px 10px;color:#e2e8f0;font-size:12px;outline:none">
       </div>
       <button type="submit" class="btn btn-red btn-sm">Confirm Reject</button>

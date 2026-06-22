@@ -25,7 +25,11 @@ from .database import (
 from .auth import get_current_user, require_admin, require_manager
 from .labels import get_labels, DEFAULT_L
 from .constants import has_feature, PLAN_LIMITS
-from .notifications import notify_fms_stage_transition
+from .notifications import (
+    notify_fms_stage_transition,
+    send_whatsapp_for_fms_stage_transition,
+    send_whatsapp_for_fms_ticket_created,
+)
 from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION
 
 
@@ -934,6 +938,10 @@ async def fms_ticket_create(
         user.tenant_id, ticket.id, ticket.title,
         stage.name, user.id, admins, managers, assignee_id)
 
+    assignee_obj = db.query(User).filter(User.id == assignee_id).first()
+    if assignee_obj:
+        send_whatsapp_for_fms_ticket_created(db, ticket, assignee_obj)
+
     return _redirect(f"/fms/tickets/{ticket.id}")
 
 
@@ -1425,12 +1433,17 @@ async def fms_transition(
 
     db.commit()
 
-    # WS broadcast
+    # WS broadcast + WhatsApp
     admins   = _admin_ids(db, user.tenant_id)
     managers = _manager_ids_for(db, new_assignee_id)
     notify_fms_stage_transition(
         user.tenant_id, ticket_id, ticket.title,
         next_stage.name, user.id, admins, managers, new_assignee_id)
+    new_assignee_obj = db.query(User).filter(User.id == new_assignee_id).first()
+    if new_assignee_obj:
+        send_whatsapp_for_fms_stage_transition(
+            db, user.tenant_id, ticket_id, ticket.title,
+            next_stage.name, new_assignee_obj)
     audience = list(set(admins + managers + [new_assignee_id]))
     broadcast_sync(user.tenant_id, audience, FMS_STAGE_TRANSITION, {
         "ticket_id": ticket_id, "display_id": ticket.display_id,
