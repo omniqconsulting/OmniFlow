@@ -33,7 +33,7 @@
     {% for f in flows %}
     <tr>
       <td>
-        <a href="/superadmin/library/flows/{{ f.id }}" style="color:#e2e8f0;font-weight:500">{{ f.name }}</a>
+        <a href="/superadmin/library/flows/{{ f.id }}" style="font-weight:500">{{ f.name }}</a>
         {% if f.is_system %}<span class="badge badge-gray" style="font-size:9px;margin-left:4px">SYSTEM</span>{% endif %}
       </td>
       <td class="muted">{{ f.industry or '—' }}</td>

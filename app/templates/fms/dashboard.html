@@ -377,8 +377,17 @@ select option{background:var(--bg-card);color:var(--text-primary)}
           {% if t.wo_number %}{{ t.wo_number }}{% endif %}
         </div>
         {% endif %}
-        <div class="tc-assignee">
+        <div class="tc-assignee" style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
           {{ t.current_assignee.name[:18] if t.current_assignee else '—' }}
+          {% if user.role == 'EMPLOYEE' %}
+            {% if t.current_assignee_id == user.id %}
+              <span title="You are currently working on this" style="font-size:10px;background:rgba(59,130,246,0.18);color:#60a5fa;border-radius:4px;padding:1px 5px;white-space:nowrap">▶ yours</span>
+            {% elif t.id in emp_upcoming_ids %}
+              <span title="You are pre-assigned to an upcoming stage" style="font-size:10px;background:rgba(245,158,11,0.18);color:#fbbf24;border-radius:4px;padding:1px 5px;white-space:nowrap">⏳ upcoming</span>
+            {% elif t.id in emp_all_fms_ids %}
+              <span title="You worked on this ticket" style="font-size:10px;background:rgba(16,185,129,0.15);color:#6ee7b7;border-radius:4px;padding:1px 5px;white-space:nowrap">✓ done</span>
+            {% endif %}
+          {% endif %}
           {% if t.is_flagged %} 🚩{% endif %}
         </div>
         {% if ti.pct is not none %}
@@ -522,8 +531,14 @@ select option{background:var(--bg-card);color:var(--text-primary)}
           </td>
           <td style="font-size:12px">
             {{ row.assignee_name }}
-            {% if user.role == 'EMPLOYEE' and t.current_assignee_id != user.id %}
-            <span title="Your task on this ticket is done" style="font-size:10px;background:rgba(16,185,129,0.15);color:#6ee7b7;border-radius:4px;padding:1px 5px;margin-left:4px;white-space:nowrap">✓ task done</span>
+            {% if user.role == 'EMPLOYEE' %}
+              {% if t.current_assignee_id == user.id %}
+              <span title="You are currently working on this" style="font-size:10px;background:rgba(59,130,246,0.18);color:#60a5fa;border-radius:4px;padding:1px 5px;margin-left:4px;white-space:nowrap">▶ yours</span>
+              {% elif t.id in emp_upcoming_ids %}
+              <span title="You are pre-assigned to an upcoming stage" style="font-size:10px;background:rgba(245,158,11,0.18);color:#fbbf24;border-radius:4px;padding:1px 5px;margin-left:4px;white-space:nowrap">⏳ upcoming</span>
+              {% elif t.id in emp_all_fms_ids %}
+              <span title="You worked on this ticket" style="font-size:10px;background:rgba(16,185,129,0.15);color:#6ee7b7;border-radius:4px;padding:1px 5px;margin-left:4px;white-space:nowrap">✓ done</span>
+              {% endif %}
             {% endif %}
           </td>
           <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>

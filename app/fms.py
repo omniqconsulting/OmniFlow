@@ -398,6 +398,7 @@ def fms_dashboard(
     team_ids = []
     mgr_all_fms_ids: set = set()
     emp_all_fms_ids: set = set()
+    emp_upcoming_ids: set = set()
     if user.role == "MANAGER":
         team_ids = [u.id for u in db.query(User).filter(
             User.manager_id == user.id, User.is_deleted == False).all()]
@@ -417,10 +418,18 @@ def fms_dashboard(
             FMSTicketHelper.user_id == user.id).all()]
         hist_tids_emp = [h.ticket_id for h in db.query(FMSStageHistory).filter(
             FMSStageHistory.assignee_id == user.id).all()]
+        # pre-assigned to a future stage on any active ticket
+        upcoming_tids_emp = [t.id for t in db.query(FMSTicket).filter(
+            FMSTicket.tenant_id == tid,
+            FMSTicket.is_deleted == False,
+            FMSTicket.stage_assignees_json.like(f'%"{user.id}"%'),
+        ).all()]
         emp_all_fms_ids = set(helper_tids) | set(hist_tids_emp)
+        emp_upcoming_ids = set(upcoming_tids_emp) - emp_all_fms_ids
         base_q = base_q.filter(
             (FMSTicket.current_assignee_id == user.id) |
-            (FMSTicket.id.in_(emp_all_fms_ids))
+            (FMSTicket.id.in_(emp_all_fms_ids)) |
+            (FMSTicket.id.in_(emp_upcoming_ids))
         )
 
     active_tickets = base_q.filter(
@@ -485,7 +494,8 @@ def fms_dashboard(
         elif user.role == "EMPLOYEE":
             swimlane_q = swimlane_q.filter(
                 (FMSTicket.current_assignee_id == user.id) |
-                (FMSTicket.id.in_(emp_all_fms_ids))
+                (FMSTicket.id.in_(emp_all_fms_ids)) |
+                (FMSTicket.id.in_(emp_upcoming_ids))
             )
 
         for t in swimlane_q.all():
@@ -530,7 +540,8 @@ def fms_dashboard(
         elif user.role == "EMPLOYEE":
             list_q = list_q.filter(
                 (FMSTicket.current_assignee_id == user.id) |
-                (FMSTicket.id.in_(emp_all_fms_ids))
+                (FMSTicket.id.in_(emp_all_fms_ids)) |
+                (FMSTicket.id.in_(emp_upcoming_ids))
             )
         # Flow filter
         if flow_id and active_flow:
@@ -708,7 +719,8 @@ def fms_dashboard(
         elif user.role == "EMPLOYEE":
             cq = cq.filter(
                 (FMSTicket.current_assignee_id == user.id) |
-                (FMSTicket.id.in_(emp_all_fms_ids))
+                (FMSTicket.id.in_(emp_all_fms_ids)) |
+                (FMSTicket.id.in_(emp_upcoming_ids))
             )
         all_flow_tickets = cq.order_by(FMSTicket.created_at.desc()).all()
 
@@ -778,6 +790,9 @@ def fms_dashboard(
         f_status=status_filter or "",
         employees=employees,
         entity_options=entity_options,
+        # role-relative ticket classification for employee board symbols
+        emp_upcoming_ids=emp_upcoming_ids,
+        emp_all_fms_ids=emp_all_fms_ids,
         # summary strip
         active_tickets=active_tickets,
         tat_breaches=tat_breaches,
@@ -826,12 +841,24 @@ async def fms_ticket_create(
     user: User = Depends(require_manager), db: Session = Depends(get_db),
 ):
     """2-C-1 / P7-06: Create FMS ticket with evidence_required + linked entities."""
+    import json as _json
     flow = _get_flow(db, flow_id, user.tenant_id)
     stage = db.query(FMSStage).filter(
         FMSStage.id == starting_stage_id,
         FMSStage.flow_id == flow_id).first()
     if not stage:
         raise HTTPException(400, "Invalid starting stage")
+
+    # Collect per-stage pre-assignments from form: stage_assignee_<stage_id>
+    form_data = dict(await request.form())
+    stage_assignees = {
+        k[len("stage_assignee_"):]: v
+        for k, v in form_data.items()
+        if k.startswith("stage_assignee_") and v.strip()
+    }
+    # Starting stage assignee always comes from the main assignee_id field
+    stage_assignees[stage.id] = assignee_id
+    stage_assignees_json = _json.dumps(stage_assignees)
 
     ticket = FMSTicket(
         tenant_id=user.tenant_id, flow_id=flow_id,
@@ -843,6 +870,7 @@ async def fms_ticket_create(
         current_assignee_id=assignee_id,
         due_at=datetime.fromisoformat(due_at) if due_at.strip() else None,
         created_by_id=user.id, status="ACTIVE",
+        stage_assignees_json=stage_assignees_json,
     )
     db.add(ticket)
     db.flush()
@@ -862,7 +890,6 @@ async def fms_ticket_create(
 
     # P7-06: save linked entities
     from .linked_entities import save_linked_entities_from_form as _slf
-    form_data = dict(await request.form())
     _slf(db, form_data, "FMS_TICKET", ticket.id, user.tenant_id, user.id)
 
     admins   = _admin_ids(db, user.tenant_id)
@@ -1170,6 +1197,13 @@ def fms_ticket_detail(
         except Exception:
             current_stage_custom_fields = []
 
+    # Parse stage pre-assignments for the transition form auto-fill
+    stage_assignees: dict = {}
+    try:
+        stage_assignees = _json.loads(ticket.stage_assignees_json or "{}")
+    except Exception:
+        stage_assignees = {}
+
     from .linked_entities import get_linked_entity_options as _geo
     entity_options = _geo(db, user.tenant_id)
 
@@ -1201,6 +1235,7 @@ def fms_ticket_detail(
         entity_options=entity_options,
         entity_data=entity_data,
         current_stage_custom_fields=current_stage_custom_fields,
+        stage_assignees=stage_assignees,
     ))
 
 

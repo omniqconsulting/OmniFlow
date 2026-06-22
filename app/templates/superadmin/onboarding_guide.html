@@ -167,9 +167,9 @@
 
     <div>
       <div class="guide-section-label" style="color:#10b981">Example — Acme Morning Safety Inspection</div>
-      <div style="background:#0d1424;border:1px solid rgba(16,185,129,0.18);border-radius:8px;padding:14px">
-        <div style="font-size:12px;color:#6ee7b7;font-weight:600;margin-bottom:2px">Morning Safety Inspection</div>
-        <div style="font-size:11px;color:#64748b;margin-bottom:10px">Daily · Due by 08:00</div>
+      <div style="background:var(--bg-card,#0d1424);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:14px">
+        <div style="font-size:12px;color:#10b981;font-weight:600;margin-bottom:2px">Morning Safety Inspection</div>
+        <div style="font-size:11px;color:var(--text-muted,#64748b);margin-bottom:10px">Daily · Due by 08:00</div>
         {% for item in [
           'PPE check — all workers in designated zones wearing correct PPE',
           'Fire extinguisher access — paths clear, no obstructions',
@@ -178,9 +178,9 @@
           'Spill kits — check stock level, replace if any kits used overnight',
           'Shift supervisor sign-off',
         ] %}
-        <div style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid rgba(0,0,0,0.06)">
           <div style="width:14px;height:14px;border:1.5px solid #10b981;border-radius:3px;flex-shrink:0;margin-top:1px"></div>
-          <div style="font-size:12px;color:#cbd5e1">{{ item }}</div>
+          <div style="font-size:12px">{{ item }}</div>
         </div>
         {% endfor %}
       </div>
