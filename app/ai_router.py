@@ -83,7 +83,7 @@ def _ctx(request, user, db, **kw):
         "unread": _unread(db, user),
         "has_inventory":  has_feature(tenant, "INVENTORY",  db) if tenant else False,
         "has_fms":        has_feature(tenant, "FMS",        db) if tenant else False,
-        "has_checklists": has_feature(tenant, "CHECKLISTS", db) if tenant else False,
+        "has_checklists": True,  # core feature, always available
         **kw,
     }
 
