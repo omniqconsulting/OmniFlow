@@ -13,17 +13,16 @@ branch_labels = None
 depends_on = None
 
 
-def _col_exists(table, column):
-    conn = op.get_bind()
-    insp = sa.inspect(conn)
-    return column in [c['name'] for c in insp.get_columns(table)]
-
-
 def upgrade():
-    if not _col_exists('fms_tickets', 'stage_assignees_json'):
-        op.add_column('fms_tickets', sa.Column('stage_assignees_json', sa.Text(), nullable=True))
+    try:
+        op.add_column('fms_tickets',
+            sa.Column('stage_assignees_json', sa.Text(), nullable=True))
+    except Exception:
+        pass
 
 
 def downgrade():
-    if _col_exists('fms_tickets', 'stage_assignees_json'):
+    try:
         op.drop_column('fms_tickets', 'stage_assignees_json')
+    except Exception:
+        pass
