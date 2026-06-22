@@ -744,11 +744,13 @@ def fms_dashboard(
                 # Keep latest visit per stage
                 stage_data[h.stage_id] = {
                     "assignee_name": h.assignee.name if h.assignee else "—",
-                    "entered_at": h.entered_at,
-                    "exited_at": h.exited_at,
-                    "duration_h": duration_h,
-                    "cf": cf_data,
-                    "is_active": h.exited_at is None,
+                    "entered_at":    h.entered_at,
+                    "exited_at":     h.exited_at,
+                    "duration_h":    duration_h,
+                    "planned_start": h.planned_start,
+                    "planned_end":   h.planned_end,
+                    "cf":            cf_data,
+                    "is_active":     h.exited_at is None,
                 }
 
             consolidated_rows.append({
@@ -849,16 +851,47 @@ async def fms_ticket_create(
     if not stage:
         raise HTTPException(400, "Invalid starting stage")
 
-    # Collect per-stage pre-assignments from form: stage_assignee_<stage_id>
+    # Collect per-stage pre-assignments: stage_assignee_<stage_id>
     form_data = dict(await request.form())
     stage_assignees = {
         k[len("stage_assignee_"):]: v
         for k, v in form_data.items()
         if k.startswith("stage_assignee_") and v.strip()
     }
-    # Starting stage assignee always comes from the main assignee_id field
     stage_assignees[stage.id] = assignee_id
     stage_assignees_json = _json.dumps(stage_assignees)
+
+    # Build stage schedule from form: stage_planned_end_<stage_id>
+    # planned_start of stage N = planned_end of stage N-1
+    # Auto-filled by JS from start_date + cumulative TAT, user can override per stage
+    all_flow_stages = sorted(
+        [s for s in flow.stages if not s.is_deleted], key=lambda s: s.order
+    )
+    stage_schedule: dict = {}
+    start_date_str = form_data.get("schedule_start_date", "").strip()
+    if start_date_str:
+        try:
+            cursor = datetime.fromisoformat(start_date_str)
+            for fs in all_flow_stages:
+                p_end_str = form_data.get(f"stage_planned_end_{fs.id}", "").strip()
+                if p_end_str:
+                    p_end = datetime.fromisoformat(p_end_str)
+                else:
+                    tat_h = fs.target_tat_hours or 24
+                    p_end = cursor + timedelta(hours=tat_h)
+                stage_schedule[fs.id] = {
+                    "planned_start": cursor.isoformat(),
+                    "planned_end":   p_end.isoformat(),
+                }
+                cursor = p_end
+        except (ValueError, TypeError):
+            stage_schedule = {}
+    stage_schedule_json = _json.dumps(stage_schedule) if stage_schedule else None
+
+    # Planned dates for the first stage history row
+    first_sched = stage_schedule.get(stage.id, {})
+    first_ps = datetime.fromisoformat(first_sched["planned_start"]) if first_sched.get("planned_start") else None
+    first_pe = datetime.fromisoformat(first_sched["planned_end"])   if first_sched.get("planned_end")   else None
 
     ticket = FMSTicket(
         tenant_id=user.tenant_id, flow_id=flow_id,
@@ -871,6 +904,7 @@ async def fms_ticket_create(
         due_at=datetime.fromisoformat(due_at) if due_at.strip() else None,
         created_by_id=user.id, status="ACTIVE",
         stage_assignees_json=stage_assignees_json,
+        stage_schedule_json=stage_schedule_json,
     )
     db.add(ticket)
     db.flush()
@@ -882,6 +916,8 @@ async def fms_ticket_create(
         ticket_id=ticket.id, stage_id=stage.id,
         stage_name=stage.name, assignee_id=assignee_id,
         direction="FORWARD",
+        planned_start=first_ps,
+        planned_end=first_pe,
     ))
     _log(db, ticket.id, user.id, "CREATED", title)
     _log(db, ticket.id, user.id, "STAGE_ENTERED", stage.name)
@@ -1204,6 +1240,13 @@ def fms_ticket_detail(
     except Exception:
         stage_assignees = {}
 
+    # Parse stage schedule for display in stage panels
+    stage_schedule: dict = {}
+    try:
+        stage_schedule = _json.loads(ticket.stage_schedule_json or "{}")
+    except Exception:
+        stage_schedule = {}
+
     from .linked_entities import get_linked_entity_options as _geo
     entity_options = _geo(db, user.tenant_id)
 
@@ -1236,6 +1279,7 @@ def fms_ticket_detail(
         entity_data=entity_data,
         current_stage_custom_fields=current_stage_custom_fields,
         stage_assignees=stage_assignees,
+        stage_schedule=stage_schedule,
     ))
 
 
@@ -1337,6 +1381,17 @@ async def fms_transition(
              f"From: {cur_stage.name if cur_stage else '?'} | "
              f"note: {completion_note[:80]}" if completion_note else "")
 
+    # Look up planned dates for next stage from ticket schedule
+    import json as _json2
+    _sched: dict = {}
+    try:
+        _sched = _json2.loads(ticket.stage_schedule_json or "{}")
+    except Exception:
+        _sched = {}
+    _ns = _sched.get(next_stage_id, {})
+    _nps = datetime.fromisoformat(_ns["planned_start"]) if _ns.get("planned_start") else None
+    _npe = datetime.fromisoformat(_ns["planned_end"])   if _ns.get("planned_end")   else None
+
     # Create new stage history row (2-C-5: non-linear — always new row)
     db.add(FMSStageHistory(
         ticket_id=ticket_id, stage_id=next_stage_id,
@@ -1345,6 +1400,8 @@ async def fms_transition(
         return_reason=return_reason.strip() or None,
         from_stage_id=cur_stage.id if cur_stage else None,
         from_stage_name=cur_stage.name if cur_stage else None,
+        planned_start=_nps,
+        planned_end=_npe,
     ))
 
     # Update ticket

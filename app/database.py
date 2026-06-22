@@ -656,8 +656,9 @@ class FMSTicket(Base):
     completed_at        = Column(DateTime)
     closed_at           = Column(DateTime)
     is_deleted          = Column(Boolean, default=False)
-    stage_assignees_json = Column(Text, nullable=True)  # {"stage_id": "user_id", ...}
-    created_by_id       = Column(String,  ForeignKey("users.id"), nullable=False)
+    stage_assignees_json  = Column(Text, nullable=True)  # {"stage_id": "user_id", ...}
+    stage_schedule_json   = Column(Text, nullable=True)  # {"stage_id": {"planned_start": ISO, "planned_end": ISO}}
+    created_by_id        = Column(String,  ForeignKey("users.id"), nullable=False)
     created_at          = Column(DateTime, default=datetime.utcnow)
     updated_at          = Column(DateTime, default=datetime.utcnow)
 
@@ -698,6 +699,8 @@ class FMSStageHistory(Base):
     qty_completed    = Column(Integer, default=0)
     from_stage_id    = Column(String,  nullable=True)
     from_stage_name  = Column(String,  nullable=True)
+    planned_start         = Column(DateTime, nullable=True)  # from stage_schedule_json at entry
+    planned_end           = Column(DateTime, nullable=True)  # from stage_schedule_json at entry
     evidence_url          = Column(String,  nullable=True)   # uploaded file path/URL
     evidence_filename     = Column(String,  nullable=True)   # original filename for display
     custom_fields_data_json = Column(Text, nullable=True)    # JSON dict {field_label: value}
