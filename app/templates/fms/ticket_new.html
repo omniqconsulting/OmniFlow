@@ -81,13 +81,23 @@
           </div>
 
           <div class="mb-4">
-            <label class="form-label fw-semibold">Assignee <span class="text-danger">*</span></label>
+            <label class="form-label fw-semibold">Assignee for First Stage <span class="text-danger">*</span></label>
             <select name="assignee_id" class="form-select" required>
               <option value="">-- Select employee --</option>
               {% for emp in employees %}
               <option value="{{ emp.id }}">{{ emp.name }} ({{ emp.role }})</option>
               {% endfor %}
             </select>
+          </div>
+
+          <!-- Stage Pre-Assignments -->
+          <div id="stageAssignmentsSection" style="display:none">
+            <hr class="my-3">
+            <div class="mb-2">
+              <span class="fw-semibold">Stage Assignments</span>
+              <span class="text-muted ms-2" style="font-size:12px">Optionally pre-assign who handles each stage so employees know what's coming</span>
+            </div>
+            <div id="stageAssignmentRows" class="d-flex flex-column gap-2"></div>
           </div>
 
         </div>
@@ -108,6 +118,13 @@ const allFlowStages = {};
 allFlowStages["{{ f.id }}"] = {{ f.stages | tojson | safe }};
 {% endfor %}
 
+const employeeOptions = [
+  '<option value="">-- unassigned --</option>',
+  {% for emp in employees %}
+  '<option value="{{ emp.id }}">{{ emp.name }} ({{ emp.role }})</option>',
+  {% endfor %}
+].join('');
+
 let selectedStageId = null;
 
 function loadStages() {
@@ -117,8 +134,12 @@ function loadStages() {
   selectedStageId = null;
   document.getElementById('stageIdField').value = '';
   cards.innerHTML = '';
-  if (!fid) { row.style.display='none'; return; }
-  row.style.display='';
+  if (!fid) {
+    row.style.display = 'none';
+    document.getElementById('stageAssignmentsSection').style.display = 'none';
+    return;
+  }
+  row.style.display = '';
   const stages = (allFlowStages[fid]||[]).filter(s=>!s.is_deleted).sort((a,b)=>a.order-b.order);
   stages.forEach(s => {
     const btn = document.createElement('button');
@@ -129,8 +150,37 @@ function loadStages() {
     btn.onclick = () => selectStage(s.id, btn, s.color);
     cards.appendChild(btn);
   });
-  // Auto-select first stage
   if (stages.length) cards.children[0].click();
+
+  // Render stage assignment rows (skip first — covered by main Assignee field)
+  const assignSection = document.getElementById('stageAssignmentsSection');
+  const assignRows = document.getElementById('stageAssignmentRows');
+  assignRows.innerHTML = '';
+  if (stages.length > 1) {
+    assignSection.style.display = '';
+    stages.forEach((s, i) => {
+      const dot = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.color};margin-right:6px;flex-shrink:0"></span>`;
+      const badge = i === 0
+        ? `<span class="badge bg-secondary ms-1" style="font-size:10px">← from Assignee field above</span>`
+        : '';
+      const select = i === 0
+        ? `<select class="form-select form-select-sm" disabled style="opacity:.5;flex:1">
+             <option>Set via Assignee field above</option>
+           </select>`
+        : `<select name="stage_assignee_${s.id}" class="form-select form-select-sm" style="flex:1">
+             ${employeeOptions}
+           </select>`;
+      assignRows.innerHTML += `
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="min-width:180px;display:flex;align-items:center;font-size:13px">
+            ${dot}<strong>${s.order+1}. ${s.name}</strong>${badge}
+          </div>
+          ${select}
+        </div>`;
+    });
+  } else {
+    assignSection.style.display = 'none';
+  }
 }
 
 function selectStage(id, btn, color) {
@@ -148,7 +198,6 @@ function selectStage(id, btn, color) {
   document.getElementById('stageIdField').value = id;
 }
 
-// Pre-select flow if URL has flow_id
 {% if selected_flow %}
 window.addEventListener('DOMContentLoaded', () => loadStages());
 {% endif %}

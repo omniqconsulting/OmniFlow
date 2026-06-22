@@ -48,7 +48,7 @@
   <!-- Quick deploy -->
   <form method="post" action="/superadmin/library/onboarding/{{ b.id }}/deploy"
         style="display:flex;gap:6px;align-items:flex-end">
-    <select name="tenant_id" style="flex:1;background:#0d1424;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:12px">
+    <select name="tenant_id" class="form-control" style="flex:1;font-size:12px">
       {% for t in tenants %}
       <option value="{{ t.id }}">{{ t.name }}</option>
       {% endfor %}

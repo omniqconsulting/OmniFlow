@@ -656,6 +656,7 @@ class FMSTicket(Base):
     completed_at        = Column(DateTime)
     closed_at           = Column(DateTime)
     is_deleted          = Column(Boolean, default=False)
+    stage_assignees_json = Column(Text, nullable=True)  # {"stage_id": "user_id", ...}
     created_by_id       = Column(String,  ForeignKey("users.id"), nullable=False)
     created_at          = Column(DateTime, default=datetime.utcnow)
     updated_at          = Column(DateTime, default=datetime.utcnow)
