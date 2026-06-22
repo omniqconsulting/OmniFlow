@@ -97,6 +97,18 @@ def _to_ist(dt, fmt="%d %b, %I:%M %p"):
 
 templates.env.filters["ist"] = _to_ist
 
+def _format_tat(hours):
+    """Format TAT hours as '2h', '1d', '1d 4h' etc. Returns '' for null/zero."""
+    if not hours:
+        return ""
+    h = int(hours)
+    if h < 24:
+        return f"{h}h"
+    d, r = divmod(h, 24)
+    return f"{d}d" if r == 0 else f"{d}d {r}h"
+
+templates.env.filters["format_tat"] = _format_tat
+
 # ── P10-04: Validation helpers ──────────────────────────────────────────────
 import re as _re
 

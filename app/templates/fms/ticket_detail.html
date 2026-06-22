@@ -184,7 +184,7 @@ select option{background:var(--bg-card)}
           <div class="hpb-label">{{ s.name }}</div>
 
           {% if s.target_tat_hours %}
-          <div class="hpb-meta">{{ s.target_tat_hours }}h target</div>
+          <div class="hpb-meta">{{ s.target_tat_hours | format_tat }} target</div>
           {% endif %}
 
           {% if p.is_current and p.tat_pct is not none %}
@@ -265,7 +265,7 @@ select option{background:var(--bg-card)}
           {% if s.target_tat_hours %}
           <div>
             <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">TaT Target</div>
-            <div style="color:var(--text-primary);font-weight:500">{{ s.target_tat_hours }}h
+            <div style="color:var(--text-primary);font-weight:500">{{ s.target_tat_hours | format_tat }}
               {% if p.is_current and p.tat_pct is not none %}
               <span style="color:{% if p.tat_pct < 50 %}#10b981{% elif p.tat_pct < 90 %}#f59e0b{% else %}#f87171{% endif %}">
                 ({{ p.tat_pct }}% used)

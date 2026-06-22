@@ -71,7 +71,7 @@
           </div>
           <div style="font-size:11px;color:var(--text-faint);display:flex;flex-wrap:wrap;gap:10px">
             {% if stage.target_tat_hours %}
-            <span>⏱ {{ stage.target_tat_hours }}h TaT target</span>
+            <span>⏱ {{ stage.target_tat_hours | format_tat }} TaT target</span>
             {% endif %}
             {% if stage.sub_module_tag %}
             {% set sm_labels = {'PMS':'📊 Production Log','DISPATCH':'🚛 Dispatch','INVOICE':'🧾 Invoice','MATERIAL_REQ':'📦 Material Req','CUSTOM':'📋 Custom Form'} %}

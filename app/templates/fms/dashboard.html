@@ -64,7 +64,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .fms-modal-body{display:flex;flex:1;overflow:hidden}
 
 /* ── Modal left panel (flow info + stage selector) ───────────────────────────── */
-.fml{width:280px;flex-shrink:0;background:var(--bg-input);border-right:1px solid rgba(255,255,255,.07);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.fml{width:280px;flex-shrink:0;background:var(--bg-input);border-right:1px solid rgba(255,255,255,.07);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;min-height:0}
 .fml-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint);margin-bottom:6px}
 
 .flow-sel-btn{width:100%;text-align:left;background:var(--bg-input);border:1.5px solid rgba(255,255,255,.1);border-radius:8px;padding:9px 12px;font-size:13px;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:8px}
@@ -206,7 +206,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
         <div style="font-size:14px;font-weight:600;color:var(--text-strong)">{{ active_stage.name }}</div>
         <div style="font-size:11px;color:var(--text-faint);margin-top:2px">
           {{ stage_tickets|length }} ticket{{ 's' if stage_tickets|length != 1 }}
-          {% if active_stage.target_tat_hours %} · TaT target: {{ active_stage.target_tat_hours }}h{% endif %}
+          {% if active_stage.target_tat_hours %} · TaT target: {{ active_stage.target_tat_hours | format_tat }}{% endif %}
           {% if active_stage.evidence_required %} · <span style="color:#fbbf24">📎 Evidence Required</span>{% endif %}
         </div>
       </div>
@@ -1130,6 +1130,14 @@ const EMPLOYEES_DATA = [
   {% endfor %}
 ];
 
+function formatTat(h) {
+  h = parseInt(h) || 0;
+  if (!h) return '';
+  if (h < 24) return h + 'h';
+  const d = Math.floor(h / 24), r = h % 24;
+  return r ? d + 'd ' + r + 'h' : d + 'd';
+}
+
 const SM_LABELS = {PMS:'📊 Production Log', DISPATCH:'🚛 Dispatch', INVOICE:'🧾 Invoice', MATERIAL_REQ:'📦 Material Req', CUSTOM:'📋 Custom Form'};
 
 let currentFlowId = null;
@@ -1146,6 +1154,13 @@ function openTicketModal(preFlowId) {
 function closeTicketModal() {
   document.getElementById('ticketModal').classList.remove('open');
   document.body.style.overflow = '';
+  // Reset so next open starts clean
+  currentFlowId = null; currentStageId = null;
+  document.getElementById('stageSelectorWrap').style.cssText = 'display:none';
+  document.getElementById('stageBtnList').innerHTML = '';
+  document.getElementById('stageBtnList').style.cssText = '';
+  document.getElementById('modalAssignee').value = '';
+  document.getElementById('submitBtn').disabled = true;
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTicketModal(); });
 
@@ -1209,11 +1224,10 @@ function selectFlow(fid) {
           ${employeeOpts}
         </select>
       `;
+      // Set default assignee synchronously via DOM reference (avoids race with selectStage)
       if (s.default_assignee_id) {
-        setTimeout(() => {
-          const sel = document.getElementById('sass-' + s.id);
-          if (sel) sel.value = s.default_assignee_id;
-        }, 0);
+        const selEl = selRow.querySelector('select');
+        if (selEl) selEl.value = s.default_assignee_id;
       }
 
       wrap.appendChild(row);
@@ -1230,7 +1244,9 @@ function selectFlow(fid) {
     });
   }
 
-  document.getElementById('stageSelectorWrap').style.display = '';
+  const ssw = document.getElementById('stageSelectorWrap');
+  ssw.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;gap:6px';
+  document.getElementById('stageBtnList').style.cssText = 'overflow-y:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:6px';
   document.getElementById('ticketFields').style.display = '';
   document.getElementById('noFlowMsg').style.display = 'none';
 
@@ -1259,7 +1275,7 @@ function selectStage(sid, color) {
     const parts = [];
     const tat  = wrap.getAttribute('data-tat');
     const note = wrap.getAttribute('data-note');
-    if (tat)        parts.push(`⏱ TaT target: <strong style="color:var(--text-primary)">${tat}h</strong>`);
+    if (tat)        parts.push(`⏱ TaT target: <strong style="color:var(--text-primary)">${formatTat(tat)}</strong>`);
     if (note==='1') parts.push(`📝 Completion note required`);
     if (parts.length) { hint.innerHTML = parts.join(' &nbsp;·&nbsp; '); hint.style.display=''; }
     else hint.style.display = 'none';
