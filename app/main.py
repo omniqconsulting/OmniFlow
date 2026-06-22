@@ -208,10 +208,13 @@ def _nav_ctx(db, user, tenant=None) -> dict:
         return {
             "has_inventory":  has_feature(t, "INVENTORY",  db) if t else False,
             "has_fms":        has_feature(t, "FMS",        db) if t else False,
-            "has_checklists": has_feature(t, "CHECKLISTS", db) if t else False,
+            # Checklists is a core feature always available on all paid plans
+            "has_checklists": True,
         }
-    except Exception:
-        return {"has_inventory": False, "has_fms": False, "has_checklists": False}
+    except Exception as _e:
+        import logging as _log
+        _log.getLogger(__name__).warning("_nav_ctx failed: %s", _e)
+        return {"has_inventory": False, "has_fms": False, "has_checklists": True}
 
 def _has_inv(db, user) -> bool:
     return _nav_ctx(db, user)["has_inventory"]
