@@ -13,14 +13,29 @@ branch_labels = None
 depends_on = None
 
 
+def _col_exists(table, column):
+    conn = op.get_bind()
+    insp = sa.inspect(conn)
+    return column in [c['name'] for c in insp.get_columns(table)]
+
+
 def upgrade():
-    # stage_schedule_json on fms_tickets was already added by a prior partial migration
-    op.add_column('fms_stage_history',
-        sa.Column('planned_start', sa.DateTime(), nullable=True))
-    op.add_column('fms_stage_history',
-        sa.Column('planned_end', sa.DateTime(), nullable=True))
+    # stage_schedule_json may already exist on SQLite (added manually during dev)
+    if not _col_exists('fms_tickets', 'stage_schedule_json'):
+        op.add_column('fms_tickets',
+            sa.Column('stage_schedule_json', sa.Text(), nullable=True))
+    if not _col_exists('fms_stage_history', 'planned_start'):
+        op.add_column('fms_stage_history',
+            sa.Column('planned_start', sa.DateTime(), nullable=True))
+    if not _col_exists('fms_stage_history', 'planned_end'):
+        op.add_column('fms_stage_history',
+            sa.Column('planned_end', sa.DateTime(), nullable=True))
 
 
 def downgrade():
-    op.drop_column('fms_stage_history', 'planned_end')
-    op.drop_column('fms_stage_history', 'planned_start')
+    if _col_exists('fms_stage_history', 'planned_end'):
+        op.drop_column('fms_stage_history', 'planned_end')
+    if _col_exists('fms_stage_history', 'planned_start'):
+        op.drop_column('fms_stage_history', 'planned_start')
+    if _col_exists('fms_tickets', 'stage_schedule_json'):
+        op.drop_column('fms_tickets', 'stage_schedule_json')
