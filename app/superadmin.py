@@ -12,7 +12,7 @@ from markupsafe import Markup as _Markup
 
 from .database import (
     get_db, new_id,
-    SuperAdmin, Tenant, User,
+    SuperAdmin, Tenant, User, WhatsAppMessageLog,
     Ticket, ChecklistTemplate, ChecklistAssignment,
     TenantFeatureOverride, TenantLabelConfig, PlanUpgradeRequest,
     FMSFlow, FMSStage, FMSTicket, LibraryFlowTemplate, TenantDeployedItem,
@@ -660,6 +660,31 @@ def sa_approve(tenant_id: str, plan: str = Form("STARTER"),
     return _redirect(f"/superadmin/approvals?msg=approved&name={tenant.name}")
 
 
+def _send_wa_registration_rejected(phone: str, reason: str, tenant_id: str, db):
+    """Pipeline 5C — omniflow_registration_rejected. Sends to prospect phone. No mobile_verified gate. Never raises."""
+    from .services.msg91 import send_whatsapp_template, normalize_mobile
+    import json
+    variables = [reason]
+    try:
+        ok, error = send_whatsapp_template(normalize_mobile(phone), "omniflow_registration_rejected", variables)
+        db.add(WhatsAppMessageLog(
+            tenant_id=tenant_id,
+            template_name="omniflow_registration_rejected",
+            recipient_user_id=None,
+            recipient_phone=phone,
+            variables_json=json.dumps(variables),
+            status="SENT" if ok else "FAILED",
+            error_message=error,
+            related_entity_type="registration",
+            related_entity_id=tenant_id,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        import logging
+        logging.getLogger("superadmin").exception("_send_wa_registration_rejected failed for tenant=%s", tenant_id)
+
+
 @router.post("/tenants/{tenant_id}/reject")
 def sa_reject(tenant_id: str, reason: str = Form(""),
               sa: SuperAdmin = Depends(get_current_sa),
@@ -667,10 +692,19 @@ def sa_reject(tenant_id: str, reason: str = Form(""),
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(404)
+    # Fetch prospect phone BEFORE mutating tenant name
+    prospect = db.query(User).filter(
+        User.tenant_id == tenant.id, User.role == "ADMIN", User.is_deleted == False,
+    ).first()
+    prospect_phone = prospect.phone if prospect else None
+    rejection_reason = reason.strip() or "Your application did not meet our current requirements."
     # Suspend and mark name so it's clearly rejected
     tenant.is_suspended = True
     tenant.name = f"[REJECTED] {tenant.name}"
     db.commit()
+    # Pipeline 5C — WhatsApp rejection notice to prospect
+    if prospect_phone:
+        _send_wa_registration_rejected(prospect_phone, rejection_reason, tenant.id, db)
     return _redirect("/superadmin/approvals?msg=rejected")
 
 
