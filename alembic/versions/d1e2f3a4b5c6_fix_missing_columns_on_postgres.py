@@ -1,4 +1,4 @@
-"""fix missing columns on postgres: stage_assignees_json, custom_fields_json, custom_fields_data_json
+"""fix missing columns on postgres: stage_assignees_json, custom_fields_json, custom_fields_data_json, planned_start/end
 
 Revision ID: d1e2f3a4b5c6
 Revises: c4d5e6f7a8b9
@@ -27,6 +27,12 @@ def upgrade():
         ))
         bind.execute(sa.text(
             "ALTER TABLE fms_stage_history ADD COLUMN IF NOT EXISTS custom_fields_data_json TEXT"
+        ))
+        bind.execute(sa.text(
+            "ALTER TABLE fms_stage_history ADD COLUMN IF NOT EXISTS planned_start TIMESTAMP"
+        ))
+        bind.execute(sa.text(
+            "ALTER TABLE fms_stage_history ADD COLUMN IF NOT EXISTS planned_end TIMESTAMP"
         ))
     else:
         # SQLite — columns already exist in local dev; skip to avoid errors

@@ -167,6 +167,28 @@ async def startup():
         import logging as _logging
         _logging.getLogger(__name__).warning("Alembic upgrade failed (non-fatal): %s", _e)
     create_tables()
+    # Defensive column guard: ensures PostgreSQL has all columns even if Alembic migrations
+    # fail silently (e.g. column already exists from create_tables blocking op.add_column).
+    try:
+        from sqlalchemy import text as _text
+        from .database import engine as _engine
+        with _engine.connect() as _conn:
+            if _conn.dialect.name == 'postgresql':
+                _ddl = [
+                    "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS stage_assignees_json TEXT",
+                    "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS stage_schedule_json TEXT",
+                    "ALTER TABLE fms_stages ADD COLUMN IF NOT EXISTS custom_fields_json TEXT DEFAULT '[]'",
+                    "ALTER TABLE library_flow_stages ADD COLUMN IF NOT EXISTS custom_fields_json TEXT DEFAULT '[]'",
+                    "ALTER TABLE fms_stage_history ADD COLUMN IF NOT EXISTS custom_fields_data_json TEXT",
+                    "ALTER TABLE fms_stage_history ADD COLUMN IF NOT EXISTS planned_start TIMESTAMP",
+                    "ALTER TABLE fms_stage_history ADD COLUMN IF NOT EXISTS planned_end TIMESTAMP",
+                ]
+                for _stmt in _ddl:
+                    _conn.execute(_text(_stmt))
+                _conn.commit()
+    except Exception as _ce:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("Column guard failed (non-fatal): %s", _ce)
     # Phase 1-2/3: capture the running event loop for sync→async WS broadcasts
     set_main_loop(asyncio.get_event_loop())
     # Seed Phase 0-K library data (idempotent)

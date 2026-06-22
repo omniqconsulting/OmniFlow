@@ -19,7 +19,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('fms_stage_history', sa.Column('custom_fields_data_json', sa.Text(), nullable=True))
+    bind = op.get_bind()
+    if bind.dialect.name == 'postgresql':
+        bind.execute(sa.text("ALTER TABLE fms_stage_history ADD COLUMN IF NOT EXISTS custom_fields_data_json TEXT"))
+    else:
+        try:
+            op.add_column('fms_stage_history', sa.Column('custom_fields_data_json', sa.Text(), nullable=True))
+        except Exception:
+            pass
 
 
 def downgrade() -> None:
