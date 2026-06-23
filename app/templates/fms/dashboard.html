@@ -64,7 +64,8 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .fms-modal-body{display:flex;flex:1;overflow:hidden}
 
 /* ── Modal left panel (flow info + stage selector) ───────────────────────────── */
-.fml{width:280px;flex-shrink:0;background:var(--bg-input);border-right:1px solid rgba(255,255,255,.07);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;min-height:0}
+.fml{width:280px;flex-shrink:0;background:var(--bg-input);border-right:1px solid rgba(255,255,255,.07);padding:16px;overflow:hidden;display:flex;flex-direction:column;gap:14px;min-height:0}
+.fml-flow-list{display:flex;flex-direction:column;gap:6px;overflow-y:auto;max-height:160px;flex-shrink:0;scrollbar-width:thin}
 .fml-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint);margin-bottom:6px}
 
 .flow-sel-btn{width:100%;text-align:left;background:var(--bg-input);border:1.5px solid rgba(255,255,255,.1);border-radius:8px;padding:9px 12px;font-size:13px;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:8px}
@@ -934,7 +935,7 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
         <!-- Flow selector -->
         <div>
           <div class="fml-label">Select Workflow</div>
-          <div class="flow-sel-wrap" style="display:flex;flex-direction:column;gap:6px" id="flowBtnList">
+          <div class="fml-flow-list" id="flowBtnList">
             {% for f in flows %}
             <button type="button" class="flow-sel-btn" id="fbtn-{{ f.id }}"
                     style="--fc:{{ f.color }}"
@@ -956,7 +957,7 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
             ▶ <strong>Starting from:</strong> <span id="startingFromName" style="color:#fff"></span>
             <span style="color:var(--text-faint);margin-left:6px">— click a different stage below to change</span>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-shrink:0">
             <div class="fml-label" style="margin-bottom:0">Starting Stage &amp; Assignees</div>
             <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
               <span style="font-size:9px;color:var(--text-xfaint);text-transform:uppercase;letter-spacing:.06em">TaT unit</span>
@@ -1443,8 +1444,9 @@ function selectFlow(fid) {
   }
 
   const ssw = document.getElementById('stageSelectorWrap');
-  ssw.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;gap:6px';
-  document.getElementById('stageBtnList').style.cssText = 'overflow-y:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:6px';
+  ssw.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;gap:0';
+  document.getElementById('startingFromBanner').style.flexShrink = '0';
+  document.getElementById('stageBtnList').style.cssText = 'overflow-y:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;padding-right:4px;scrollbar-width:thin;margin-top:6px';
   document.getElementById('ticketFields').style.display = '';
   document.getElementById('noFlowMsg').style.display = 'none';
 
