@@ -918,14 +918,15 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
         from .database import ChecklistAssignment as _CA, ChecklistTemplate as _CT
         _active_tmpl_ids = [t.id for t in db.query(_CT.id).filter(
             _CT.tenant_id == tid, _CT.is_deleted == False).all()]
+        cl_dt = min(dt, _dt.utcnow())  # never count future assignments
         cl_due  = db.query(_CA).filter(
             _CA.tenant_id == tid, _CA.is_deleted == False,
             _CA.template_id.in_(_active_tmpl_ids),
-            _CA.due_at >= df, _CA.due_at <= dt).count()
+            _CA.due_at >= df, _CA.due_at <= cl_dt).count()
         cl_done = db.query(_CA).filter(
             _CA.tenant_id == tid, _CA.is_deleted == False,
             _CA.template_id.in_(_active_tmpl_ids),
-            _CA.due_at >= df, _CA.due_at <= dt,
+            _CA.due_at >= df, _CA.due_at <= cl_dt,
             _CA.status == "DONE").count()
         cl_compliance_pct = round(cl_done / max(cl_due, 1) * 100)
     except Exception:
@@ -3638,9 +3639,11 @@ def employee_performance(
     ticket_kpis = get_employee_kpis(db, emp_id, tid)
 
     cl_base = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.tenant_id == tid,
         ChecklistAssignment.user_id == emp_id,
         ChecklistAssignment.is_deleted == False,
-        ChecklistAssignment.created_at >= since,
+        ChecklistAssignment.due_at >= since,
+        ChecklistAssignment.due_at <= now,
     )
     cl_total   = cl_base.count()
     cl_done    = cl_base.filter(ChecklistAssignment.status == "DONE").count()
@@ -3813,9 +3816,16 @@ def setup(request: Request, user: User = Depends(require_admin),
         User.tenant_id == user.tenant_id, User.is_deleted == False).count()
     plan = tenant.plan or "STARTER"
     limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["STARTER"])
+    from .database import ChecklistTemplate as _CT
+    cl_tmpl_count = db.query(_CT).filter(
+        _CT.tenant_id == user.tenant_id, _CT.is_deleted == False).count()
+    fms_flow_count = db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == user.tenant_id, FMSFlow.is_deleted == False).count()
     usage = {
-        "max_users": emp_count,
-        "max_branches": len(branches),
+        "max_users":               emp_count,
+        "max_branches":            len(branches),
+        "max_fms_flows":           fms_flow_count,
+        "max_checklist_templates": cl_tmpl_count,
     }
     # Group departments by name, collecting branch names per group
     from collections import defaultdict as _dd

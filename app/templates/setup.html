@@ -54,11 +54,17 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
     <div>
       <h2 style="margin:0">Plan: <span style="color:{% if current_plan=='ENTERPRISE' %}#a78bfa{% elif current_plan=='PROFESSIONAL' %}#60a5fa{% else %}var(--text-muted){% endif %}">{{ plan_labels[current_plan] }}</span></h2>
     </div>
+    {% if current_plan != 'ENTERPRISE' %}
     <a href="/plan" class="btn btn-sm btn-purple">Upgrade Plan →</a>
+    {% else %}
+    <a href="/plan" class="btn btn-sm btn-outline" style="opacity:.7">Manage Plan</a>
+    {% endif %}
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
     {{ limit_bar(plan_usage.max_users, plan_limits.max_users, 'Team Members') }}
     {{ limit_bar(plan_usage.max_branches, plan_limits.max_branches, 'Branches') }}
+    {{ limit_bar(plan_usage.max_fms_flows, plan_limits.max_fms_flows, 'FMS Flows') }}
+    {{ limit_bar(plan_usage.max_checklist_templates, plan_limits.max_checklist_templates, 'Checklist Templates') }}
   </div>
 </div>
 

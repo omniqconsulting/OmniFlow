@@ -1460,8 +1460,12 @@ function selectStage(sid, color) {
   currentStageId = sid;
   document.getElementById('modalStageId').value = sid;
 
-  // Update "Starting from" banner
+  document.querySelectorAll('#stageBtnList > div').forEach(w => {
+    w.style.borderColor = 'rgba(255,255,255,.08)';
+  });
   const wrap = document.getElementById('swrap-' + sid);
+
+  // Update "Starting from" banner
   if (wrap) {
     const nameEl = wrap.querySelector('div[style*="font-weight:500"]');
     const stageName = nameEl ? nameEl.textContent.trim() : sid;
@@ -1469,11 +1473,6 @@ function selectStage(sid, color) {
     const nameSpan = document.getElementById('startingFromName');
     if (banner && nameSpan) { nameSpan.textContent = stageName; banner.style.display = 'block'; }
   }
-
-  document.querySelectorAll('#stageBtnList > div').forEach(w => {
-    w.style.borderColor = 'rgba(255,255,255,.08)';
-  });
-  const wrap = document.getElementById('swrap-' + sid);
   if (wrap) {
     wrap.style.borderColor = color;
 
