@@ -1,4 +1,4 @@
-{% extends "superadmin/base.html" %}
+﻿{% extends "superadmin/base.html" %}
 {% block content %}
 
 {% set msg = request.query_params.get('msg','') %}
@@ -69,10 +69,10 @@
 <div class="grid2">
   <!-- Edit tenant info -->
   <div class="card">
-    <h2>Factory Details</h2>
+    <h2>Organization Details</h2>
     <form method="post" action="/superadmin/tenants/{{ tenant.id }}/edit">
       <div class="form-group">
-        <label>Factory Name</label>
+        <label>Organization Name</label>
         <input type="text" name="factory_name" value="{{ tenant.name }}" required>
       </div>
       <div class="form-group">
@@ -113,7 +113,7 @@
     <div class="card" style="border-color:rgba(245,158,11,0.3)">
       <h2 style="color:#fcd34d">Pending Approval</h2>
       <p style="color:#94a3b8;font-size:12px;margin-bottom:14px">
-        This factory self-registered and is waiting for your review.
+        This organization self-registered and is waiting for your review.
         Approving will activate the account on the selected plan.
       </p>
       <form method="post" action="/superadmin/tenants/{{ tenant.id }}/approve" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
@@ -163,7 +163,7 @@
       </form>
       {% else %}
       <p style="color:#94a3b8;font-size:12px;margin-bottom:12px">
-        Suspending will block all logins for this factory immediately.
+        Suspending will block all logins for this organization immediately.
       </p>
       <form method="post" action="/superadmin/tenants/{{ tenant.id }}/suspend">
         <button type="submit" class="btn btn-amber" onclick="return confirm('Suspend this tenant?')">

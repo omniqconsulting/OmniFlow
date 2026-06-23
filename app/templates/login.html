@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -108,12 +108,12 @@ html.light .error{color:#dc2626}
   </div>
   <div class="card">
     <div class="card-title">Sign in</div>
-    <div class="card-sub">Enter your factory ID and credentials</div>
+    <div class="card-sub">Enter your organization ID and credentials</div>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post" action="/login">
       <div class="form-group">
-        <label>Factory ID</label>
-        <input name="slug" placeholder="your-factory-id" required autocomplete="organization">
+        <label>Organization ID</label>
+        <input name="slug" placeholder="your-org-id" required autocomplete="organization">
       </div>
       <div class="form-group">
         <label>Phone</label>
@@ -141,12 +141,12 @@ html.light .error{color:#dc2626}
   <div class="modal-box">
     <div class="modal-title">🔐 Reset Your Password</div>
     <div class="modal-body">
-      Passwords can't be reset by yourself for security reasons. Your factory admin or platform support can generate a temporary password for you.
+      Passwords can't be reset by yourself for security reasons. Your organization admin or platform support can generate a temporary password for you.
     </div>
     <div class="modal-step">
       <div class="step-num">1</div>
       <div class="step-text">
-        <strong>Contact your factory admin</strong>
+        <strong>Contact your organization admin</strong>
         Ask them to go to the Employees page and generate a temporary password for your account.
       </div>
     </div>
@@ -173,13 +173,13 @@ html.light .error{color:#dc2626}
   <div class="modal-box">
     <div class="modal-title">📞 Contact Your Administrator</div>
     <div class="modal-body">
-      Reach out to your factory administrator for account help, access issues, or onboarding support.
+      Reach out to your organization administrator for account help, access issues, or onboarding support.
     </div>
     <div class="modal-step">
       <div class="step-num">1</div>
       <div class="step-text">
-        <strong>Factory Admin</strong>
-        Your factory admin can reset passwords, create accounts, and manage roles on the Employees page.
+        <strong>Organization Admin</strong>
+        Your organization admin can reset passwords, create accounts, and manage roles on the Employees page.
       </div>
     </div>
     <div class="modal-step">

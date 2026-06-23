@@ -1,4 +1,4 @@
-{% extends "superadmin/base.html" %}
+﻿{% extends "superadmin/base.html" %}
 {% block content %}
 
 {% set msg = request.query_params.get('msg','') %}
@@ -11,7 +11,7 @@
     <h2 class="page-title">Pending Approvals
       {% if rows %}<span style="font-size:14px;font-weight:400;color:#f59e0b;margin-left:8px">({{ rows|length }} waiting)</span>{% endif %}
     </h2>
-    <div class="muted">Self-registered factory accounts awaiting review</div>
+    <div class="muted">Self-registered organization accounts awaiting review</div>
   </div>
   <a href="/superadmin/dashboard" class="btn btn-gray">← Dashboard</a>
 </div>
