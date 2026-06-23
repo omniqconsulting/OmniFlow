@@ -26,19 +26,10 @@ from .constants import get_limit, PLAN_LABELS
 
 router = APIRouter(prefix="/superadmin/library")
 from .templates_env import templates  # shared instance — has all filters
-templates.env.filters["from_json"] = lambda s: (json.loads(s) if s else [])
 
 
-class _OrmEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if hasattr(obj, "__dict__"):
-            return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
-        if isinstance(obj, (datetime, _date)):
-            return obj.isoformat()
-        return super().default(obj)
 
 
-templates.env.filters["tojson"] = lambda v: _Markup(json.dumps(v, cls=_OrmEncoder))
 log = logging.getLogger(__name__)
 
 FIELD_TYPES = [

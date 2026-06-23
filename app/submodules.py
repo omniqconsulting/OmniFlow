@@ -33,8 +33,6 @@ from .templates_env import templates  # shared instance — has all filters
 
 # Reuse same ORM-aware tojson encoder
 
-templates.env.filters["tojson"]    = lambda v: _json.dumps(v, cls=_OrmEncoder)
-templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
 
 router = APIRouter(prefix="/submodules", tags=["Submodules"])
 

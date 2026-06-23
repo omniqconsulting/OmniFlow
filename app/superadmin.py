@@ -35,7 +35,6 @@ from .templates_env import templates  # shared instance — has all filters
 
 
 
-templates.env.filters["tojson"] = lambda v: _Markup(_json.dumps(v, cls=_OrmEncoder))
 
 
 def _redirect(path: str):
