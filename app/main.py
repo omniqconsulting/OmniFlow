@@ -2003,23 +2003,33 @@ def checklists(request: Request, user: User = Depends(get_current_user),
     tid = user.tenant_id
     now = datetime.utcnow()
 
-    # My overdue: date already gone, not done
-    my_overdue = db.query(ChecklistAssignment).filter(
+    # My overdue: date already gone, not done — one per checklist template (earliest)
+    _my_od_raw = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.tenant_id == tid,
         ChecklistAssignment.user_id == user.id,
         ChecklistAssignment.due_at < now,
         ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
         ChecklistAssignment.is_deleted == False,
     ).order_by(ChecklistAssignment.due_at).all()
+    _seen_my_od: dict = {}
+    for _a in _my_od_raw:
+        if _a.template_id not in _seen_my_od:
+            _seen_my_od[_a.template_id] = _a
+    my_overdue = list(_seen_my_od.values())
 
-    # My upcoming: due in the future, not done
-    my_upcoming = db.query(ChecklistAssignment).filter(
+    # My upcoming: due in the future, not done — one per checklist template (earliest)
+    _my_up_raw = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.tenant_id == tid,
         ChecklistAssignment.user_id == user.id,
         ChecklistAssignment.due_at >= now,
         ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
         ChecklistAssignment.is_deleted == False,
     ).order_by(ChecklistAssignment.due_at).all()
+    _seen_my_up: dict = {}
+    for _a in _my_up_raw:
+        if _a.template_id not in _seen_my_up:
+            _seen_my_up[_a.template_id] = _a
+    my_upcoming = list(_seen_my_up.values())
 
     # For backwards-compat: my_assignments = overdue + upcoming (for my-section rendering)
     my_assignments = my_overdue + my_upcoming
@@ -2113,7 +2123,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
                 _seen_od[_a.template_id] = _a
         overdue_team = list(_seen_od.values())
 
-        # Failed assignments (explicitly marked FAILED, last 90 days)
+        # Explicitly failed assignments only — one per template (most recent failure)
         failed_q = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.tenant_id == tid,
             ChecklistAssignment.status == "FAILED",
@@ -2124,41 +2134,12 @@ def checklists(request: Request, user: User = Depends(get_current_user),
             failed_q = failed_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
         if employee_id:
             failed_q = failed_q.filter(ChecklistAssignment.user_id.in_(employee_id))
-        failed_assignments = failed_q.order_by(ChecklistAssignment.due_at.desc()).limit(50).all()
-
-        # Missed assignments: PENDING/OVERDUE past due_at and superseded by a newer occurrence
-        old_overdue_q = db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.tenant_id == tid,
-            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
-            ChecklistAssignment.is_deleted == False,
-            ChecklistAssignment.due_at < now,
-            ChecklistAssignment.template_id.in_(_active_tmpl_ids),
-        )
-        if cl_team_ids:
-            old_overdue_q = old_overdue_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
-        if employee_id:
-            old_overdue_q = old_overdue_q.filter(ChecklistAssignment.user_id.in_(employee_id))
-        old_overdue_candidates = old_overdue_q.all()
-
-        # Keep only those that have a newer sibling (= they were skipped / superseded)
-        missed_assignments = []
-        for _a in old_overdue_candidates:
-            _newer = db.query(ChecklistAssignment.id).filter(
-                ChecklistAssignment.template_id == _a.template_id,
-                ChecklistAssignment.user_id == _a.user_id,
-                ChecklistAssignment.due_at > _a.due_at,
-                ChecklistAssignment.is_deleted == False,
-            ).first()
-            if _newer:
-                missed_assignments.append(_a)
-
-        # Merge and deduplicate by id, sort by due_at desc
-        _seen = set()
-        failed_team = []
-        for _a in sorted(failed_assignments + missed_assignments, key=lambda x: x.due_at or now, reverse=True):
-            if _a.id not in _seen:
-                _seen.add(_a.id)
-                failed_team.append(_a)
+        _failed_raw = failed_q.order_by(ChecklistAssignment.due_at.desc()).all()
+        _seen_f: dict = {}
+        for _a in _failed_raw:
+            if _a.template_id not in _seen_f:
+                _seen_f[_a.template_id] = _a
+        failed_team = list(_seen_f.values())
 
     templates_list = []
     if user.role in ("ADMIN", "MANAGER"):
