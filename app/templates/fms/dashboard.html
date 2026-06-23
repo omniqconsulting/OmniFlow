@@ -161,6 +161,9 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=stage_table" class="{{ 'active' if view == 'stage_table' else '' }}">Stages</a>
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=list"        class="{{ 'active' if view == 'list' else '' }}">List</a>
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=consolidated" class="{{ 'active' if view == 'consolidated' else '' }}">Table</a>
+      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=list&status_filter=closed"
+         class="{{ 'active' if view == 'list' and f_status == 'closed' else '' }}"
+         style="color:#94a3b8">✓ Closed</a>
     </div>
   </div>
 </div>
@@ -949,6 +952,10 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
 
         <!-- Stage picker (starting stage + per-stage TaT + assignees) -->
         <div id="stageSelectorWrap" style="display:none">
+          <div id="startingFromBanner" style="display:none;margin-bottom:8px;padding:6px 12px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);border-radius:7px;font-size:11px;color:#93c5fd">
+            ▶ <strong>Starting from:</strong> <span id="startingFromName" style="color:#fff"></span>
+            <span style="color:var(--text-faint);margin-left:6px">— click a different stage below to change</span>
+          </div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <div class="fml-label" style="margin-bottom:0">Starting Stage &amp; Assignees</div>
             <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
@@ -1452,6 +1459,16 @@ function selectFlow(fid) {
 function selectStage(sid, color) {
   currentStageId = sid;
   document.getElementById('modalStageId').value = sid;
+
+  // Update "Starting from" banner
+  const wrap = document.getElementById('swrap-' + sid);
+  if (wrap) {
+    const nameEl = wrap.querySelector('div[style*="font-weight:500"]');
+    const stageName = nameEl ? nameEl.textContent.trim() : sid;
+    const banner = document.getElementById('startingFromBanner');
+    const nameSpan = document.getElementById('startingFromName');
+    if (banner && nameSpan) { nameSpan.textContent = stageName; banner.style.display = 'block'; }
+  }
 
   document.querySelectorAll('#stageBtnList > div').forEach(w => {
     w.style.borderColor = 'rgba(255,255,255,.08)';

@@ -182,10 +182,14 @@ function loadStages() {
     row.id = `srow_${s.id}`;
     row.style.cssText = `
       display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;
-      border:1px solid var(--border-faint,rgba(255,255,255,.08));cursor:pointer;
-      background:var(--bg-card,#0d1424);transition:border-color .15s;
+      border:1px solid var(--border-faint,rgba(255,255,255,.08));
+      background:var(--bg-card,#0d1424);transition:border-color .15s,background .15s;
     `;
     row.innerHTML = `
+      <label title="Set as starting stage" style="display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0" onclick="event.stopPropagation();selectStage('${s.id}')">
+        <input type="radio" name="_start_stage_radio" id="radio_${s.id}" style="accent-color:#3b82f6;width:14px;height:14px;cursor:pointer" ${i===0?'checked':''}>
+        <span id="start_lbl_${s.id}" style="font-size:9px;font-weight:700;letter-spacing:.05em;display:none;color:#3b82f6;white-space:nowrap">START</span>
+      </label>
       <span style="display:inline-block;width:9px;height:9px;border-radius:50%;
                    background:${s.color};flex-shrink:0"></span>
       <span style="font-size:12px;font-weight:600;min-width:18px;color:var(--text-muted)">${s.order+1}.</span>
@@ -199,7 +203,6 @@ function loadStages() {
         ${employeeOptions}
       </select>
     `;
-    row.addEventListener('click', () => selectStage(s.id));
     list.appendChild(row);
   });
 
@@ -213,6 +216,12 @@ function loadStages() {
 function selectStage(stageId) {
   selectedStageId = stageId;
   document.getElementById('stageIdField').value = stageId;
+
+  // Sync radio buttons and START labels
+  document.querySelectorAll('[name="_start_stage_radio"]').forEach(r => { r.checked = (r.id === 'radio_' + stageId); });
+  document.querySelectorAll('[id^="start_lbl_"]').forEach(lbl => { lbl.style.display = 'none'; });
+  const activeLbl = document.getElementById('start_lbl_' + stageId);
+  if (activeLbl) activeLbl.style.display = 'inline';
 
   document.querySelectorAll('#stageList > div').forEach(row => {
     row.style.borderColor = 'var(--border-faint,rgba(255,255,255,.08))';
