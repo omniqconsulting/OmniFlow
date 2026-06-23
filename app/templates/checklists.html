@@ -1074,7 +1074,9 @@
 /* ── Checklist tab navigation ── */
 function showClTab(tab) {
   document.querySelectorAll('.cl-section').forEach(function(p) {
-    p.classList.toggle('active', p.id === 'cl-pane-' + tab);
+    var isActive = p.id === 'cl-pane-' + tab;
+    p.classList.toggle('active', isActive);
+    p.style.display = isActive ? 'block' : 'none';
   });
   document.querySelectorAll('.cl-nav-btn').forEach(function(b) {
     b.classList.toggle('active', b.id === 'cl-btn-' + tab);
