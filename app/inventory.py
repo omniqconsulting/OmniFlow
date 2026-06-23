@@ -15,7 +15,6 @@ from typing import Optional
 import csv, io as _io
 from fastapi import APIRouter, Depends, File, Form, Request, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -31,8 +30,7 @@ from .constants import has_feature
 from .ws_manager import broadcast_sync, STORE_ALERT
 
 import os
-BASE_DIR  = os.path.dirname(__file__)
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+from .templates_env import templates  # shared instance — has all filters
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 

@@ -21,7 +21,6 @@ from typing import AsyncGenerator, Optional
 
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 import anthropic
@@ -37,8 +36,7 @@ from .ai_context import build_context
 
 log = logging.getLogger(__name__)
 
-BASE_DIR  = os.path.dirname(__file__)
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+from .templates_env import templates  # shared instance — has all filters
 
 router = APIRouter(prefix="/ai", tags=["AI"])
 
