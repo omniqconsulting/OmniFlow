@@ -79,7 +79,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .pip-chip{font-size:10px;padding:2px 8px;border-radius:99px;font-weight:500}
 .pip-arrow{font-size:9px;color:#374151}
 
-.stage-sel-wrap{display:flex;flex-direction:column;gap:6px}
+.stage-sel-wrap{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;padding-right:4px;scrollbar-width:thin}
 .stage-btn{width:100%;text-align:left;background:var(--bg-input);border:1.5px solid rgba(255,255,255,.08);border-radius:7px;padding:8px 11px;font-size:12px;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:8px}
 .stage-btn:hover{border-color:rgba(255,255,255,.2);color:var(--text-primary);background:var(--bg-card)}
 .stage-btn.selected{color:var(--text-strong);background:rgba(255,255,255,.04)}
@@ -164,6 +164,69 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     </div>
   </div>
 </div>
+{% endif %}
+
+<!-- ── Board-level filter bar (all views) ────────────────────────────────────── -->
+{% if user.role in ('ADMIN','MANAGER') %}
+<form method="get" action="/fms/dashboard" class="filter-bar" id="fmsBoardFilter">
+  <input type="hidden" name="view" value="{{ view }}">
+  {% if active_flow %}<input type="hidden" name="flow_id" value="{{ active_flow.id }}">{% endif %}
+  {% if view == 'stage_table' and active_stage %}<input type="hidden" name="stage_id" value="{{ active_stage.id }}">{% endif %}
+  {% if branches %}
+  <div class="filter-group">
+    <label>{{ L.get('Branch','Branch') }}</label>
+    <select name="branch_id" onchange="this.form.submit()">
+      <option value="">All Branches</option>
+      {% for b in branches %}<option value="{{ b.id }}" {{ 'selected' if f_branch_id == b.id }}>{{ b.name }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  {% if departments %}
+  <div class="filter-group">
+    <label>{{ L.get('Department','Department') }}</label>
+    <select name="dept_id" onchange="this.form.submit()">
+      <option value="">All Departments</option>
+      {% for d in departments %}<option value="{{ d.id }}" {{ 'selected' if f_dept_id == d.id }}>{{ d.name }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  {% if managers and user.role == 'ADMIN' %}
+  <div class="filter-group">
+    <label>Manager</label>
+    <select name="manager_id" onchange="this.form.submit()">
+      <option value="">All Managers</option>
+      {% for m in managers %}<option value="{{ m.id }}" {{ 'selected' if f_manager_id == m.id }}>{{ m.name }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <div class="filter-group">
+    <label>Priority</label>
+    <select name="f_priority" onchange="this.form.submit()">
+      <option value="">All Priorities</option>
+      {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}<option value="{{ p }}" {{ 'selected' if f_priority == p }}>{{ p }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Assignee</label>
+    <select name="f_assignee_id" onchange="this.form.submit()">
+      <option value="">Anyone</option>
+      {% for e in employees %}<option value="{{ e.id }}" {{ 'selected' if f_assignee_id == e.id }}>{{ e.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" value="{{ f_date_from }}" onchange="this.form.submit()">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" value="{{ f_date_to }}" onchange="this.form.submit()">
+  </div>
+  {% if f_branch_id or f_dept_id or f_manager_id or f_priority or f_assignee_id or f_date_from or f_date_to %}
+  <div style="align-self:flex-end">
+    <a href="/fms/dashboard?view={{ view }}{% if active_flow %}&flow_id={{ active_flow.id }}{% endif %}" class="btn btn-gray btn-sm">Clear</a>
+  </div>
+  {% endif %}
+</form>
 {% endif %}
 
 
@@ -431,43 +494,20 @@ select option{background:var(--bg-card);color:var(--text-primary)}
      LIST VIEW
 ══════════════════════════════════════════════════════════════════════════ -->
 {% if view == 'list' %}
-<form method="get" action="/fms/dashboard" class="filter-bar">
+<!-- Status-only secondary filter for list view (branch/dept/manager/priority/assignee/date handled by top bar) -->
+<form method="get" action="/fms/dashboard" style="display:flex;gap:10px;align-items:flex-end;margin-bottom:10px;flex-wrap:wrap">
   <input type="hidden" name="view" value="list">
   {% if active_flow %}<input type="hidden" name="flow_id" value="{{ active_flow.id }}">{% endif %}
-  {% if departments %}
+  {% if f_branch_id %}<input type="hidden" name="branch_id" value="{{ f_branch_id }}">{% endif %}
+  {% if f_dept_id %}<input type="hidden" name="dept_id" value="{{ f_dept_id }}">{% endif %}
+  {% if f_manager_id %}<input type="hidden" name="manager_id" value="{{ f_manager_id }}">{% endif %}
+  {% if f_priority %}<input type="hidden" name="f_priority" value="{{ f_priority }}">{% endif %}
+  {% if f_assignee_id %}<input type="hidden" name="f_assignee_id" value="{{ f_assignee_id }}">{% endif %}
+  {% if f_date_from %}<input type="hidden" name="date_from" value="{{ f_date_from }}">{% endif %}
+  {% if f_date_to %}<input type="hidden" name="date_to" value="{{ f_date_to }}">{% endif %}
   <div class="filter-group">
-    <label>{{ L.Department }}</label>
-    <select name="dept_id">
-      <option value="">All Departments</option>
-      {% for d in departments %}<option value="{{ d.id }}" {{ 'selected' if f_dept_id == d.id }}>{{ d.name }}</option>{% endfor %}
-    </select>
-  </div>
-  {% endif %}
-  {% if managers and user.role == 'ADMIN' %}
-  <div class="filter-group">
-    <label>Manager</label>
-    <select name="manager_id">
-      <option value="">All Managers</option>
-      {% for m in managers %}<option value="{{ m.id }}" {{ 'selected' if f_manager_id == m.id }}>{{ m.name }}</option>{% endfor %}
-    </select>
-  </div>
-  {% endif %}
-  {% if branches %}
-  <div class="filter-group">
-    <label>Branch / Factory</label>
-    <select name="branch_id">
-      <option value="">All Branches</option>
-      {% for b in branches %}<option value="{{ b.id }}" {{ 'selected' if f_branch_id == b.id }}>{{ b.name }}</option>{% endfor %}
-    </select>
-  </div>
-  {% endif %}
-  <div class="filter-group">
-    <label>Month</label>
-    <input type="month" name="month" value="{{ f_month }}">
-  </div>
-  <div class="filter-group">
-    <label>Status</label>
-    <select name="status_filter">
+    <label style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Status</label>
+    <select name="status_filter" onchange="this.form.submit()" style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
       <option value="">All Statuses</option>
       <option value="open"           {{ 'selected' if f_status == 'open' }}>Open</option>
       <option value="closed"         {{ 'selected' if f_status == 'closed' }}>Completed / Closed</option>
@@ -475,10 +515,6 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       <option value="HELP_REQUESTED" {{ 'selected' if f_status == 'HELP_REQUESTED' }}>Help Requested</option>
       <option value="ON_HOLD"        {{ 'selected' if f_status == 'ON_HOLD' }}>On Hold</option>
     </select>
-  </div>
-  <div style="display:flex;gap:8px;align-items:flex-end">
-    <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-    <a href="/fms/dashboard?view=list{% if active_flow %}&flow_id={{ active_flow.id }}{% endif %}" class="btn btn-sm">Clear</a>
   </div>
 </form>
 
@@ -866,11 +902,22 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
           <input type="hidden" name="flow_id" id="modalFlowId" required>
         </div>
 
-        <!-- Stage picker (starting stage + per-stage assignees) -->
+        <!-- Stage picker (starting stage + per-stage TaT + assignees) -->
         <div id="stageSelectorWrap" style="display:none">
-          <div class="fml-label">Starting Stage &amp; Assignees</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <div class="fml-label" style="margin-bottom:0">Starting Stage &amp; Assignees</div>
+            <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+              <span style="font-size:9px;color:var(--text-xfaint);text-transform:uppercase;letter-spacing:.06em">TaT unit</span>
+              <select id="tatUnit" onchange="onTatUnitChange()"
+                      style="background:var(--bg-card);border:1px solid rgba(255,255,255,.15);border-radius:5px;padding:3px 7px;font-size:11px;color:var(--text-primary);outline:none;cursor:pointer">
+                <option value="days" selected>Days</option>
+                <option value="hours">Hours</option>
+              </select>
+            </div>
+          </div>
           <div class="stage-sel-wrap" id="stageBtnList"></div>
           <input type="hidden" name="starting_stage_id" id="modalStageId" required>
+          <input type="hidden" name="schedule_start_date" id="_scheduleStartDate">
         </div>
 
       </div>
@@ -905,8 +952,9 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
               </select>
             </div>
             <div class="fm-group" style="margin-bottom:0">
-              <label>Due Date</label>
-              <input type="datetime-local" name="due_at">
+              <label>Due Date <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-xfaint)">(auto from stage TaT)</span></label>
+              <input type="datetime-local" name="due_at" id="modalDueAt" readonly
+                     style="background:var(--bg-input);opacity:.7;cursor:default">
             </div>
           </div>
 
@@ -1144,6 +1192,87 @@ let currentFlowId = null;
 let currentStageId = null;
 
 // ── Open / close modal ────────────────────────────────────────────────────────
+// ── TaT helpers ───────────────────────────────────────────────────────────────
+const _pad = n => String(n).padStart(2, '0');
+const _toISO = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}T${_pad(d.getHours())}:${_pad(d.getMinutes())}`;
+
+function _tatToHours(val, unit) {
+  return unit === 'hours' ? val : val * 24;
+}
+
+// Read a stage's TaT input value in hours (returns 0 if blank/invalid)
+function _stageTatHours(stageId) {
+  const inp = document.getElementById('_stat_' + stageId);
+  if (!inp) return 0;
+  const val = parseFloat(inp.value);
+  if (!val || val <= 0) return 0;
+  const unit = document.getElementById('tatUnit').value;
+  return _tatToHours(val, unit);
+}
+
+// Recalculate planned dates for all stages and update due_at
+function recalcSchedule() {
+  if (!currentFlowId || !FLOWS_DATA[currentFlowId]) return;
+  const stages = FLOWS_DATA[currentFlowId].stages;
+  const now    = new Date();
+  let cursor   = now.getTime();
+  let anyTat   = false;
+
+  // Set schedule_start = now
+  const sdInp = document.getElementById('_scheduleStartDate');
+  if (sdInp) sdInp.value = _toISO(now);
+
+  stages.forEach(st => {
+    const h = _stageTatHours(st.id);
+    if (h > 0) anyTat = true;
+    cursor += h * 3600000;
+    // Write per-stage planned_end hidden input
+    let inp = document.getElementById('_spEnd_' + st.id);
+    if (!inp) {
+      inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = 'stage_planned_end_' + st.id; inp.id = '_spEnd_' + st.id;
+      document.getElementById('newTicketForm').appendChild(inp);
+    }
+    inp.value = h > 0 ? _toISO(new Date(cursor)) : '';
+  });
+
+  // Due date = now + total of all stage TaTs
+  document.getElementById('modalDueAt').value = anyTat ? _toISO(new Date(cursor)) : '';
+}
+
+// When unit selector changes: convert existing values then recalculate
+function onTatUnitChange() {
+  if (!currentFlowId || !FLOWS_DATA[currentFlowId]) return;
+  const unit    = document.getElementById('tatUnit').value;
+  const factor  = unit === 'hours' ? 24 : 1/24;   // old→new conversion
+  // We don't know the old unit, but inputs are currently in the OLD unit
+  // So: if switching to hours, multiply by 24; if switching to days, divide by 24
+  FLOWS_DATA[currentFlowId].stages.forEach(st => {
+    const inp = document.getElementById('_stat_' + st.id);
+    if (!inp) return;
+    const cur = parseFloat(inp.value);
+    if (cur > 0) {
+      const converted = parseFloat((cur * factor).toFixed(2));
+      inp.value = converted;
+    } else {
+      // Pre-fill default from flow if blank
+      const defH = st.target_tat_hours || 0;
+      if (defH > 0) {
+        inp.value = unit === 'hours'
+          ? defH
+          : parseFloat((defH / 24).toFixed(2));
+      }
+    }
+  });
+  recalcSchedule();
+}
+
+function _clearScheduleInputs() {
+  const sd = document.getElementById('_scheduleStartDate');
+  if (sd) sd.value = '';
+  document.querySelectorAll('[id^="_spEnd_"]').forEach(el => el.remove());
+}
+
 function openTicketModal(preFlowId) {
   document.getElementById('ticketModal').classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -1161,6 +1290,9 @@ function closeTicketModal() {
   document.getElementById('stageBtnList').style.cssText = '';
   document.getElementById('modalAssignee').value = '';
   document.getElementById('submitBtn').disabled = true;
+  // Clear derived due date and all schedule hidden inputs
+  document.getElementById('modalDueAt').value = '';
+  _clearScheduleInputs();
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTicketModal(); });
 
@@ -1216,15 +1348,29 @@ function selectFlow(fid) {
       `;
 
       const selRow = document.createElement('div');
-      selRow.style.cssText = 'padding:4px 10px 7px;background:var(--bg-input)';
+      selRow.style.cssText = 'padding:4px 10px 7px;background:var(--bg-input);display:flex;flex-direction:column;gap:5px';
+
+      // TaT input — pre-fill from flow's target_tat_hours converted to selected unit
+      const unit   = document.getElementById('tatUnit').value;
+      const defTat = s.target_tat_hours || 0;
+      const defVal = defTat > 0
+        ? (unit === 'hours' ? defTat : parseFloat((defTat / 24).toFixed(2)))
+        : '';
       selRow.innerHTML = `
+        <div style="display:flex;align-items:center;gap:5px">
+          <span style="font-size:10px;color:var(--text-xfaint);white-space:nowrap">TaT</span>
+          <input type="number" id="_stat_${s.id}" value="${defVal}" min="0.01" step="any"
+                 placeholder="—"
+                 oninput="recalcSchedule()"
+                 style="flex:1;background:var(--bg-card);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:3px 7px;font-size:11px;color:var(--text-primary);font-family:inherit;outline:none">
+        </div>
         <select name="stage_assignee_${s.id}" id="sass-${s.id}"
                 style="width:100%;background:var(--bg-card);border:1px solid rgba(255,255,255,.1);border-radius:5px;padding:4px 8px;font-size:11px;color:var(--text-primary);font-family:inherit;outline:none"
                 onchange="onStageAssigneeChange('${s.id}')">
           ${employeeOpts}
         </select>
       `;
-      // Set default assignee synchronously via DOM reference (avoids race with selectStage)
+      // Set default assignee
       if (s.default_assignee_id) {
         const selEl = selRow.querySelector('select');
         if (selEl) selEl.value = s.default_assignee_id;
@@ -1252,6 +1398,8 @@ function selectFlow(fid) {
 
   // Auto-select first stage
   if (f.stages.length > 0) selectStage(f.stages[0].id, f.stages[0].color);
+  // Initial schedule calculation from pre-filled TaT defaults
+  recalcSchedule();
   checkReady();
 }
 

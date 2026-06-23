@@ -122,13 +122,21 @@ def _manager_ids_for(db, assignee_id):
     u = db.query(User).get(assignee_id)
     return [u.manager_id] if u and u.manager_id else []
 
-def _tat_pct(history_row: FMSStageHistory, stage: FMSStage) -> Optional[int]:
-    """Return 0-100+ percentage of TaT used for the current open stage visit."""
-    if not stage or not stage.target_tat_hours:
-        return None
+def _tat_pct(history_row: FMSStageHistory, stage: FMSStage = None) -> Optional[int]:
+    """Return 0-100+ percentage of TaT used.
+    Prefers ticket-specific planned_end/planned_start from history row;
+    falls back to stage.target_tat_hours for legacy rows without a schedule."""
     until = history_row.exited_at or datetime.utcnow()
     elapsed_h = (until - history_row.entered_at).total_seconds() / 3600
-    return int(elapsed_h / stage.target_tat_hours * 100)
+    # Use ticket-specific planned window if available
+    if history_row.planned_start and history_row.planned_end:
+        planned_h = (history_row.planned_end - history_row.planned_start).total_seconds() / 3600
+        if planned_h > 0:
+            return int(elapsed_h / planned_h * 100)
+    # Fall back to flow-level stage target
+    if stage and stage.target_tat_hours:
+        return int(elapsed_h / stage.target_tat_hours * 100)
+    return None
 
 def _can_transition(user: User, ticket: FMSTicket) -> bool:
     """Admins and managers can always transition; employees only their own stage."""
@@ -357,6 +365,8 @@ def fms_dashboard(
     status_filter: Optional[str] = None,
     f_priority: Optional[str] = None,
     f_assignee_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -368,6 +378,7 @@ def fms_dashboard(
             dept_id=dept_id, manager_id=manager_id, branch_id=branch_id,
             month=month, status_filter=status_filter,
             f_priority=f_priority, f_assignee_id=f_assignee_id,
+            date_from=date_from, date_to=date_to,
             user=user, db=db,
         )
     except Exception as _exc:
@@ -379,7 +390,7 @@ def fms_dashboard(
 
 def _fms_dashboard_inner(
     request, flow_id, stage_id, view, dept_id, manager_id, branch_id,
-    month, status_filter, f_priority, f_assignee_id, user, db,
+    month, status_filter, f_priority, f_assignee_id, date_from, date_to, user, db,
 ):
     tid = user.tenant_id
     now = datetime.utcnow()
@@ -449,26 +460,39 @@ def _fms_dashboard_inner(
         FMSTicket.status.notin_(["COMPLETED", "CLOSED"])).all()
     for t in open_tickets:
         h = _open_history(db, t.id)
-        if h and t.current_stage and t.current_stage.target_tat_hours:
+        if not h:
+            continue
+        # Prefer ticket-specific planned_end; fall back to stage target
+        if h.planned_end:
+            if now > h.planned_end:
+                tat_breaches += 1
+        elif t.current_stage and t.current_stage.target_tat_hours:
             elapsed = (now - h.entered_at).total_seconds() / 3600
             if elapsed > t.current_stage.target_tat_hours:
                 tat_breaches += 1
 
+    # Compliance: completed stage history rows with a planned window or stage target
     all_history = db.query(FMSStageHistory).join(
         FMSTicket, FMSStageHistory.ticket_id == FMSTicket.id
-    ).join(FMSStage, FMSStageHistory.stage_id == FMSStage.id).filter(
+    ).filter(
         FMSTicket.tenant_id == tid,
         FMSStageHistory.exited_at != None,
-        FMSStage.target_tat_hours != None,
     ).all()
-    if all_history:
-        on_time = sum(
-            1 for h in all_history
-            if h.stage and h.stage.target_tat_hours and
-               (h.exited_at - h.entered_at).total_seconds() / 3600
-               <= h.stage.target_tat_hours
-        )
-        compliance = int(on_time / len(all_history) * 100)
+    scoreable = [
+        h for h in all_history
+        if (h.planned_start and h.planned_end) or
+           (h.stage and h.stage.target_tat_hours)
+    ]
+    if scoreable:
+        def _on_time(h):
+            actual_h = (h.exited_at - h.entered_at).total_seconds() / 3600
+            if h.planned_start and h.planned_end:
+                target_h = (h.planned_end - h.planned_start).total_seconds() / 3600
+            else:
+                target_h = h.stage.target_tat_hours
+            return actual_h <= target_h
+        on_time = sum(1 for h in scoreable if _on_time(h))
+        compliance = int(on_time / len(scoreable) * 100)
     else:
         compliance = 0
 
@@ -479,6 +503,57 @@ def _fms_dashboard_inner(
             FMSTicket.flow_id == f.id, FMSTicket.is_deleted == False,
             FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
         ).count()
+
+    # ── Filter data (loaded for all views) ───────────────────────────────────
+    departments = db.query(Department).filter(
+        Department.tenant_id == tid, Department.is_deleted == False
+    ).order_by(Department.name).all()
+    managers = db.query(User).filter(
+        User.tenant_id == tid, User.role.in_(["MANAGER", "ADMIN"]),
+        User.is_deleted == False, User.is_active == True,
+    ).order_by(User.name).all()
+    branches = db.query(Branch).filter(
+        Branch.tenant_id == tid, Branch.is_deleted == False
+    ).order_by(Branch.name).all()
+
+    # Resolve combined assignee filter from branch/dept/manager/assignee params
+    filter_assignee_ids = None  # None = no filter applied
+    if f_assignee_id:
+        filter_assignee_ids = [f_assignee_id]
+    elif dept_id or manager_id or branch_id:
+        filt_q = db.query(User).filter(
+            User.tenant_id == tid, User.is_deleted == False, User.is_active == True
+        )
+        if dept_id:
+            filt_q = filt_q.filter(User.department_id == dept_id)
+        if manager_id:
+            mgr_team = [u.id for u in db.query(User).filter(
+                User.manager_id == manager_id, User.tenant_id == tid,
+                User.is_deleted == False).all()]
+            mgr_team.append(manager_id)
+            filt_q = filt_q.filter(User.id.in_(mgr_team))
+        if branch_id:
+            br_dept_ids = [d.id for d in db.query(Department).filter(
+                Department.branch_id == branch_id, Department.tenant_id == tid,
+                Department.is_deleted == False).all()]
+            filt_q = filt_q.filter(User.department_id.in_(br_dept_ids))
+        filter_assignee_ids = [u.id for u in filt_q.all()]
+
+    # Parse date range filters
+    from datetime import datetime as _dtp
+    filter_date_from = None
+    filter_date_to = None
+    if date_from:
+        try:
+            filter_date_from = _dtp.strptime(date_from, "%Y-%m-%d")
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            filter_date_to = _dtp.strptime(date_to, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59)
+        except ValueError:
+            pass
 
     # ── Swimlane data ─────────────────────────────────────────────────────────
     tickets_by_stage: dict = {}
@@ -504,6 +579,15 @@ def _fms_dashboard_inner(
                 (FMSTicket.id.in_(emp_all_fms_ids)) |
                 (FMSTicket.id.in_(emp_upcoming_ids))
             )
+        if filter_assignee_ids is not None:
+            swimlane_q = swimlane_q.filter(
+                FMSTicket.current_assignee_id.in_(filter_assignee_ids))
+        if f_priority:
+            swimlane_q = swimlane_q.filter(FMSTicket.priority == f_priority)
+        if filter_date_from:
+            swimlane_q = swimlane_q.filter(FMSTicket.created_at >= filter_date_from)
+        if filter_date_to:
+            swimlane_q = swimlane_q.filter(FMSTicket.created_at <= filter_date_to)
 
         for t in swimlane_q.all():
             sid = t.current_stage_id
@@ -520,21 +604,7 @@ def _fms_dashboard_inner(
 
     # ── List view data ────────────────────────────────────────────────────────
     list_tickets = []
-    departments = []
-    managers = []
-    branches = []
     if view == "list":
-        departments = db.query(Department).filter(
-            Department.tenant_id == tid, Department.is_deleted == False
-        ).order_by(Department.name).all()
-        managers = db.query(User).filter(
-            User.tenant_id == tid, User.role.in_(["MANAGER", "ADMIN"]),
-            User.is_deleted == False, User.is_active == True,
-        ).order_by(User.name).all()
-        branches = db.query(Branch).filter(
-            Branch.tenant_id == tid, Branch.is_deleted == False
-        ).order_by(Branch.name).all()
-
         list_q = db.query(FMSTicket).filter(
             FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
         )
@@ -560,30 +630,20 @@ def _fms_dashboard_inner(
             list_q = list_q.filter(FMSTicket.status.in_(["COMPLETED", "CLOSED"]))
         elif status_filter:
             list_q = list_q.filter(FMSTicket.status == status_filter.upper())
-        # Department filter: assignee's department
-        if dept_id:
-            dept_user_ids = [u.id for u in db.query(User).filter(
-                User.department_id == dept_id, User.tenant_id == tid,
-                User.is_deleted == False).all()]
-            list_q = list_q.filter(FMSTicket.current_assignee_id.in_(dept_user_ids))
-        # Manager filter: assignee's manager
-        if manager_id:
-            mgr_team_ids = [u.id for u in db.query(User).filter(
-                User.manager_id == manager_id, User.tenant_id == tid,
-                User.is_deleted == False).all()]
-            mgr_team_ids.append(manager_id)
-            list_q = list_q.filter(FMSTicket.current_assignee_id.in_(mgr_team_ids))
-        # Branch filter: assignee's branch (via department)
-        if branch_id:
-            branch_dept_ids = [d.id for d in db.query(Department).filter(
-                Department.branch_id == branch_id, Department.tenant_id == tid,
-                Department.is_deleted == False).all()]
-            branch_user_ids = [u.id for u in db.query(User).filter(
-                User.department_id.in_(branch_dept_ids), User.tenant_id == tid,
-                User.is_deleted == False).all()]
-            list_q = list_q.filter(FMSTicket.current_assignee_id.in_(branch_user_ids))
-        # Month filter: created_at
-        if month:
+        # Assignee/dept/manager/branch filter (shared computation above)
+        if filter_assignee_ids is not None:
+            list_q = list_q.filter(
+                FMSTicket.current_assignee_id.in_(filter_assignee_ids))
+        # Priority filter
+        if f_priority:
+            list_q = list_q.filter(FMSTicket.priority == f_priority)
+        # Date range filter (takes priority over month)
+        if filter_date_from or filter_date_to:
+            if filter_date_from:
+                list_q = list_q.filter(FMSTicket.created_at >= filter_date_from)
+            if filter_date_to:
+                list_q = list_q.filter(FMSTicket.created_at <= filter_date_to)
+        elif month:
             try:
                 y, m = int(month[:4]), int(month[5:7])
                 month_start = datetime(y, m, 1)
@@ -682,8 +742,12 @@ def _fms_dashboard_inner(
                 )
             if f_priority:
                 q = q.filter(FMSTicket.priority == f_priority)
-            if f_assignee_id:
-                q = q.filter(FMSTicket.current_assignee_id == f_assignee_id)
+            if filter_assignee_ids is not None:
+                q = q.filter(FMSTicket.current_assignee_id.in_(filter_assignee_ids))
+            if filter_date_from:
+                q = q.filter(FMSTicket.created_at >= filter_date_from)
+            if filter_date_to:
+                q = q.filter(FMSTicket.created_at <= filter_date_to)
 
             raw = q.order_by(FMSTicket.created_at.desc()).all()
             for t in raw:
@@ -797,6 +861,10 @@ def _fms_dashboard_inner(
         f_branch_id=branch_id or "",
         f_month=month or "",
         f_status=status_filter or "",
+        f_priority=f_priority or "",
+        f_assignee_id=f_assignee_id or "",
+        f_date_from=date_from or "",
+        f_date_to=date_to or "",
         employees=employees,
         entity_options=entity_options,
         # role-relative ticket classification for employee board symbols
