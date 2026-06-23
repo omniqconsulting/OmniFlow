@@ -63,7 +63,7 @@ from .fms import router as fms_router
 app.include_router(fms_router)
 from .submodules import router as submodules_router
 app.include_router(submodules_router)
-from .ai_router import router as ai_router
+from .ai_router import router as ai_router, _get_ai_limit as _get_ai_limit_for_tenant
 app.include_router(ai_router)
 from .setup_routes import router as setup_router
 app.include_router(setup_router)
@@ -818,6 +818,7 @@ def plan_page(request: Request, user: User = Depends(get_current_user),
         "next_plan": next_plan(tenant.plan or "STARTER"),
         "can_export": has_feature(tenant, "CSV_EXPORT", db),
         "now": datetime.utcnow(),
+        "ai_daily_limit": _get_ai_limit_for_tenant(tenant),
     })
 
 

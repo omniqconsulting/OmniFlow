@@ -397,6 +397,7 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
           <div style="font-size:12px;color:var(--text-muted)">🏭 <strong style="color:var(--text-primary)">{{ sl.max_branches }}</strong> branch</div>
           <div style="font-size:12px;color:var(--text-muted)">✅ <strong style="color:var(--text-primary)">{{ sl.max_checklist_templates or '∞' }}</strong> checklists</div>
           <div style="font-size:12px;color:var(--text-muted)">🔄 <strong style="color:var(--text-primary)">{{ sl.max_fms_flows or '0' }}</strong> FMS flows</div>
+          <div style="font-size:12px;color:var(--text-muted)">✦ <strong style="color:var(--text-primary)">Not included</strong> AI calls</div>
         </div>
       </div>
 
@@ -412,6 +413,7 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
           <div style="font-size:12px;color:var(--text-muted)">🏭 <strong style="color:var(--text-primary)">{{ pl.max_branches }}</strong> branches</div>
           <div style="font-size:12px;color:var(--text-muted)">✅ <strong style="color:var(--text-primary)">Unlimited</strong> checklists</div>
           <div style="font-size:12px;color:var(--text-muted)">🔄 <strong style="color:var(--text-primary)">{{ pl.max_fms_flows }}</strong> FMS flows</div>
+          <div style="font-size:12px;color:var(--text-muted)">✦ <strong style="color:var(--text-primary)">{{ pl.ai_daily_limit }}</strong> AI calls / day</div>
           <div style="font-size:12px;color:#6ee7b7">+ Bulk import, Analytics, Multi-branch</div>
         </div>
       </div>
@@ -427,6 +429,7 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
           <div style="font-size:12px;color:var(--text-muted)">🏭 <strong style="color:var(--text-primary)">Unlimited</strong> branches</div>
           <div style="font-size:12px;color:var(--text-muted)">✅ <strong style="color:var(--text-primary)">Unlimited</strong> checklists</div>
           <div style="font-size:12px;color:var(--text-muted)">🔄 <strong style="color:var(--text-primary)">Unlimited</strong> FMS flows</div>
+          <div style="font-size:12px;color:var(--text-muted)">✦ <strong style="color:var(--text-primary)">{{ el.ai_daily_limit }}</strong> AI calls / day</div>
           <div style="font-size:12px;color:#6ee7b7">+ API, SSO, White-label, SLA, Audit log</div>
         </div>
       </div>
