@@ -1388,7 +1388,7 @@ function selectFlow(fid) {
     f.stages.forEach(s => {
       const wrap = document.createElement('div');
       wrap.id = 'swrap-' + s.id;
-      wrap.style.cssText = 'border:1.5px solid rgba(255,255,255,.08);border-radius:7px;overflow:hidden;transition:border-color .15s;cursor:pointer';
+      wrap.style.cssText = 'border:1.5px solid rgba(255,255,255,.08);border-radius:7px;overflow:hidden;transition:border-color .15s;cursor:pointer;flex-shrink:0';
 
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg-input)';
