@@ -19,6 +19,10 @@
 /* ── Two-column layout ── */
 .cl-layout{display:flex;gap:14px;align-items:flex-start}
 
+/* ── Pane visibility — JS toggles .active class ── */
+.cl-section{display:none}
+.cl-section.active{display:block}
+
 /* ── Left nav ── */
 .cl-nav{width:188px;flex-shrink:0;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:3px;position:sticky;top:16px}
 .cl-nav-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint);padding:4px 8px 6px;margin-bottom:2px;border-bottom:1px solid var(--border-subtle)}
@@ -175,17 +179,17 @@
   {% if user.role in ('ADMIN','MANAGER') %}
   <div class="cl-nav">
     <div class="cl-nav-title">Views</div>
-    <button class="cl-nav-btn danger-tab" id="cl-btn-overdue" onclick="showClTab('overdue')">
+    <button type="button" class="cl-nav-btn danger-tab" id="cl-btn-overdue" onclick="showClTab('overdue')">
       <span class="cl-nav-icon">⚠</span>
       <span class="cl-nav-label">Team Overdue</span>
       {% if overdue_team|length > 0 %}<span class="cl-nav-badge">{{ overdue_team|length }}</span>{% endif %}
     </button>
-    <button class="cl-nav-btn" id="cl-btn-upcoming" onclick="showClTab('upcoming')">
+    <button type="button" class="cl-nav-btn" id="cl-btn-upcoming" onclick="showClTab('upcoming')">
       <span class="cl-nav-icon">📅</span>
       <span class="cl-nav-label">Upcoming</span>
       {% if upcoming|length > 0 %}<span class="cl-nav-badge">{{ upcoming|length }}</span>{% endif %}
     </button>
-    <button class="cl-nav-btn" id="cl-btn-all" onclick="showClTab('all')">
+    <button type="button" class="cl-nav-btn" id="cl-btn-all" onclick="showClTab('all')">
       <span class="cl-nav-icon">☰</span>
       <span class="cl-nav-label">All Checklists</span>
       <span class="cl-nav-badge">{{ templates_list|length }}</span>
@@ -194,12 +198,12 @@
   {% else %}
   <div class="cl-nav">
     <div class="cl-nav-title">My Work</div>
-    <button class="cl-nav-btn danger-tab" id="cl-btn-my-overdue" onclick="showClTab('my-overdue')">
+    <button type="button" class="cl-nav-btn danger-tab" id="cl-btn-my-overdue" onclick="showClTab('my-overdue')">
       <span class="cl-nav-icon">⚠</span>
       <span class="cl-nav-label">Overdue</span>
       {% if my_overdue|length > 0 %}<span class="cl-nav-badge">{{ my_overdue|length }}</span>{% endif %}
     </button>
-    <button class="cl-nav-btn" id="cl-btn-my-upcoming" onclick="showClTab('my-upcoming')">
+    <button type="button" class="cl-nav-btn" id="cl-btn-my-upcoming" onclick="showClTab('my-upcoming')">
       <span class="cl-nav-icon">📅</span>
       <span class="cl-nav-label">Upcoming</span>
       {% if my_upcoming|length > 0 %}<span class="cl-nav-badge">{{ my_upcoming|length }}</span>{% endif %}
@@ -213,7 +217,7 @@
   {% if user.role in ('ADMIN','MANAGER') %}
 
   <!-- ══ Pane: Team Overdue ══ -->
-  <div id="cl-pane-overdue" class="cl-section">
+  <div id="cl-pane-overdue" class="cl-section active">
     <div class="cl-pane-header">
       <span class="cl-pane-icon">⚠️</span>
       <div>
@@ -329,7 +333,7 @@
   </div><!-- end cl-pane-overdue -->
 
   <!-- ══ Pane: Upcoming ══ -->
-  <div id="cl-pane-upcoming" class="cl-section" style="display:none">
+  <div id="cl-pane-upcoming" class="cl-section">
     <div class="cl-pane-header">
       <span class="cl-pane-icon">📅</span>
       <div>
@@ -390,7 +394,7 @@
   </div><!-- end cl-pane-upcoming -->
 
   <!-- ══ Pane: All Checklists (admin/manager) ══ -->
-  <div id="cl-pane-all" class="cl-section" style="display:none">
+  <div id="cl-pane-all" class="cl-section">
     <div class="cl-pane-header">
       <span class="cl-pane-icon">☰</span>
       <div>
@@ -623,7 +627,7 @@
   </div><!-- end cl-pane-my-overdue -->
 
   <!-- ══ Pane: My Upcoming ══ -->
-  <div id="cl-pane-my-upcoming" class="cl-section" style="display:none">
+  <div id="cl-pane-my-upcoming" class="cl-section">
     <div class="cl-pane-header">
       <span class="cl-pane-icon">📅</span>
       <div>
@@ -1069,13 +1073,8 @@
 <script>
 /* ── Checklist tab navigation ── */
 function showClTab(tab) {
-  var isAdmin = {{ 'true' if user.role in ('ADMIN','MANAGER') else 'false' }};
-  var panes = isAdmin
-    ? ['overdue','upcoming','all']
-    : ['my-overdue','my-upcoming'];
-  panes.forEach(function(t) {
-    var p = document.getElementById('cl-pane-' + t);
-    if (p) p.style.display = (t === tab) ? 'block' : 'none';
+  document.querySelectorAll('.cl-section').forEach(function(p) {
+    p.classList.toggle('active', p.id === 'cl-pane-' + tab);
   });
   document.querySelectorAll('.cl-nav-btn').forEach(function(b) {
     b.classList.toggle('active', b.id === 'cl-btn-' + tab);
