@@ -313,7 +313,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
         {% endif %}
         <td onclick="event.stopPropagation()">
           {% if not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
-          <button onclick="openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ active_stage.evidence_required|lower }}','{{ active_stage.completion_note_required|lower }}')"
+          <button onclick="openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ 'true' if active_stage.evidence_required else 'false' }}','{{ 'true' if active_stage.completion_note_required else 'false' }}')"
                   class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px;white-space:nowrap">
             ✓ Mark Done
           </button>
