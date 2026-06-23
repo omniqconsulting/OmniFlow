@@ -329,6 +329,8 @@ def lib_flow_deploy(flow_id: str, tenant_id: str = Form(...),
         db.flush()
 
     # Create FMSStage rows from library stages
+    # Note: LibraryFlowStage does not have is_mandatory or default_assignee_id
+    # — those are FMSStage-only fields. Use safe defaults.
     for lib_stage in flow.stages:
         db.add(FMSStage(
             flow_id=fms_flow.id,
@@ -340,7 +342,7 @@ def lib_flow_deploy(flow_id: str, tenant_id: str = Form(...),
             target_tat_hours=lib_stage.target_tat_hours,
             sub_module_tag=lib_stage.sub_module_tag,
             deployed_submodule_id=lib_stage.submodule_id,
-            is_mandatory=bool(lib_stage.is_mandatory) if lib_stage.is_mandatory is not None else True,
+            is_mandatory=True,                                    # not in library model — default True
             completion_note_required=bool(lib_stage.completion_note_required),
             evidence_required=bool(lib_stage.evidence_required),
             is_terminal=bool(lib_stage.is_terminal),
