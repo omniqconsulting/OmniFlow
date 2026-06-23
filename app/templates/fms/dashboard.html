@@ -712,9 +712,9 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .ctv-table tr:last-child td{border-bottom:none}
 .ctv-table tr:hover td{background:var(--row-hover);cursor:pointer}
 /* Sticky left columns */
-.ctv-table .ctv-sticky{position:sticky;z-index:3;background:var(--bg-card)}
-.ctv-table thead .ctv-sticky{background:var(--bg-input);z-index:4}
-.ctv-table tr:hover .ctv-sticky{background:var(--row-hover)}
+.ctv-table .ctv-sticky{position:sticky;z-index:10;background:var(--bg-card);box-shadow:2px 0 4px rgba(0,0,0,0.2)}
+.ctv-table thead .ctv-sticky{background:var(--bg-input);z-index:11;box-shadow:2px 0 4px rgba(0,0,0,0.25)}
+.ctv-table tr:hover .ctv-sticky{background:var(--row-hover);box-shadow:2px 0 4px rgba(59,130,246,0.3)}
 .ctv-s0{left:0;   min-width:72px; max-width:72px}
 .ctv-s1{left:72px; min-width:180px;max-width:180px}
 .ctv-s2{left:252px;min-width:90px; max-width:90px}
