@@ -70,9 +70,7 @@ def _check_fms_flow_limit(db: Session, tenant: Tenant) -> tuple[bool, int, objec
     return current < max_flows, current, max_flows
 
 import os
-BASE_DIR = os.path.dirname(__file__)
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
-templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
+from .templates_env import templates  # shared instance — has all filters
 
 
 class _OrmEncoder(_json.JSONEncoder):

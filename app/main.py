@@ -1,6 +1,5 @@
 ﻿from fastapi import FastAPI, Request, Depends, Form, HTTPException, UploadFile, File, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
@@ -69,45 +68,8 @@ from .setup_routes import router as setup_router
 app.include_router(setup_router)
 from .linked_entities import router as linked_entities_router
 app.include_router(linked_entities_router)
+from .templates_env import templates, _OrmEncoder, _to_ist, _format_tat  # shared filters
 BASE_DIR = os.path.dirname(__file__)
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
-# Register custom Jinja2 filters
-import json as _json
-from datetime import datetime as _dt
-
-class _OrmEncoder(_json.JSONEncoder):
-    def default(self, obj):
-        if hasattr(obj, "__dict__"):
-            return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
-        if isinstance(obj, _dt):
-            return obj.isoformat()
-        return super().default(obj)
-
-from markupsafe import Markup as _Markup
-templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
-templates.env.filters["tojson"]    = lambda v: _Markup(_json.dumps(v, cls=_OrmEncoder))
-
-def _to_ist(dt, fmt="%d %b, %I:%M %p"):
-    """Convert a naive UTC datetime to IST (UTC+5:30) and format it."""
-    if dt is None:
-        return ""
-    from datetime import timezone, timedelta
-    IST = timezone(timedelta(hours=5, minutes=30))
-    return dt.replace(tzinfo=timezone.utc).astimezone(IST).strftime(fmt)
-
-templates.env.filters["ist"] = _to_ist
-
-def _format_tat(hours):
-    """Format TAT hours as '2h', '1d', '1d 4h' etc. Returns '' for null/zero."""
-    if not hours:
-        return ""
-    h = int(hours)
-    if h < 24:
-        return f"{h}h"
-    d, r = divmod(h, 24)
-    return f"{d}d" if r == 0 else f"{d}d {r}h"
-
-templates.env.filters["format_tat"] = _format_tat
 
 # ── P10-04: Validation helpers ──────────────────────────────────────────────
 import re as _re
@@ -4299,4 +4261,3 @@ def apply_preset(
     row.updated_at   = datetime.utcnow()
     db.commit()
     return redirect("/settings/labels?msg=preset")
-

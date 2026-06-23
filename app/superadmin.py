@@ -4,7 +4,6 @@ All routes are prefixed /superadmin and use the sa_token cookie.
 """
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from datetime import datetime, date as _date
 import json as _json, os
@@ -31,17 +30,9 @@ from .auth import hash_password
 
 router = APIRouter(prefix="/superadmin")
 
-BASE_DIR  = os.path.dirname(__file__)
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+from .templates_env import templates  # shared instance — has all filters
 
 
-class _OrmEncoder(_json.JSONEncoder):
-    def default(self, obj):
-        if hasattr(obj, "__dict__"):
-            return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
-        if isinstance(obj, (datetime, _date)):
-            return obj.isoformat()
-        return super().default(obj)
 
 
 templates.env.filters["tojson"] = lambda v: _Markup(_json.dumps(v, cls=_OrmEncoder))

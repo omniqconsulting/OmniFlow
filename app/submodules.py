@@ -12,7 +12,6 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -30,17 +29,9 @@ from .notifications import notify_fms_stage_transition
 from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION
 
 import os
-BASE_DIR = os.path.dirname(__file__)
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+from .templates_env import templates  # shared instance — has all filters
 
 # Reuse same ORM-aware tojson encoder
-class _OrmEncoder(_json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (datetime, date)):
-            return obj.isoformat()
-        if hasattr(obj, "__dict__"):
-            return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
-        return super().default(obj)
 
 templates.env.filters["tojson"]    = lambda v: _json.dumps(v, cls=_OrmEncoder)
 templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
@@ -645,5 +636,3 @@ def deploy_submodule_to_stage(
     stage.deployed_submodule_id = submodule_def_id
     db.commit()
     return _redirect(f"/fms/flows/{stage.flow_id}?msg=submodule_deployed")
-
-
