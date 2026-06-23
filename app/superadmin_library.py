@@ -8,7 +8,6 @@ import json, logging
 from datetime import datetime, date as _date
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from markupsafe import Markup as _Markup
 import os
@@ -26,8 +25,7 @@ from .superadmin_auth import get_current_sa
 from .constants import get_limit, PLAN_LABELS
 
 router = APIRouter(prefix="/superadmin/library")
-BASE_DIR  = os.path.dirname(__file__)
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+from .templates_env import templates  # shared instance — has all filters
 templates.env.filters["from_json"] = lambda s: (json.loads(s) if s else [])
 
 

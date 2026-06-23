@@ -11,7 +11,6 @@ from datetime import datetime, date as _date
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from sqlalchemy.orm import Session
 import os
@@ -28,20 +27,12 @@ from .labels import get_labels
 
 router = APIRouter()
 
-BASE_DIR  = os.path.dirname(__file__)
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+from .templates_env import templates  # shared instance — has all filters
 
 import json as _json
 from markupsafe import Markup as _Markup
 
 
-class _OrmEncoder(_json.JSONEncoder):
-    def default(self, obj):
-        if hasattr(obj, "__dict__"):
-            return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
-        if isinstance(obj, (datetime, _date)):
-            return obj.isoformat()
-        return super().default(obj)
 
 
 def _safe_tojson(v):
