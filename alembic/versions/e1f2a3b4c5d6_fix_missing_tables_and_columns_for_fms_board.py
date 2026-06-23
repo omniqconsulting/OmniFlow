@@ -246,6 +246,28 @@ def upgrade():
         )
     """))
 
+    # ── 12. Backfill NULL Boolean columns on existing deployed rows ───────────
+    # The deploy function previously omitted is_mandatory, is_terminal,
+    # completion_note_required, evidence_required — leaving NULL on stages
+    # already deployed. NULL piped through Jinja2 |lower crashes the template
+    # silently (no Render log). Safe defaults backfilled for all existing rows.
+    _pg(bind, [
+        "UPDATE fms_stages SET evidence_required        = FALSE      WHERE evidence_required        IS NULL",
+        "UPDATE fms_stages SET completion_note_required = FALSE      WHERE completion_note_required IS NULL",
+        "UPDATE fms_stages SET is_terminal              = FALSE      WHERE is_terminal              IS NULL",
+        "UPDATE fms_stages SET is_mandatory             = TRUE       WHERE is_mandatory             IS NULL",
+        "UPDATE fms_stages SET is_deleted               = FALSE      WHERE is_deleted               IS NULL",
+        "UPDATE fms_stages SET color                    = '#3b82f6'  WHERE color                    IS NULL",
+        "UPDATE fms_stages SET custom_fields_json       = '[]'       WHERE custom_fields_json       IS NULL",
+        "UPDATE fms_flows  SET color                    = '#3b82f6'  WHERE color                    IS NULL",
+        "UPDATE fms_flows  SET is_deleted               = FALSE      WHERE is_deleted               IS NULL",
+        "UPDATE fms_tickets SET is_flagged              = FALSE      WHERE is_flagged               IS NULL",
+        "UPDATE fms_tickets SET is_deleted              = FALSE      WHERE is_deleted               IS NULL",
+        "UPDATE fms_tickets SET priority                = 'MEDIUM'   WHERE priority                 IS NULL",
+        "UPDATE fms_stage_history SET direction         = 'FORWARD'  WHERE direction                IS NULL",
+        "UPDATE fms_stage_history SET qty_completed     = 0          WHERE qty_completed            IS NULL",
+    ])
+
 
 def downgrade():
     pass  # destructive — not supported
