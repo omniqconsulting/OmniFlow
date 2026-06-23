@@ -376,6 +376,7 @@ def sa_tenant_detail(request: Request, tenant_id: str,
 
     # AI usage for this tenant
     from datetime import date as _date
+    from .constants import get_limit as _get_limit
     today_str = _date.today().isoformat()
     month_str = today_str[:7]  # "YYYY-MM"
     ai_today_row = db.query(TenantAIUsage).filter(
@@ -388,6 +389,8 @@ def sa_tenant_detail(request: Request, tenant_id: str,
         TenantAIUsage.date.like(f"{month_str}%"),
     ).all()
     ai_usage_month = sum(r.call_count for r in ai_month_rows)
+    # Real plan default from constants (0 = disabled, None = unlimited, int = capped)
+    plan_ai_limit = _get_limit(tenant, "ai_daily_limit")
 
     # Login activity chart — built from LoginEvent history
     from datetime import timedelta
@@ -487,6 +490,7 @@ def sa_tenant_detail(request: Request, tenant_id: str,
         "fms_tickets": fms_tickets,
         "ai_usage_today": ai_usage_today,
         "ai_usage_month": ai_usage_month,
+        "plan_ai_limit": plan_ai_limit,
         "login_chart": login_chart,
         "now": datetime.utcnow(),
     })

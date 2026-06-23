@@ -564,11 +564,12 @@ document.addEventListener('DOMContentLoaded', function() {
       <h2 style="margin:0">Ask AI — Usage & Limits</h2>
       <div class="muted" style="margin-top:3px">Set custom daily call limit for this tenant · overrides plan default</div>
     </div>
-    {% set plan_ai_limit = {'TRIAL':5,'STARTER':20,'PROFESSIONAL':100,'ENTERPRISE':None}.get(tenant.plan, 20) %}
     <span class="badge badge-{% if tenant.ai_custom_limit == 0 %}red{% elif tenant.ai_custom_limit %}yellow{% else %}gray{% endif %}" style="font-size:10px">
       {% if tenant.ai_custom_limit == 0 %}Disabled by SA
       {% elif tenant.ai_custom_limit %}Custom: {{ tenant.ai_custom_limit }}/day
-      {% else %}Plan default: {{ plan_ai_limit or 'Unlimited' }}/day{% endif %}
+      {% elif plan_ai_limit == 0 %}Plan default: Disabled ({{ tenant.plan }})
+      {% elif plan_ai_limit %}Plan default: {{ plan_ai_limit }}/day
+      {% else %}Plan default: Unlimited/day{% endif %}
     </span>
   </div>
 
@@ -585,11 +586,18 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
     <div style="background:#0d1424;border-radius:8px;padding:10px 16px;flex:1;min-width:120px">
       <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Effective Limit</div>
-      <div style="font-size:20px;font-weight:700;color:{% if tenant.ai_custom_limit == 0 %}#f87171{% elif tenant.ai_custom_limit %}#fbbf24{% else %}#6ee7b7{% endif %};margin-top:2px">
-        {% if tenant.ai_custom_limit == 0 %}Blocked
-        {% elif tenant.ai_custom_limit %}{{ tenant.ai_custom_limit }}/day
-        {% else %}{{ plan_ai_limit or '∞' }}/day{% endif %}
-      </div>
+      {% if tenant.ai_custom_limit == 0 %}
+        {% set eff_color = '#f87171' %}{% set eff_val = 'Blocked' %}
+      {% elif tenant.ai_custom_limit %}
+        {% set eff_color = '#fbbf24' %}{% set eff_val = tenant.ai_custom_limit|string + '/day' %}
+      {% elif plan_ai_limit == 0 %}
+        {% set eff_color = '#f87171' %}{% set eff_val = 'Disabled' %}
+      {% elif plan_ai_limit %}
+        {% set eff_color = '#6ee7b7' %}{% set eff_val = plan_ai_limit|string + '/day' %}
+      {% else %}
+        {% set eff_color = '#94a3b8' %}{% set eff_val = '∞/day' %}
+      {% endif %}
+      <div style="font-size:20px;font-weight:700;color:{{ eff_color }};margin-top:2px">{{ eff_val }}</div>
     </div>
   </div>
   {% endif %}
