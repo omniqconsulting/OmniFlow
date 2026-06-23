@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">🧭 Setup Guide</h1>
@@ -7,7 +7,7 @@
 
 <!-- Progress Steps -->
 <div style="display:flex;gap:0;margin-bottom:28px;border-radius:10px;overflow:hidden;border:1px solid var(--border-subtle)">
-  {% for s, label in [(1,'Factory Info'),(2,'Branches'),(3,'Departments'),(4,'Employees'),(5,'Checklists')] %}
+  {% for s, label in [(1,'Organization Info'),(2,'Branches'),(3,'Departments'),(4,'Employees'),(5,'Checklists')] %}
   {% set is_done = completed.get(s, False) %}
   {% set is_current = (step == s) %}
   <a href="/setup/wizard?step={{ s }}"
@@ -33,16 +33,16 @@
   </p>
   <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
     <a href="/dashboard" class="btn btn-primary">Go to Dashboard →</a>
-    <a href="/setup" class="btn btn-outline">Factory Setup</a>
+    <a href="/setup" class="btn btn-outline">Organization Setup</a>
   </div>
 </div>
 
 {% elif step == 1 %}
-<!-- Step 1: Factory info -->
+<!-- Step 1: Organization info -->
 <div class="card">
   <h2>Welcome to OmniFlow!</h2>
   <p style="color:var(--text-faint);margin-bottom:18px;font-size:13px;line-height:1.7">
-    Your factory is registered as <strong style="color:var(--text-strong)">{{ tenant.name }}</strong>.
+    Your organization is registered as <strong style="color:var(--text-strong)">{{ tenant.name }}</strong>.
     This guide will walk you through the 5-step setup. Progress is saved automatically — you can close the browser and return anytime.
   </p>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px">

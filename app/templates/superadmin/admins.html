@@ -72,7 +72,7 @@
 <div class="card" style="border-color:rgba(167,139,250,0.15);background:#0d0a1a">
   <h2>Security Notes</h2>
   <ul style="color:#64748b;font-size:13px;line-height:2;padding-left:18px">
-    <li>Super admin accounts use a <strong style="color:#94a3b8">separate JWT secret</strong> and cookie from factory users — there is no cross-access.</li>
+    <li>Super admin accounts use a <strong style="color:#94a3b8">separate JWT secret</strong> and cookie from organization users — there is no cross-access.</li>
     <li>The SA portal is accessible at <code style="color:#a78bfa">/superadmin/login</code> — consider restricting this path to known IPs in production.</li>
     <li>Deactivated accounts are immediately locked — their active sessions expire within 8 hours (token TTL).</li>
     <li>Passwords are hashed with <strong style="color:#94a3b8">bcrypt</strong> and never stored in plaintext.</li>

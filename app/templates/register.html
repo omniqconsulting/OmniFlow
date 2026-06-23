@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -76,20 +76,20 @@ html.light .error{color:#dc2626}
 <div class="wrap">
   <div class="logo-row">
     <div class="logo">OmniFlow</div>
-    <div class="logo-sub">Set up your factory in 2 minutes</div>
+    <div class="logo-sub">Set up your organization in 2 minutes</div>
   </div>
   <div class="card">
-    <div class="card-title">Create factory account</div>
+    <div class="card-title">Create organization account</div>
     <div class="card-sub">You'll be the Admin — employees can be added after setup</div>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post" action="/register" id="regForm" novalidate>
-      <div class="section-label">Factory Details</div>
+      <div class="section-label">Organization Details</div>
       <div class="form-group">
-        <label>Factory Name</label>
+        <label>Organization Name</label>
         <input name="factory_name" placeholder="Acme Industries Pvt Ltd" required>
       </div>
       <div class="form-group">
-        <label>Factory ID</label>
+        <label>Organization ID</label>
         <input name="slug" id="slugField" placeholder="acme-industries"
                pattern="[a-z0-9\-]+" autocomplete="off" required>
         <div class="hint">Lowercase letters, numbers and hyphens only · Used to login</div>
@@ -129,7 +129,7 @@ html.light .error{color:#dc2626}
         <input type="password" name="password" id="pwField" minlength="6" required placeholder="Min. 6 characters">
         <div class="hint">Minimum 6 characters</div>
       </div>
-      <button class="btn" type="button" onclick="submitReg()">Create Factory Account →</button>
+      <button class="btn" type="button" onclick="submitReg()">Create Organization Account →</button>
       <div class="hint" style="text-align:center;margin-top:10px">
         Your account will be reviewed and activated within a few hours
       </div>
@@ -192,7 +192,7 @@ phoneLocal.addEventListener('input', () => {
 });
 updateHint();
 
-// ── Auto-slug from factory name ────────────────────────────────────────────
+// ── Auto-slug from organization name ────────────────────────────────────────────
 const slugField = document.getElementById('slugField');
 document.querySelector('[name="factory_name"]').addEventListener('input', function() {
   if (!slugField._touched) {
@@ -219,9 +219,9 @@ function checkSlug() {
         slugStatus.style.color = '#10b981';
         slugField.setCustomValidity('');
       } else {
-        slugStatus.textContent = '✗ Already taken — choose a different Factory ID';
+        slugStatus.textContent = '✗ Already taken — choose a different Organization ID';
         slugStatus.style.color = '#f87171';
-        slugField.setCustomValidity('This Factory ID is already taken');
+        slugField.setCustomValidity('This Organization ID is already taken');
       }
     } catch(e) { slugStatus.style.display = 'none'; }
   }, 400);

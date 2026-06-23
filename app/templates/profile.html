@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block content %}
 
 <div class="page-header">
@@ -92,7 +92,7 @@
       <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em">Account Info</div>
       <div style="display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;justify-content:space-between;font-size:12px">
-          <span style="color:var(--text-faint)">Factory ID</span>
+          <span style="color:var(--text-faint)">Organization ID</span>
           <span style="color:var(--text-muted);font-family:monospace">{{ user.tenant.slug if user.tenant else '—' }}</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:12px">

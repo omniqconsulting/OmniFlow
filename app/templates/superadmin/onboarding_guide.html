@@ -1,4 +1,4 @@
-{% extends "superadmin/base.html" %}
+﻿{% extends "superadmin/base.html" %}
 {% block content %}
 
 <div class="page-header">
@@ -31,7 +31,7 @@
   <div>
     <div style="font-weight:600;color:#fcd34d;font-size:13px">Running example throughout this guide</div>
     <div style="color:#94a3b8;font-size:12px;margin-top:3px">
-      <strong style="color:#e2e8f0">Acme Manufacturing Ltd</strong> — a mid-size factory that needs:
+      <strong style="color:#e2e8f0">Acme Manufacturing Ltd</strong> — a mid-size organization that needs:
       daily safety checklists and a production order pipeline with dispatch and invoicing.
       We'll build this live as we go through each step.
     </div>
@@ -46,7 +46,7 @@
     <div style="width:32px;height:32px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex-shrink:0">1</div>
     <div>
       <h2 style="margin:0">Create the Tenant</h2>
-      <div style="color:#64748b;font-size:12px">Set up the factory workspace, admin account, and choose modules</div>
+      <div style="color:#64748b;font-size:12px">Set up the organization workspace, admin account, and choose modules</div>
     </div>
     <a href="/superadmin/tenants/new" class="btn btn-purple btn-sm" style="margin-left:auto">Open Form →</a>
   </div>
@@ -57,14 +57,14 @@
       <div class="guide-step">
         <span class="guide-num">①</span>
         <div>
-          <strong>Factory Name</strong> — full legal or brand name.<br>
+          <strong>Organization Name</strong> — full legal or brand name.<br>
           <span class="eg">e.g. Acme Manufacturing Ltd</span>
         </div>
       </div>
       <div class="guide-step">
         <span class="guide-num">②</span>
         <div>
-          <strong>Factory ID (slug)</strong> — auto-generated; employees type this on login.<br>
+          <strong>Organization ID (slug)</strong> — auto-generated; employees type this on login.<br>
           <span class="eg">e.g. acme-mfg &nbsp;→&nbsp; employees log in at slug "acme-mfg"</span>
         </div>
       </div>
@@ -357,7 +357,7 @@
           1. Log in as ADMIN → go to <strong>Employees</strong><br>
           2. Click <strong>"+ Add Employee"</strong><br>
           3. Fill name, phone number, role, password<br>
-          4. Employee logs in with: <em>Factory ID</em> + <em>phone</em> + <em>password</em>
+          4. Employee logs in with: <em>Organization ID</em> + <em>phone</em> + <em>password</em>
         </div>
       </div>
     </div>

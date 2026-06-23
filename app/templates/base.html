@@ -160,6 +160,9 @@ a:hover{color:#93c5fd}
 .form-group textarea{height:80px;resize:none;line-height:1.6}
 .form-group input::placeholder,.form-group textarea::placeholder{color:var(--text-faint)}
 select option{background:var(--bg-card);color:var(--text-primary)}
+select{scrollbar-width:thin}
+/* Global filter-bar scroll: wraps on small screens, horizontal scroll on very narrow */
+.filter-bar{overflow-x:auto;scrollbar-width:thin}
 input[type="checkbox"]{width:auto;accent-color:#3b82f6;cursor:pointer}
 input[type="datetime-local"]{color-scheme:dark}
 html.light input[type="datetime-local"]{color-scheme:light}

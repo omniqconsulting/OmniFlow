@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block content %}
 <style>
 .ev-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:200;align-items:center;justify-content:center}
@@ -43,7 +43,7 @@
     </select>
   </div>
   <div class="form-group" style="margin:0;min-width:150px">
-    <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:4px">{{ L.Branch }} (Factory Unit)</label>
+    <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:4px">{{ L.Branch }} (Unit)</label>
     <select name="branch_id" onchange="this.form.submit()"
             style="background:var(--bg-card);border:1px solid var(--border-med);border-radius:7px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none;width:100%">
       <option value="">All {{ L.Branches }}</option>
