@@ -25,6 +25,23 @@ from .superadmin_auth import get_current_sa
 from .constants import get_limit, PLAN_LABELS
 
 router = APIRouter(prefix="/superadmin/library")
+import logging as _lib_log, traceback as _lib_tb
+
+
+def _safe_render(fn):
+    """Decorator: log full traceback before re-raising any exception."""
+    import functools, logging, traceback
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception:
+            logging.getLogger("sa_library").error(
+                "SA LIBRARY CRASH in %s:\n%s", fn.__name__, traceback.format_exc()
+            )
+            raise
+    return wrapper
+
 
 from .templates_env import templates  # shared instance — has all filters
 
@@ -106,6 +123,7 @@ def library_home(sa: SuperAdmin = Depends(get_current_sa)):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/flows", response_class=HTMLResponse)
+@_safe_render
 def lib_flows(request: Request, sa: SuperAdmin = Depends(get_current_sa),
               db: Session = Depends(get_db)):
     flows = db.query(LibraryFlowTemplate).order_by(
@@ -115,6 +133,7 @@ def lib_flows(request: Request, sa: SuperAdmin = Depends(get_current_sa),
 
 
 @router.get("/flows/new", response_class=HTMLResponse)
+@_safe_render
 def lib_flow_new_page(request: Request, sa: SuperAdmin = Depends(get_current_sa),
                       db: Session = Depends(get_db)):
     submodules = db.query(LibrarySubmoduleDefinition).filter(
@@ -150,6 +169,7 @@ def lib_flow_create(
 
 
 @router.get("/flows/{flow_id}", response_class=HTMLResponse)
+@_safe_render
 def lib_flow_edit_page(flow_id: str, request: Request,
                         sa: SuperAdmin = Depends(get_current_sa),
                         db: Session = Depends(get_db)):
@@ -353,6 +373,7 @@ def lib_flow_bulk_push(flow_id: str,
 
 
 @router.get("/flows/{flow_id}/diff/{tenant_id}", response_class=HTMLResponse)
+@_safe_render
 def lib_flow_diff(flow_id: str, tenant_id: str, request: Request,
                    sa: SuperAdmin = Depends(get_current_sa),
                    db: Session = Depends(get_db)):
@@ -377,6 +398,7 @@ def lib_flow_diff(flow_id: str, tenant_id: str, request: Request,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/submodules", response_class=HTMLResponse)
+@_safe_render
 def lib_submodules(request: Request, sa: SuperAdmin = Depends(get_current_sa),
                     db: Session = Depends(get_db)):
     # System built-ins first (sorted by type), then custom by name
@@ -400,6 +422,7 @@ def lib_submodules(request: Request, sa: SuperAdmin = Depends(get_current_sa),
 
 
 @router.get("/submodules/new", response_class=HTMLResponse)
+@_safe_render
 def lib_sub_new_page(request: Request, sa: SuperAdmin = Depends(get_current_sa)):
     return templates.TemplateResponse(request, "superadmin/library_submodule_edit.html",
         _lib_ctx(sa, "submodules", item=None, fields=[], error=None,
@@ -424,6 +447,7 @@ def lib_sub_create(
 
 
 @router.get("/submodules/{item_id}", response_class=HTMLResponse)
+@_safe_render
 def lib_sub_edit_page(item_id: str, request: Request,
                        sa: SuperAdmin = Depends(get_current_sa),
                        db: Session = Depends(get_db)):
@@ -533,6 +557,7 @@ def lib_sub_revoke(item_id: str, tenant_id: str = Form(...),
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/checklists", response_class=HTMLResponse)
+@_safe_render
 def lib_checklists(request: Request, sa: SuperAdmin = Depends(get_current_sa),
                     db: Session = Depends(get_db)):
     items = db.query(LibraryChecklistTemplate).order_by(
@@ -570,6 +595,7 @@ def lib_cl_create(
 
 
 @router.get("/checklists/{item_id}", response_class=HTMLResponse)
+@_safe_render
 def lib_cl_edit_page(item_id: str, request: Request,
                       sa: SuperAdmin = Depends(get_current_sa),
                       db: Session = Depends(get_db)):
@@ -735,6 +761,7 @@ def lib_label_create(
 
 
 @router.get("/labels/{bundle_id}/edit", response_class=HTMLResponse)
+@_safe_render
 def lib_label_edit_page(bundle_id: str, request: Request,
                          sa: SuperAdmin = Depends(get_current_sa),
                          db: Session = Depends(get_db)):
@@ -810,6 +837,7 @@ def lib_label_bulk_push(bundle_id: str, sa: SuperAdmin = Depends(get_current_sa)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/onboarding", response_class=HTMLResponse)
+@_safe_render
 def lib_onboarding(request: Request, sa: SuperAdmin = Depends(get_current_sa),
                     db: Session = Depends(get_db)):
     bundles = db.query(LibraryOnboardingBundle).order_by(
