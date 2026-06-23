@@ -53,6 +53,26 @@ from .labels import get_labels, DEFAULT_L, INDUSTRY_NAMES, INDUSTRY_PRESETS
 
 app = FastAPI(title="OmniFlow")
 
+# ── Global exception logger ───────────────────────────────────────────────────
+# Catches ALL unhandled exceptions from every route (including Jinja2 template
+# errors) and logs the full traceback to Render's log stream.
+import logging as _glog, traceback as _gtb
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as _GReq
+
+class _ErrorLogMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: _GReq, call_next):
+        try:
+            return await call_next(request)
+        except Exception:
+            _glog.getLogger("app.errors").error(
+                "UNHANDLED CRASH [%s %s]:\n%s",
+                request.method, request.url.path, _gtb.format_exc()
+            )
+            raise
+
+app.add_middleware(_ErrorLogMiddleware)
+
 # ── Super Admin routers — Phase 0-H / 0-K ────────────────────────────────────
 from .superadmin import router as sa_router
 from .superadmin_library import router as lib_router
