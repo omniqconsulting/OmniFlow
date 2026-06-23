@@ -33,19 +33,6 @@ import json as _json
 from markupsafe import Markup as _Markup
 
 
-
-
-def _safe_tojson(v):
-    """JSON serialise v and escape chars that break HTML attributes."""
-    s = _json.dumps(v, cls=_OrmEncoder, ensure_ascii=False)
-    # Unicode-escape chars that are unsafe inside HTML attribute values
-    s = s.replace('&', '\\u0026').replace('<', '\\u003c').replace('>', '\\u003e').replace("'", '\\u0027')
-    return _Markup(s)
-
-templates.env.filters["tojson"] = _safe_tojson
-templates.env.filters["from_json"] = lambda s: (_json.loads(s) if s else [])
-
-
 def _redir(path: str):
     return RedirectResponse(path, status_code=302)
 

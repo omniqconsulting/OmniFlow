@@ -73,23 +73,8 @@ import os
 from .templates_env import templates  # shared instance — has all filters
 
 
-class _OrmEncoder(_json.JSONEncoder):
-    """Serialize SQLAlchemy model instances as plain dicts for Jinja2 | tojson."""
-    def default(self, obj):
-        if hasattr(obj, "__dict__"):
-            return {k: v for k, v in obj.__dict__.items()
-                    if not k.startswith("_")}
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        return super().default(obj)
 
 
-def _tojson(v) -> str:
-    from markupsafe import Markup
-    return Markup(_json.dumps(v, cls=_OrmEncoder))
-
-
-templates.env.filters["tojson"] = _tojson
 
 router = APIRouter(prefix="/fms", tags=["FMS"])
 
