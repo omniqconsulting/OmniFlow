@@ -505,16 +505,24 @@ def _fms_dashboard_inner(
         ).count()
 
     # ── Filter data (loaded for all views) ───────────────────────────────────
-    departments = db.query(Department).filter(
+    _depts_raw = db.query(Department).filter(
         Department.tenant_id == tid, Department.is_deleted == False
-    ).distinct().order_by(Department.name).all()
-    managers = db.query(User).filter(
+    ).order_by(Department.name).all()
+    _seen_d: set = set()
+    departments = [d for d in _depts_raw if d.name not in _seen_d and not _seen_d.add(d.name)]
+
+    _mgrs_raw = db.query(User).filter(
         User.tenant_id == tid, User.role.in_(["MANAGER", "ADMIN"]),
         User.is_deleted == False, User.is_active == True,
     ).order_by(User.name).all()
-    branches = db.query(Branch).filter(
+    _seen_m: set = set()
+    managers = [m for m in _mgrs_raw if m.name not in _seen_m and not _seen_m.add(m.name)]
+
+    _branches_raw = db.query(Branch).filter(
         Branch.tenant_id == tid, Branch.is_deleted == False
     ).order_by(Branch.name).all()
+    _seen_b: set = set()
+    branches = [b for b in _branches_raw if b.name not in _seen_b and not _seen_b.add(b.name)]
 
     # Resolve combined assignee filter from multi-value params (all are lists now)
     filter_assignee_ids = None  # None = no filter applied

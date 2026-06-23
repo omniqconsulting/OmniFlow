@@ -161,8 +161,8 @@ a:hover{color:#93c5fd}
 .form-group input::placeholder,.form-group textarea::placeholder{color:var(--text-faint)}
 select option{background:var(--bg-card);color:var(--text-primary)}
 select{scrollbar-width:thin}
-/* Global filter-bar scroll: wraps on small screens, horizontal scroll on very narrow */
-.filter-bar{overflow-x:auto;scrollbar-width:thin}
+/* Filter bar wraps on narrow screens; overflow must stay visible so dropdowns aren't clipped */
+.filter-bar{overflow:visible;flex-wrap:wrap}
 /* ── Multi-select dropdown widget ── */
 .ms-wrap{position:relative;min-width:130px}
 .ms-label{font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
