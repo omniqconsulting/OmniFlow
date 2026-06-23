@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import List, Optional
 import asyncio, os, csv, io
 
 from .database import (
@@ -1272,10 +1272,12 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
 # ── Tickets ───────────────────────────────────────────────────────────────────
 
 @app.get("/tickets", response_class=HTMLResponse)
-def tickets_list(request: Request, status: str = "OPEN", view: str = "table",  # view kept for compat but unused
-                 dept_id: str = "", manager_id: str = "", branch_id: str = "",
-                 priority: str = "", ticket_category: str = "",
-                 date_from: str = "", date_to: str = "", assignee_id: str = "",
+def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
+                 dept_id: List[str] = Query([]), manager_id: List[str] = Query([]),
+                 branch_id: List[str] = Query([]), priority: List[str] = Query([]),
+                 ticket_category: List[str] = Query([]),
+                 date_from: str = "", date_to: str = "",
+                 assignee_id: List[str] = Query([]),
                  user: User = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     from datetime import date as _date
@@ -1305,28 +1307,31 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",  #
     if status:
         q = q.filter(Ticket.status == status)
 
-    # Extended filters (P5-04)
+    # Extended filters — all params are now List[str]
     if dept_id:
         dept_user_ids = [u.id for u in db.query(User).filter(
-            User.department_id == dept_id, User.tenant_id == tid,
+            User.department_id.in_(dept_id), User.tenant_id == tid,
             User.is_deleted == False).all()]
         q = q.filter(Ticket.current_assignee_id.in_(dept_user_ids))
     if manager_id:
-        mgr_team_ids = [u.id for u in db.query(User).filter(
-            User.manager_id == manager_id, User.tenant_id == tid,
-            User.is_deleted == False).all()]
-        q = q.filter(Ticket.current_assignee_id.in_(mgr_team_ids))
+        mgr_team_ids = []
+        for mid in manager_id:
+            mgr_team_ids += [u.id for u in db.query(User).filter(
+                User.manager_id == mid, User.tenant_id == tid,
+                User.is_deleted == False).all()]
+        if mgr_team_ids:
+            q = q.filter(Ticket.current_assignee_id.in_(mgr_team_ids))
     if branch_id:
         branch_user_ids = [u.id for u in db.query(User).filter(
-            User.branch_id == branch_id, User.tenant_id == tid,
+            User.branch_id.in_(branch_id), User.tenant_id == tid,
             User.is_deleted == False).all()]
         q = q.filter(Ticket.current_assignee_id.in_(branch_user_ids))
     if priority:
-        q = q.filter(Ticket.priority == priority)
+        q = q.filter(Ticket.priority.in_(priority))
     if ticket_category and hasattr(Ticket, "ticket_category"):
-        q = q.filter(Ticket.ticket_category == ticket_category)
+        q = q.filter(Ticket.ticket_category.in_(ticket_category))
     if assignee_id:
-        q = q.filter(Ticket.current_assignee_id == assignee_id)
+        q = q.filter(Ticket.current_assignee_id.in_(assignee_id))
     if date_from:
         try:
             q = q.filter(Ticket.created_at >= datetime.fromisoformat(date_from))
@@ -1992,8 +1997,8 @@ def _checklist_stats(db: Session, tmpl) -> dict:
 @app.get("/checklists", response_class=HTMLResponse)
 def checklists(request: Request, user: User = Depends(get_current_user),
                db: Session = Depends(get_db),
-               dept_id: str = "", manager_id: str = "",
-               employee_id: str = "", branch_id: str = "",
+               dept_id: List[str] = Query([]), manager_id: List[str] = Query([]),
+               employee_id: List[str] = Query([]), branch_id: List[str] = Query([]),
                next_days: int = 7):
     tid = user.tenant_id
     now = datetime.utcnow()
@@ -2090,8 +2095,8 @@ def checklists(request: Request, user: User = Depends(get_current_user),
             upcoming_q = upcoming_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
             overdue_q = overdue_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
         if employee_id:
-            upcoming_q = upcoming_q.filter(ChecklistAssignment.user_id == employee_id)
-            overdue_q = overdue_q.filter(ChecklistAssignment.user_id == employee_id)
+            upcoming_q = upcoming_q.filter(ChecklistAssignment.user_id.in_(employee_id))
+            overdue_q = overdue_q.filter(ChecklistAssignment.user_id.in_(employee_id))
         # Deduplicate upcoming: one row per template — earliest due_at wins
         _all_upcoming = upcoming_q.order_by(ChecklistAssignment.due_at).all()
         _seen_tmpl = {}
@@ -2118,7 +2123,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         if cl_team_ids:
             failed_q = failed_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
         if employee_id:
-            failed_q = failed_q.filter(ChecklistAssignment.user_id == employee_id)
+            failed_q = failed_q.filter(ChecklistAssignment.user_id.in_(employee_id))
         failed_assignments = failed_q.order_by(ChecklistAssignment.due_at.desc()).limit(50).all()
 
         # Missed assignments: PENDING/OVERDUE past due_at and superseded by a newer occurrence
@@ -2132,7 +2137,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         if cl_team_ids:
             old_overdue_q = old_overdue_q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
         if employee_id:
-            old_overdue_q = old_overdue_q.filter(ChecklistAssignment.user_id == employee_id)
+            old_overdue_q = old_overdue_q.filter(ChecklistAssignment.user_id.in_(employee_id))
         old_overdue_candidates = old_overdue_q.all()
 
         # Keep only those that have a newer sibling (= they were skipped / superseded)
@@ -2162,19 +2167,23 @@ def checklists(request: Request, user: User = Depends(get_current_user),
             ChecklistTemplate.is_deleted == False,
         )
         if dept_id:
-            q = q.filter(ChecklistTemplate.assigned_to_dept_id == dept_id)
+            q = q.filter(ChecklistTemplate.assigned_to_dept_id.in_(dept_id))
         if manager_id:
-            sub_user_ids = [u.id for u in db.query(User).filter(
-                User.tenant_id == tid, User.manager_id == manager_id,
-                User.is_deleted == False).all()]
-            q = q.filter(ChecklistTemplate.assigned_to_user_id.in_(sub_user_ids))
+            sub_user_ids = []
+            for mid in manager_id:
+                sub_user_ids += [u.id for u in db.query(User).filter(
+                    User.tenant_id == tid, User.manager_id == mid,
+                    User.is_deleted == False).all()]
+            if sub_user_ids:
+                q = q.filter(ChecklistTemplate.assigned_to_user_id.in_(sub_user_ids))
         if employee_id:
-            q = q.filter(ChecklistTemplate.assigned_to_user_id == employee_id)
+            q = q.filter(ChecklistTemplate.assigned_to_user_id.in_(employee_id))
         if branch_id:
             branch_user_ids = [u.id for u in db.query(User).filter(
-                User.tenant_id == tid, User.branch_id == branch_id,
+                User.tenant_id == tid, User.branch_id.in_(branch_id),
                 User.is_deleted == False).all()]
-            q = q.filter(ChecklistTemplate.assigned_to_user_id.in_(branch_user_ids))
+            if branch_user_ids:
+                q = q.filter(ChecklistTemplate.assigned_to_user_id.in_(branch_user_ids))
         templates_list = q.order_by(ChecklistTemplate.created_at.desc()).all()
         for tmpl in templates_list:
             tmpl._stats = _checklist_stats(db, tmpl)
