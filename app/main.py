@@ -167,28 +167,93 @@ async def startup():
         import logging as _logging
         _logging.getLogger(__name__).warning("Alembic upgrade failed (non-fatal): %s", _e)
     create_tables()
-    # Defensive column guard: ensures PostgreSQL has all columns even if Alembic migrations
-    # fail silently (e.g. column already exists from create_tables blocking op.add_column).
+    # ── Auto column guard ─────────────────────────────────────────────────────
+    # Introspects every SQLAlchemy model and adds any column that exists in the
+    # model but is missing from the live PostgreSQL table.  This is permanently
+    # self-maintaining: adding a column to database.py automatically makes it
+    # appear on Render after the next deploy — no manual DDL list to update.
+    #
+    # Rules:
+    #   • Only runs on PostgreSQL (SQLite handled by create_all / migrate.py).
+    #   • Skips tables that don't exist yet (Alembic migration will create them).
+    #   • FK columns are added as plain VARCHAR — the FK constraint is not
+    #     enforced here (avoiding ordering issues); Alembic owns constraints.
+    #   • Each column is attempted individually so one failure never blocks others.
+    #   • Server defaults are applied for Boolean/Integer to avoid NOT NULL errors
+    #     on tables that already have rows.
     try:
-        from sqlalchemy import text as _text
-        from .database import engine as _engine
+        import logging as _logging
+        from sqlalchemy import inspect as _inspect, text as _text
+        from .database import engine as _engine, Base as _Base
+
+        _log = _logging.getLogger(__name__)
+
+        # SA column type → PostgreSQL DDL type (no constraints, keep it simple)
+        def _pg_type(col):
+            _map = {
+                "String":   "VARCHAR",
+                "Text":     "TEXT",
+                "Boolean":  "BOOLEAN",
+                "Integer":  "INTEGER",
+                "DateTime": "TIMESTAMP",
+                "Float":    "FLOAT",
+                "Date":     "DATE",
+            }
+            return _map.get(type(col.type).__name__, "TEXT")
+
+        # Server-default expressions for types where NULL would break existing rows
+        def _pg_default(col):
+            t = type(col.type).__name__
+            srv = col.server_default
+            # Honour explicit server_default if set on the column
+            if srv is not None:
+                raw = getattr(srv, "arg", None)
+                if raw is not None:
+                    return f" DEFAULT {raw}"
+            # Safe fallbacks by type so existing rows get a value immediately
+            if t == "Boolean":
+                return " DEFAULT FALSE"
+            if t == "Integer":
+                return " DEFAULT 0"
+            return ""   # VARCHAR / TEXT / TIMESTAMP — NULL is fine
+
         with _engine.connect() as _conn:
-            if _conn.dialect.name == 'postgresql':
-                _ddl = [
-                    "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS stage_assignees_json TEXT",
-                    "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS stage_schedule_json TEXT",
-                    "ALTER TABLE fms_stages ADD COLUMN IF NOT EXISTS custom_fields_json TEXT DEFAULT '[]'",
-                    "ALTER TABLE library_flow_stages ADD COLUMN IF NOT EXISTS custom_fields_json TEXT DEFAULT '[]'",
-                    "ALTER TABLE fms_stage_history ADD COLUMN IF NOT EXISTS custom_fields_data_json TEXT",
-                    "ALTER TABLE fms_stage_history ADD COLUMN IF NOT EXISTS planned_start TIMESTAMP",
-                    "ALTER TABLE fms_stage_history ADD COLUMN IF NOT EXISTS planned_end TIMESTAMP",
-                ]
-                for _stmt in _ddl:
-                    _conn.execute(_text(_stmt))
+            if _conn.dialect.name == "postgresql":
+                _inspector = _inspect(_conn)
+                _pg_tables = set(_inspector.get_table_names())
+
+                for _mapper in _Base.registry.mappers:
+                    _tname = _mapper.mapped_table.name
+
+                    # Table not yet created (will be handled by Alembic / create_all)
+                    if _tname not in _pg_tables:
+                        continue
+
+                    _pg_cols = {c["name"] for c in _inspector.get_columns(_tname)}
+
+                    for _col in _mapper.mapped_table.columns:
+                        if _col.name in _pg_cols:
+                            continue  # already present
+
+                        # FK columns: add as plain VARCHAR; no FK constraint here
+                        _dtype = "VARCHAR" if _col.foreign_keys else _pg_type(_col)
+                        _dflt  = _pg_default(_col)
+                        _stmt  = (
+                            f"ALTER TABLE {_tname} "
+                            f"ADD COLUMN IF NOT EXISTS {_col.name} {_dtype}{_dflt}"
+                        )
+                        try:
+                            _conn.execute(_text(_stmt))
+                            _log.info("Auto-column: added %s.%s (%s%s)",
+                                      _tname, _col.name, _dtype, _dflt)
+                        except Exception as _col_err:
+                            _log.warning("Auto-column skipped %s.%s: %s",
+                                         _tname, _col.name, _col_err)
+
                 _conn.commit()
     except Exception as _ce:
         import logging as _logging
-        _logging.getLogger(__name__).warning("Column guard failed (non-fatal): %s", _ce)
+        _logging.getLogger(__name__).warning("Auto-column guard failed (non-fatal): %s", _ce)
     # Phase 1-2/3: capture the running event loop for sync→async WS broadcasts
     set_main_loop(asyncio.get_event_loop())
     # Seed Phase 0-K library data (idempotent)
