@@ -378,6 +378,26 @@ def fms_dashboard(
     db: Session = Depends(get_db),
 ):
     """FMS Dashboard — summary strip + flow cards + swimlane/list view."""
+    import logging as _log, traceback as _tb
+    try:
+        return _fms_dashboard_inner(
+            request=request, flow_id=flow_id, stage_id=stage_id, view=view,
+            dept_id=dept_id, manager_id=manager_id, branch_id=branch_id,
+            month=month, status_filter=status_filter,
+            f_priority=f_priority, f_assignee_id=f_assignee_id,
+            user=user, db=db,
+        )
+    except Exception as _exc:
+        _log.getLogger("fms.dashboard").error(
+            "FMS DASHBOARD CRASH:\n%s", _tb.format_exc()
+        )
+        raise
+
+
+def _fms_dashboard_inner(
+    request, flow_id, stage_id, view, dept_id, manager_id, branch_id,
+    month, status_filter, f_priority, f_assignee_id, user, db,
+):
     tid = user.tenant_id
     now = datetime.utcnow()
 
