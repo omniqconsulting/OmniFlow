@@ -163,6 +163,21 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 select{scrollbar-width:thin}
 /* Global filter-bar scroll: wraps on small screens, horizontal scroll on very narrow */
 .filter-bar{overflow-x:auto;scrollbar-width:thin}
+/* ── Multi-select dropdown widget ── */
+.ms-wrap{position:relative;min-width:130px}
+.ms-label{font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+.ms-btn{width:100%;text-align:left;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer;font-family:inherit;display:flex;justify-content:space-between;align-items:center;gap:6px;white-space:nowrap;transition:border-color .12s}
+.ms-btn:hover,.ms-wrap.open .ms-btn{border-color:var(--accent)}
+.ms-btn-text{overflow:hidden;text-overflow:ellipsis;flex:1}
+.ms-caret{font-size:9px;opacity:.5;flex-shrink:0;transition:transform .15s}
+.ms-wrap.open .ms-caret{transform:rotate(180deg)}
+.ms-panel{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:100%;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:8px;z-index:300;max-height:195px;overflow-y:auto;scrollbar-width:thin;padding:4px 0;box-shadow:0 8px 24px rgba(0,0,0,0.4)}
+.ms-wrap.open .ms-panel{display:block}
+.ms-item{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12px;color:var(--text-primary);cursor:pointer;transition:background .1s;user-select:none}
+.ms-item:hover{background:var(--hover-bg)}
+.ms-item input[type=checkbox]{flex-shrink:0;width:13px;height:13px}
+html.light .ms-panel{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.12)}
+html.light .ms-item:hover{background:rgba(0,0,0,0.04)}
 input[type="checkbox"]{width:auto;accent-color:#3b82f6;cursor:pointer}
 input[type="datetime-local"]{color-scheme:dark}
 html.light input[type="datetime-local"]{color-scheme:light}
@@ -638,5 +653,64 @@ document.addEventListener('keydown', function(e){
 });
 </script>
 {% endif %}
+
+<!-- ── Multi-select widget (global) ───────────────────────────────────────── -->
+<script>
+(function(){
+  function updateMsBtn(wrap) {
+    var btn = wrap.querySelector('.ms-btn-text');
+    var checked = wrap.querySelectorAll('.ms-item input:checked');
+    var placeholder = wrap.dataset.placeholder || 'All';
+    btn.textContent = checked.length ? checked.length + ' selected' : placeholder;
+  }
+  function openMs(wrap) {
+    document.querySelectorAll('.ms-wrap.open').forEach(function(w){ if(w!==wrap) closeMs(w); });
+    wrap.classList.add('open');
+  }
+  function closeMs(wrap){ wrap.classList.remove('open'); }
+
+  document.addEventListener('click', function(e){
+    if (!e.target.closest('.ms-wrap')) {
+      document.querySelectorAll('.ms-wrap.open').forEach(closeMs);
+    }
+  });
+
+  window.toggleMs = function(btn) {
+    var wrap = btn.closest('.ms-wrap');
+    wrap.classList.contains('open') ? closeMs(wrap) : openMs(wrap);
+  };
+
+  window.onMsChange = function(chk) {
+    var wrap = chk.closest('.ms-wrap');
+    updateMsBtn(wrap);
+    // sync hidden inputs on the form
+    var name = wrap.dataset.name;
+    var form = wrap.closest('form');
+    if (!form) return;
+    form.querySelectorAll('input[type=hidden][data-ms="'+name+'"]').forEach(function(h){ h.remove(); });
+    wrap.querySelectorAll('.ms-item input:checked').forEach(function(c){
+      var h = document.createElement('input');
+      h.type = 'hidden'; h.name = name; h.value = c.value; h.dataset.ms = name;
+      form.appendChild(h);
+    });
+  };
+
+  // On page load: restore button labels from pre-checked state & sync hidden inputs
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.ms-wrap').forEach(function(wrap){
+      updateMsBtn(wrap);
+      // sync hidden inputs for any pre-checked boxes (page load from URL params)
+      var name = wrap.dataset.name;
+      var form = wrap.closest('form');
+      if (!form) return;
+      wrap.querySelectorAll('.ms-item input:checked').forEach(function(c){
+        var h = document.createElement('input');
+        h.type = 'hidden'; h.name = name; h.value = c.value; h.dataset.ms = name;
+        form.appendChild(h);
+      });
+    });
+  });
+})();
+</script>
 </body>
 </html>

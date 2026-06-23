@@ -64,72 +64,122 @@
 {% if user.role in ('ADMIN','MANAGER') %}
 <form method="get" action="/tickets" class="filter-bar" id="filterForm">
   <input type="hidden" name="status" value="{{ status_filter }}">
-  <div>
-    <label>{{ L.Branch }}</label>
-    <select name="branch_id" onchange="this.form.submit()">
-      <option value="">All Branches</option>
+
+  {% if branches %}
+  <div class="ms-wrap" data-name="branch_id" data-placeholder="All Branches">
+    <div class="ms-label">{{ L.Branch }}</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All Branches</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
       {% for b in branches %}
-      <option value="{{ b.id }}" {% if b.id == branch_id %}selected{% endif %}>{{ b.name }}</option>
+      <label class="ms-item">
+        <input type="checkbox" value="{{ b.id }}" onchange="onMsChange(this)" {% if b.id in branch_id %}checked{% endif %}>
+        {{ b.name }}
+      </label>
       {% endfor %}
-    </select>
-  </div>
-  <div>
-    <label>{{ L.Department }}</label>
-    <select name="dept_id" onchange="this.form.submit()">
-      <option value="">All {{ L.Departments }}</option>
-      {% for d in departments %}
-      <option value="{{ d.id }}" {% if d.id == dept_id %}selected{% endif %}>{{ d.name }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div>
-    <label>Manager</label>
-    <select name="manager_id" onchange="this.form.submit()">
-      <option value="">All Managers</option>
-      {% for m in managers %}
-      <option value="{{ m.id }}" {% if m.id == manager_id %}selected{% endif %}>{{ m.name }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div>
-    <label>Priority</label>
-    <select name="priority" onchange="this.form.submit()">
-      <option value="">All Priorities</option>
-      {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
-      <option value="{{ p }}" {% if p == priority %}selected{% endif %}>{{ p }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div>
-    <label>Category</label>
-    <select name="ticket_category" onchange="this.form.submit()">
-      <option value="">All</option>
-      <option value="NORMAL" {% if ticket_category == 'NORMAL' %}selected{% endif %}>Normal</option>
-      <option value="HELP" {% if ticket_category == 'HELP' %}selected{% endif %}>Help</option>
-    </select>
-  </div>
-  <div>
-    <label>Assignee</label>
-    <select name="assignee_id" onchange="this.form.submit()">
-      <option value="">Anyone</option>
-      {% for e in employees %}
-      <option value="{{ e.id }}" {% if e.id == assignee_id %}selected{% endif %}>{{ e.name }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div>
-    <label>From</label>
-    <input type="date" name="date_from" value="{{ date_from }}" onchange="this.form.submit()">
-  </div>
-  <div>
-    <label>To</label>
-    <input type="date" name="date_to" value="{{ date_to }}" onchange="this.form.submit()">
-  </div>
-  {% if dept_id or manager_id or branch_id or priority or ticket_category or assignee_id or date_from or date_to %}
-  <div style="align-self:flex-end">
-    <a href="/tickets?status={{ status_filter }}&view={{ view }}" class="btn btn-gray btn-sm">Clear</a>
+    </div>
   </div>
   {% endif %}
+
+  {% if departments %}
+  <div class="ms-wrap" data-name="dept_id" data-placeholder="All Departments">
+    <div class="ms-label">{{ L.Department }}</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All Departments</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for d in departments %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ d.id }}" onchange="onMsChange(this)" {% if d.id in dept_id %}checked{% endif %}>
+        {{ d.name }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if managers %}
+  <div class="ms-wrap" data-name="manager_id" data-placeholder="All Managers">
+    <div class="ms-label">Manager</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All Managers</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for m in managers %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ m.id }}" onchange="onMsChange(this)" {% if m.id in manager_id %}checked{% endif %}>
+        {{ m.name }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="ms-wrap" data-name="priority" data-placeholder="All Priorities">
+    <div class="ms-label">Priority</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All Priorities</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ p }}" onchange="onMsChange(this)" {% if p in priority %}checked{% endif %}>
+        {{ p }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="ms-wrap" data-name="ticket_category" data-placeholder="All Categories">
+    <div class="ms-label">Category</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All Categories</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for cat,lbl in [('NORMAL','Normal'),('HELP','Help')] %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ cat }}" onchange="onMsChange(this)" {% if cat in ticket_category %}checked{% endif %}>
+        {{ lbl }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if employees %}
+  <div class="ms-wrap" data-name="assignee_id" data-placeholder="Anyone">
+    <div class="ms-label">Assignee</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">Anyone</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for e in employees %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ e.id }}" onchange="onMsChange(this)" {% if e.id in assignee_id %}checked{% endif %}>
+        {{ e.name }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div>
+    <div class="ms-label">From</div>
+    <input type="date" name="date_from" value="{{ date_from }}"
+           style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+  </div>
+  <div>
+    <div class="ms-label">To</div>
+    <input type="date" name="date_to" value="{{ date_to }}"
+           style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+  </div>
+
+  <div style="align-self:flex-end;display:flex;gap:6px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    {% if dept_id or manager_id or branch_id or priority or ticket_category or assignee_id or date_from or date_to %}
+    <a href="/tickets?status={{ status_filter }}" class="btn btn-gray btn-sm">Clear</a>
+    {% endif %}
+  </div>
 </form>
 {% endif %}
 

@@ -172,60 +172,105 @@ select option{background:var(--bg-card);color:var(--text-primary)}
   <input type="hidden" name="view" value="{{ view }}">
   {% if active_flow %}<input type="hidden" name="flow_id" value="{{ active_flow.id }}">{% endif %}
   {% if view == 'stage_table' and active_stage %}<input type="hidden" name="stage_id" value="{{ active_stage.id }}">{% endif %}
+
   {% if branches %}
-  <div class="filter-group">
-    <label>{{ L.get('Branch','Branch') }}</label>
-    <select name="branch_id" onchange="this.form.submit()">
-      <option value="">All Branches</option>
-      {% for b in branches %}<option value="{{ b.id }}" {{ 'selected' if f_branch_id == b.id }}>{{ b.name }}</option>{% endfor %}
-    </select>
+  <div class="ms-wrap" data-name="branch_id" data-placeholder="All Branches">
+    <div class="ms-label">{{ L.get('Branch','Branch') }}</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All Branches</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for b in branches %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ b.id }}" onchange="onMsChange(this)" {% if b.id in f_branch_id %}checked{% endif %}>
+        {{ b.name }}
+      </label>
+      {% endfor %}
+    </div>
   </div>
   {% endif %}
+
   {% if departments %}
-  <div class="filter-group">
-    <label>{{ L.get('Department','Department') }}</label>
-    <select name="dept_id" onchange="this.form.submit()">
-      <option value="">All Departments</option>
-      {% for d in departments %}<option value="{{ d.id }}" {{ 'selected' if f_dept_id == d.id }}>{{ d.name }}</option>{% endfor %}
-    </select>
+  <div class="ms-wrap" data-name="dept_id" data-placeholder="All Departments">
+    <div class="ms-label">{{ L.get('Department','Department') }}</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All Departments</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for d in departments %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ d.id }}" onchange="onMsChange(this)" {% if d.id in f_dept_id %}checked{% endif %}>
+        {{ d.name }}
+      </label>
+      {% endfor %}
+    </div>
   </div>
   {% endif %}
+
   {% if managers and user.role == 'ADMIN' %}
-  <div class="filter-group">
-    <label>Manager</label>
-    <select name="manager_id" onchange="this.form.submit()">
-      <option value="">All Managers</option>
-      {% for m in managers %}<option value="{{ m.id }}" {{ 'selected' if f_manager_id == m.id }}>{{ m.name }}</option>{% endfor %}
-    </select>
+  <div class="ms-wrap" data-name="manager_id" data-placeholder="All Managers">
+    <div class="ms-label">Manager</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All Managers</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for m in managers %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ m.id }}" onchange="onMsChange(this)" {% if m.id in f_manager_id %}checked{% endif %}>
+        {{ m.name }}
+      </label>
+      {% endfor %}
+    </div>
   </div>
   {% endif %}
-  <div class="filter-group">
-    <label>Priority</label>
-    <select name="f_priority" onchange="this.form.submit()">
-      <option value="">All Priorities</option>
-      {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}<option value="{{ p }}" {{ 'selected' if f_priority == p }}>{{ p }}</option>{% endfor %}
-    </select>
+
+  <div class="ms-wrap" data-name="f_priority" data-placeholder="All Priorities">
+    <div class="ms-label">Priority</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All Priorities</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ p }}" onchange="onMsChange(this)" {% if p in f_priority %}checked{% endif %}>
+        {{ p }}
+      </label>
+      {% endfor %}
+    </div>
   </div>
-  <div class="filter-group">
-    <label>Assignee</label>
-    <select name="f_assignee_id" onchange="this.form.submit()">
-      <option value="">Anyone</option>
-      {% for e in employees %}<option value="{{ e.id }}" {{ 'selected' if f_assignee_id == e.id }}>{{ e.name }}</option>{% endfor %}
-    </select>
+
+  {% if employees %}
+  <div class="ms-wrap" data-name="f_assignee_id" data-placeholder="Anyone">
+    <div class="ms-label">Assignee</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">Anyone</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for e in employees %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ e.id }}" onchange="onMsChange(this)" {% if e.id in f_assignee_id %}checked{% endif %}>
+        {{ e.name }}
+      </label>
+      {% endfor %}
+    </div>
   </div>
+  {% endif %}
+
   <div class="filter-group">
     <label>From</label>
-    <input type="date" name="date_from" value="{{ f_date_from }}" onchange="this.form.submit()">
+    <input type="date" name="date_from" value="{{ f_date_from }}">
   </div>
   <div class="filter-group">
     <label>To</label>
-    <input type="date" name="date_to" value="{{ f_date_to }}" onchange="this.form.submit()">
+    <input type="date" name="date_to" value="{{ f_date_to }}">
   </div>
-  {% if f_branch_id or f_dept_id or f_manager_id or f_priority or f_assignee_id or f_date_from or f_date_to %}
-  <div style="align-self:flex-end">
+
+  <div style="align-self:flex-end;display:flex;gap:6px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    {% if f_branch_id or f_dept_id or f_manager_id or f_priority or f_assignee_id or f_date_from or f_date_to %}
     <a href="/fms/dashboard?view={{ view }}{% if active_flow %}&flow_id={{ active_flow.id }}{% endif %}" class="btn btn-gray btn-sm">Clear</a>
+    {% endif %}
   </div>
-  {% endif %}
 </form>
 {% endif %}
 

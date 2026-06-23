@@ -5,9 +5,9 @@ reassignment, help requests, flagging, manager override, and analytics.
 """
 import csv, io, json as _json
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
@@ -356,15 +356,15 @@ def _submodule_cols(db: Session, ticket: FMSTicket, sub_tag: Optional[str]) -> d
 def fms_dashboard(
     request: Request,
     flow_id: Optional[str] = None,
-    stage_id: Optional[str] = None,   # P7-03: stage filter
-    view: str = "stage_table",        # "stage_table" | "swimlane" | "list"
-    dept_id: Optional[str] = None,
-    manager_id: Optional[str] = None,
-    branch_id: Optional[str] = None,
-    month: Optional[str] = None,      # "YYYY-MM"
+    stage_id: Optional[str] = None,
+    view: str = "stage_table",
+    dept_id: List[str] = Query([]),
+    manager_id: List[str] = Query([]),
+    branch_id: List[str] = Query([]),
+    month: Optional[str] = None,
     status_filter: Optional[str] = None,
-    f_priority: Optional[str] = None,
-    f_assignee_id: Optional[str] = None,
+    f_priority: List[str] = Query([]),
+    f_assignee_id: List[str] = Query([]),
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     user: User = Depends(get_current_user),
@@ -507,7 +507,7 @@ def _fms_dashboard_inner(
     # ── Filter data (loaded for all views) ───────────────────────────────────
     departments = db.query(Department).filter(
         Department.tenant_id == tid, Department.is_deleted == False
-    ).order_by(Department.name).all()
+    ).distinct().order_by(Department.name).all()
     managers = db.query(User).filter(
         User.tenant_id == tid, User.role.in_(["MANAGER", "ADMIN"]),
         User.is_deleted == False, User.is_active == True,
@@ -516,28 +516,33 @@ def _fms_dashboard_inner(
         Branch.tenant_id == tid, Branch.is_deleted == False
     ).order_by(Branch.name).all()
 
-    # Resolve combined assignee filter from branch/dept/manager/assignee params
+    # Resolve combined assignee filter from multi-value params (all are lists now)
     filter_assignee_ids = None  # None = no filter applied
     if f_assignee_id:
-        filter_assignee_ids = [f_assignee_id]
+        filter_assignee_ids = list(f_assignee_id)
     elif dept_id or manager_id or branch_id:
         filt_q = db.query(User).filter(
             User.tenant_id == tid, User.is_deleted == False, User.is_active == True
         )
         if dept_id:
-            filt_q = filt_q.filter(User.department_id == dept_id)
+            filt_q = filt_q.filter(User.department_id.in_(dept_id))
         if manager_id:
-            mgr_team = [u.id for u in db.query(User).filter(
-                User.manager_id == manager_id, User.tenant_id == tid,
-                User.is_deleted == False).all()]
-            mgr_team.append(manager_id)
+            mgr_team = []
+            for mid in manager_id:
+                mgr_team += [u.id for u in db.query(User).filter(
+                    User.manager_id == mid, User.tenant_id == tid,
+                    User.is_deleted == False).all()]
+                mgr_team.append(mid)
             filt_q = filt_q.filter(User.id.in_(mgr_team))
         if branch_id:
             br_dept_ids = [d.id for d in db.query(Department).filter(
-                Department.branch_id == branch_id, Department.tenant_id == tid,
+                Department.branch_id.in_(branch_id), Department.tenant_id == tid,
                 Department.is_deleted == False).all()]
             filt_q = filt_q.filter(User.department_id.in_(br_dept_ids))
         filter_assignee_ids = [u.id for u in filt_q.all()]
+
+    # Priority filter list
+    priority_filter = list(f_priority) if f_priority else []
 
     # Parse date range filters
     from datetime import datetime as _dtp
@@ -582,8 +587,8 @@ def _fms_dashboard_inner(
         if filter_assignee_ids is not None:
             swimlane_q = swimlane_q.filter(
                 FMSTicket.current_assignee_id.in_(filter_assignee_ids))
-        if f_priority:
-            swimlane_q = swimlane_q.filter(FMSTicket.priority == f_priority)
+        if priority_filter:
+            swimlane_q = swimlane_q.filter(FMSTicket.priority.in_(priority_filter))
         if filter_date_from:
             swimlane_q = swimlane_q.filter(FMSTicket.created_at >= filter_date_from)
         if filter_date_to:
@@ -635,8 +640,8 @@ def _fms_dashboard_inner(
             list_q = list_q.filter(
                 FMSTicket.current_assignee_id.in_(filter_assignee_ids))
         # Priority filter
-        if f_priority:
-            list_q = list_q.filter(FMSTicket.priority == f_priority)
+        if priority_filter:
+            list_q = list_q.filter(FMSTicket.priority.in_(priority_filter))
         # Date range filter (takes priority over month)
         if filter_date_from or filter_date_to:
             if filter_date_from:
@@ -740,8 +745,8 @@ def _fms_dashboard_inner(
                     (FMSTicket.current_assignee_id == user.id) |
                     (FMSTicket.id.in_(emp_all_fms_ids))
                 )
-            if f_priority:
-                q = q.filter(FMSTicket.priority == f_priority)
+            if priority_filter:
+                q = q.filter(FMSTicket.priority.in_(priority_filter))
             if filter_assignee_ids is not None:
                 q = q.filter(FMSTicket.current_assignee_id.in_(filter_assignee_ids))
             if filter_date_from:
@@ -855,14 +860,14 @@ def _fms_dashboard_inner(
         departments=departments,
         managers=managers,
         branches=branches,
-        # active filters
-        f_dept_id=dept_id or "",
-        f_manager_id=manager_id or "",
-        f_branch_id=branch_id or "",
+        # active filters (lists for multi-select)
+        f_dept_id=list(dept_id),
+        f_manager_id=list(manager_id),
+        f_branch_id=list(branch_id),
         f_month=month or "",
         f_status=status_filter or "",
-        f_priority=f_priority or "",
-        f_assignee_id=f_assignee_id or "",
+        f_priority=list(f_priority),
+        f_assignee_id=list(f_assignee_id),
         f_date_from=date_from or "",
         f_date_to=date_to or "",
         employees=employees,
