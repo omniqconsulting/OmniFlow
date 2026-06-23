@@ -52,7 +52,18 @@
 <!-- ── Status Tabs (P5-01) ──────────────────────────────────────────────────── -->
 <div class="status-tabs">
   {% for s in tab_statuses %}
-  <a href="/tickets?status={{ s }}&dept_id={{ dept_id }}&manager_id={{ manager_id }}&branch_id={{ branch_id }}&priority={{ priority }}&ticket_category={{ ticket_category }}&assignee_id={{ assignee_id }}&date_from={{ date_from }}&date_to={{ date_to }}"
+  {% set base_url = "/tickets?status=" + s %}
+  {% set url = base_url %}
+  {# Append multi-value filter params as separate query params #}
+  {% for d in dept_id %}{% set url = url + "&dept_id=" + d %}{% endfor %}
+  {% for m in manager_id %}{% set url = url + "&manager_id=" + m %}{% endfor %}
+  {% for b in branch_id %}{% set url = url + "&branch_id=" + b %}{% endfor %}
+  {% for p in priority %}{% set url = url + "&priority=" + p %}{% endfor %}
+  {% for c in ticket_category %}{% set url = url + "&ticket_category=" + c %}{% endfor %}
+  {% for a in assignee_id %}{% set url = url + "&assignee_id=" + a %}{% endfor %}
+  {% if date_from %}{% set url = url + "&date_from=" + date_from %}{% endif %}
+  {% if date_to %}{% set url = url + "&date_to=" + date_to %}{% endif %}
+  <a href="{{ url }}"
      class="status-tab {% if status_filter == s %}active{% endif %}">
     {{ s.replace('_',' ')|title }}
     <span class="cnt">{{ status_counts[s] }}</span>
