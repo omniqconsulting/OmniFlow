@@ -70,10 +70,10 @@ FEATURES = {k: v[2] for k, v in FEATURE_CATALOG.items()}
 # ── Quantitative limits per plan ───────────────────────────────────────────────
 # None = unlimited
 PLAN_LIMITS = {
-    PLAN_TRIAL:        {"max_users": 3,    "max_branches": 1, "max_checklist_templates": 5,  "max_tickets_open": 10,   "max_fms_flows": 0, "ai_daily_limit": 5},
-    PLAN_STARTER:      {"max_users": 15,   "max_branches": 2, "max_checklist_templates": 20, "max_tickets_open": None, "max_fms_flows": 1, "ai_daily_limit": 20},
-    PLAN_PROFESSIONAL: {"max_users": 50,   "max_branches": 5, "max_checklist_templates": None,"max_tickets_open": None, "max_fms_flows": 5, "ai_daily_limit": 100},
-    PLAN_ENTERPRISE:   {"max_users": None, "max_branches": None,"max_checklist_templates": None,"max_tickets_open": None, "max_fms_flows": None, "ai_daily_limit": None},
+    PLAN_TRIAL:        {"max_users": 3,    "max_branches": 1,    "max_checklist_templates": 5,    "max_tickets_open": 10,   "max_fms_flows": 1,    "ai_daily_limit": 0},
+    PLAN_STARTER:      {"max_users": 15,   "max_branches": 2,    "max_checklist_templates": 20,   "max_tickets_open": None, "max_fms_flows": 3,    "ai_daily_limit": 0},
+    PLAN_PROFESSIONAL: {"max_users": 30,   "max_branches": 5,    "max_checklist_templates": None, "max_tickets_open": None, "max_fms_flows": 10,   "ai_daily_limit": 5},
+    PLAN_ENTERPRISE:   {"max_users": None, "max_branches": None, "max_checklist_templates": None, "max_tickets_open": None, "max_fms_flows": None, "ai_daily_limit": 10},
 }
 
 LIMIT_LABELS = {

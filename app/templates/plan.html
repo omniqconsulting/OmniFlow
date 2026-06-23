@@ -182,140 +182,206 @@ html.light .omniq-link:hover { background: rgba(99,102,241,0.45); }
   </div>
 </div>
 
-<!-- ── Simplified Plan Comparison ────────────────────────────────────────── -->
+<!-- ── Plan Comparison ────────────────────────────────────────────────────── -->
 <div class="card">
-  <h2>What's Included</h2>
-  <p style="font-size:13px;color:var(--text-faint);margin-bottom:16px">Compare plans to see which features are available at each level.</p>
-
-  {% set plans = ['STARTER', 'PROFESSIONAL', 'ENTERPRISE'] %}
-  {% set plan_colors = {'STARTER': 'var(--text-muted)', 'PROFESSIONAL': '#60a5fa', 'ENTERPRISE': '#a78bfa'} %}
-
-  {# Whitelist: only features that are meaningful to a non-technical user #}
-  {% set SHOW_FEATURES = [
-    'TICKETS', 'KANBAN', 'CHECKLISTS', 'RECURRING_CHECKLISTS',
-    'MEDIA_UPLOAD', 'NOTIFICATIONS', 'EMPLOYEES', 'MANAGER_ROLES',
-    'MULTI_BRANCH', 'BULK_IMPORT', 'CSV_EXPORT',
-    'KPI_SELF', 'KPI_CHARTS_ADMIN', 'FMS', 'DEDICATED_SUPPORT',
-  ] %}
-
-  {% set FRIENDLY = {
-    'TICKETS':              ('📋', 'Task Assignment', 'Create tasks, assign them to your team, and track who completed what.'),
-    'KANBAN':               ('🗂', 'Task Board', 'See all tasks on a visual board sorted by status — like a digital notice board.'),
-    'CHECKLISTS':           ('✅', 'Checklists', 'Create inspection or routine checklists and assign them to your team.'),
-    'RECURRING_CHECKLISTS': ('🔁', 'Auto-Recurring Checklists', 'Checklists that repeat daily, weekly, or monthly automatically — no manual work.'),
-    'MEDIA_UPLOAD':         ('📸', 'Photo & File Attachments', 'Attach photos or documents as proof of completed work.'),
-    'NOTIFICATIONS':        ('🔔', 'In-App Notifications', 'Get notified when a task is assigned to you or needs attention.'),
-    'EMPLOYEES':            ('👥', 'Team Management', 'Add and manage your team members, their roles, and departments.'),
-    'MANAGER_ROLES':        ('🏷', 'Manager Role', 'Give managers their own login so they can oversee only their team.'),
-    'MULTI_BRANCH':         ('🏭', 'Multiple Locations', 'Manage more than one location or branch from a single account.'),
-    'BULK_IMPORT':          ('⬆', 'Bulk Import via CSV', 'Add many employees, departments, or branches at once using a spreadsheet.'),
-    'CSV_EXPORT':           ('⬇', 'Export to Excel / CSV', 'Download your data for reporting or to share with your accountant.'),
-    'KPI_SELF':             ('📊', 'Personal Performance View', 'Each employee can see their own task completion rate and on-time score.'),
-    'KPI_CHARTS_ADMIN':     ('📈', 'Team Analytics Dashboard', 'Managers and admins can view performance charts for the whole team.'),
-    'FMS':                  ('🔄', 'Flow Board (Work Orders)', 'Multi-stage work orders that follow your custom production or service process.'),
-    'DEDICATED_SUPPORT':    ('🎯', 'Dedicated Support Contact', 'A dedicated WhatsApp support contact assigned to your account.'),
-  } %}
-
-  <div style="overflow-x:auto">
-    <table style="border-collapse:separate;border-spacing:0;min-width:520px;width:100%">
-      <thead>
-        <tr>
-          <th style="width:50%;padding:10px 16px;font-size:11px;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);text-transform:uppercase;letter-spacing:0.07em;text-align:left">Feature</th>
-          {% for p in plans %}
-          <th style="text-align:center;padding:10px 14px;border-bottom:1px solid var(--border-subtle);
-               background:{% if tenant.plan == p %}rgba({{ '59,130,246' if p=='PROFESSIONAL' else ('124,58,237' if p=='ENTERPRISE' else '255,255,255') }},0.06){% else %}transparent{% endif %}">
-            <div style="font-size:13px;font-weight:700;color:{{ plan_colors[p] }}">{{ plan_labels[p] }}</div>
-            {% if tenant.plan == p %}
-            <div style="margin-top:4px"><span class="badge badge-green" style="font-size:9px">Your plan</span></div>
-            {% endif %}
-          </th>
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {# ── Capacity limits rows ── #}
-        {% set capacity_rows = [
-          ('max_users',               '👤', 'Team Members'),
-          ('max_branches',            '🏭', 'Locations / Branches'),
-          ('max_fms_flows',           '🔄', 'Flow Board Processes'),
-          ('max_checklist_templates', '✅', 'Checklist Templates'),
-        ] %}
-        {% for key, icon, label in capacity_rows %}
-        <tr style="border-bottom:1px solid var(--border-subtle);background:var(--bg-input)">
-          <td style="padding:10px 16px;vertical-align:middle">
-            <div style="font-size:13px;font-weight:500;color:var(--text-primary)">{{ icon }} {{ label }}</div>
-          </td>
-          {% for p in plans %}
-          {% set lim = plan_limits[p][key] %}
-          <td style="text-align:center;padding:10px 14px;vertical-align:middle;
-               background:{% if tenant.plan == p %}rgba({{ '59,130,246' if p=='PROFESSIONAL' else ('124,58,237' if p=='ENTERPRISE' else '255,255,255') }},0.04){% else %}transparent{% endif %}">
-            <span style="font-size:13px;font-weight:700;color:{% if lim is none %}#10b981{% else %}var(--text-primary){% endif %}">
-              {% if lim is none %}∞{% else %}{{ lim }}{% endif %}
-            </span>
-          </td>
-          {% endfor %}
-        </tr>
-        {% endfor %}
-        {# ── Feature availability rows ── #}
-        {% for fname, finfo in FRIENDLY.items() %}
-        {# Check if this feature exists in our plan data at all #}
-        {% set ficon = finfo[0] %}
-        {% set flabel = finfo[1] %}
-        {% set fdesc = finfo[2] %}
-        {# Find the feature entry across all categories #}
-        {% set ns = namespace(found=false, min_plan='STARTER') %}
-        {% for cat, feats in by_category.items() %}
-          {% for f in feats %}
-            {% if f.name == fname %}
-              {% set ns.found = true %}
-              {% set ns.min_plan = f.min_plan %}
-            {% endif %}
-          {% endfor %}
-        {% endfor %}
-        {% if ns.found %}
-        <tr style="border-bottom:1px solid var(--border-subtle)">
-          <td style="padding:11px 16px;vertical-align:top">
-            <div style="font-size:13px;font-weight:500;color:var(--text-primary)">{{ ficon }} {{ flabel }}</div>
-            <div style="font-size:11px;color:var(--text-faint);margin-top:2px;line-height:1.5">{{ fdesc }}</div>
-          </td>
-          {% for p in plans %}
-          {% set plan_has = (plan_order[p] >= plan_order[ns.min_plan]) %}
-          <td style="text-align:center;padding:11px 14px;vertical-align:middle;
-               background:{% if tenant.plan == p %}rgba({{ '59,130,246' if p=='PROFESSIONAL' else ('124,58,237' if p=='ENTERPRISE' else '255,255,255') }},0.04){% else %}transparent{% endif %}">
-            {% if plan_has %}
-            <span style="color:#10b981;font-size:18px;font-weight:700">✓</span>
-            {% else %}
-            <span style="color:var(--text-xfaint);font-size:14px">—</span>
-            {% endif %}
-          </td>
-          {% endfor %}
-        </tr>
-        {% endif %}
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  {% set upgradeable = [] %}
-  {% if tenant.plan == 'STARTER' or not tenant.plan %}
-    {% set upgradeable = ['PROFESSIONAL', 'ENTERPRISE'] %}
-  {% elif tenant.plan == 'PROFESSIONAL' %}
-    {% set upgradeable = ['ENTERPRISE'] %}
-  {% endif %}
-  {% if upgradeable %}
-  <div style="text-align:center;padding:20px 0 4px">
-    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+    <div>
+      <h2 style="margin:0">What's Included</h2>
+      <div style="font-size:13px;color:var(--text-faint);margin-top:4px">Everything your plan covers — limits apply per group below.</div>
+    </div>
+    {% set upgradeable = [] %}
+    {% if tenant.plan == 'STARTER' or not tenant.plan %}{% set upgradeable = ['PROFESSIONAL', 'ENTERPRISE'] %}
+    {% elif tenant.plan == 'PROFESSIONAL' %}{% set upgradeable = ['ENTERPRISE'] %}{% endif %}
+    {% if upgradeable %}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
       {% for up in upgradeable %}
       <button onclick="openUpgradeModal('{{ up }}')"
-              class="btn {% if up == 'ENTERPRISE' %}btn-purple{% else %}btn-primary{% endif %}"
-              style="padding:10px 28px">
+              class="btn {% if up == 'ENTERPRISE' %}btn-purple{% else %}btn-primary{% endif %}" style="font-size:12px">
         Upgrade to {{ plan_labels[up] }} →
       </button>
       {% endfor %}
     </div>
-    <div style="font-size:12px;color:var(--text-faint);margin-top:8px">Your account manager will contact you to complete the upgrade.</div>
+    {% endif %}
   </div>
-  {% endif %}
+
+  {% set plans = ['STARTER', 'PROFESSIONAL', 'ENTERPRISE'] %}
+  {% set pc = {'STARTER': 'var(--text-muted)', 'PROFESSIONAL': '#60a5fa', 'ENTERPRISE': '#a78bfa'} %}
+  {% set pbg = {'STARTER': '', 'PROFESSIONAL': 'rgba(59,130,246,0.04)', 'ENTERPRISE': 'rgba(124,58,237,0.04)'} %}
+
+  <div style="overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;min-width:480px">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border-subtle)">
+        <th style="text-align:left;padding:8px 14px;font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.07em;width:46%"></th>
+        {% for p in plans %}
+        <th style="text-align:center;padding:10px 14px;{% if tenant.plan == p %}background:{{ pbg[p] }};{% endif %}">
+          <div style="font-size:13px;font-weight:700;color:{{ pc[p] }}">{{ plan_labels[p] }}</div>
+          {% if tenant.plan == p %}<div style="margin-top:3px"><span class="badge badge-green" style="font-size:9px">Your plan</span></div>{% endif %}
+        </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+
+      {# ── Helper macro: render a limit cell ── #}
+      {# val: None=∞, 0=not included, N=N #}
+
+      {# ── Section: Team Members ── #}
+      <tr style="background:var(--bg-input)">
+        <td colspan="4" style="padding:8px 14px 4px">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint)">👥 Team Members</span>
+        </td>
+      </tr>
+      {% set key = 'max_users' %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:10px 14px">
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">Team size</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">Total employees, managers and admins that can be added</div>
+        </td>
+        {% for p in plans %}{% set lim = plan_limits[p][key] %}
+        <td style="text-align:center;padding:10px 14px;{% if tenant.plan == p %}background:{{ pbg[p] }};{% endif %}">
+          <span style="font-size:16px;font-weight:700;color:{% if lim is none %}#10b981{% else %}var(--text-primary){% endif %}">
+            {% if lim is none %}∞{% else %}{{ lim }}{% endif %}
+          </span>
+        </td>{% endfor %}
+      </tr>
+
+      {# ── Section: Locations ── #}
+      <tr style="background:var(--bg-input)">
+        <td colspan="4" style="padding:8px 14px 4px;border-top:1px solid var(--border-subtle)">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint)">🏭 Locations</span>
+        </td>
+      </tr>
+      {% set key = 'max_branches' %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:10px 14px">
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">Branches / Sites</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">Separate locations managed under one account</div>
+        </td>
+        {% for p in plans %}{% set lim = plan_limits[p][key] %}
+        <td style="text-align:center;padding:10px 14px;{% if tenant.plan == p %}background:{{ pbg[p] }};{% endif %}">
+          <span style="font-size:16px;font-weight:700;color:{% if lim is none %}#10b981{% else %}var(--text-primary){% endif %}">
+            {% if lim is none %}∞{% else %}{{ lim }}{% endif %}
+          </span>
+        </td>{% endfor %}
+      </tr>
+
+      {# ── Section: Flow Board ── #}
+      <tr style="background:var(--bg-input)">
+        <td colspan="4" style="padding:8px 14px 4px;border-top:1px solid var(--border-subtle)">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint)">🔄 Flow Board (Work Orders)</span>
+        </td>
+      </tr>
+      {% set key = 'max_fms_flows' %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:10px 14px">
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">Flow Board processes</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">Multi-stage work order flows (production, service, QC etc.)</div>
+        </td>
+        {% for p in plans %}{% set lim = plan_limits[p][key] %}
+        <td style="text-align:center;padding:10px 14px;{% if tenant.plan == p %}background:{{ pbg[p] }};{% endif %}">
+          <span style="font-size:16px;font-weight:700;color:{% if lim is none %}#10b981{% else %}var(--text-primary){% endif %}">
+            {% if lim is none %}∞{% else %}{{ lim }}{% endif %}
+          </span>
+        </td>{% endfor %}
+      </tr>
+
+      {# ── Section: Checklists ── #}
+      <tr style="background:var(--bg-input)">
+        <td colspan="4" style="padding:8px 14px 4px;border-top:1px solid var(--border-subtle)">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint)">✅ Checklists</span>
+        </td>
+      </tr>
+      {% set key = 'max_checklist_templates' %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:10px 14px">
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">Checklist templates</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">Daily / weekly / monthly recurring inspection and routine checklists</div>
+        </td>
+        {% for p in plans %}{% set lim = plan_limits[p][key] %}
+        <td style="text-align:center;padding:10px 14px;{% if tenant.plan == p %}background:{{ pbg[p] }};{% endif %}">
+          <span style="font-size:16px;font-weight:700;color:{% if lim is none %}#10b981{% else %}var(--text-primary){% endif %}">
+            {% if lim is none %}∞{% else %}{{ lim }}{% endif %}
+          </span>
+        </td>{% endfor %}
+      </tr>
+
+      {# ── Section: AI Engine ── #}
+      <tr style="background:var(--bg-input)">
+        <td colspan="4" style="padding:8px 14px 4px;border-top:1px solid var(--border-subtle)">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint)">✦ AI Engine</span>
+        </td>
+      </tr>
+      {% set key = 'ai_daily_limit' %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:10px 14px">
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">AI Assistant calls / day</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">Ask questions, generate reports, get performance insights in plain English. Enterprise limits can be customized.</div>
+        </td>
+        {% for p in plans %}{% set lim = plan_limits[p][key] %}
+        <td style="text-align:center;padding:10px 14px;{% if tenant.plan == p %}background:{{ pbg[p] }};{% endif %}">
+          {% if lim == 0 %}
+          <span style="font-size:12px;color:var(--text-xfaint)">Not included</span>
+          {% elif lim is none %}
+          <span style="font-size:16px;font-weight:700;color:#10b981">∞</span>
+          {% else %}
+          <span style="font-size:16px;font-weight:700;color:var(--text-primary)">{{ lim }}</span>
+          <div style="font-size:10px;color:var(--text-faint);margin-top:1px">per day</div>
+          {% endif %}
+        </td>{% endfor %}
+      </tr>
+
+      {# ── Section: WhatsApp Notifications ── #}
+      <tr style="background:var(--bg-input)">
+        <td colspan="4" style="padding:8px 14px 4px;border-top:1px solid var(--border-subtle)">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint)">💬 WhatsApp Notifications</span>
+        </td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:10px 14px">
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">Task & checklist alerts</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">Automated WhatsApp messages for assignments, overdue reminders, and completions</div>
+        </td>
+        {% for p in plans %}
+        <td style="text-align:center;padding:10px 14px;{% if tenant.plan == p %}background:{{ pbg[p] }};{% endif %}">
+          <span style="color:#10b981;font-size:18px;font-weight:700">✓</span>
+        </td>{% endfor %}
+      </tr>
+
+      {# ── Section: Dedicated Support ── #}
+      <tr style="background:var(--bg-input)">
+        <td colspan="4" style="padding:8px 14px 4px;border-top:1px solid var(--border-subtle)">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint)">🎯 Dedicated Support</span>
+        </td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:10px 14px">
+          <div style="font-size:13px;font-weight:500;color:var(--text-primary)">Named account manager</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">A dedicated WhatsApp support contact assigned directly to your account</div>
+        </td>
+        <td style="text-align:center;padding:10px 14px;{% if tenant.plan == 'STARTER' %}background:{{ pbg['STARTER'] }};{% endif %}">
+          <span style="color:var(--text-xfaint);font-size:14px">—</span>
+        </td>
+        <td style="text-align:center;padding:10px 14px;{% if tenant.plan == 'PROFESSIONAL' %}background:{{ pbg['PROFESSIONAL'] }};{% endif %}">
+          <span style="color:var(--text-xfaint);font-size:14px">—</span>
+        </td>
+        <td style="text-align:center;padding:10px 14px;{% if tenant.plan == 'ENTERPRISE' %}background:{{ pbg['ENTERPRISE'] }};{% endif %}">
+          <span style="color:#10b981;font-size:18px;font-weight:700">✓</span>
+        </td>
+      </tr>
+
+      {# ── Footer note ── #}
+      <tr>
+        <td colspan="4" style="padding:12px 14px">
+          <div style="font-size:11px;color:var(--text-faint);line-height:1.6">
+            All plans include unlimited tasks, KPI dashboards, analytics, CSV export, bulk import, media attachments, in-app notifications, and mobile access. Limits above apply only to the groups shown.
+          </div>
+        </td>
+      </tr>
+
+    </tbody>
+  </table>
+  </div>
 </div>
 
 <!-- ── Contact Support ────────────────────────────────────────────────────── -->

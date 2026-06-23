@@ -446,6 +446,10 @@ async def ai_ask(
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     ai_limit = _get_ai_limit(tenant) if tenant else 20
     if ai_limit is not None:
+        if ai_limit == 0:
+            raise HTTPException(403,
+                "AI Assistant is not included in your current plan. "
+                "Upgrade to Professional or Enterprise to access AI features.")
         usage_row = _get_today_usage(db, user.tenant_id)
         if usage_row.call_count >= ai_limit:
             raise HTTPException(429,
@@ -526,6 +530,10 @@ async def ai_report(
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     ai_limit = _get_ai_limit(tenant) if tenant else 20
     if ai_limit is not None:
+        if ai_limit == 0:
+            raise HTTPException(403,
+                "AI Assistant is not included in your current plan. "
+                "Upgrade to Professional or Enterprise to access AI features.")
         usage_row = _get_today_usage(db, user.tenant_id)
         if usage_row.call_count >= ai_limit:
             raise HTTPException(429, f"Daily AI limit reached ({ai_limit}/day). Limit resets at midnight UTC.")

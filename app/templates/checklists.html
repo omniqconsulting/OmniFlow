@@ -286,16 +286,18 @@
     <div class="card"><div style="color:#6ee7b7;font-size:13px;padding:8px 0">✓ No overdue checklists — your team is all caught up!</div></div>
     {% endif %}
 
-    <!-- Failed / Missed — also inside overdue pane -->
-    <div class="card" style="margin-top:14px;border:1px solid rgba(239,68,68,0.25)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-        <div>
-          <h2 style="margin:0;color:#ef4444">✗ Failed / Missed</h2>
-          <div style="font-size:11px;color:var(--text-faint);margin-top:2px">Explicitly failed + skipped occurrences (superseded without completion)</div>
+    {% if failed_team %}
+    <!-- Explicitly failed checklists — collapsible, inside overdue pane -->
+    <div class="card" style="margin-top:12px;border:1px solid rgba(239,68,68,0.2)">
+      <button onclick="toggleForm('cl-failed-body')"
+              style="width:100%;background:none;border:none;display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:0;font-family:inherit">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:13px;font-weight:600;color:#ef4444">✗ Recently Failed</span>
+          <span class="badge badge-red">{{ failed_team|length }}</span>
         </div>
-        {% if failed_team %}<span class="badge badge-red">{{ failed_team|length }}</span>{% endif %}
-      </div>
-      {% if failed_team %}
+        <span style="font-size:11px;color:var(--text-faint)">Explicitly marked failed by a manager ▾</span>
+      </button>
+      <div id="cl-failed-body" style="display:none;margin-top:12px">
       <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead>
@@ -303,8 +305,7 @@
             <th style="text-align:left;padding:6px 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Checklist</th>
             <th style="text-align:left;padding:6px 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Assigned To</th>
             <th style="text-align:left;padding:6px 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Was Due</th>
-            <th style="text-align:left;padding:6px 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Status</th>
-            <th style="text-align:left;padding:6px 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Note / Reason</th>
+            <th style="text-align:left;padding:6px 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Reason</th>
           </tr>
         </thead>
         <tbody>
@@ -315,23 +316,16 @@
             {% if a.template and a.template.frequency %}<span class="badge badge-gray" style="font-size:9px">{{ a.template.frequency }}</span>{% endif %}
           </td>
           <td style="padding:8px 10px;color:var(--text-muted)">{{ a.user.name if a.user else '—' }}</td>
-          <td style="padding:8px 10px;color:#f87171">{{ a.due_at.strftime('%d %b %Y, %I:%M %p') if a.due_at else '—' }}</td>
-          <td style="padding:8px 10px">
-            {% if a.status == 'FAILED' %}<span class="badge badge-red" style="font-size:9px">FAILED</span>
-            {% else %}<span class="badge badge-amber" style="font-size:9px">MISSED</span>{% endif %}
-          </td>
-          <td style="padding:8px 10px;color:var(--text-faint);font-style:italic">
-            {{ a.failure_note or ('Skipped — next occurrence already scheduled' if a.status != 'FAILED' else '—') }}
-          </td>
+          <td style="padding:8px 10px;color:#f87171">{{ a.due_at.strftime('%d %b %Y') if a.due_at else '—' }}</td>
+          <td style="padding:8px 10px;color:var(--text-faint);font-style:italic">{{ a.failure_note or '—' }}</td>
         </tr>
         {% endfor %}
         </tbody>
       </table>
       </div>
-      {% else %}
-      <div style="color:var(--text-faint);font-size:13px;padding:8px 0">No failed or missed checklists — great compliance!</div>
-      {% endif %}
+      </div>
     </div>
+    {% endif %}
   </div><!-- end cl-pane-overdue -->
 
   <!-- ══ Pane: Upcoming ══ -->
@@ -1081,7 +1075,7 @@ function showClTab(tab) {
     : ['my-overdue','my-upcoming'];
   panes.forEach(function(t) {
     var p = document.getElementById('cl-pane-' + t);
-    if (p) p.style.display = (t === tab) ? '' : 'none';
+    if (p) p.style.display = (t === tab) ? 'block' : 'none';
   });
   document.querySelectorAll('.cl-nav-btn').forEach(function(b) {
     b.classList.toggle('active', b.id === 'cl-btn-' + tab);
