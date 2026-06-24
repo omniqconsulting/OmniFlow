@@ -979,6 +979,7 @@ def sa_deploy_flow(
             completion_note_required=getattr(lib_stage, "completion_note_required", False),
             evidence_required=getattr(lib_stage, "evidence_required", False),
             custom_fields_json=getattr(lib_stage, "custom_fields_json", "[]") or "[]",
+            sub_module_tag=getattr(lib_stage, "sub_module_tag", None),
         ))
 
     # Record deployment in tenant_deployed_items
@@ -1033,6 +1034,7 @@ def sa_sync_flow(
         if not ls:
             continue
         ts.custom_fields_json = getattr(ls, "custom_fields_json", "[]") or "[]"
+        ts.sub_module_tag = getattr(ls, "sub_module_tag", None)
         ts.target_tat_hours = getattr(ls, "target_tat_hours", None)
         ts.completion_note_required = getattr(ls, "completion_note_required", False)
         ts.evidence_required = getattr(ls, "evidence_required", False)

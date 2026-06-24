@@ -440,8 +440,8 @@ select option{background:var(--bg-card)}
         </div>
         {% endif %}
 
-        <!-- ⑤ Stage properties -->
-        <div>
+        <!-- ⑤ Stage properties + sub-module button -->
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
           <div style="display:flex;flex-wrap:wrap;gap:8px">
             {% if s.completion_note_required %}
             <span class="badge b-gray" style="font-size:9px">📝 Note required</span>{% endif %}
@@ -450,6 +450,14 @@ select option{background:var(--bg-card)}
             {% if s.is_terminal %}
             <span class="badge b-green" style="font-size:9px">Terminal stage</span>{% endif %}
           </div>
+          {% if p.sub_module_tag %}
+          {% set sm_label = sm_labels.get(p.sub_module_tag, '📋 Stage Data') %}
+          <button type="button"
+                  onclick="openSubmoduleModal('{{ ticket.id }}','{{ p.sub_module_tag }}','{{ s.id }}','{{ sm_label }}')"
+                  style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.35);color:#a5b4fc;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">
+            {{ sm_label }}
+          </button>
+          {% endif %}
         </div>
 
       </div>{# sa-body #}
