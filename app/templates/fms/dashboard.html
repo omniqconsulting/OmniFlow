@@ -708,14 +708,15 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .ctv-wrap{overflow-x:auto;border:1px solid var(--border-subtle);border-radius:10px;background:var(--bg-card)}
 .ctv-table{border-collapse:collapse;white-space:nowrap;font-size:11px;min-width:100%}
 .ctv-table th,.ctv-table td{padding:8px 12px;border-bottom:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle);vertical-align:top}
-.ctv-table th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:2}
+.ctv-table th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:12}
+.ctv-table thead tr:nth-child(2) th{top:34px}  /* sub-header row sticks below first row */
 .ctv-table td:last-child,.ctv-table th:last-child{border-right:none}
 .ctv-table tr:last-child td{border-bottom:none}
 .ctv-table tr:hover td{background:var(--row-hover);cursor:pointer}
-/* Sticky left columns */
-.ctv-table .ctv-sticky{position:sticky;z-index:10;background:var(--bg-card);box-shadow:2px 0 4px rgba(0,0,0,0.2)}
-.ctv-table thead .ctv-sticky{background:var(--bg-input);z-index:11;box-shadow:2px 0 4px rgba(0,0,0,0.25)}
-.ctv-table tr:hover .ctv-sticky{background:var(--row-hover);box-shadow:2px 0 4px rgba(59,130,246,0.3)}
+/* Sticky left columns — body cells z-index below header so headers always win on vertical scroll */
+.ctv-table .ctv-sticky{position:sticky;z-index:4;background:var(--bg-card);box-shadow:2px 0 6px rgba(0,0,0,0.25)}
+.ctv-table thead .ctv-sticky{background:var(--bg-input);z-index:14;box-shadow:2px 0 6px rgba(0,0,0,0.3)}
+.ctv-table tr:hover .ctv-sticky{background:var(--row-hover);box-shadow:2px 0 6px rgba(59,130,246,0.35)}
 .ctv-s0{left:0;   min-width:72px; max-width:72px}
 .ctv-s1{left:72px; min-width:180px;max-width:180px}
 .ctv-s2{left:252px;min-width:90px; max-width:90px}
@@ -953,10 +954,6 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
 
         <!-- Stage picker (starting stage + per-stage TaT + assignees) -->
         <div id="stageSelectorWrap" style="display:none">
-          <div id="startingFromBanner" style="display:none;margin-bottom:8px;padding:6px 12px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);border-radius:7px;font-size:11px;color:#93c5fd">
-            ▶ <strong>Starting from:</strong> <span id="startingFromName" style="color:#fff"></span>
-            <span style="color:var(--text-faint);margin-left:6px">— click a different stage below to change</span>
-          </div>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-shrink:0">
             <div class="fml-label" style="margin-bottom:0">Starting Stage &amp; Assignees</div>
             <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
@@ -1453,7 +1450,6 @@ function selectFlow(fid) {
 
   const ssw = document.getElementById('stageSelectorWrap');
   ssw.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;gap:0';
-  document.getElementById('startingFromBanner').style.flexShrink = '0';
   document.getElementById('stageBtnList').style.cssText = 'overflow-y:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;padding-right:4px;scrollbar-width:thin;margin-top:6px';
   document.getElementById('ticketFields').style.display = '';
   document.getElementById('noFlowMsg').style.display = 'none';
@@ -1481,14 +1477,6 @@ function selectStage(sid, color) {
   });
   const wrap = document.getElementById('swrap-' + sid);
 
-  // Update "Starting from" banner
-  if (wrap) {
-    const nameEl = wrap.querySelector('div[style*="font-weight:500"]');
-    const stageName = nameEl ? nameEl.textContent.trim() : sid;
-    const banner = document.getElementById('startingFromBanner');
-    const nameSpan = document.getElementById('startingFromName');
-    if (banner && nameSpan) { nameSpan.textContent = stageName; banner.style.display = 'block'; }
-  }
   if (wrap) {
     wrap.style.borderColor = color;
 

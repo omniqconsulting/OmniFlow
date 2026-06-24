@@ -1035,6 +1035,7 @@ def sa_sync_flow(
             continue
         ts.custom_fields_json = getattr(ls, "custom_fields_json", "[]") or "[]"
         ts.sub_module_tag = getattr(ls, "sub_module_tag", None)
+        ts.color = getattr(ls, "color", "#3b82f6") or "#3b82f6"
         ts.target_tat_hours = getattr(ls, "target_tat_hours", None)
         ts.completion_note_required = getattr(ls, "completion_note_required", False)
         ts.evidence_required = getattr(ls, "evidence_required", False)
