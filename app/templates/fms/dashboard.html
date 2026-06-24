@@ -708,12 +708,14 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .ctv-wrap{overflow-x:auto;border:1px solid var(--border-subtle);border-radius:10px;background:var(--bg-card)}
 .ctv-table{border-collapse:collapse;white-space:nowrap;font-size:11px;min-width:100%}
 .ctv-table th,.ctv-table td{padding:8px 12px;border-bottom:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle);vertical-align:top}
+/* thead/tbody get their own stacking contexts so sticky cells reliably sit above scrolling cells */
+.ctv-table thead{position:relative;z-index:3}
+.ctv-table tbody{position:relative;z-index:1}
 .ctv-table th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:12}
 .ctv-table thead tr:nth-child(2) th{top:34px}
 .ctv-table td:last-child,.ctv-table th:last-child{border-right:none}
 .ctv-table tr:last-child td{border-bottom:none}
 .ctv-table tr:hover td{background:var(--row-hover);cursor:pointer}
-/* Sticky left columns: z-index:10 keeps them above scrolling body cells (z:auto); headers at z:12 keep them above sticky body on vertical scroll */
 .ctv-table .ctv-sticky{position:sticky;z-index:10;background:var(--bg-card);box-shadow:2px 0 6px rgba(0,0,0,0.25)}
 .ctv-table thead .ctv-sticky{background:var(--bg-input);z-index:13;box-shadow:2px 0 6px rgba(0,0,0,0.3)}
 .ctv-table tr:hover .ctv-sticky{background:var(--row-hover);box-shadow:2px 0 6px rgba(59,130,246,0.35)}
