@@ -708,7 +708,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .ctv-wrap{overflow-x:auto;border:1px solid var(--border-subtle);border-radius:10px;background:var(--bg-card)}
 .ctv-table{border-collapse:collapse;white-space:nowrap;font-size:11px;min-width:100%}
 .ctv-table th,.ctv-table td{padding:8px 12px;border-bottom:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle);vertical-align:top}
-/* thead/tbody get their own stacking contexts so sticky cells reliably sit above scrolling cells */
+/* thead/tbody stacking contexts so sticky cells sit above scrolling cells */
 .ctv-table thead{position:relative;z-index:3}
 .ctv-table tbody{position:relative;z-index:1}
 .ctv-table th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:12}
@@ -716,9 +716,10 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .ctv-table td:last-child,.ctv-table th:last-child{border-right:none}
 .ctv-table tr:last-child td{border-bottom:none}
 .ctv-table tr:hover td{background:var(--row-hover);cursor:pointer}
-.ctv-table .ctv-sticky{position:sticky;z-index:10;background:var(--bg-card);box-shadow:2px 0 6px rgba(0,0,0,0.25)}
-.ctv-table thead .ctv-sticky{background:var(--bg-input);z-index:13;box-shadow:2px 0 6px rgba(0,0,0,0.3)}
-.ctv-table tr:hover .ctv-sticky{background:var(--row-hover);box-shadow:2px 0 6px rgba(59,130,246,0.35)}
+/* will-change:transform forces each sticky cell onto its own GPU layer so it always composites above scrolling cells */
+.ctv-table .ctv-sticky{position:sticky;z-index:20;background:var(--bg-input);box-shadow:3px 0 8px rgba(0,0,0,0.35);will-change:transform}
+.ctv-table thead .ctv-sticky{background:var(--bg-input);z-index:30;box-shadow:3px 0 8px rgba(0,0,0,0.4)}
+.ctv-table tr:hover .ctv-sticky{background:var(--row-hover);box-shadow:3px 0 8px rgba(59,130,246,0.4)}
 .ctv-s0{left:0;   min-width:72px; max-width:72px}
 .ctv-s1{left:72px; min-width:180px;max-width:180px}
 .ctv-s2{left:252px;min-width:90px; max-width:90px}
