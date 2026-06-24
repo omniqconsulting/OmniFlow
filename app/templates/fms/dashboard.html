@@ -709,13 +709,13 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .ctv-table{border-collapse:collapse;white-space:nowrap;font-size:11px;min-width:100%}
 .ctv-table th,.ctv-table td{padding:8px 12px;border-bottom:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle);vertical-align:top}
 .ctv-table th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:12}
-.ctv-table thead tr:nth-child(2) th{top:34px}  /* sub-header row sticks below first row */
+.ctv-table thead tr:nth-child(2) th{top:34px}
 .ctv-table td:last-child,.ctv-table th:last-child{border-right:none}
 .ctv-table tr:last-child td{border-bottom:none}
 .ctv-table tr:hover td{background:var(--row-hover);cursor:pointer}
-/* Sticky left columns — body cells z-index below header so headers always win on vertical scroll */
-.ctv-table .ctv-sticky{position:sticky;z-index:4;background:var(--bg-card);box-shadow:2px 0 6px rgba(0,0,0,0.25)}
-.ctv-table thead .ctv-sticky{background:var(--bg-input);z-index:14;box-shadow:2px 0 6px rgba(0,0,0,0.3)}
+/* Sticky left columns: z-index:10 keeps them above scrolling body cells (z:auto); headers at z:12 keep them above sticky body on vertical scroll */
+.ctv-table .ctv-sticky{position:sticky;z-index:10;background:var(--bg-card);box-shadow:2px 0 6px rgba(0,0,0,0.25)}
+.ctv-table thead .ctv-sticky{background:var(--bg-input);z-index:13;box-shadow:2px 0 6px rgba(0,0,0,0.3)}
 .ctv-table tr:hover .ctv-sticky{background:var(--row-hover);box-shadow:2px 0 6px rgba(59,130,246,0.35)}
 .ctv-s0{left:0;   min-width:72px; max-width:72px}
 .ctv-s1{left:72px; min-width:180px;max-width:180px}
@@ -1426,24 +1426,11 @@ function selectFlow(fid) {
         if (selEl) selEl.value = s.default_assignee_id;
       }
 
-      // Radio button row — clicking this is the ONLY way to change the starting stage
-      const radioRow = document.createElement('div');
-      radioRow.style.cssText = 'padding:4px 10px 5px;background:var(--bg-input);border-top:1px solid rgba(255,255,255,.05)';
-      radioRow.innerHTML = `
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;width:fit-content" onclick="event.stopPropagation();selectStage('${s.id}','${s.color}')">
-          <input type="radio" name="_start_stage_radio" id="_srad_${s.id}" style="accent-color:#3b82f6;width:13px;height:13px;cursor:pointer">
-          <span style="font-size:9px;color:#93c5fd;font-weight:600;letter-spacing:.04em">Set as starting stage</span>
-          <span id="_sstart_lbl_${s.id}" style="display:none;font-size:9px;font-weight:700;color:#3b82f6;background:rgba(59,130,246,.15);border-radius:4px;padding:1px 6px">▶ START</span>
-        </label>
-      `;
-
       wrap.appendChild(row);
       wrap.appendChild(selRow);
-      wrap.appendChild(radioRow);
       wrap.setAttribute('data-stage-id', s.id);
       wrap.setAttribute('data-tat', s.target_tat_hours || '');
       wrap.setAttribute('data-note', s.completion_note_required ? '1' : '0');
-      // No full-row click handler — only the radio label changes the starting stage
       stageList.appendChild(wrap);
     });
   }
@@ -1465,12 +1452,6 @@ function selectFlow(fid) {
 function selectStage(sid, color) {
   currentStageId = sid;
   document.getElementById('modalStageId').value = sid;
-
-  // Sync radio buttons and START labels
-  document.querySelectorAll('[name="_start_stage_radio"]').forEach(r => { r.checked = (r.id === '_srad_' + sid); });
-  document.querySelectorAll('[id^="_sstart_lbl_"]').forEach(lbl => { lbl.style.display = 'none'; });
-  const activeLbl = document.getElementById('_sstart_lbl_' + sid);
-  if (activeLbl) activeLbl.style.display = 'inline';
 
   document.querySelectorAll('#stageBtnList > div').forEach(w => {
     w.style.borderColor = 'rgba(255,255,255,.08)';
