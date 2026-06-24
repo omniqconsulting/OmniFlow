@@ -303,138 +303,24 @@ select option{background:var(--bg-card)}
         {% endif %}
 
 
-        <!-- ④ Visit history (movements to/from this stage) -->
+        <!-- ④ Stage visits summary -->
         {% if p.enriched_visits %}
         <div class="sa-section">
-          <div class="sa-section-title">Movement History ({{ p.enriched_visits|length }} visit{{ 's' if p.enriched_visits|length != 1 else '' }})</div>
+          <div class="sa-section-title">Stage Visits ({{ p.enriched_visits|length }})</div>
           {% for v in p.enriched_visits %}
-          <div class="visit-row">
-            <!-- Visit header -->
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">
-              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                <span class="badge {{ dir_cls.get(v.history.direction,'b-gray') }}" style="font-size:9px">
-                  {{ dir_labels.get(v.history.direction, v.history.direction) }}
-                </span>
-                {% if v.history.from_stage_name %}
-                <span style="font-size:10px;color:var(--text-faint)">from {{ v.history.from_stage_name }}</span>
-                {% endif %}
-                {% if v.is_open %}
-                <span class="badge b-green" style="font-size:9px">● Active</span>
-                {% endif %}
-              </div>
-              <div style="font-size:10px;color:var(--text-faint)">
-                {{ v.history.entered_at.strftime('%d %b %Y, %H:%M') if v.history.entered_at else '—' }}
-                {% if v.duration_h is not none %} · {{ v.duration_h }}h{% elif v.is_open %} · ongoing{% endif %}
-              </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-elevated);margin-bottom:6px;flex-wrap:wrap;gap:6px">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <span class="badge {{ dir_cls.get(v.history.direction,'b-gray') }}" style="font-size:9px">{{ dir_labels.get(v.history.direction, v.history.direction) }}</span>
+              {% if v.history.from_stage_name %}<span style="font-size:10px;color:var(--text-faint)">from {{ v.history.from_stage_name }}</span>{% endif %}
+              {% if v.is_open %}<span class="badge b-green" style="font-size:9px">● Active</span>{% endif %}
+              {% if v.history.completion_note %}<span style="font-size:10px;color:#6ee7b7">✓ {{ v.history.completion_note }}</span>{% endif %}
+              {% if v.history.return_reason %}<span style="font-size:10px;color:#fcd34d">↩ {{ v.history.return_reason }}</span>{% endif %}
+              {% if v.history.evidence_url %}<a href="{{ v.history.evidence_url }}" target="_blank" style="font-size:10px;color:#fcd34d;text-decoration:none">📎 Evidence</a>{% endif %}
             </div>
-
-            <!-- Schedule / delay breakdown (only when planned dates exist) -->
-            {% if v.history.planned_start or v.history.planned_end %}
-            {% set ps = v.history.planned_start %}
-            {% set pe = v.history.planned_end %}
-            {% set ea = v.history.entered_at %}
-            {% set xa = v.history.exited_at %}
-            {# inherited delay = entered_at − planned_start (mins) #}
-            {% if ps and ea %}
-              {% set inh_min = ((ea - ps).total_seconds() / 60) | round | int %}
-            {% else %}
-              {% set inh_min = none %}
-            {% endif %}
-            {# own delay = actual_duration − target_tat (mins) #}
-            {% if ea and xa and p.stage and p.stage.target_tat_hours %}
-              {% set actual_min = ((xa - ea).total_seconds() / 60) | round | int %}
-              {% set target_min = (p.stage.target_tat_hours * 60) | int %}
-              {% set own_min = actual_min - target_min %}
-            {% else %}
-              {% set own_min = none %}
-            {% endif %}
-            {# total slip = exited_at − planned_end (mins) #}
-            {% if pe and xa %}
-              {% set slip_min = ((xa - pe).total_seconds() / 60) | round | int %}
-            {% else %}
-              {% set slip_min = none %}
-            {% endif %}
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;padding:6px 8px;background:rgba(0,0,0,0.15);border-radius:5px;font-size:10px">
-              {% if ps %}
-              <span style="color:var(--text-faint)">📅 Planned: {{ ps.strftime('%d %b %H:%M') }}
-                {% if pe %} → {{ pe.strftime('%d %b %H:%M') }}{% endif %}
-              </span>
-              {% endif %}
-              {% if inh_min is not none %}
-              {% set inh_clr = '#6ee7b7' if inh_min <= 0 else ('#fbbf24' if inh_min < 480 else '#f87171') %}
-              <span style="color:{{ inh_clr }}" title="How late this stage started vs plan">
-                ⬆ Inherited: {% if inh_min <= 0 %}on time{% else %}+{{ (inh_min/60)|round(1) }}h late start{% endif %}
-              </span>
-              {% endif %}
-              {% if own_min is not none %}
-              {% set own_clr = '#6ee7b7' if own_min <= 0 else ('#fbbf24' if own_min < 480 else '#f87171') %}
-              <span style="color:{{ own_clr }}" title="Extra time this stage itself took beyond its TaT target">
-                🔧 Own: {% if own_min <= 0 %}within TaT{% else %}+{{ (own_min/60)|round(1) }}h over TaT{% endif %}
-              </span>
-              {% endif %}
-              {% if slip_min is not none and xa %}
-              {% set slip_clr = '#6ee7b7' if slip_min <= 0 else ('#fbbf24' if slip_min < 480 else '#f87171') %}
-              <span style="color:{{ slip_clr }}" title="Total slip vs original plan">
-                📉 Total slip: {% if slip_min <= 0 %}✓ on/ahead of plan{% else %}+{{ (slip_min/60)|round(1) }}h{% endif %}
-              </span>
-              {% endif %}
-              {% if v.is_open and ps %}
-              <span style="color:#a5b4fc">⏳ Active — planned end {{ pe.strftime('%d %b %H:%M') if pe else '—' }}</span>
-              {% endif %}
+            <div style="font-size:10px;color:var(--text-faint);text-align:right">
+              {{ v.history.entered_at.strftime('%d %b, %H:%M') if v.history.entered_at else '—' }}
+              {% if v.duration_h is not none %}<br>{{ v.duration_h }}h{% elif v.is_open %}<br>ongoing{% endif %}
             </div>
-            {% endif %}
-
-            <!-- Assignee for this visit -->
-            {% if v.history.assignee_id %}
-            {% set va = employees | selectattr('id','equalto',v.history.assignee_id) | first | default(none) %}
-            {% if va %}
-            <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">
-              <i class="bi bi-person me-1"></i>{{ va.name }}
-            </div>
-            {% endif %}
-            {% endif %}
-
-            <!-- Return reason or completion note -->
-            {% if v.history.return_reason %}
-            <div style="font-size:11px;color:#fcd34d;margin-bottom:4px">↩ Return reason: {{ v.history.return_reason }}</div>
-            {% endif %}
-            {% if v.history.completion_note %}
-            <div style="font-size:11px;color:#6ee7b7;margin-bottom:4px">✓ Note: {{ v.history.completion_note }}</div>
-            {% endif %}
-            {% if v.history.evidence_url %}
-            <div style="margin-bottom:6px">
-              <a href="{{ v.history.evidence_url }}" target="_blank"
-                 style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#fcd34d;text-decoration:none;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:5px;padding:3px 9px">
-                📎 {{ v.history.evidence_filename or 'View Evidence' }}
-              </a>
-            </div>
-            {% endif %}
-
-            <!-- Events during this visit -->
-            {% if v.events %}
-            <div class="tl" style="margin-top:8px">
-              {% for ev in v.events %}
-              {% set dot_class = 'ev-stage' if ev.event_type in ('STAGE_ENTERED','STAGE_EXITED','CREATED','COMPLETED','CLOSED')
-                                 else 'ev-return' if ev.event_type in ('RETURNED','REASSIGNED')
-                                 else 'ev-flag'    if ev.event_type in ('FLAGGED','UNFLAGGED')
-                                 else 'ev-comment' if ev.event_type == 'COMMENT'
-                                 else 'ev-help'    if ev.event_type in ('HELP_REQUESTED','HELPER_ADDED','HELPER_REMOVED')
-                                 else '' %}
-              <div class="tl-item">
-                {% if not loop.last %}<div class="tl-line"></div>{% endif %}
-                <div class="tl-dot {{ dot_class }}"></div>
-                <div class="tl-meta">
-                  <strong style="color:#c4b5fd">{{ ev.actor.name if ev.actor else '—' }}</strong>
-                  · {{ ev.event_type.replace('_',' ').title() }}
-                  · {{ ev.created_at.strftime('%d %b, %H:%M') if ev.created_at else '' }}
-                </div>
-                {% if ev.detail %}
-                <div class="tl-body">{{ ev.detail }}</div>
-                {% endif %}
-              </div>
-              {% endfor %}
-            </div>
-            {% endif %}
           </div>
           {% endfor %}
         </div>
@@ -742,6 +628,46 @@ select option{background:var(--bg-card)}
     {% set parent_id = ticket.id %}
     {% set readonly = true %}
     {% include "components/linked_entities.html" %}
+  </div>
+  {% endif %}
+
+  <!-- Activity History -->
+  {% if all_events %}
+  <div style="margin-bottom:16px">
+    <div style="font-size:10px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.09em;margin-bottom:10px">Activity History</div>
+    <div style="position:relative;padding-left:18px">
+      {% for ev in all_events %}
+      {% set ev_color = '#3b82f6' if ev.event_type in ('STAGE_ENTERED','STAGE_EXITED','CREATED','COMPLETED','CLOSED')
+                        else '#f59e0b' if ev.event_type in ('RETURNED','REASSIGNED')
+                        else '#ef4444' if ev.event_type in ('FLAGGED','UNFLAGGED')
+                        else '#8b5cf6' if ev.event_type == 'COMMENT'
+                        else '#f97316' if ev.event_type in ('HELP_REQUESTED','HELPER_ADDED','HELPER_REMOVED')
+                        else '#6b7280' %}
+      {% set ev_icon = '💬' if ev.event_type == 'COMMENT'
+                       else '↩' if ev.event_type == 'RETURNED'
+                       else '🚩' if ev.event_type == 'FLAGGED'
+                       else '✓' if ev.event_type in ('STAGE_EXITED','COMPLETED','CLOSED')
+                       else '→' if ev.event_type == 'STAGE_ENTERED'
+                       else '⚑' if ev.event_type == 'HELP_REQUESTED'
+                       else '↔' if ev.event_type == 'REASSIGNED'
+                       else '·' %}
+      <div style="position:relative;padding-bottom:12px">
+        {% if not loop.last %}
+        <div style="position:absolute;left:-14px;top:14px;bottom:0;width:1px;background:var(--border-subtle)"></div>
+        {% endif %}
+        <div style="position:absolute;left:-18px;top:3px;width:8px;height:8px;border-radius:50%;background:{{ ev_color }};opacity:0.8"></div>
+        <div style="font-size:10px;font-weight:600;color:var(--text-muted)">
+          {{ ev_icon }} {{ ev.event_type.replace('_',' ').title() }}
+        </div>
+        <div style="font-size:10px;color:var(--text-faint);margin-top:1px">
+          {{ ev.actor.name if ev.actor else 'System' }} · {{ ev.created_at.strftime('%d %b, %H:%M') if ev.created_at else '' }}
+        </div>
+        {% if ev.detail %}
+        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;line-height:1.4;background:var(--bg-elevated);border-radius:4px;padding:4px 7px;border-left:2px solid {{ ev_color }}">{{ ev.detail }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
   </div>
   {% endif %}
 

@@ -1372,6 +1372,7 @@ def fms_ticket_detail(
         current_stage_custom_fields=current_stage_custom_fields,
         stage_assignees=stage_assignees,
         stage_schedule=stage_schedule,
+        all_events=list(reversed(all_events)),
     ))
 
 
