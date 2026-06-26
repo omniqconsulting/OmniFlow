@@ -203,6 +203,10 @@ async def add_linked_entity(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # E-06: Only Admin and Manager can add linked entities
+    if user.role not in ("ADMIN", "MANAGER"):
+        return JSONResponse({"error": "Not authorized"}, status_code=403)
+
     if entity_type == "OTHER":
         if not custom_text.strip():
             return JSONResponse({"error": "custom_text required for OTHER type"}, status_code=400)

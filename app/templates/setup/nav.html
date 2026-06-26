@@ -59,6 +59,14 @@ html.light .setup-sidenav .nav-section-label { color: #94a3b8; }
     📋 Custom Lists
   </a>
 
+  <div class="nav-section-label">Configuration</div>
+  <a href="/setup/notifications" class="{{ 'active' if active_section == 'notifications' else '' }}">
+    🔔 Notifications
+  </a>
+  <a href="/setup/performance-formula" class="{{ 'active' if active_section == 'performance_formula' else '' }}">
+    📐 Performance
+  </a>
+
   <div class="nav-section-label">Guide</div>
   <a href="/setup/how-to" class="{{ 'active' if active_section == 'howto' else '' }}">
     📖 How To

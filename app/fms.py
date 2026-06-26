@@ -29,6 +29,7 @@ from .notifications import (
     notify_fms_stage_transition,
     send_whatsapp_for_fms_stage_transition,
     send_whatsapp_for_fms_ticket_created,
+    notify_fms_ticket_opened,
 )
 from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION
 
@@ -350,6 +351,87 @@ def _submodule_cols(db: Session, ticket: FMSTicket, sub_tag: Optional[str]) -> d
             "oldest_due": oldest_due,
         }
     return {}
+
+
+@router.get("/tickets/export")
+def fms_tickets_export(
+    request: Request,
+    flow_id: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    f_priority: List[str] = Query([]),
+    f_assignee_id: List[str] = Query([]),
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "CSV_EXPORT", db):
+        return RedirectResponse("/plan?upgrade=CSV_EXPORT", status_code=302)
+    tid = user.tenant_id
+    q = db.query(FMSTicket).filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False)
+    if user.role == "MANAGER":
+        team_ids = [u.id for u in db.query(User).filter(
+            User.manager_id == user.id, User.is_deleted == False).all()]
+        team_ids.append(user.id)
+        hist_tids = [h.ticket_id for h in db.query(FMSStageHistory).filter(
+            FMSStageHistory.assignee_id.in_(team_ids)).all()]
+        help_tids = [h.ticket_id for h in db.query(FMSTicketHelper).filter(
+            FMSTicketHelper.user_id.in_(team_ids)).all()]
+        all_ids = set(hist_tids) | set(help_tids)
+        q = q.filter((FMSTicket.current_assignee_id.in_(team_ids)) | (FMSTicket.id.in_(all_ids)))
+    elif user.role == "EMPLOYEE":
+        help_tids = [h.ticket_id for h in db.query(FMSTicketHelper).filter(
+            FMSTicketHelper.user_id == user.id).all()]
+        hist_tids = [h.ticket_id for h in db.query(FMSStageHistory).filter(
+            FMSStageHistory.assignee_id == user.id).all()]
+        emp_ids = set(help_tids) | set(hist_tids)
+        q = q.filter((FMSTicket.current_assignee_id == user.id) | (FMSTicket.id.in_(emp_ids)))
+    if flow_id:
+        q = q.filter(FMSTicket.flow_id == flow_id)
+    if status_filter:
+        q = q.filter(FMSTicket.status == status_filter)
+    if f_priority:
+        q = q.filter(FMSTicket.priority.in_(f_priority))
+    if f_assignee_id:
+        q = q.filter(FMSTicket.current_assignee_id.in_(f_assignee_id))
+    if date_from:
+        try:
+            q = q.filter(FMSTicket.created_at >= datetime.fromisoformat(date_from))
+        except Exception:
+            pass
+    if date_to:
+        try:
+            q = q.filter(FMSTicket.created_at <= datetime.fromisoformat(date_to).replace(hour=23, minute=59, second=59))
+        except Exception:
+            pass
+    tickets = q.order_by(FMSTicket.created_at.desc()).all()
+
+    def fmt_dt(dt):
+        return dt.strftime("%d %b %Y") if dt else ""
+
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(["Ticket ID", "Title", "Flow", "Current Stage", "Status", "Priority",
+                "Assigned To", "Created By", "Created Date", "Due Date", "Work Order No."])
+    for t in tickets:
+        assignee = t.current_assignee
+        w.writerow([
+            t.display_id or "", t.title,
+            t.flow.name if t.flow else "",
+            t.current_stage.name if t.current_stage else "",
+            t.status, t.priority,
+            assignee.name if assignee else "",
+            t.created_by.name if t.created_by else "",
+            fmt_dt(t.created_at), fmt_dt(t.due_at),
+            t.wo_number or "",
+        ])
+    filename = f"fms_tickets_{datetime.utcnow().strftime('%Y-%m-%d')}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -1025,6 +1107,7 @@ async def fms_ticket_create(
     assignee_obj = db.query(User).filter(User.id == assignee_id).first()
     if assignee_obj:
         send_whatsapp_for_fms_ticket_created(db, ticket, assignee_obj)
+    notify_fms_ticket_opened(db, ticket, assignee_obj, admins, managers)
 
     return _redirect(f"/fms/tickets/{ticket.id}")
 
@@ -1340,7 +1423,13 @@ def fms_ticket_detail(
         stage_schedule = {}
 
     from .linked_entities import get_linked_entity_options as _geo
+    from .database import LinkedEntityReference as _LER
     entity_options = _geo(db, user.tenant_id)
+    linked_refs = db.query(_LER).filter(
+        _LER.tenant_id == user.tenant_id,
+        _LER.parent_type == "FMS_TICKET",
+        _LER.parent_id == ticket_id,
+    ).order_by(_LER.created_at).all()
 
     # Entity data for custom field entity_link dropdowns — Admin only
     entity_data = {}
@@ -1368,6 +1457,7 @@ def fms_ticket_detail(
         can_transition=can_transition, can_manage=can_manage,
         now=now,
         entity_options=entity_options,
+        linked_refs=linked_refs,
         entity_data=entity_data,
         current_stage_custom_fields=current_stage_custom_fields,
         stage_assignees=stage_assignees,

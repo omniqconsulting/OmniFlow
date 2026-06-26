@@ -115,7 +115,7 @@
         </span>
       </td>
       <td>
-        <span class="badge {% if t.status=='OPEN' %}badge-blue{% elif t.status=='IN_PROGRESS' %}badge-yellow{% elif t.status=='HELP_REQUESTED' %}badge-red{% else %}badge-gray{% endif %}" style="font-size:9px">
+        <span class="badge {% if t.status=='OPEN' %}badge-blue{% elif t.status=='DONE' %}badge-green{% else %}badge-gray{% endif %}" style="font-size:9px">
           {{ t.status }}
         </span>
       </td>

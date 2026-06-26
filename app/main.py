@@ -26,6 +26,7 @@ from .notifications import (
     notify_ticket_status_changed, notify_ticket_commented,
     notify_ticket_flagged, notify_ticket_help_requested,
     notify_checklist_completed,
+    notify_checklist_assigned,
 )
 from .ws_manager import (
     manager as ws_manager, set_main_loop, broadcast_sync,
@@ -886,7 +887,7 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
     if scoped_uids is not None:
         q = q.filter(Ticket.current_assignee_id.in_(scoped_uids))
 
-    open_statuses   = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
+    open_statuses   = ("OPEN",)
     closed_statuses = ("DONE", "CLOSED")
 
     in_period    = q.filter(Ticket.created_at >= df, Ticket.created_at <= dt).all()
@@ -900,11 +901,17 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
     on_time_pct   = round(len(on_time) / max(len(closed_in_p), 1) * 100)
     closed_count  = len(closed_in_p)
 
-    # Avg TaT in hours (created → closed, not created → updated)
+    # Avg TaT in business hours (falls back to wall-clock if office hours not configured)
+    from .notifications import business_hours_elapsed as _bhe
+    from .database import Tenant as _Tenant
+    _tenant = db.query(_Tenant).get(tid)
     tats = []
     for t in closed_in_p:
         if t.created_at and t.closed_at:
-            tats.append((t.closed_at - t.created_at).total_seconds() / 3600)
+            if _tenant and getattr(_tenant, 'work_start_time', None):
+                tats.append(_bhe(_tenant, t.created_at, t.closed_at))
+            else:
+                tats.append((t.closed_at - t.created_at).total_seconds() / 3600)
     avg_tat_hours = round(sum(tats) / max(len(tats), 1), 1) if tats else 0
 
     # Help tickets open
@@ -1271,6 +1278,33 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         })
 
 
+# ── Historical visibility helpers (E-10, E-11) ────────────────────────────────
+
+def get_involved_ticket_ids(user: User, db: Session) -> set:
+    """Return all ticket IDs the employee was ever involved with (E-10)."""
+    ids: set = set()
+    ids.update(r.ticket_id for r in db.query(TicketEvent.ticket_id).filter(TicketEvent.actor_id == user.id).all())
+    ids.update(r.ticket_id for r in db.query(TicketAssignee.ticket_id).filter(TicketAssignee.user_id == user.id).all())
+    ids.update(r.id for r in db.query(Ticket.id).filter(
+        (Ticket.current_assignee_id == user.id) | (Ticket.created_by_id == user.id)
+    ).all())
+    return ids
+
+
+def get_team_ticket_ids(manager: User, db: Session):
+    """Return (ticket_id_set, team_user_ids) for all tickets ever involving the manager's team (E-11)."""
+    team_ids = [u.id for u in db.query(User).filter(
+        User.manager_id == manager.id, User.is_deleted == False).all()]
+    team_ids.append(manager.id)
+    ids: set = set()
+    ids.update(r.ticket_id for r in db.query(TicketEvent.ticket_id).filter(TicketEvent.actor_id.in_(team_ids)).all())
+    ids.update(r.ticket_id for r in db.query(TicketAssignee.ticket_id).filter(TicketAssignee.user_id.in_(team_ids)).all())
+    ids.update(r.id for r in db.query(Ticket.id).filter(
+        (Ticket.current_assignee_id.in_(team_ids)) | (Ticket.created_by_id.in_(team_ids))
+    ).all())
+    return ids, team_ids
+
+
 # ── Tickets ───────────────────────────────────────────────────────────────────
 
 @app.get("/tickets", response_class=HTMLResponse)
@@ -1286,24 +1320,13 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
     tid = user.tenant_id
     q = db.query(Ticket).filter(Ticket.tenant_id == tid, Ticket.is_deleted == False)
 
+    team_ids = []  # populated for MANAGER branch, reused below
     if user.role == "MANAGER":
-        team_ids = [u.id for u in db.query(User).filter(
-            User.manager_id == user.id, User.is_deleted == False).all()]
-        team_ids.append(user.id)
-        helper_tids = [h.ticket_id for h in db.query(TicketAssignee).filter(
-            TicketAssignee.user_id.in_(team_ids)).all()]
-        q = q.filter(
-            (Ticket.current_assignee_id.in_(team_ids)) |
-            (Ticket.created_by_id.in_(team_ids)) |
-            (Ticket.id.in_(helper_tids))
-        )
+        all_team_tids, team_ids = get_team_ticket_ids(user, db)
+        q = q.filter(Ticket.id.in_(all_team_tids))
     elif user.role == "EMPLOYEE":
-        helper_ticket_ids = [h.ticket_id for h in db.query(TicketAssignee).filter(
-            TicketAssignee.user_id == user.id).all()]
-        q = q.filter(
-            (Ticket.current_assignee_id == user.id) |
-            (Ticket.id.in_(helper_ticket_ids))
-        )
+        involved_ids = get_involved_ticket_ids(user, db)
+        q = q.filter(Ticket.id.in_(involved_ids))
 
     # Status tab filter — default OPEN
     if status:
@@ -1350,17 +1373,10 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
     # Count per status for tab badges
     base_q = db.query(Ticket).filter(Ticket.tenant_id == tid, Ticket.is_deleted == False)
     if user.role == "MANAGER":
-        base_q = base_q.filter(
-            (Ticket.current_assignee_id.in_(team_ids)) |
-            (Ticket.created_by_id.in_(team_ids)) |
-            (Ticket.id.in_(helper_tids))
-        )
+        base_q = base_q.filter(Ticket.id.in_(all_team_tids))
     elif user.role == "EMPLOYEE":
-        base_q = base_q.filter(
-            (Ticket.current_assignee_id == user.id) |
-            (Ticket.id.in_(helper_ticket_ids))
-        )
-    tab_statuses = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "HELP_REQUESTED", "DONE", "CLOSED"]
+        base_q = base_q.filter(Ticket.id.in_(involved_ids))
+    tab_statuses = ["OPEN", "DONE", "CLOSED"]
     status_counts = {s: base_q.filter(Ticket.status == s).count() for s in tab_statuses}
 
     employees = db.query(User).filter(
@@ -1373,7 +1389,7 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
     managers = [e for e in employees if e.role in ("MANAGER", "ADMIN")]
     branches = db.query(Branch).filter(Branch.tenant_id == tid).all()
 
-    statuses = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "HELP_REQUESTED", "DONE", "CLOSED"]
+    statuses = ["OPEN", "DONE", "CLOSED"]
 
     from .linked_entities import get_linked_entity_options
     entity_options = get_linked_entity_options(db, tid)
@@ -1392,6 +1408,156 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
         "entity_options": entity_options,
         "now": datetime.utcnow(),
     })
+
+@app.get("/tickets/export")
+def tickets_export(
+    request: Request,
+    status: str = "", dept_id: List[str] = Query([]),
+    manager_id: List[str] = Query([]), branch_id: List[str] = Query([]),
+    priority: List[str] = Query([]), ticket_category: List[str] = Query([]),
+    date_from: str = "", date_to: str = "",
+    assignee_id: List[str] = Query([]),
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "CSV_EXPORT", db):
+        return RedirectResponse("/plan?upgrade=CSV_EXPORT", status_code=302)
+    tid = user.tenant_id
+    q = db.query(Ticket).filter(Ticket.tenant_id == tid, Ticket.is_deleted == False)
+    if user.role == "MANAGER":
+        all_team_tids, _ = get_team_ticket_ids(user, db)
+        q = q.filter(Ticket.id.in_(all_team_tids))
+    elif user.role == "EMPLOYEE":
+        q = q.filter(Ticket.id.in_(get_involved_ticket_ids(user, db)))
+    if status:
+        q = q.filter(Ticket.status == status)
+    if dept_id:
+        dept_user_ids = [u.id for u in db.query(User).filter(
+            User.department_id.in_(dept_id), User.tenant_id == tid, User.is_deleted == False).all()]
+        q = q.filter(Ticket.current_assignee_id.in_(dept_user_ids))
+    if manager_id:
+        mgr_team = []
+        for mid in manager_id:
+            mgr_team += [u.id for u in db.query(User).filter(
+                User.manager_id == mid, User.tenant_id == tid, User.is_deleted == False).all()]
+        if mgr_team:
+            q = q.filter(Ticket.current_assignee_id.in_(mgr_team))
+    if branch_id:
+        br_user_ids = [u.id for u in db.query(User).filter(
+            User.branch_id.in_(branch_id), User.tenant_id == tid, User.is_deleted == False).all()]
+        q = q.filter(Ticket.current_assignee_id.in_(br_user_ids))
+    if priority:
+        q = q.filter(Ticket.priority.in_(priority))
+    if ticket_category and hasattr(Ticket, "ticket_category"):
+        q = q.filter(Ticket.ticket_category.in_(ticket_category))
+    if assignee_id:
+        q = q.filter(Ticket.current_assignee_id.in_(assignee_id))
+    if date_from:
+        try:
+            q = q.filter(Ticket.created_at >= datetime.fromisoformat(date_from))
+        except Exception:
+            pass
+    if date_to:
+        try:
+            q = q.filter(Ticket.created_at <= datetime.fromisoformat(date_to).replace(hour=23, minute=59, second=59))
+        except Exception:
+            pass
+    tickets = q.order_by(Ticket.created_at.desc()).all()
+
+    def fmt_dt(dt):
+        return dt.strftime("%d %b %Y") if dt else ""
+
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(["Ticket ID", "Title", "Status", "Priority", "Assigned To", "Created By",
+                "Department", "Created Date", "Due Date", "Closed Date"])
+    for t in tickets:
+        assignee = t.current_assignee
+        w.writerow([
+            t.display_id or "", t.title, t.status, t.priority,
+            assignee.name if assignee else "",
+            t.created_by.name if t.created_by else "",
+            (assignee.department.name if assignee and assignee.department else ""),
+            fmt_dt(t.created_at), fmt_dt(t.due_at), fmt_dt(t.closed_at),
+        ])
+    filename = f"tickets_{datetime.utcnow().strftime('%Y-%m-%d')}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.get("/checklists/export")
+def checklists_export(
+    request: Request,
+    dept_id: List[str] = Query([]), manager_id: List[str] = Query([]),
+    employee_id: List[str] = Query([]), branch_id: List[str] = Query([]),
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "CSV_EXPORT", db):
+        return RedirectResponse("/plan?upgrade=CSV_EXPORT", status_code=302)
+    tid = user.tenant_id
+    now = datetime.utcnow()
+    q = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.tenant_id == tid,
+        ChecklistAssignment.is_deleted == False,
+    )
+    if user.role == "MANAGER":
+        cl_team_ids = [u.id for u in db.query(User).filter(
+            User.manager_id == user.id, User.is_deleted == False).all()]
+        cl_team_ids.append(user.id)
+        q = q.filter(ChecklistAssignment.user_id.in_(cl_team_ids))
+    elif user.role == "EMPLOYEE":
+        q = q.filter(ChecklistAssignment.user_id == user.id)
+    if dept_id:
+        du = [u.id for u in db.query(User).filter(User.department_id.in_(dept_id), User.tenant_id == tid).all()]
+        q = q.filter(ChecklistAssignment.user_id.in_(du))
+    if employee_id:
+        q = q.filter(ChecklistAssignment.user_id.in_(employee_id))
+    if branch_id:
+        bu = [u.id for u in db.query(User).filter(User.branch_id.in_(branch_id), User.tenant_id == tid).all()]
+        q = q.filter(ChecklistAssignment.user_id.in_(bu))
+    assignments = q.order_by(ChecklistAssignment.due_at.desc()).all()
+
+    def compliance(a):
+        if a.status == "DONE":
+            if a.completed_at and a.due_at and a.completed_at <= a.due_at:
+                return "ON TIME"
+            return "LATE"
+        if a.status == "FAILED":
+            return "MISSED"
+        return ""
+
+    def fmt_dt(dt):
+        return dt.strftime("%d %b %Y") if dt else ""
+
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(["Checklist Name", "Frequency", "Assigned To", "Department",
+                "Status", "Due Date", "Completed Date", "Compliance"])
+    for a in assignments:
+        tmpl = a.template
+        u = a.user
+        freq = ""
+        if tmpl:
+            ft = getattr(tmpl, "frequency_type", None)
+            freq = _format_frequency(tmpl) if ft else (tmpl.frequency or "")
+        w.writerow([
+            tmpl.title if tmpl else "",
+            freq,
+            u.name if u else "",
+            (u.department.name if u and u.department else ""),
+            a.status, fmt_dt(a.due_at), fmt_dt(a.completed_at), compliance(a),
+        ])
+    filename = f"checklists_{datetime.utcnow().strftime('%Y-%m-%d')}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
 
 @app.post("/tickets/create")
 async def create_ticket(
@@ -1454,10 +1620,15 @@ def move_ticket(ticket_id: str, new_status: str = Form(...),
         raise HTTPException(404)
     if user.role == "EMPLOYEE" and ticket.current_assignee_id != user.id:
         raise HTTPException(403)
+    # Delegation tickets only allow OPEN/DONE/CLOSED transitions
+    if new_status not in ("OPEN", "DONE", "CLOSED"):
+        raise HTTPException(400, "Invalid status for delegation ticket")
+    if new_status == "CLOSED" and user.role != "ADMIN":
+        raise HTTPException(403, "Only Admin can close delegation tickets")
+    if ticket.status == "CLOSED":
+        raise HTTPException(400, "CLOSED tickets cannot be modified")
     old_status = ticket.status
     ticket.status = new_status
-    if new_status == "ACKNOWLEDGED" and not ticket.acknowledged_at:
-        ticket.acknowledged_at = datetime.utcnow()
     if new_status in ("CLOSED", "DONE"):
         ticket.closed_at = datetime.utcnow()
     log_event(db, ticket_id, user.id, "STATUS_CHANGED", f"{old_status} → {new_status}")
@@ -1514,13 +1685,15 @@ async def ticket_advance(ticket_id: str, request: Request,
         Ticket.is_deleted == False).first()
     if not ticket:
         raise HTTPException(404)
-    _status_seq = {"OPEN": "ACKNOWLEDGED", "ACKNOWLEDGED": "IN_PROGRESS",
-                   "IN_PROGRESS": "DONE", "DONE": "CLOSED",
-                   "HELP_REQUESTED": "IN_PROGRESS"}
+    # Delegation tickets: simplified OPEN → DONE → CLOSED flow
+    _status_seq = {"OPEN": "DONE", "DONE": "CLOSED"}
+    # DONE→CLOSED is Admin-only
+    if ticket.status == "DONE" and user.role != "ADMIN":
+        return redirect(f"/tickets/{ticket_id}")
     next_status = _status_seq.get(ticket.status)
     if not next_status:
         return redirect(f"/tickets")
-    # Evidence gate: IN_PROGRESS → DONE requires upload if evidence_required
+    # Evidence gate: OPEN → DONE requires upload if evidence_required
     if (next_status == "DONE" and getattr(ticket, "evidence_required", False)):
         form = await request.form()
         file = form.get("evidence_file")
@@ -1533,11 +1706,9 @@ async def ticket_advance(ticket_id: str, request: Request,
             ))
             log_event(db, ticket_id, user.id, "EVIDENCE_UPLOADED", info["file_name"])
         else:
-            return redirect(f"/tickets?evidence_error={ticket_id}")
+            return redirect(f"/tickets/{ticket_id}?evidence_error=1")
     old_status = ticket.status
     ticket.status = next_status
-    if next_status == "ACKNOWLEDGED" and not ticket.acknowledged_at:
-        ticket.acknowledged_at = datetime.utcnow()
     if next_status in ("DONE", "CLOSED"):
         ticket.closed_at = datetime.utcnow()
     log_event(db, ticket_id, user.id, "STATUS_CHANGED", f"{old_status} → {next_status}")
@@ -1563,11 +1734,8 @@ async def ticket_revert(ticket_id: str, user: User = Depends(require_manager),
     if not ticket:
         raise HTTPException(404)
     _prev_seq = {
-        "ACKNOWLEDGED":   "OPEN",
-        "IN_PROGRESS":    "ACKNOWLEDGED",
-        "HELP_REQUESTED": "IN_PROGRESS",
-        "DONE":           "IN_PROGRESS",
-        "CLOSED":         "DONE",
+        "DONE":   "OPEN",
+        "CLOSED": "DONE",
     }
     prev_status = _prev_seq.get(ticket.status)
     if not prev_status:
@@ -1591,10 +1759,8 @@ async def tickets_bulk_action(
     if not ids or action not in ("advance", "close", "revert"):
         return redirect("/tickets")
 
-    _next = {"OPEN": "ACKNOWLEDGED", "ACKNOWLEDGED": "IN_PROGRESS",
-             "IN_PROGRESS": "DONE", "DONE": "CLOSED", "HELP_REQUESTED": "IN_PROGRESS"}
-    _prev = {"ACKNOWLEDGED": "OPEN", "IN_PROGRESS": "ACKNOWLEDGED",
-             "HELP_REQUESTED": "IN_PROGRESS", "DONE": "IN_PROGRESS", "CLOSED": "DONE"}
+    _next = {"OPEN": "DONE", "DONE": "CLOSED"}
+    _prev = {"DONE": "OPEN", "CLOSED": "DONE"}
 
     tickets = db.query(Ticket).filter(
         Ticket.id.in_(ids), Ticket.tenant_id == user.tenant_id,
@@ -1671,13 +1837,20 @@ def ticket_edit(ticket_id: str, title: str = Form(...), description: str = Form(
 @app.post("/tickets/{ticket_id}/delete")
 def ticket_delete(ticket_id: str, user: User = Depends(require_admin),
                   db: Session = Depends(get_db)):
-    """P5-09: Soft delete — Admin only."""
+    """E-02: Soft delete — Admin only, OPEN tickets with no activity."""
     ticket = db.query(Ticket).filter(
-        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id).first()
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id,
+        Ticket.is_deleted == False).first()
     if not ticket:
         raise HTTPException(404)
+    if ticket.status != "OPEN":
+        return redirect(f"/tickets/{ticket_id}?delete_error=status")
+    has_events = db.query(TicketEvent).filter(TicketEvent.ticket_id == ticket_id).first()
+    has_comments = db.query(TicketComment).filter(TicketComment.ticket_id == ticket_id).first()
+    has_helpers = db.query(TicketAssignee).filter(TicketAssignee.ticket_id == ticket_id).first()
+    if has_events or has_comments or has_helpers:
+        return redirect(f"/tickets/{ticket_id}?delete_error=activity")
     ticket.is_deleted = True
-    log_event(db, ticket_id, user.id, "DELETED", "Soft deleted by admin")
     db.commit()
     return redirect("/tickets")
 
@@ -1786,20 +1959,14 @@ def ticket_action(ticket_id: str, action: str = Form(...),
     admins   = _admin_ids(db, user.tenant_id)
     managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
 
-    if action == "acknowledge":
-        old_status = ticket.status
-        ticket.status = "ACKNOWLEDGED"
-        ticket.acknowledged_at = datetime.utcnow()
-        log_event(db, ticket_id, user.id, "ACKNOWLEDGED")
-        notify_ticket_status_changed(db, ticket, user.id, old_status, "ACKNOWLEDGED", admins, managers)
-    elif action == "start":
-        old_status = ticket.status
-        ticket.status = "IN_PROGRESS"
-        log_event(db, ticket_id, user.id, "STARTED")
-        notify_ticket_status_changed(db, ticket, user.id, old_status, "IN_PROGRESS", admins, managers)
-    elif action == "done":
+    if action == "done":
+        if ticket.status != "OPEN":
+            return redirect(f"/tickets/{ticket_id}")
+        if user.id != ticket.current_assignee_id and user.role not in ("ADMIN", "MANAGER"):
+            raise HTTPException(403)
         old_status = ticket.status
         ticket.status = "DONE"
+        ticket.closed_at = datetime.utcnow()
         log_event(db, ticket_id, user.id, "DONE")
         notify_ticket_status_changed(db, ticket, user.id, old_status, "DONE", admins, managers)
     elif action == "close":
@@ -1832,14 +1999,6 @@ def ticket_action(ticket_id: str, action: str = Form(...),
         if user.role == "EMPLOYEE":
             if ticket.current_assignee_id != user.id:
                 raise HTTPException(status_code=403, detail="Only the current assignee can escalate")
-            recent_escalation = db.query(TicketEvent).filter(
-                TicketEvent.ticket_id == ticket_id,
-                TicketEvent.actor_id == user.id,
-                TicketEvent.event_type == "FLAGGED",
-                TicketEvent.created_at > (datetime.utcnow() - timedelta(hours=24)),
-            ).first()
-            if recent_escalation:
-                return redirect(f"/tickets/{ticket_id}?escalation_error=1")
         ticket.is_flagged = True
         ticket.flagged_reason = flag_reason
         log_event(db, ticket_id, user.id, "FLAGGED", flag_reason)
@@ -1849,10 +2008,6 @@ def ticket_action(ticket_id: str, action: str = Form(...),
         ticket.is_flagged = False
         ticket.flagged_reason = None
         log_event(db, ticket_id, user.id, "UNFLAGGED")
-    elif action == "help_request" and comment.strip():
-        ticket.status = "HELP_REQUESTED"
-        log_event(db, ticket_id, user.id, "HELP_REQUESTED", comment.strip())
-        notify_ticket_help_requested(db, ticket, user.id, admins, managers)
     elif action == "reopen":
         ticket.status = "OPEN"
         ticket.closed_at = None
@@ -1861,13 +2016,7 @@ def ticket_action(ticket_id: str, action: str = Form(...),
     db.commit()
 
     # Real-time sync — broadcast to relevant users for status-changing actions
-    if action == "help_request":
-        audience = list(set(admins + managers + [ticket.current_assignee_id]))
-        broadcast_sync(user.tenant_id, audience, TICKET_HELP_REQUESTED, {
-            "ticket_id": ticket_id, "display_id": ticket.display_id,
-            "status": ticket.status, "requester": user.name,
-        })
-    elif action in ("acknowledge", "start", "done", "close", "reopen"):
+    if action in ("done", "close", "reopen"):
         audience = list(set(admins + managers + [ticket.current_assignee_id]))
         broadcast_sync(user.tenant_id, audience, TICKET_STATUS_CHANGED, {
             "ticket_id": ticket_id, "display_id": ticket.display_id,
@@ -1887,6 +2036,38 @@ def ticket_action(ticket_id: str, action: str = Form(...),
         })
 
     return redirect(f"/tickets/{ticket_id}")
+
+
+@app.post("/tickets/{ticket_id}/log-delay")
+async def ticket_log_delay(ticket_id: str, request: Request,
+                           user: User = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    """E-01: Log a delay on an OPEN delegation ticket (assignee only). No status change."""
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id,
+        Ticket.is_deleted == False).first()
+    if not ticket:
+        raise HTTPException(404)
+    if ticket.current_assignee_id != user.id:
+        raise HTTPException(403, "Only the current assignee can log a delay")
+    if ticket.status != "OPEN":
+        raise HTTPException(400, "Delays can only be logged on OPEN tickets")
+    form = await request.form()
+    reason = (form.get("reason") or "").strip()
+    if not reason:
+        return redirect(f"/tickets/{ticket_id}?delay_error=1")
+    log_event(db, ticket_id, user.id, "DELAY_LOGGED", reason)
+    # Notify managers and admins
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+    from .notifications import notify_delay_logged
+    try:
+        notify_delay_logged(db, ticket, user.id, reason, admins, managers)
+    except Exception:
+        pass  # notification failure should not block the action
+    db.commit()
+    return redirect(f"/tickets/{ticket_id}?delay_logged=1")
+
 
 @app.post("/tickets/{ticket_id}/add-helper")
 def add_helper(ticket_id: str, helper_id: str = Form(...), note: str = Form(""),
@@ -1949,6 +2130,63 @@ async def upload_ticket_media(ticket_id: str, file: UploadFile = File(...),
 
 
 # ── Checklists ────────────────────────────────────────────────────────────────
+
+_DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+def _format_frequency(tmpl) -> str:
+    """Return human-readable frequency string for a ChecklistTemplate (E-14)."""
+    ft = getattr(tmpl, "frequency_type", None)
+    cfg = getattr(tmpl, "frequency_config", None) or {}
+    if ft == "WEEKLY_CUSTOM":
+        days = cfg.get("days", [])
+        if set(days) == {0, 1, 2, 3, 4}:
+            return "Every weekday"
+        return "Every " + ", ".join(_DAY_NAMES[d] for d in sorted(days) if 0 <= d <= 6)
+    if ft == "MONTHLY_DATE":
+        return f"Every month on the {cfg.get('day', '')}th"
+    if ft == "YEARLY_DATE":
+        m = cfg.get("month", 1)
+        d = cfg.get("day", 1)
+        mname = _MONTH_NAMES[m - 1] if 1 <= m <= 12 else str(m)
+        return f"Every year on {d} {mname}"
+    # Legacy / standard frequency
+    freq = getattr(tmpl, "frequency", "") or ""
+    label_map = {"DAILY": "Daily", "WEEKLY": "Weekly", "MONTHLY": "Monthly",
+                 "YEARLY": "Yearly", "TWICE_A_MONTH": "Twice a month",
+                 "PER_SHIFT": "Per shift", "QUARTERLY": "Quarterly"}
+    return label_map.get(freq, freq)
+
+
+def _parse_frequency_fields(frequency_type: str, cfg_days: str, cfg_day: str, cfg_month: str, cfg_doy_day: str = ""):
+    """Parse raw form fields into (frequency_type, frequency_config) for E-14.
+
+    cfg_day      → day number for MONTHLY_DATE
+    cfg_doy_day  → day number for YEARLY_DATE (separate field to avoid name clash)
+    """
+    ft = frequency_type.strip() if frequency_type else None
+    if not ft or ft in ("DAILY", "WEEKLY", "MONTHLY", "YEARLY"):
+        return ft or None, None
+    cfg = None
+    if ft == "WEEKLY_CUSTOM":
+        try:
+            days = [int(d) for d in cfg_days.split(",") if d.strip().isdigit()]
+        except Exception:
+            days = []
+        cfg = {"days": days} if days else None
+    elif ft == "MONTHLY_DATE":
+        try:
+            cfg = {"day": int(cfg_day)}
+        except Exception:
+            cfg = None
+    elif ft == "YEARLY_DATE":
+        try:
+            cfg = {"month": int(cfg_month), "day": int(cfg_doy_day or cfg_day)}
+        except Exception:
+            cfg = None
+    return ft, cfg
+
 
 def _next_due_from(freq: str, from_dt: datetime) -> datetime:
     """Compute next due datetime based on frequency. Always returns a future datetime."""
@@ -2046,6 +2284,9 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         _repaired = False
         for _t in _all_t:
             if not (getattr(_t, 'is_recurring', True) and _t.assigned_to_user_id):
+                continue
+            # Skip custom frequency types — the scheduler handles those on their specific days
+            if getattr(_t, 'frequency_type', None) in ('WEEKLY_CUSTOM', 'MONTHLY_DATE', 'YEARLY_DATE'):
                 continue
             _has = db.query(ChecklistAssignment).filter(
                 ChecklistAssignment.template_id == _t.id,
@@ -2236,6 +2477,11 @@ async def create_template(
     request: Request,
     title: str = Form(...), description: str = Form(...),
     frequency: str = Form("DAILY"),
+    frequency_type: str = Form(""),
+    frequency_config_days: str = Form(""),
+    frequency_config_day: str = Form(""),
+    frequency_config_month: str = Form(""),
+    frequency_config_doy_day: str = Form(""),
     proof_required: bool = Form(False),
     evidence_required: bool = Form(False),
     assigned_to_user_id: str = Form(""),
@@ -2246,11 +2492,13 @@ async def create_template(
     is_recurring: bool = Form(True),
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
+    import json as _json
     role = assigned_to_role
     if assigned_to_user_id:
         emp = db.query(User).filter(User.id == assigned_to_user_id).first()
         if emp:
             role = emp.role
+    ft, fc = _parse_frequency_fields(frequency_type, frequency_config_days, frequency_config_day, frequency_config_month, frequency_config_doy_day)
     tmpl = ChecklistTemplate(
         tenant_id=user.tenant_id, title=title, description=description,
         frequency=frequency, proof_required=proof_required,
@@ -2261,6 +2509,8 @@ async def create_template(
         reminder_hours_before=reminder_hours_before,
         reminder_repeat_hours=reminder_repeat_hours,
         is_recurring=is_recurring,
+        frequency_type=ft,
+        frequency_config=fc,
     )
     db.add(tmpl)
     db.commit()
@@ -2297,12 +2547,18 @@ def assign_checklist(template_id: str, due_at: str = Form(...),
             User.is_active == True, User.is_deleted == False).all()
 
     due = datetime.fromisoformat(due_at)
+    new_assignments = []
     for u in target_users:
-        db.add(ChecklistAssignment(
+        a = ChecklistAssignment(
             template_id=template_id, tenant_id=user.tenant_id,
             user_id=u.id, due_at=due,
-        ))
+        )
+        db.add(a)
+        new_assignments.append(a)
     db.commit()
+    for a in new_assignments:
+        db.refresh(a)
+        notify_checklist_assigned(db, a)
     return redirect("/checklists")
 
 
@@ -2647,6 +2903,11 @@ def edit_checklist_template(
     template_id: str,
     title: str = Form(...), description: str = Form(""),
     frequency: str = Form("DAILY"),
+    frequency_type: str = Form(""),
+    frequency_config_days: str = Form(""),
+    frequency_config_day: str = Form(""),
+    frequency_config_month: str = Form(""),
+    frequency_config_doy_day: str = Form(""),
     evidence_required: bool = Form(False),
     is_active: str = Form("1"),
     reminder_hours_before: int = Form(2),
@@ -2673,6 +2934,9 @@ def edit_checklist_template(
     tmpl.assigned_to_user_id = assigned_to_user_id or None
     tmpl.assigned_to_dept_id = assigned_to_dept_id or None
     tmpl.assigned_to_role = assigned_to_role
+    ft, fc = _parse_frequency_fields(frequency_type, frequency_config_days, frequency_config_day, frequency_config_month, frequency_config_doy_day)
+    tmpl.frequency_type = ft
+    tmpl.frequency_config = fc
     # Sync future pending assignments so "Upcoming" reflects the updated settings.
     # Completed/failed/missed (past) assignments are never touched — they are history.
     _sync_pending_assignments(db, tmpl, user.tenant_id)
@@ -2687,9 +2951,12 @@ def _sync_pending_assignments(db: Session, tmpl, tid: str) -> None:
     - If template deactivated → soft-delete all future pending assignments.
     - If assignment rule changed → remove assignments for users no longer targeted,
       create assignments for newly targeted users (inheriting the earliest existing due_at).
+    - Custom frequency types (WEEKLY_CUSTOM / MONTHLY_DATE / YEARLY_DATE) — only prune
+      users no longer targeted; never auto-create new assignments (scheduler does that).
     - Past/completed/failed assignments are never touched (history).
     """
     now = datetime.utcnow()
+    _custom_freq = getattr(tmpl, 'frequency_type', None) in ('WEEKLY_CUSTOM', 'MONTHLY_DATE', 'YEARLY_DATE')
 
     # Deactivated template: clear all future pending assignments
     if not tmpl.is_active:
@@ -2757,25 +3024,26 @@ def _sync_pending_assignments(db: Session, tmpl, tid: str) -> None:
         if uid not in new_target_ids:
             a.is_deleted = True
 
-    # Create assignments for target users who have no future pending AND no active overdue
-    for uid in new_target_ids:
-        if uid not in existing_by_user and uid not in overdue_user_ids:
-            # Use per-user last completion to compute the correct next due date
-            last_done = db.query(ChecklistAssignment).filter(
-                ChecklistAssignment.template_id == tmpl.id,
-                ChecklistAssignment.user_id == uid,
-                ChecklistAssignment.status == "DONE",
-                ChecklistAssignment.is_deleted == False,
-            ).order_by(ChecklistAssignment.due_at.desc()).first()
-            base_dt = last_done.due_at if last_done and last_done.due_at else now
-            due = _next_due_from(tmpl.frequency, base_dt)
-            db.add(ChecklistAssignment(
-                template_id=tmpl.id,
-                tenant_id=tid,
-                user_id=uid,
-                due_at=due,
-                evidence_required=bool(tmpl.evidence_required),
-            ))
+    # Create assignments for target users who have no future pending AND no active overdue.
+    # Custom frequency types are handled by the scheduler on their specific days — skip here.
+    if not _custom_freq:
+        for uid in new_target_ids:
+            if uid not in existing_by_user and uid not in overdue_user_ids:
+                last_done = db.query(ChecklistAssignment).filter(
+                    ChecklistAssignment.template_id == tmpl.id,
+                    ChecklistAssignment.user_id == uid,
+                    ChecklistAssignment.status == "DONE",
+                    ChecklistAssignment.is_deleted == False,
+                ).order_by(ChecklistAssignment.due_at.desc()).first()
+                base_dt = last_done.due_at if last_done and last_done.due_at else now
+                due = _next_due_from(tmpl.frequency, base_dt)
+                db.add(ChecklistAssignment(
+                    template_id=tmpl.id,
+                    tenant_id=tid,
+                    user_id=uid,
+                    due_at=due,
+                    evidence_required=bool(tmpl.evidence_required),
+                ))
 
 
 @app.post("/checklists/templates/{template_id}/delete")
@@ -3901,6 +4169,75 @@ def setup_checklist_notifications(
         tenant.checklist_overdue_hour = tenant_overdue_hour
         db.commit()
     return redirect("/setup?open=notifications&saved=1")
+
+
+@app.get("/setup/notifications")
+def setup_notifications_get(request: Request, saved: str = "",
+                             user: User = Depends(require_admin),
+                             db: Session = Depends(get_db)):
+    """E-15: Notification Settings page — Admin only."""
+    tenant = db.query(Tenant).get(user.tenant_id)
+    return templates.TemplateResponse("setup/notifications.html", {
+        "request": request, "user": user, "tenant": tenant,
+        "saved": saved == "1",
+        "L": get_labels(db, user.tenant_id),
+    })
+
+
+@app.post("/setup/notifications")
+async def setup_notifications_post(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """E-15: Save notification settings — Admin only."""
+    form = await request.form()
+    tenant = db.query(Tenant).get(user.tenant_id)
+    # Office hours
+    tenant.work_start_time = form.get("work_start_time") or "09:00"
+    tenant.work_end_time = form.get("work_end_time") or "18:00"
+    work_days_raw = form.getlist("work_days")
+    tenant.work_days = ",".join(work_days_raw) if work_days_raw else "0,1,2,3,4"
+    tenant.timezone = form.get("timezone") or "Asia/Kolkata"
+    tenant.suppress_notif_outside_hours = form.get("suppress_notif_outside_hours") == "true"
+    # Checklist schedule (replaces old checklist-notifications route)
+    import re as _re
+    raw_hours = form.get("checklist_notif_hours") or "8,13,18"
+    valid_h = sorted(set(int(h.strip()) for h in raw_hours.split(",") if h.strip().isdigit() and 0 <= int(h.strip()) <= 23))
+    tenant.checklist_notif_hours = ",".join(str(h) for h in valid_h) or "8,13,18"
+    raw_overdue = (form.get("checklist_overdue_hour") or "").strip()
+    tenant.checklist_overdue_hour = raw_overdue if raw_overdue.isdigit() and 0 <= int(raw_overdue) <= 23 else None
+    # Checklist notification rules
+    tenant.checklist_notif_on_assign = form.get("checklist_notif_on_assign") == "true"
+    try:
+        tenant.checklist_remind_before_hours = int(form.get("checklist_remind_before_hours") or 2)
+    except (ValueError, TypeError):
+        tenant.checklist_remind_before_hours = 2
+    try:
+        tenant.checklist_remind_repeat_hours = int(form.get("checklist_remind_repeat_hours") or 4)
+    except (ValueError, TypeError):
+        tenant.checklist_remind_repeat_hours = 4
+    # Delegation
+    tenant.ticket_notif_on_assign = form.get("ticket_notif_on_assign") == "true"
+    try:
+        tenant.ticket_notif_tat_pct = int(form.get("ticket_notif_tat_pct") or 80)
+    except (ValueError, TypeError):
+        tenant.ticket_notif_tat_pct = 80
+    try:
+        tenant.ticket_notif_tat_pct_both = int(form.get("ticket_notif_tat_pct_both") or 90)
+    except (ValueError, TypeError):
+        tenant.ticket_notif_tat_pct_both = 90
+    # FMS
+    tenant.fms_notif_on_open = form.get("fms_notif_on_open") == "true"
+    tenant.fms_notif_on_stage_entry = form.get("fms_notif_on_stage_entry") == "true"
+    try:
+        tenant.fms_notif_tat_pct = int(form.get("fms_notif_tat_pct") or 80)
+    except (ValueError, TypeError):
+        tenant.fms_notif_tat_pct = 80
+    tenant.fms_notif_on_backward = form.get("fms_notif_on_backward") == "true"
+    tenant.fms_notif_on_flag = form.get("fms_notif_on_flag") == "true"
+    db.commit()
+    return redirect("/setup/notifications?saved=1")
 
 
 @app.post("/setup/branch")

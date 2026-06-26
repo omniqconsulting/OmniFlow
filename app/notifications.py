@@ -4,7 +4,74 @@ Phase 1 addition: each helper also fires a WebSocket broadcast so connected
 clients get the event in real-time without polling.
 """
 import json, logging
+from datetime import datetime, timedelta
 logger = logging.getLogger("notifications")
+
+
+# ── E-15: Office Hours Helpers ────────────────────────────────────────────────
+
+def is_within_office_hours(tenant, dt=None):
+    """Return True if dt (defaults to now) falls within the tenant's configured working hours."""
+    if not getattr(tenant, 'work_start_time', None):
+        return True  # Not configured — send anytime
+    try:
+        import pytz
+        tz = pytz.timezone(tenant.timezone or 'Asia/Kolkata')
+    except Exception:
+        return True
+    now = dt or datetime.utcnow().replace(tzinfo=pytz.utc)
+    if now.tzinfo is None:
+        now = pytz.utc.localize(now)
+    local = now.astimezone(tz)
+    work_days = [int(d) for d in (tenant.work_days or '0,1,2,3,4').split(',') if d.strip()]
+    if local.weekday() not in work_days:
+        return False
+    start_h, start_m = map(int, tenant.work_start_time.split(':'))
+    end_h, end_m = map(int, tenant.work_end_time.split(':'))
+    local_minutes = local.hour * 60 + local.minute
+    return (start_h * 60 + start_m) <= local_minutes < (end_h * 60 + end_m)
+
+
+def business_hours_elapsed(tenant, start_dt, end_dt):
+    """Return elapsed business hours between two datetimes for the tenant's office hours config."""
+    if not getattr(tenant, 'work_start_time', None):
+        delta = (end_dt - start_dt).total_seconds() / 3600
+        return max(0, delta)
+    try:
+        import pytz
+        tz = pytz.timezone(tenant.timezone or 'Asia/Kolkata')
+    except Exception:
+        return max(0, (end_dt - start_dt).total_seconds() / 3600)
+
+    work_days = [int(d) for d in (tenant.work_days or '0,1,2,3,4').split(',') if d.strip()]
+    start_h, start_m = map(int, tenant.work_start_time.split(':'))
+    end_h, end_m = map(int, tenant.work_end_time.split(':'))
+    day_minutes = end_h * 60 + end_m - start_h * 60 - start_m
+
+    if start_dt.tzinfo is None:
+        import pytz as _pytz
+        start_dt = _pytz.utc.localize(start_dt)
+    if end_dt.tzinfo is None:
+        import pytz as _pytz
+        end_dt = _pytz.utc.localize(end_dt)
+
+    elapsed = 0.0
+    cursor = start_dt.astimezone(tz)
+    end_local = end_dt.astimezone(tz)
+
+    while cursor < end_local:
+        if cursor.weekday() in work_days:
+            day_start = cursor.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+            day_end = cursor.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+            period_start = max(cursor, day_start)
+            period_end = min(end_local, day_end)
+            if period_end > period_start:
+                elapsed += (period_end - period_start).total_seconds() / 3600
+        # Advance to next calendar day at work_start_time
+        next_day = (cursor + timedelta(days=1)).replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+        cursor = next_day
+
+    return elapsed
 
 from .database import Notification
 from .ws_manager import (
@@ -77,8 +144,33 @@ def send_whatsapp_for_ticket_assigned(db, ticket, assignee):
         logger.exception("WhatsApp send_for_ticket_assigned failed")
 
 
+def _get_tenant(db, tenant_id):
+    from .database import Tenant
+    return db.query(Tenant).filter(Tenant.id == tenant_id).first()
+
+
+def _log_notif_suppressed(db, ticket_id, event_label: str):
+    """Log a NOTIFICATION_SUPPRESSED TicketEvent for audit trail."""
+    from .database import TicketEvent
+    try:
+        db.add(TicketEvent(
+            ticket_id=ticket_id,
+            event_type="NOTIFICATION_SUPPRESSED",
+            notes=f"Suppressed: {event_label} (outside office hours)",
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to log NOTIFICATION_SUPPRESSED for ticket=%s", ticket_id)
+
+
 def notify_ticket_assigned(db, ticket, assignee):
     """Phase 0-D-2  |  1-6: TICKET_ASSIGNED — audience: assignee"""
+    tenant = _get_tenant(db, ticket.tenant_id)
+    if tenant and not is_within_office_hours(tenant):
+        if tenant.suppress_notif_outside_hours:
+            _log_notif_suppressed(db, ticket.id, "notify_ticket_assigned")
+            return
     due_str = ticket.due_at.strftime("%d %b") if ticket.due_at else "N/A"
     create_notification(
         db, ticket.tenant_id, assignee.id,
@@ -236,8 +328,26 @@ def notify_ticket_help_requested(db, ticket, actor_id: str,
     })
 
 
+def notify_delay_logged(db, ticket, actor_id: str, reason: str,
+                        admin_ids: list, manager_ids: list):
+    """E-01: DELAY_LOGGED — notify managers and admins when an assignee logs a delay."""
+    audience = list(set(admin_ids + manager_ids))
+    for uid in audience:
+        create_notification(
+            db, ticket.tenant_id, uid,
+            "DELAY_LOGGED",
+            f"Delay logged on {ticket.display_id or ticket.title}",
+            reason[:200],
+            f"/tickets/{ticket.id}",
+        )
+
+
 def notify_checklist_due(db, assignment):
     """Phase 0-D-3  |  1-6: CHECKLIST_DUE_SOON — audience: assigned user"""
+    tenant = _get_tenant(db, assignment.tenant_id)
+    if tenant and not is_within_office_hours(tenant):
+        if tenant.suppress_notif_outside_hours:
+            return  # Suppressed — no audit trail needed for scheduler-fired reminders
     title = assignment.template.title if assignment.template else "Checklist"
     due_str = assignment.due_at.strftime("%d %b %I:%M %p") if assignment.due_at else ""
     create_notification(
@@ -260,6 +370,10 @@ def notify_checklist_overdue(db, assignment, admin_ids: list, manager_ids: list)
     1-6: CHECKLIST_OVERDUE
     Audience: admin + managers + assigned user.
     """
+    tenant = _get_tenant(db, assignment.tenant_id)
+    if tenant and not is_within_office_hours(tenant):
+        if tenant.suppress_notif_outside_hours:
+            return
     title = assignment.template.title if assignment.template else "Checklist"
     audience = list(set(admin_ids + manager_ids + [assignment.user_id]))
     broadcast_sync(assignment.tenant_id, audience, CHECKLIST_OVERDUE, {
@@ -283,6 +397,45 @@ def notify_checklist_completed(db, assignment, admin_ids: list, manager_ids: lis
         "user_id":       assignment.user_id,
         "link":          "/checklists",
     })
+
+
+def notify_checklist_assigned(db, assignment):
+    """E-15: Notify employee when a new checklist is assigned to them (if tenant setting enabled)."""
+    tenant = _get_tenant(db, assignment.tenant_id)
+    if not getattr(tenant, 'checklist_notif_on_assign', True):
+        return
+    if tenant and not is_within_office_hours(tenant):
+        if tenant.suppress_notif_outside_hours:
+            return
+    title = assignment.template.title if assignment.template else "Checklist"
+    due_str = assignment.due_at.strftime("%d %b") if assignment.due_at else ""
+    create_notification(
+        db, assignment.tenant_id, assignment.user_id,
+        "CHECKLIST_DUE",
+        f"New checklist assigned: {title}",
+        f"Due: {due_str}" if due_str else "",
+        "/checklists",
+    )
+
+
+def notify_fms_ticket_opened(db, fms_ticket, assignee, admin_ids: list, manager_ids: list):
+    """E-15: In-app notification when a new FMS ticket is opened."""
+    tenant = _get_tenant(db, fms_ticket.tenant_id)
+    if not getattr(tenant, 'fms_notif_on_open', True):
+        return
+    if tenant and not is_within_office_hours(tenant):
+        if tenant.suppress_notif_outside_hours:
+            return
+    audience = list(set(admin_ids + manager_ids + ([assignee.id] if assignee else [])))
+    for uid in audience:
+        if uid:
+            create_notification(
+                db, fms_ticket.tenant_id, uid,
+                "TICKET_ASSIGNED",
+                f"New FMS ticket: {fms_ticket.title}",
+                f"Flow: {getattr(fms_ticket, 'flow_name', '')}",
+                f"/fms/tickets/{fms_ticket.id}",
+            )
 
 
 # ── Phase 2/4 stubs — routing logic defined now (per §18.2 plan) ─────────────

@@ -65,6 +65,117 @@
       {% endfor %}
     </div>
 
+    <!-- E-08: Role & Permissions — How It Works -->
+    <div style="display:flex;align-items:center;gap:10px;margin:28px 0 16px">
+      <span style="font-size:24px">👥</span>
+      <div>
+        <h2 style="margin:0">Who Can See What</h2>
+        <div style="font-size:13px;color:var(--text-faint);margin-top:2px">Plain-language breakdown of what each role can access and do</div>
+      </div>
+    </div>
+
+    <style>
+    .role-card{border-radius:10px;overflow:hidden;margin-bottom:14px;border:1px solid var(--border-subtle)}
+    .role-card-header{padding:12px 18px;font-size:14px;font-weight:700;color:#fff}
+    .role-card-body{display:grid;grid-template-columns:1fr 1fr;gap:0}
+    @media(max-width:600px){.role-card-body{grid-template-columns:1fr}}
+    .role-col{padding:14px 18px;background:var(--bg-card)}
+    .role-col:first-child{border-right:1px solid var(--border-subtle)}
+    @media(max-width:600px){.role-col:first-child{border-right:none;border-bottom:1px solid var(--border-subtle)}}
+    .role-col-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px}
+    .role-col ul{margin:0;padding:0;list-style:none}
+    .role-col ul li{font-size:12px;color:var(--text-muted);padding:4px 0;border-bottom:1px solid var(--border-subtle);line-height:1.5}
+    .role-col ul li:last-child{border-bottom:none}
+    .role-col ul li::before{content:"✓ ";color:var(--text-xfaint);font-size:10px}
+    .role-note{font-size:11px;color:var(--text-faint);padding:8px 18px;background:var(--bg-input);border-top:1px solid var(--border-subtle);line-height:1.5}
+    </style>
+
+    <!-- Card 1: Admin -->
+    <div class="role-card">
+      <div class="role-card-header" style="background:#2563eb">Admin</div>
+      <div class="role-card-body">
+        <div class="role-col">
+          <div class="role-col-title" style="color:#2563eb">Can See</div>
+          <ul>
+            <li>All tickets across all employees and managers</li>
+            <li>All checklists and compliance data</li>
+            <li>All Flow Board flows, stages, and tickets</li>
+            <li>Full employee list and performance KPIs</li>
+            <li>Inventory dashboard and reconciliation alerts</li>
+            <li>All linked entities across the system</li>
+          </ul>
+        </div>
+        <div class="role-col">
+          <div class="role-col-title" style="color:#2563eb">Can Do</div>
+          <ul>
+            <li>Create tickets and assign to anyone</li>
+            <li>Close and delete tickets</li>
+            <li>Configure flows, stages, and sub-modules</li>
+            <li>Add and manage employees, roles, departments</li>
+            <li>Change plan settings (via Super Admin)</li>
+            <li>Access all Setup options</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2: Manager -->
+    <div class="role-card">
+      <div class="role-card-header" style="background:#0d9488">Manager</div>
+      <div class="role-card-body">
+        <div class="role-col">
+          <div class="role-col-title" style="color:#0d9488">Can See</div>
+          <ul>
+            <li>All tickets assigned to their direct team only</li>
+            <li>Team checklists and compliance for their team</li>
+            <li>Flow Board stages where their team members are assignees</li>
+            <li>Team KPI dashboard</li>
+            <li>Linked entities on tickets they can see</li>
+          </ul>
+        </div>
+        <div class="role-col">
+          <div class="role-col-title" style="color:#0d9488">Can Do</div>
+          <ul>
+            <li>Create tickets and assign to their team</li>
+            <li>Reassign tickets within their team</li>
+            <li>Flag tickets for Admin attention</li>
+            <li>Override Flow Board stage transitions (within 2-hour window)</li>
+            <li>Log comments and add helpers on team tickets</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3: Employee -->
+    <div class="role-card">
+      <div class="role-card-header" style="background:#6b7280">Employee</div>
+      <div class="role-card-body">
+        <div class="role-col">
+          <div class="role-col-title" style="color:#4b5563">Can See</div>
+          <ul>
+            <li>Only their own assigned tickets</li>
+            <li>Only their own checklist assignments</li>
+            <li>Flow Board stages where they are the current assignee</li>
+            <li>Their own KPI dashboard</li>
+            <li>Linked entities on their own tickets (read-only)</li>
+          </ul>
+        </div>
+        <div class="role-col">
+          <div class="role-col-title" style="color:#4b5563">Can Do</div>
+          <ul>
+            <li>Mark their own tickets as Done</li>
+            <li>Log delays with a reason (does not change status)</li>
+            <li>Add comments on their own tickets</li>
+            <li>Request help (adds a helper to their ticket)</li>
+            <li>Flag a ticket for management attention</li>
+          </ul>
+        </div>
+      </div>
+      <div class="role-note">
+        <strong>Helper exception:</strong> An Employee who is added as a Helper on another employee's ticket can see and interact with that ticket — this is the only exception to the "own tickets only" rule.
+      </div>
+    </div>
+
     <div class="card" style="margin-top:16px;background:var(--bg-input)">
       <div style="display:flex;align-items:flex-start;gap:12px">
         <span style="font-size:20px">📞</span>

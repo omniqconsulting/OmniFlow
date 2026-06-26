@@ -4,7 +4,7 @@ KPI & analytics calculation engine — Phase 0-E-9, 0-G-1 through 0-G-11
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import or_ as _or
-from .database import Ticket, ChecklistAssignment, ChecklistTemplate, User, Department
+from .database import Ticket, ChecklistAssignment, ChecklistTemplate, User, Department, Tenant
 
 
 def _resolve_filter_uids(db, tenant_id, dept_ids=None, manager_ids=None):
@@ -28,8 +28,8 @@ def _resolve_filter_uids(db, tenant_id, dept_ids=None, manager_ids=None):
     return [u.id for u in q.all()]
 
 
-def calc_tat_hours(ticket) -> float | None:
-    """Turnaround time for a ticket from creation to close/done."""
+def calc_tat_hours(ticket, tenant=None) -> float | None:
+    """Turnaround time for a ticket — business hours if tenant is configured, else wall-clock."""
     if not ticket.created_at:
         return None
     end = ticket.closed_at
@@ -37,6 +37,9 @@ def calc_tat_hours(ticket) -> float | None:
         end = datetime.utcnow()
     if not end:
         return None
+    if tenant and getattr(tenant, 'work_start_time', None):
+        from .notifications import business_hours_elapsed
+        return business_hours_elapsed(tenant, ticket.created_at, end)
     return max((end - ticket.created_at).total_seconds() / 3600, 0)
 
 
@@ -49,7 +52,8 @@ def get_org_avg_tat(db: Session, tenant_id: str) -> float:
         Ticket.status.in_(["DONE", "CLOSED"]),
         Ticket.created_at >= since,
     ).all()
-    tats = [calc_tat_hours(t) for t in closed]
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    tats = [calc_tat_hours(t, tenant) for t in closed]
     tats = [x for x in tats if x is not None]
     return round(sum(tats) / len(tats), 1) if tats else 0.0
 
@@ -61,6 +65,7 @@ def get_employee_kpis(db: Session, user_id: str, tenant_id: str) -> dict:
     """
     now = datetime.utcnow()
     since_30 = now - timedelta(days=30)
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
 
     # ── Closed tickets last 30 days ──────────────────────────────────────────
     closed = db.query(Ticket).filter(
@@ -71,7 +76,7 @@ def get_employee_kpis(db: Session, user_id: str, tenant_id: str) -> dict:
         Ticket.created_at >= since_30,
     ).all()
 
-    tats = [calc_tat_hours(t) for t in closed]
+    tats = [calc_tat_hours(t, tenant) for t in closed]
     tats = [x for x in tats if x is not None]
     avg_tat = round(sum(tats) / len(tats), 1) if tats else 0.0
 
@@ -230,6 +235,7 @@ def get_delegation_scorecards(db: Session, tenant_id: str,
                                dept_ids: list = None,
                                manager_ids: list = None) -> dict:
     start, now = _date_bounds(date_from, date_to)
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     _uids = _resolve_filter_uids(db, tenant_id, dept_ids, manager_ids)
 
     def _scope(q):
@@ -244,7 +250,7 @@ def get_delegation_scorecards(db: Session, tenant_id: str,
     closed = base().filter(
         Ticket.status.in_(["DONE","CLOSED"]),
         Ticket.created_at >= start).all()
-    tats = [x for x in [calc_tat_hours(t) for t in closed] if x is not None]
+    tats = [x for x in [calc_tat_hours(t, tenant) for t in closed] if x is not None]
     avg_tat = round(sum(tats)/len(tats), 1) if tats else 0.0
     due_24h = base().filter(
         Ticket.status.notin_(["CLOSED","DONE"]),
@@ -348,6 +354,7 @@ def get_employee_tat_ranking(db: Session, tenant_id: str, date_from: str = None,
                               dept_ids: list = None, manager_ids: list = None) -> list:
     start, _ = _date_bounds(date_from, date_to)
     org_avg = get_org_avg_tat(db, tenant_id)
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     scoped_uids = _resolve_filter_uids(db, tenant_id, dept_ids, manager_ids)
     eq = db.query(User).filter(User.tenant_id==tenant_id,
         User.is_deleted==False, User.is_active==True)
@@ -358,7 +365,7 @@ def get_employee_tat_ranking(db: Session, tenant_id: str, date_from: str = None,
         closed = db.query(Ticket).filter(Ticket.tenant_id==tenant_id,
             Ticket.is_deleted==False, Ticket.current_assignee_id==emp.id,
             Ticket.status.in_(["DONE","CLOSED"]), Ticket.created_at>=start).all()
-        tats = [x for x in [calc_tat_hours(t) for t in closed] if x is not None]
+        tats = [x for x in [calc_tat_hours(t, tenant) for t in closed] if x is not None]
         avg = round(sum(tats)/len(tats),1) if tats else None
         result.append({
             "name": emp.name,

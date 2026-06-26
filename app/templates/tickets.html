@@ -31,6 +31,7 @@
     <a href="/tickets/bulk-template" class="btn btn-sm btn-outline">⬇ CSV Template</a>
     <button onclick="document.getElementById('bulk-modal').style.display='flex'" class="btn btn-sm btn-outline">⬆ Bulk Upload</button>
     {% endif %}
+    <a href="/tickets/export?{{ request.query_string.decode() }}" class="btn btn-sm btn-outline" title="Export filtered data as CSV">⬇ Export CSV</a>
     {% if user.role in ('ADMIN','MANAGER','EMPLOYEE') %}
     <button onclick="document.getElementById('create-modal').style.display='flex'" class="btn btn-primary">
       + {% if user.role == 'EMPLOYEE' %}Help {{ L.Ticket }}{% else %}New {{ L.Ticket }}{% endif %}
@@ -213,30 +214,21 @@
   </thead>
   <tbody>
   {% for t in tickets %}
-  {# Next-stage map covering all statuses #}
+  {# Next-stage map: simplified OPEN → DONE → CLOSED delegation flow #}
   {% set next_map = {
-    'OPEN':           ('Acknowledge',  'btn-outline'),
-    'ACKNOWLEDGED':   ('Start Work',   'btn-primary'),
-    'IN_PROGRESS':    ('Mark Done',    'btn-primary'),
-    'HELP_REQUESTED': ('Resume Work',  'btn-outline'),
-    'DONE':           ('Close',        'btn-gray'),
+    'OPEN': ('Mark Done', 'btn-primary'),
+    'DONE': ('Close',     'btn-gray'),
   } %}
   {% set prev_map = {
-    'ACKNOWLEDGED':   'Open',
-    'IN_PROGRESS':    'Acknowledged',
-    'HELP_REQUESTED': 'In Progress',
-    'DONE':           'In Progress',
-    'CLOSED':         'Done',
+    'DONE':   'Open',
+    'CLOSED': 'Done',
   } %}
   {% set next_info = next_map.get(t.status) %}
   {% set prev_label = prev_map.get(t.status) %}
   {% set status_styles = {
-    'OPEN':           ('badge-gray',   'Open'),
-    'ACKNOWLEDGED':   ('badge-blue',   'Acknowledged'),
-    'IN_PROGRESS':    ('badge-blue',   'In Progress'),
-    'HELP_REQUESTED': ('badge-amber',  'Help Requested'),
-    'DONE':           ('badge-green',  'Done'),
-    'CLOSED':         ('badge-gray',   'Closed'),
+    'OPEN':   ('badge-gray',  'Open'),
+    'DONE':   ('badge-green', 'Done'),
+    'CLOSED': ('badge-gray',  'Closed'),
   } %}
   {% set sty = status_styles.get(t.status, ('badge-gray', t.status)) %}
   <tr>
@@ -268,7 +260,7 @@
       {% if next_info %}
         {% set btn_label = next_info[0] %}
         {% set btn_cls   = next_info[1] %}
-        {% if t.status == 'IN_PROGRESS' and t.evidence_required is defined and t.evidence_required %}
+        {% if t.status == 'OPEN' and t.evidence_required is defined and t.evidence_required %}
         <button onclick="openEvidenceModal('{{ t.id }}')"
                 class="btn btn-xs" style="color:#fcd34d;border-color:rgba(245,158,11,0.3)">
           📎 Submit Evidence → Done
