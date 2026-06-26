@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "setup/nav.html" %}
+
+<div class="setup-layout">
+  {% include "setup/nav.html" %}
+  <div class="setup-content">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div>
+        <h2 style="font-size:17px;font-weight:700;color:var(--text-strong);margin:0">Performance Formula</h2>
+        <p style="font-size:12px;color:var(--text-muted);margin:4px 0 0">Define how employee performance scores are calculated across Delegation, Checklists, and FMS.</p>
+      </div>
+    </div>
+
+    {% if msg %}
+    <div style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#6ee7b7;margin-bottom:16px">✓ {{ msg }}</div>
+    {% endif %}
+
+    {# ── KPI Reference ──────────────────────────────────────────── #}
+    <div class="card" style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:14px">Available KPIs — What each metric measures</div>
+
+      {# Delegation #}
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint);margin-bottom:8px">Delegation (Tickets)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        <div style="background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.18);border-radius:8px;padding:12px 14px">
+          <div style="font-size:12px;font-weight:600;color:#93c5fd;margin-bottom:4px">📅 Ticket On-Time Rate</div>
+          <div style="font-size:11px;color:var(--text-muted);line-height:1.5">What % of assigned tickets were completed before their due date. <strong style="color:var(--text-primary)">Why it matters:</strong> directly reflects deadline discipline — the most visible signal of team reliability.</div>
+        </div>
+        <div style="background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.18);border-radius:8px;padding:12px 14px">
+          <div style="font-size:12px;font-weight:600;color:#93c5fd;margin-bottom:4px">✅ Ticket Completion Rate</div>
+          <div style="font-size:11px;color:var(--text-muted);line-height:1.5">What % of created tickets eventually get closed. <strong style="color:var(--text-primary)">Why it matters:</strong> catches stale or abandoned work — a team that starts but never finishes harms throughput.</div>
+        </div>
+      </div>
+
+      {# Checklist #}
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint);margin-bottom:8px">Checklists</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        <div style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.18);border-radius:8px;padding:12px 14px">
+          <div style="font-size:12px;font-weight:600;color:#6ee7b7;margin-bottom:4px">📋 Checklist Compliance</div>
+          <div style="font-size:11px;color:var(--text-muted);line-height:1.5">What % of scheduled checklists were completed (vs skipped/missed). <strong style="color:var(--text-primary)">Why it matters:</strong> recurring procedures exist for safety and quality — skipping them is the highest-risk behaviour to track.</div>
+        </div>
+        <div style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.18);border-radius:8px;padding:12px 14px">
+          <div style="font-size:12px;font-weight:600;color:#6ee7b7;margin-bottom:4px">⏱ Checklist On-Time Rate</div>
+          <div style="font-size:11px;color:var(--text-muted);line-height:1.5">Of the checklists that were completed, what % were done before their deadline. <strong style="color:var(--text-primary)">Why it matters:</strong> separates teams that complete routines promptly from those who complete them late.</div>
+        </div>
+      </div>
+
+      {# FMS #}
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint);margin-bottom:8px">Flow Management System (FMS)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="background:rgba(139,92,246,0.07);border:1px solid rgba(139,92,246,0.18);border-radius:8px;padding:12px 14px">
+          <div style="font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:4px">🔄 FMS On-Time Rate</div>
+          <div style="font-size:11px;color:var(--text-muted);line-height:1.5">What % of FMS workflow tickets were closed on or before their due date. <strong style="color:var(--text-primary)">Why it matters:</strong> measures end-to-end flow efficiency — how well structured multi-stage work moves through the system.</div>
+        </div>
+        <div style="background:rgba(139,92,246,0.04);border:1px solid rgba(139,92,246,0.10);border-radius:8px;padding:12px 14px;opacity:0.6">
+          <div style="font-size:12px;font-weight:600;color:#a78bfa;margin-bottom:4px">More KPIs</div>
+          <div style="font-size:11px;color:var(--text-muted);line-height:1.5">Additional metrics (response time, re-open rate, etc.) will be added in future updates.</div>
+        </div>
+      </div>
+    </div>
+
+    {# ── Formula Builder ─────────────────────────────────────────── #}
+    <div class="card" style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:4px">Formula Builder</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">Set a weight (0–100) for each KPI. Weights are normalised automatically — they don't need to add up to 100. Set a KPI to 0 to exclude it.</div>
+
+      <form method="post" action="/setup/performance-formula/save" id="pfForm">
+        <input type="text" name="label" placeholder="Formula name (optional)" value="{{ formula.label or '' }}"
+               style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 12px;font-size:12px;color:var(--text-primary);outline:none;width:260px;margin-bottom:18px;font-family:inherit">
+
+        {# KPI rows #}
+        {% set kpis = [
+          ("ticket_on_time",       "📅 Ticket On-Time Rate",       "#3b82f6", "Delegation"),
+          ("ticket_completion",    "✅ Ticket Completion Rate",     "#3b82f6", "Delegation"),
+          ("checklist_compliance", "📋 Checklist Compliance",       "#10b981", "Checklist"),
+          ("checklist_on_time",    "⏱ Checklist On-Time Rate",     "#10b981", "Checklist"),
+          ("fms_on_time",          "🔄 FMS On-Time Rate",           "#8b5cf6", "FMS"),
+        ] %}
+
+        <div style="display:flex;flex-direction:column;gap:10px">
+        {% for key, label, color, group in kpis %}
+        {% set w = (formula.weights or {})[key] if formula else defaults[key] %}
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-subtle)">
+          <div style="width:8px;height:8px;border-radius:50%;background:{{ color }};flex-shrink:0"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary)">{{ label }}</div>
+            <div style="font-size:10px;color:var(--text-xfaint)">{{ group }}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" name="w_{{ key }}_range" min="0" max="100" value="{{ w }}"
+                   oninput="document.getElementById('wn_{{ key }}').value=this.value;pfRecalc()"
+                   style="width:120px;accent-color:{{ color }}">
+            <input type="number" id="wn_{{ key }}" name="w_{{ key }}" min="0" max="100" value="{{ w }}"
+                   oninput="document.querySelector('[name=w_{{ key }}_range]').value=this.value;pfRecalc()"
+                   style="width:54px;background:var(--bg-card);border:1px solid var(--border-med);border-radius:6px;padding:5px 8px;font-size:12px;color:var(--text-primary);text-align:center;font-family:inherit;outline:none">
+            <span style="font-size:11px;color:var(--text-xfaint);width:36px;text-align:right" id="wpct_{{ key }}">—</span>
+          </div>
+        </div>
+        {% endfor %}
+        </div>
+
+        {# Weight summary bar #}
+        <div style="margin-top:14px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-subtle)">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:11px;color:var(--text-muted)">Effective weight distribution (normalised to 100%)</span>
+            <span id="pfTotalRaw" style="font-size:11px;color:var(--text-xfaint)">Total raw: 0</span>
+          </div>
+          <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;gap:1px" id="pfBar"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px" id="pfLegend"></div>
+        </div>
+
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center">
+          <button type="submit" class="btn btn-primary">Save Formula</button>
+          <span style="font-size:11px;color:var(--text-xfaint)">Previous formula will be kept in history below.</span>
+        </div>
+      </form>
+    </div>
+
+    {# ── History ─────────────────────────────────────────────────── #}
+    <div class="card">
+      <div style="font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:14px">Formula History</div>
+      {% if history %}
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border-subtle)">
+            <th style="text-align:left;padding:6px 10px;color:var(--text-xfaint);font-weight:600;font-size:10px;text-transform:uppercase">Date</th>
+            <th style="text-align:left;padding:6px 10px;color:var(--text-xfaint);font-weight:600;font-size:10px;text-transform:uppercase">Name</th>
+            <th style="text-align:left;padding:6px 10px;color:var(--text-xfaint);font-weight:600;font-size:10px;text-transform:uppercase">Weights</th>
+            <th style="text-align:left;padding:6px 10px;color:var(--text-xfaint);font-weight:600;font-size:10px;text-transform:uppercase">Set By</th>
+            <th style="text-align:left;padding:6px 10px;color:var(--text-xfaint);font-weight:600;font-size:10px;text-transform:uppercase">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for f in history %}
+        <tr style="border-bottom:1px solid var(--border-subtle)">
+          <td style="padding:8px 10px;color:var(--text-muted)">{{ f.created_at.strftime('%d %b %Y, %H:%M') if f.created_at else '—' }}</td>
+          <td style="padding:8px 10px;color:var(--text-primary)">{{ f.label or '(unnamed)' }}</td>
+          <td style="padding:8px 10px">
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+            {% set _kpi_labels = {
+              'ticket_on_time': 'Ticket OT',
+              'ticket_completion': 'Ticket Compl.',
+              'checklist_compliance': 'CL Compl.',
+              'checklist_on_time': 'CL OT',
+              'fms_on_time': 'FMS OT'
+            } %}
+            {% set _total_w = (f.weights.values() | sum) %}
+            {% for k, v in f.weights.items() if v > 0 %}
+              {% set _pct = ((v / _total_w) * 100) | round | int if _total_w > 0 else 0 %}
+              <span style="background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);border-radius:4px;padding:2px 6px;font-size:10px;color:#a5b4fc">
+                {{ _kpi_labels.get(k, k) }}: {{ _pct }}%
+              </span>
+            {% endfor %}
+            </div>
+          </td>
+          <td style="padding:8px 10px;color:var(--text-muted)">{{ f.created_by.name if f.created_by else '—' }}</td>
+          <td style="padding:8px 10px">
+            {% if f.is_active %}
+            <span class="badge badge-green" style="font-size:10px">Active</span>
+            {% else %}
+            <span class="badge badge-gray" style="font-size:10px">Archived</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div style="color:var(--text-xfaint);font-size:12px;padding:16px 0">No formula history yet. Save a formula above to start tracking changes.</div>
+      {% endif %}
+    </div>
+
+  </div>{# /setup-content #}
+</div>{# /setup-layout #}
+
+<script>
+var _pfColors = {
+  ticket_on_time:       "#3b82f6",
+  ticket_completion:    "#60a5fa",
+  checklist_compliance: "#10b981",
+  checklist_on_time:    "#34d399",
+  fms_on_time:          "#8b5cf6",
+};
+var _pfLabels = {
+  ticket_on_time:       "Ticket OT",
+  ticket_completion:    "Ticket Compl.",
+  checklist_compliance: "CL Compliance",
+  checklist_on_time:    "CL On-Time",
+  fms_on_time:          "FMS OT",
+};
+var _pfKeys = ["ticket_on_time","ticket_completion","checklist_compliance","checklist_on_time","fms_on_time"];
+
+function pfRecalc() {
+  var vals = {};
+  var total = 0;
+  _pfKeys.forEach(function(k) {
+    var v = parseInt(document.getElementById('wn_' + k).value) || 0;
+    vals[k] = v;
+    total += v;
+  });
+  document.getElementById('pfTotalRaw').textContent = 'Total raw: ' + total;
+
+  var bar = document.getElementById('pfBar');
+  var legend = document.getElementById('pfLegend');
+  bar.innerHTML = '';
+  legend.innerHTML = '';
+
+  _pfKeys.forEach(function(k) {
+    var pct = total > 0 ? Math.round(vals[k] / total * 100) : 0;
+    var el = document.getElementById('wpct_' + k);
+    if (el) el.textContent = total > 0 ? pct + '%' : '—';
+
+    if (pct > 0) {
+      var seg = document.createElement('div');
+      seg.style.cssText = 'flex:' + pct + ';background:' + _pfColors[k] + ';border-radius:2px;transition:flex .2s';
+      bar.appendChild(seg);
+
+      var lbl = document.createElement('span');
+      lbl.style.cssText = 'font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:4px';
+      lbl.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:' + _pfColors[k] + ';display:inline-block"></span>' + _pfLabels[k] + ' ' + pct + '%';
+      legend.appendChild(lbl);
+    }
+  });
+}
+
+// On form submit — copy range values into number inputs (ranges don't always sync)
+document.getElementById('pfForm').addEventListener('submit', function() {
+  _pfKeys.forEach(function(k) {
+    var range = document.querySelector('[name=w_' + k + '_range]');
+    var num   = document.getElementById('wn_' + k);
+    if (range && num) num.value = range.value;
+  });
+});
+
+pfRecalc();
+</script>
+
+{% endblock %}

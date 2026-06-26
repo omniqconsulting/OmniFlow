@@ -15,7 +15,7 @@ from .database import (
     Notification, MediaUpload, WebSocketSession,
     FMSFlow, FMSTicket, FMSStageHistory, FMSTicketHelper, FMSEvent,
     TicketStatus, Priority, ChecklistStatus, new_id,
-    LoginEvent,
+    LoginEvent, PerformanceFormula,
 )
 from .auth import (
     hash_password, verify_password, create_token,
@@ -1097,16 +1097,16 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids, dept_name)
             dept_health= _calc_dept_health(db, tid, date_from, date_to)
 
-            # ── Summary Performance Score ─────────────────────────────────────
-            sum_perf_components: list = []
-            if kpis.total_count > 0:
-                sum_perf_components.append({"label": "Ticket On-Time Rate", "value": kpis.on_time_pct, "color": "#3b82f6"})
-            if kpis.cl_due > 0:
-                sum_perf_components.append({"label": "Checklist Compliance", "value": kpis.cl_compliance_pct, "color": "#10b981"})
-            if has_fms:
-                fms_on_time_pct = round(kpis.fms_on_time / kpis.fms_completed * 100) if kpis.fms_completed > 0 else 0
-                sum_perf_components.append({"label": "FMS On-Time Rate", "value": fms_on_time_pct, "color": "#8b5cf6"})
-            sum_perf_score = round(sum(c["value"] for c in sum_perf_components) / len(sum_perf_components)) if sum_perf_components else 0
+            # ── Summary Performance Score (formula-driven) ────────────────────
+            _formula_w = _get_active_formula(db, tid)
+            _kpis_v = {
+                "ticket_on_time":       kpis.on_time_pct if kpis.total_count > 0 else None,
+                "ticket_completion":    round(kpis.closed_count / kpis.total_count * 100) if kpis.total_count > 0 else None,
+                "checklist_compliance": kpis.cl_compliance_pct if kpis.cl_due > 0 else None,
+                "checklist_on_time":    round(kpis.cl_on_time / kpis.cl_done * 100) if getattr(kpis, "cl_done", 0) > 0 else None,
+                "fms_on_time":          round(kpis.fms_on_time / kpis.fms_completed * 100) if has_fms and kpis.fms_completed > 0 else None,
+            }
+            sum_perf_score, sum_perf_components = _compute_perf_score(_kpis_v, _formula_w)
 
             return templates.TemplateResponse(request, "dashboard_summary.html", {
                 "user": user, "unread": unread, "L": _L(db, user),
@@ -1160,16 +1160,17 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         fms_stage_bd= get_fms_stage_breakdown(db, expand_flow, tid) \
                       if (has_fms and expand_flow) else None
 
-        # ── Overall Performance Score (same metrics as summary page) ─────────
+        # ── Overall Performance Score (formula-driven) ───────────────────────
         _sk = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids)
-        perf_components: list = []
-        if _sk.total_count > 0:
-            perf_components.append({"label": "Ticket On-Time Rate",   "value": _sk.on_time_pct,       "color": "#3b82f6"})
-        if _sk.cl_due > 0:
-            perf_components.append({"label": "Checklist Compliance",  "value": _sk.cl_compliance_pct, "color": "#10b981"})
-        if has_fms:
-            perf_components.append({"label": "FMS On-Time Rate", "value": round(_sk.fms_on_time / _sk.fms_completed * 100) if _sk.fms_completed > 0 else 0, "color": "#8b5cf6"})
-        perf_score = round(sum(c["value"] for c in perf_components) / len(perf_components)) if perf_components else 0
+        _fw = _get_active_formula(db, tid)
+        _kv = {
+            "ticket_on_time":       _sk.on_time_pct if _sk.total_count > 0 else None,
+            "ticket_completion":    round(_sk.closed_count / _sk.total_count * 100) if _sk.total_count > 0 else None,
+            "checklist_compliance": _sk.cl_compliance_pct if _sk.cl_due > 0 else None,
+            "checklist_on_time":    round(_sk.cl_on_time / _sk.cl_done * 100) if getattr(_sk, "cl_done", 0) > 0 else None,
+            "fms_on_time":          round(_sk.fms_on_time / _sk.fms_completed * 100) if has_fms and _sk.fms_completed > 0 else None,
+        }
+        perf_score, perf_components = _compute_perf_score(_kv, _fw)
 
         return templates.TemplateResponse(request, "dashboard.html", {
             "user": user, "unread": unread, "L": _L(db, user),
@@ -1247,16 +1248,19 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
         ).order_by(ChecklistAssignment.due_at).all()
 
-        # ── Employee Performance Score ────────────────────────────────────────
+        # ── Employee Performance Score (formula-driven) ───────────────────────
         _has_fms = has_feature(tenant, "FMS", db) if hasattr(tenant, "plan") else True
-        emp_perf_components: list = []
-        emp_perf_components.append({"label": "Ticket On-Time Rate",  "value": int(kpis.get("on_time_rate", 0)),  "color": "#3b82f6"})
-        emp_perf_components.append({"label": "Checklist Compliance", "value": int(kpis.get("compliance_rate", 0)), "color": "#10b981"})
-        if _has_fms:
-            _fms_ontime = sum(1 for t in complete_fms if t.due_at and t.updated_at and t.updated_at <= t.due_at) if complete_fms else 0
-            _fms_pct = round(_fms_ontime / len(complete_fms) * 100) if complete_fms else 0
-            emp_perf_components.append({"label": "FMS On-Time Rate", "value": _fms_pct, "color": "#8b5cf6"})
-        emp_perf_score = round(sum(c["value"] for c in emp_perf_components) / len(emp_perf_components))
+        _emp_fms_ontime = sum(1 for t in complete_fms if t.due_at and t.updated_at and t.updated_at <= t.due_at) if complete_fms else 0
+        _emp_fms_pct = round(_emp_fms_ontime / len(complete_fms) * 100) if complete_fms else None
+        _emp_kv = {
+            "ticket_on_time":       int(kpis.get("on_time_rate", 0)) if kpis.get("total_assigned", 0) > 0 else None,
+            "ticket_completion":    int(kpis.get("completion_rate", kpis.get("on_time_rate", 0))),
+            "checklist_compliance": int(kpis.get("compliance_rate", 0)) if kpis.get("total_assigned_cl", kpis.get("compliance_rate")) is not None else None,
+            "checklist_on_time":    None,
+            "fms_on_time":          _emp_fms_pct if _has_fms else None,
+        }
+        _emp_fw = _get_active_formula(db, user.tenant_id)
+        emp_perf_score, emp_perf_components = _compute_perf_score(_emp_kv, _emp_fw)
 
         return templates.TemplateResponse(request, "employee_dashboard.html", {
             "user": user, "unread": unread, "L": _L(db, user),
@@ -3991,8 +3995,16 @@ def employee_performance(
         },
     ]
 
+    _ep_fw = _get_active_formula(db, tid)
+    _ep_kv = {
+        "ticket_on_time":       ticket_score,
+        "ticket_completion":    None,
+        "checklist_compliance": cl_score,
+        "checklist_on_time":    None,
+        "fms_on_time":          fms_on_time_pct if fms_done > 0 else None,
+    }
+    overall_score, _ = _compute_perf_score(_ep_kv, _ep_fw)
     active_components = [c for c in score_components if c["value"] is not None]
-    overall_score = round(sum(c["value"] for c in active_components) / len(active_components)) if active_components else 0
 
     return templates.TemplateResponse(request, "employee_performance.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
@@ -4238,6 +4250,104 @@ async def setup_notifications_post(
     tenant.fms_notif_on_flag = form.get("fms_notif_on_flag") == "true"
     db.commit()
     return redirect("/setup/notifications?saved=1")
+
+
+# ── Performance Formula ───────────────────────────────────────────────────────
+
+_PERF_KPI_KEYS = ["ticket_on_time", "ticket_completion", "checklist_compliance", "checklist_on_time", "fms_on_time"]
+_PERF_DEFAULT_WEIGHTS = {"ticket_on_time": 40, "ticket_completion": 10, "checklist_compliance": 30, "checklist_on_time": 10, "fms_on_time": 10}
+
+
+def _get_active_formula(db: Session, tenant_id: str) -> dict:
+    """Return the weights dict for the tenant's active formula, or defaults."""
+    f = db.query(PerformanceFormula).filter(
+        PerformanceFormula.tenant_id == tenant_id,
+        PerformanceFormula.is_active == True,
+    ).order_by(PerformanceFormula.created_at.desc()).first()
+    if f and f.weights:
+        return f.weights
+    return dict(_PERF_DEFAULT_WEIGHTS)
+
+
+def _compute_perf_score(kpi_values: dict, weights: dict) -> tuple:
+    """Compute weighted performance score from kpi_values dict.
+
+    kpi_values: {"ticket_on_time": 85, "checklist_compliance": None, ...}
+                 None means the module has no data — excluded from denominator.
+    Returns (score 0-100, components list for display).
+    """
+    components = []
+    colors = {"ticket_on_time": "#3b82f6", "ticket_completion": "#60a5fa",
+               "checklist_compliance": "#10b981", "checklist_on_time": "#34d399",
+               "fms_on_time": "#8b5cf6"}
+    labels = {"ticket_on_time": "Ticket On-Time Rate", "ticket_completion": "Ticket Completion Rate",
+              "checklist_compliance": "Checklist Compliance", "checklist_on_time": "Checklist On-Time Rate",
+              "fms_on_time": "FMS On-Time Rate"}
+    total_w = 0.0
+    total_wv = 0.0
+    for k in _PERF_KPI_KEYS:
+        v = kpi_values.get(k)
+        w = weights.get(k, 0)
+        if v is None or w == 0:
+            continue
+        total_w += w
+        total_wv += v * w
+        components.append({"label": labels[k], "value": v, "color": colors[k], "weight": w})
+    score = round(total_wv / total_w) if total_w > 0 else 0
+    return score, components
+
+
+@app.get("/setup/performance-formula")
+def setup_performance_formula_get(
+    request: Request,
+    msg: str = None,
+    user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    tid = user.tenant_id
+    active = db.query(PerformanceFormula).filter(
+        PerformanceFormula.tenant_id == tid,
+        PerformanceFormula.is_active == True,
+    ).order_by(PerformanceFormula.created_at.desc()).first()
+    history = db.query(PerformanceFormula).filter(
+        PerformanceFormula.tenant_id == tid,
+    ).order_by(PerformanceFormula.created_at.desc()).all()
+    return templates.TemplateResponse(request, "setup/performance.html", {
+        "user": user, **_nav_ctx(db, user),
+        "active_section": "performance_formula",
+        "formula": active,
+        "defaults": _PERF_DEFAULT_WEIGHTS,
+        "history": history,
+        "msg": msg,
+    })
+
+
+@app.post("/setup/performance-formula/save")
+async def setup_performance_formula_save(
+    request: Request,
+    user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    form = await request.form()
+    label = (form.get("label") or "").strip() or None
+    weights = {}
+    for k in _PERF_KPI_KEYS:
+        try:
+            weights[k] = max(0, min(100, int(form.get(f"w_{k}") or 0)))
+        except (ValueError, TypeError):
+            weights[k] = 0
+    # Deactivate previous active formula
+    db.query(PerformanceFormula).filter(
+        PerformanceFormula.tenant_id == user.tenant_id,
+        PerformanceFormula.is_active == True,
+    ).update({"is_active": False})
+    db.add(PerformanceFormula(
+        tenant_id=user.tenant_id,
+        label=label,
+        weights=weights,
+        is_active=True,
+        created_by_id=user.id,
+    ))
+    db.commit()
+    return redirect("/setup/performance-formula?msg=Formula+saved+successfully")
 
 
 @app.post("/setup/branch")
