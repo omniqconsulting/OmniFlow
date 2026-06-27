@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
-{% include "setup/nav.html" %}
+
+<div class="page-header">
+  <h2 class="page-title">Setup</h2>
+</div>
 
 <div class="setup-layout">
+  {% set active_section = 'performance_formula' %}
   {% include "setup/nav.html" %}
   <div class="setup-content">
 

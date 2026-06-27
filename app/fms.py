@@ -452,7 +452,9 @@ def fms_dashboard(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """FMS Dashboard — summary strip + flow cards + swimlane/list view."""
+    """FMS Dashboard — summary strip + flow cards + swimlane/stage-table/consolidated view."""
+    if view == "list":
+        view = "stage_table"
     import logging as _log, traceback as _tb
     try:
         return _fms_dashboard_inner(
@@ -478,10 +480,29 @@ def _fms_dashboard_inner(
     now = datetime.utcnow()
 
     # All active flows for this tenant
-    flows = db.query(FMSFlow).filter(
+    all_flows = db.query(FMSFlow).filter(
         FMSFlow.tenant_id == tid, FMSFlow.is_active == True,
         FMSFlow.is_deleted == False,
     ).order_by(FMSFlow.created_at).all()
+
+    # Employees only see flows they are involved in (current, historical, or pre-assigned)
+    if user.role == "EMPLOYEE":
+        emp_ticket_flow_ids: set = set()
+        for t in db.query(FMSTicket.flow_id).filter(
+            FMSTicket.tenant_id == tid,
+            FMSTicket.is_deleted == False,
+        ).filter(
+            (FMSTicket.current_assignee_id == user.id) |
+            FMSTicket.id.in_(
+                db.query(FMSStageHistory.ticket_id).filter(
+                    FMSStageHistory.assignee_id == user.id)
+            ) |
+            FMSTicket.stage_assignees_json.like(f'%"{user.id}"%')
+        ).distinct():
+            emp_ticket_flow_ids.add(t.flow_id)
+        flows = [f for f in all_flows if f.id in emp_ticket_flow_ids]
+    else:
+        flows = all_flows
 
     # Select active flow (tab)
     active_flow = None
@@ -531,6 +552,37 @@ def _fms_dashboard_inner(
             (FMSTicket.id.in_(emp_all_fms_ids)) |
             (FMSTicket.id.in_(emp_upcoming_ids))
         )
+
+    # ── Apply filter-bar selections to KPI base query ────────────────────────
+    if active_flow:
+        base_q = base_q.filter(FMSTicket.flow_id == active_flow.id)
+    if f_priority:
+        base_q = base_q.filter(FMSTicket.priority.in_(f_priority))
+    # Resolve assignee/dept/manager/branch filter (same logic as ticket list)
+    _kpi_assignee_ids = None
+    if f_assignee_id:
+        _kpi_assignee_ids = list(f_assignee_id)
+    elif dept_id or manager_id or branch_id:
+        _fq = db.query(User).filter(
+            User.tenant_id == tid, User.is_deleted == False, User.is_active == True)
+        if dept_id:
+            _fq = _fq.filter(User.department_id.in_(dept_id))
+        if manager_id:
+            _mgr_team = []
+            for _mid in manager_id:
+                _mgr_team += [u.id for u in db.query(User).filter(
+                    User.manager_id == _mid, User.tenant_id == tid,
+                    User.is_deleted == False).all()]
+                _mgr_team.append(_mid)
+            _fq = _fq.filter(User.id.in_(_mgr_team))
+        if branch_id:
+            _br_dept_ids = [d.id for d in db.query(Department).filter(
+                Department.branch_id.in_(branch_id), Department.tenant_id == tid,
+                Department.is_deleted == False).all()]
+            _fq = _fq.filter(User.department_id.in_(_br_dept_ids))
+        _kpi_assignee_ids = [u.id for u in _fq.all()]
+    if _kpi_assignee_ids is not None:
+        base_q = base_q.filter(FMSTicket.current_assignee_id.in_(_kpi_assignee_ids))
 
     active_tickets = base_q.filter(
         FMSTicket.status.notin_(["COMPLETED", "CLOSED"])).count()
@@ -888,6 +940,14 @@ def _fms_dashboard_inner(
                 (FMSTicket.id.in_(emp_all_fms_ids)) |
                 (FMSTicket.id.in_(emp_upcoming_ids))
             )
+        if priority_filter:
+            cq = cq.filter(FMSTicket.priority.in_(priority_filter))
+        if filter_assignee_ids is not None:
+            cq = cq.filter(FMSTicket.current_assignee_id.in_(filter_assignee_ids))
+        if filter_date_from:
+            cq = cq.filter(FMSTicket.created_at >= filter_date_from)
+        if filter_date_to:
+            cq = cq.filter(FMSTicket.created_at <= filter_date_to)
         all_flow_tickets = cq.order_by(FMSTicket.created_at.desc()).all()
 
         for t in all_flow_tickets:

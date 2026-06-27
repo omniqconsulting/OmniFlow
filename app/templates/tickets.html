@@ -262,7 +262,7 @@
         {% set btn_cls   = next_info[1] %}
         {% if t.status == 'OPEN' and t.evidence_required is defined and t.evidence_required %}
         <button onclick="openEvidenceModal('{{ t.id }}')"
-                class="btn btn-xs" style="color:#fcd34d;border-color:rgba(245,158,11,0.3)">
+                class="btn btn-xs btn-amber">
           📎 Submit Evidence → Done
         </button>
         {% else %}

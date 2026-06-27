@@ -110,14 +110,7 @@
         {{ emp.name }}
         {% if emp.employee_id %}<span style="font-size:10px;color:var(--text-xfaint);margin-left:6px">{{ emp.employee_id }}</span>{% endif %}
       </td>
-      <td style="color:var(--text-muted)">
-        {{ emp.phone }}
-        {% if emp.mobile_verified %}
-          <span class="badge badge-green" title="Validated by {{ emp.mobile_verified_by_user.name if emp.mobile_verified_by_user else '' }} on {{ emp.mobile_verified_at.strftime('%d %b %Y') if emp.mobile_verified_at }}">Validated</span>
-        {% else %}
-          <span class="badge badge-gray">Not validated</span>
-        {% endif %}
-      </td>
+      <td style="color:var(--text-muted);white-space:nowrap">{{ emp.phone }}</td>
       <td>
         <span class="badge {% if emp.role=='ADMIN' %}badge-purple{% elif emp.role=='MANAGER' %}badge-blue{% else %}badge-gray{% endif %}">
           {{ emp.role }}

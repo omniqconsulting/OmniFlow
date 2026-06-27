@@ -4193,6 +4193,7 @@ def setup_notifications_get(request: Request, saved: str = "",
         "request": request, "user": user, "tenant": tenant,
         "saved": saved == "1",
         "L": get_labels(db, user.tenant_id),
+        **_nav_ctx(db, user),
     })
 
 
@@ -4311,8 +4312,8 @@ def setup_performance_formula_get(
     history = db.query(PerformanceFormula).filter(
         PerformanceFormula.tenant_id == tid,
     ).order_by(PerformanceFormula.created_at.desc()).all()
-    return templates.TemplateResponse(request, "setup/performance.html", {
-        "user": user, **_nav_ctx(db, user),
+    return templates.TemplateResponse("setup/performance.html", {
+        "request": request, "user": user, "L": _L(db, user), **_nav_ctx(db, user),
         "active_section": "performance_formula",
         "formula": active,
         "defaults": _PERF_DEFAULT_WEIGHTS,
