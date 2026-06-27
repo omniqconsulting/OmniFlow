@@ -371,11 +371,15 @@ select option{background:var(--bg-card)}
           <label>Next Stage *</label>
           <select name="next_stage_id" required id="nextStageSelect" onchange="checkDirection();autoFillAssignee(this.value)">
             <option value="">Choose stage…</option>
+            {% set cur_ord = ticket.current_stage.order if ticket.current_stage else -1 %}
             {% for s in stages %}
-            <option value="{{ s.id }}" data-order="{{ s.order }}"
-                    {{ 'disabled' if s.id == ticket.current_stage_id else '' }}>
+            {% set is_valid = s.order == cur_ord + 1 or s.order == cur_ord - 1 %}
+            {% if is_valid %}
+            <option value="{{ s.id }}" data-order="{{ s.order }}">
               {{ s.order + 1 }}. {{ s.name }}{% if s.is_terminal %} ✓{% endif %}
+              {% if s.order == cur_ord - 1 %} (← back){% endif %}
             </option>
+            {% endif %}
             {% endfor %}
           </select>
         </div>

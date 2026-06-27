@@ -26,6 +26,7 @@ from .auth import get_current_user, require_admin, require_manager
 from .labels import get_labels, DEFAULT_L
 from .constants import has_feature, PLAN_LIMITS
 from .notifications import (
+    create_notification,
     notify_fms_stage_transition,
     send_whatsapp_for_fms_stage_transition,
     send_whatsapp_for_fms_ticket_created,
@@ -122,6 +123,26 @@ def _manager_ids_for(db, assignee_id):
     if not assignee_id: return []
     u = db.query(User).get(assignee_id)
     return [u.manager_id] if u and u.manager_id else []
+
+def _planned_dates(ticket, stages) -> dict:
+    """Calculate (planned_start, planned_end) for each stage from ticket.created_at + TaT.
+    Returns dict mapping stage_id → (planned_start, planned_end).
+    If any stage has no target_tat_hours, that stage and all subsequent get (None, None)."""
+    sorted_stages = sorted([s for s in stages if not getattr(s, "is_deleted", False)], key=lambda s: s.order)
+    result = {}
+    cursor = ticket.created_at
+    none_from = False
+    for s in sorted_stages:
+        if none_from or not s.target_tat_hours:
+            result[s.id] = (None, None)
+            none_from = True
+        else:
+            ps = cursor
+            pe = cursor + timedelta(hours=s.target_tat_hours)
+            result[s.id] = (ps, pe)
+            cursor = pe
+    return result
+
 
 def _tat_pct(history_row: FMSStageHistory, stage: FMSStage = None) -> Optional[int]:
     """Return 0-100+ percentage of TaT used.
@@ -449,12 +470,16 @@ def fms_dashboard(
     f_assignee_id: List[str] = Query([]),
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    my_work: int = 0,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """FMS Dashboard — summary strip + flow cards + swimlane/stage-table/consolidated view."""
-    if view == "list":
-        view = "stage_table"
+    # View name normalisation — map legacy names and accept new names
+    _view_map = {"list": "stage", "stage_table": "stage", "consolidated": "table"}
+    view = _view_map.get(view, view)
+    if view not in ("table", "stage", "timeline", "swimlane"):
+        view = "stage"
     import logging as _log, traceback as _tb
     try:
         return _fms_dashboard_inner(
@@ -463,6 +488,7 @@ def fms_dashboard(
             month=month, status_filter=status_filter,
             f_priority=f_priority, f_assignee_id=f_assignee_id,
             date_from=date_from, date_to=date_to,
+            my_work=my_work,
             user=user, db=db,
         )
     except Exception as _exc:
@@ -475,6 +501,7 @@ def fms_dashboard(
 def _fms_dashboard_inner(
     request, flow_id, stage_id, view, dept_id, manager_id, branch_id,
     month, status_filter, f_priority, f_assignee_id, date_from, date_to, user, db,
+    my_work: int = 0,
 ):
     tid = user.tenant_id
     now = datetime.utcnow()
@@ -705,7 +732,7 @@ def _fms_dashboard_inner(
     # ── Swimlane data ─────────────────────────────────────────────────────────
     tickets_by_stage: dict = {}
     tat_info: dict = {}
-    if active_flow and view == "swimlane":
+    if active_flow and view == "swimlane":  # swimlane kept for legacy access
         active_stages = [s for s in active_flow.stages if not s.is_deleted]
         for stage in active_stages:
             tickets_by_stage[stage.id] = []
@@ -749,9 +776,9 @@ def _fms_dashboard_inner(
             tat_info[t.id] = {"pct": pct, "color": color,
                                "entered_at": h.entered_at if h else None}
 
-    # ── List view data ────────────────────────────────────────────────────────
+    # ── List view data (legacy — kept for any remaining references) ───────────
     list_tickets = []
-    if view == "list":
+    if view == "_legacy_list":
         list_q = db.query(FMSTicket).filter(
             FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
         )
@@ -871,7 +898,7 @@ def _fms_dashboard_inner(
         if active_stage is None and stage_table_stages:
             active_stage = stage_table_stages[0]
 
-        if active_stage and view == "stage_table":
+        if active_stage and view in ("stage", "stage_table"):
             q = db.query(FMSTicket).filter(
                 FMSTicket.current_stage_id == active_stage.id,
                 FMSTicket.is_deleted == False,
@@ -887,6 +914,8 @@ def _fms_dashboard_inner(
                     (FMSTicket.current_assignee_id == user.id) |
                     (FMSTicket.id.in_(emp_all_fms_ids))
                 )
+            if my_work:
+                q = q.filter(FMSTicket.current_assignee_id == user.id)
             if priority_filter:
                 q = q.filter(FMSTicket.priority.in_(priority_filter))
             if filter_assignee_ids is not None:
@@ -914,16 +943,123 @@ def _fms_dashboard_inner(
                     "entered_at": h.entered_at if h else None,
                 })
 
-    # Next stage for each active_stage (used by Mark Stage Complete modal)
+    # Next/prev stage maps (used by Mark Done and Move Backward modals)
     next_stage_map: dict = {}
+    prev_stage_map: dict = {}
     for i, s in enumerate(stage_table_stages):
         if i + 1 < len(stage_table_stages):
             next_stage_map[s.id] = stage_table_stages[i + 1]
+        if i > 0:
+            prev_stage_map[s.id] = stage_table_stages[i - 1]
 
-    # ── Consolidated table view ───────────────────────────────────────────────
+    # ── Table view: full journey per ticket — all stages as columns ───────────
+    table_tickets = []
+    if view == "table" and active_flow and stage_table_stages:
+        tq = db.query(FMSTicket).filter(
+            FMSTicket.flow_id == active_flow.id,
+            FMSTicket.is_deleted == False,
+        )
+        if user.role == "MANAGER":
+            tq = tq.filter(
+                (FMSTicket.current_assignee_id.in_(team_ids)) |
+                (FMSTicket.id.in_(mgr_all_fms_ids))
+            )
+        elif user.role == "EMPLOYEE":
+            tq = tq.filter(
+                (FMSTicket.current_assignee_id == user.id) |
+                (FMSTicket.id.in_(emp_all_fms_ids)) |
+                (FMSTicket.id.in_(emp_upcoming_ids))
+            )
+        if priority_filter:
+            tq = tq.filter(FMSTicket.priority.in_(priority_filter))
+        if filter_assignee_ids is not None:
+            tq = tq.filter(FMSTicket.current_assignee_id.in_(filter_assignee_ids))
+        if filter_date_from:
+            tq = tq.filter(FMSTicket.created_at >= filter_date_from)
+        if filter_date_to:
+            tq = tq.filter(FMSTicket.created_at <= filter_date_to)
+
+        for t in tq.order_by(FMSTicket.created_at.desc()).all():
+            pd = _planned_dates(t, stage_table_stages)
+
+            # Build latest-visit dict from history: stage_id → most recent row
+            all_hist = db.query(FMSStageHistory).filter(
+                FMSStageHistory.ticket_id == t.id
+            ).order_by(FMSStageHistory.entered_at).all()
+            visit_map: dict = {}
+            for h in all_hist:
+                visit_map[h.stage_id] = h  # last assignment wins (most recent visit)
+
+            stages_info = []
+            for s in stage_table_stages:
+                ps, pe = pd.get(s.id, (None, None))
+                h = visit_map.get(s.id)
+                actual_start = h.entered_at if h else None
+                actual_end   = h.exited_at  if h else None
+                delay_h      = None
+                delay_positive = None
+                if actual_end and pe:
+                    delay_secs = (actual_end - pe).total_seconds()
+                    delay_h    = round(abs(delay_secs) / 3600, 1)
+                    delay_positive = delay_secs > 0
+                is_current = (s.id == t.current_stage_id)
+                stages_info.append({
+                    "stage":         s,
+                    "planned_start": ps,
+                    "planned_end":   pe,
+                    "actual_start":  actual_start,
+                    "actual_end":    actual_end,
+                    "delay_h":       delay_h,
+                    "delay_positive":delay_positive,
+                    "is_current":    is_current,
+                    "visited":       h is not None,
+                })
+
+            table_tickets.append({
+                "ticket":        t,
+                "assignee_name": t.current_assignee.name if t.current_assignee else "—",
+                "stages":        stages_info,
+            })
+
+    # ── Timeline view ─────────────────────────────────────────────────────────
+    timeline_data = []
+    if view == "timeline" and active_flow and stage_table_stages:
+        for s in stage_table_stages:
+            tq2 = db.query(FMSTicket).filter(
+                FMSTicket.current_stage_id == s.id,
+                FMSTicket.is_deleted == False,
+                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            )
+            if user.role == "MANAGER":
+                tq2 = tq2.filter(
+                    (FMSTicket.current_assignee_id.in_(team_ids)) |
+                    (FMSTicket.id.in_(mgr_all_fms_ids))
+                )
+            elif user.role == "EMPLOYEE":
+                tq2 = tq2.filter(
+                    (FMSTicket.current_assignee_id == user.id) |
+                    (FMSTicket.id.in_(emp_all_fms_ids))
+                )
+            t_list = tq2.all()
+            stage_items = []
+            for t in t_list:
+                h = _open_history(db, t.id)
+                time_at_s = int((now - h.entered_at).total_seconds()) if h else 0
+                stage_items.append({
+                    "ticket": t,
+                    "time_at_s": time_at_s,
+                    "assignee_name": t.current_assignee.name if t.current_assignee else "—",
+                })
+            timeline_data.append({
+                "stage": s,
+                "count": len(stage_items),
+                "tickets": stage_items,
+            })
+
+    # ── Consolidated table view (legacy — maps to 'table' now) ───────────────
     import json as _json
     consolidated_rows = []
-    if view == "consolidated" and active_flow and stage_table_stages:
+    if view == "_legacy_consolidated" and active_flow and stage_table_stages:
         # All tickets in this flow (role-scoped)
         cq = db.query(FMSTicket).filter(
             FMSTicket.flow_id == active_flow.id,
@@ -987,25 +1123,43 @@ def _fms_dashboard_inner(
     from .linked_entities import get_linked_entity_options as _geo
     entity_options = _geo(db, tid)
 
+    # Per-ticket manager-override window flag for stage view (2h after BACKWARD move)
+    override_eligible: set = set()
+    if user.role in ("ADMIN", "MANAGER") and active_stage and view == "stage":
+        for row in stage_tickets:
+            t = row["ticket"]
+            last_back = db.query(FMSStageHistory).filter(
+                FMSStageHistory.ticket_id == t.id,
+                FMSStageHistory.direction == "BACKWARD",
+            ).order_by(FMSStageHistory.entered_at.desc()).first()
+            if last_back and (now - last_back.entered_at).total_seconds() < 7200:
+                override_eligible.add(t.id)
+
     return templates.TemplateResponse(request, "fms/dashboard.html", _ctx(
         request, user, db,
         flows=flows, active_flow=active_flow,
         flow_counts=flow_counts,
         view=view,
-        # P7-03/04: stage-table view
+        # Stage view (formerly stage_table)
         stage_table_stages=stage_table_stages,
         active_stage=active_stage,
         stage_tickets=stage_tickets,
         stage_ticket_counts=stage_ticket_counts,
         next_stage_map=next_stage_map,
-        # swimlane
+        prev_stage_map=prev_stage_map,
+        override_eligible=override_eligible,
+        # Table view (per-ticket flat list with planned/actual dates)
+        table_tickets=table_tickets,
+        # Timeline view
+        timeline_data=timeline_data,
+        # swimlane (legacy)
         tickets_by_stage=tickets_by_stage,
         tat_info=tat_info,
         flagged_tickets=flagged_tickets,
         can_drag=can_drag,
-        # consolidated table view
+        # consolidated (legacy — no longer shown in toggle)
         consolidated_rows=consolidated_rows,
-        # list view
+        # list (legacy)
         list_tickets=list_tickets,
         departments=departments,
         managers=managers,
@@ -1025,6 +1179,7 @@ def _fms_dashboard_inner(
         # role-relative ticket classification for employee board symbols
         emp_upcoming_ids=emp_upcoming_ids,
         emp_all_fms_ids=emp_all_fms_ids,
+        my_work=my_work,
         # summary strip
         active_tickets=active_tickets,
         tat_breaches=tat_breaches,
@@ -1169,7 +1324,9 @@ async def fms_ticket_create(
         send_whatsapp_for_fms_ticket_created(db, ticket, assignee_obj)
     notify_fms_ticket_opened(db, ticket, assignee_obj, admins, managers)
 
-    return _redirect(f"/fms/tickets/{ticket.id}")
+    return _redirect(
+        f"/fms/dashboard?view=stage&flow_id={flow_id}&stage_id={stage.id}&msg=Ticket+created"
+    )
 
 
 # ── P7-08: Edit FMS Ticket ────────────────────────────────────────────────────
@@ -1194,27 +1351,81 @@ def fms_ticket_edit(
     ticket.updated_at = datetime.utcnow()
     _log(db, ticket_id, user.id, "EDITED", f"Was: {old}")
     db.commit()
-    return _redirect(f"/fms/tickets/{ticket_id}")
+    return _redirect(
+        f"/fms/dashboard?view=stage"
+        f"{'&flow_id=' + ticket.flow_id if ticket.flow_id else ''}"
+        f"{'&stage_id=' + ticket.current_stage_id if ticket.current_stage_id else ''}"
+    )
 
 
 # ── P7-08: Delete FMS Ticket ──────────────────────────────────────────────────
 
 @router.post("/tickets/{ticket_id}/delete")
-def fms_ticket_delete(ticket_id: str,
-                       user: User = Depends(require_admin),
-                       db: Session = Depends(get_db)):
+def fms_ticket_delete(
+    ticket_id: str,
+    flow_id: str = Form(""),
+    stage_id: str = Form(""),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     ticket = _get_ticket(db, ticket_id, user.tenant_id)
-    # Only allowed if no stage history entries (created in error)
+    if ticket.status in ("COMPLETED", "CLOSED"):
+        return_url = f"/fms/dashboard?view=stage"
+        if flow_id: return_url += f"&flow_id={flow_id}"
+        if stage_id: return_url += f"&stage_id={stage_id}"
+        return _redirect(return_url + "&err=Tickets+with+terminal+status+cannot+be+deleted")
     history_count = db.query(FMSStageHistory).filter(
         FMSStageHistory.ticket_id == ticket_id,
         FMSStageHistory.exited_at != None,
     ).count()
     if history_count > 0:
-        raise HTTPException(400, "Cannot delete a ticket that has stage history")
+        return_url = f"/fms/dashboard?view=stage"
+        if flow_id: return_url += f"&flow_id={flow_id}"
+        if stage_id: return_url += f"&stage_id={stage_id}"
+        return _redirect(return_url + "&err=Tickets+with+activity+cannot+be+deleted")
     ticket.is_deleted = True
     _log(db, ticket_id, user.id, "DELETED", "Soft deleted by admin")
     db.commit()
-    return _redirect("/fms/dashboard")
+    return_url = f"/fms/dashboard?view=stage"
+    if flow_id: return_url += f"&flow_id={flow_id}"
+    if stage_id: return_url += f"&stage_id={stage_id}"
+    return _redirect(return_url)
+
+
+@router.post("/tickets/{ticket_id}/notify")
+def fms_ticket_notify(
+    ticket_id: str,
+    flow_id: str = Form(""),
+    stage_id: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a manual in-app reminder notification to the current stage assignee."""
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403, "Not authorised")
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    if not ticket.current_assignee_id:
+        return_url = f"/fms/dashboard?view=stage"
+        if flow_id: return_url += f"&flow_id={flow_id}"
+        if stage_id: return_url += f"&stage_id={stage_id}"
+        return _redirect(return_url + "&err=Ticket+has+no+assignee+to+notify")
+    stage_name = ticket.current_stage.name if ticket.current_stage else "current stage"
+    create_notification(
+        db, user.tenant_id,
+        user_id=ticket.current_assignee_id,
+        notif_type="FMS_REMINDER",
+        title=f"Reminder: {ticket.title}",
+        body=f"This flow ticket is waiting for your action at stage {stage_name}.",
+        link=f"/fms/dashboard?view=stage&flow_id={ticket.flow_id}&stage_id={ticket.current_stage_id}",
+    )
+    db.commit()
+    assignee = db.query(User).filter(User.id == ticket.current_assignee_id).first()
+    assignee_name = assignee.name if assignee else "assignee"
+    return_url = f"/fms/dashboard?view=stage"
+    if flow_id: return_url += f"&flow_id={flow_id}"
+    if stage_id: return_url += f"&stage_id={stage_id}"
+    from urllib.parse import quote
+    return _redirect(return_url + f"&msg=Notification+sent+to+{quote(assignee_name)}")
 
 
 # ── P7-07: Bulk upload FMS tickets ────────────────────────────────────────────
@@ -1337,7 +1548,15 @@ def fms_ticket_detail(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Phase A2: detail page removed — redirect to Stage view
     ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    return _redirect(
+        f"/fms/dashboard?view=stage"
+        f"{'&flow_id=' + ticket.flow_id if ticket.flow_id else ''}"
+        f"{'&stage_id=' + ticket.current_stage_id if ticket.current_stage_id else ''}"
+    )
+    # --- legacy detail page below (unreachable, kept for reference) ---
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)  # noqa: F841
     flow   = ticket.flow
     now    = datetime.utcnow()
     stages = sorted(
@@ -1564,6 +1783,13 @@ async def fms_transition(
     next_order = next_stage.order
     direction  = "BACKWARD" if next_order < cur_order else "FORWARD"
 
+    # A1-5: Enforce linear stage movement
+    if not is_override:
+        if direction == "FORWARD" and next_order != cur_order + 1:
+            raise HTTPException(400, "Tickets can only move to the next stage in sequence")
+        if direction == "BACKWARD" and next_order != cur_order - 1:
+            raise HTTPException(400, "Tickets can only move to the previous stage in sequence")
+
     if is_override:
         # 2-C-7: manager override
         if user.role not in ("ADMIN", "MANAGER"):
@@ -1686,7 +1912,27 @@ async def fms_transition(
         "status": ticket.status,
     })
 
-    return _redirect(f"/fms/tickets/{ticket_id}")
+    # Backward move: notify managers with a 2-hour override window message
+    if direction == "BACKWARD":
+        mgr_ids = _manager_ids_for(db, ticket.current_assignee_id)
+        for mid in mgr_ids + admins:
+            create_notification(
+                db, user.tenant_id,
+                user_id=mid,
+                notif_type="FMS_BACKWARD_MOVE",
+                title=f"Ticket returned: {ticket.title}",
+                body=(f"{ticket.display_id or ticket_id} was returned to "
+                      f"'{next_stage.name}'. Reason: {return_reason[:120]}. "
+                      f"You can reverse this within 2 hours."),
+                link=f"/fms/dashboard?view=stage&flow_id={ticket.flow_id}&stage_id={next_stage_id}",
+            )
+        db.commit()
+
+    return _redirect(
+        f"/fms/dashboard?view=stage"
+        f"{'&flow_id=' + ticket.flow_id if ticket.flow_id else ''}"
+        f"{'&stage_id=' + next_stage_id}"
+    )
 
 
 @router.post("/tickets/bulk-action")
@@ -1702,7 +1948,7 @@ async def fms_bulk_action(
     action = form.get("action", "")
     ids = form.getlist("ticket_ids")
     if not ids or action not in ("send_back", "close"):
-        return _redirect("/fms/dashboard?view=list")
+        return _redirect("/fms/dashboard?view=stage")
 
     tid = user.tenant_id
     tickets = db.query(FMSTicket).filter(
@@ -1742,7 +1988,7 @@ async def fms_bulk_action(
                      f"Bulk send-back to {prev_h.stage.name if prev_h.stage else '?'}")
 
     db.commit()
-    return _redirect("/fms/dashboard?view=list&advanced=1")
+    return _redirect("/fms/dashboard?view=stage")
 
 
 @router.post("/tickets/{ticket_id}/action")
@@ -1847,7 +2093,56 @@ def fms_action(
 
     ticket.updated_at = datetime.utcnow()
     db.commit()
-    return _redirect(f"/fms/tickets/{ticket_id}")
+    # Redirect back to stage view at the ticket's current stage
+    return _redirect(
+        f"/fms/dashboard?view=stage"
+        f"{'&flow_id=' + ticket.flow_id if ticket.flow_id else ''}"
+        f"{'&stage_id=' + ticket.current_stage_id if ticket.current_stage_id else ''}"
+    )
+
+
+@router.post("/tickets/{ticket_id}/help_request")
+def fms_help_request(
+    ticket_id: str,
+    reason: str = Form(...),
+    helper_id: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Phase A2: Help Needed popup — set HELP_REQUESTED, notify admin/manager."""
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    if not reason.strip():
+        raise HTTPException(400, "Reason is required")
+    ticket.status = "HELP_REQUESTED"
+    _log(db, ticket_id, user.id, "HELP_REQUESTED", reason.strip())
+    # Notify all admins and managers
+    admins = _admin_ids(db, user.tenant_id)
+    mgrs   = _manager_ids_for(db, ticket.current_assignee_id)
+    for uid in set(admins + mgrs):
+        create_notification(
+            db, user.tenant_id,
+            user_id=uid,
+            notif_type="FMS_HELP_NEEDED",
+            title=f"Help needed: {ticket.title}",
+            body=f"{user.name} needs help on {ticket.display_id or ticket_id}. Reason: {reason[:200]}",
+            link=f"/fms/dashboard?view=stage&flow_id={ticket.flow_id}&stage_id={ticket.current_stage_id}",
+        )
+    if helper_id:
+        existing = db.query(FMSTicketHelper).filter(
+            FMSTicketHelper.ticket_id == ticket_id,
+            FMSTicketHelper.user_id == helper_id).first()
+        if not existing:
+            db.add(FMSTicketHelper(
+                ticket_id=ticket_id, user_id=helper_id,
+                added_by_id=user.id, reason=reason.strip()))
+    ticket.updated_at = datetime.utcnow()
+    db.commit()
+    return _redirect(
+        f"/fms/dashboard?view=stage"
+        f"{'&flow_id=' + ticket.flow_id if ticket.flow_id else ''}"
+        f"{'&stage_id=' + ticket.current_stage_id if ticket.current_stage_id else ''}"
+        f"&msg=Help+request+sent"
+    )
 
 
 # ── 2-F: FMS Analytics ───────────────────────────────────────────────────────

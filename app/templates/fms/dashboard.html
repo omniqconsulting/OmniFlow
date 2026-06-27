@@ -9,7 +9,7 @@
 .fms-kpi .lbl{font-size:11px;color:var(--text-faint);margin-top:4px;font-weight:500}
 
 .flow-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.flow-tab{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:8px;border:1.5px solid var(--border-med);background:transparent;text-decoration:none;transition:all .15s;font-size:13px;color:var(--text-muted);font-weight:400}
+.flow-tab{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:8px;border:1.5px solid var(--border-med);background:transparent;text-decoration:none;transition:all .15s;font-size:13px;color:#111111;font-weight:400}
 .flow-tab.active{font-weight:600;color:var(--text-strong)}
 .flow-tab .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .flow-tab .cnt{font-size:10px;padding:1px 6px;border-radius:99px}
@@ -25,9 +25,9 @@
 .swim-body{background:var(--bg-card);border:1px solid var(--border-subtle);border-top:none;border-radius:0 0 8px 8px;padding:8px;min-height:180px;max-height:65vh;overflow-y:auto}
 .ticket-card{background:var(--bg-input);border:1px solid var(--hover-bg);border-radius:7px;padding:10px 11px;margin-bottom:8px;cursor:pointer;transition:all .12s}
 .ticket-card:hover{background:#131e30;border-color:var(--border-strong)}
-.tc-title{font-size:12px;font-weight:600;color:var(--text-primary);line-height:1.4;margin-bottom:4px}
-.tc-meta{font-size:10px;color:var(--text-faint)}
-.tc-assignee{font-size:11px;color:var(--text-muted);margin-top:5px}
+.tc-title{font-size:12px;font-weight:600;color:#111111;line-height:1.4;margin-bottom:4px}
+.tc-meta{font-size:10px;color:#333333}
+.tc-assignee{font-size:11px;color:#222222;margin-top:5px}
 .tat-bar{height:3px;border-radius:2px;background:var(--border-subtle);overflow:hidden;margin-top:6px}
 
 /* ── List view ───────────────────────────────────────────────────────────────── */
@@ -38,8 +38,8 @@
 .filter-group{min-width:130px}
 select option{background:var(--bg-card);color:var(--text-primary)}
 .list-table{width:100%;border-collapse:collapse;font-size:13px}
-.list-table th{padding:11px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);border-bottom:1px solid var(--border-subtle);white-space:nowrap}
-.list-table td{padding:13px 12px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;color:var(--text-primary)}
+.list-table th{padding:11px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#111111;border-bottom:1px solid var(--border-subtle);white-space:nowrap}
+.list-table td{padding:13px 12px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;color:#222222}
 .list-table tr:hover td{background:var(--row-hover);cursor:pointer}
 .list-table tr:last-child td{border-bottom:none}
 
@@ -77,7 +77,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 .pip-arrow{font-size:9px;color:#374151}
 
 .stage-sel-wrap{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;padding-right:4px;scrollbar-width:thin}
-.stage-btn{width:100%;text-align:left;background:var(--bg-input);border:1.5px solid rgba(255,255,255,.08);border-radius:7px;padding:8px 11px;font-size:12px;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:8px}
+.stage-btn{width:100%;text-align:left;background:var(--bg-input);border:1.5px solid rgba(255,255,255,.08);border-radius:7px;padding:8px 11px;font-size:12px;color:#111111;cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:8px}
 .stage-btn:hover{border-color:rgba(255,255,255,.2);color:var(--text-primary);background:var(--bg-card)}
 .stage-btn.selected{color:var(--text-strong);background:rgba(255,255,255,.04)}
 .stage-num{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
@@ -131,9 +131,19 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     </button>
     {% endif %}
     <a href="/fms/tickets/export?{{ request.query_string.decode() }}" class="btn btn-outline btn-sm" title="Export filtered data as CSV">⬇ Export CSV</a>
+    {% if view == 'stage' %}
+    {% set my_work_on = my_work == 1 %}
+    {% set toggle_my_work = 0 if my_work_on else 1 %}
+    <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=stage{% if active_stage %}&stage_id={{ active_stage.id }}{% endif %}&my_work={{ toggle_my_work }}"
+       style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:7px;border:1px solid {{ 'rgba(59,130,246,0.6)' if my_work_on else 'var(--border-med)' }};background:{{ 'rgba(59,130,246,0.15)' if my_work_on else 'transparent' }};font-size:12px;color:{{ '#7dd3fc' if my_work_on else 'var(--text-faint)' }};text-decoration:none;transition:all .12s"
+       title="{{ 'Show all tickets' if my_work_on else 'Show only my tickets' }}">
+      <span style="font-size:10px">{{ '●' if my_work_on else '○' }}</span> My Work
+    </a>
+    {% endif %}
     <div class="view-toggle">
-      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=stage_table" class="{{ 'active' if view == 'stage_table' else '' }}">Stages</a>
-      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=consolidated" class="{{ 'active' if view == 'consolidated' else '' }}">Table</a>
+      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=table"    class="{{ 'active' if view == 'table'    else '' }}">Table</a>
+      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=stage"    class="{{ 'active' if view == 'stage'    else '' }}">Stage</a>
+      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=timeline" class="{{ 'active' if view == 'timeline' else '' }}">Timeline</a>
     </div>
   </div>
 </div>
@@ -144,7 +154,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 <form method="get" action="/fms/dashboard" class="filter-bar" id="fmsBoardFilter">
   <input type="hidden" name="view" value="{{ view }}">
   {% if active_flow %}<input type="hidden" name="flow_id" value="{{ active_flow.id }}">{% endif %}
-  {% if view == 'stage_table' and active_stage %}<input type="hidden" name="stage_id" value="{{ active_stage.id }}">{% endif %}
+  {% if view == 'stage' and active_stage %}<input type="hidden" name="stage_id" value="{{ active_stage.id }}">{% endif %}
 
   {% if branches %}
   <div class="ms-wrap" data-name="branch_id" data-placeholder="All Branches">
@@ -276,27 +286,157 @@ select option{background:var(--bg-card);color:var(--text-primary)}
   </div>
 </div>
 
+<!-- ── Flash messages ─────────────────────────────────────────────────────── -->
+{% if request.query_params.get('err') %}
+<div style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#fca5a5">
+  ⚠ {{ request.query_params.get('err') }}
+</div>
+{% endif %}
+{% if request.query_params.get('msg') %}
+<div style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#6ee7b7">
+  ✓ {{ request.query_params.get('msg') }}
+</div>
+{% endif %}
+
 <!-- ══════════════════════════════════════════════════════════════════════════
-     STAGE-TABLE VIEW (P7-03 / P7-04)
+     TABLE VIEW — read-only journey log per ticket
 ══════════════════════════════════════════════════════════════════════════ -->
-{% if view == 'stage_table' %}
+{% if view == 'table' %}
+{% if active_flow and table_tickets is defined %}
+
+<style>
+/* Journey table */
+.jt-wrap{overflow-x:auto;border:1px solid var(--border-subtle);border-radius:10px;background:var(--bg-card)}
+.jt{border-collapse:collapse;white-space:nowrap;font-size:12px;min-width:100%}
+.jt th,.jt td{padding:7px 10px;border-bottom:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle);vertical-align:middle}
+.jt th:last-child,.jt td:last-child{border-right:none}
+.jt tr:last-child td{border-bottom:none}
+/* sticky id+title+assignee+priority+status columns */
+.jt thead{position:relative;z-index:3}
+.jt tbody{position:relative;z-index:1}
+.jt th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:12}
+.jt thead tr:nth-child(2) th{top:34px}
+.jt .jt-s0{position:sticky;left:0;z-index:20;background:#111827;box-shadow:2px 0 4px rgba(0,0,0,.15)}
+.jt thead .jt-s0{background:#0d1424;z-index:30}
+.jt tbody tr:hover .jt-s0{background:var(--row-hover)!important}
+html.light .jt .jt-s0{background:#fff!important}
+html.light .jt thead .jt-s0{background:#f8fafc!important}
+/* stage header band */
+.jt-stage-th{text-align:center;font-size:11px;font-weight:700;letter-spacing:.04em;color:#fff;padding:6px 10px;border-bottom:2px solid rgba(0,0,0,.15)}
+.jt-sub{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;text-align:center;padding:6px 10px}
+/* cell states */
+.jt-past{background:none}
+.jt-cur{background:none}
+.jt-future{opacity:.45}
+.jt-cell{text-align:center;color:var(--text-muted);font-size:11px}
+</style>
+
+<div class="jt-wrap">
+<table class="jt" id="journeyTable">
+<thead>
+  <!-- Row 1: fixed cols + stage name spans -->
+  <tr>
+    <th rowspan="2" class="jt-s0" style="text-align:left;min-width:72px;max-width:72px;left:0">ID</th>
+    <th rowspan="2" style="text-align:left;min-width:200px;max-width:200px">Title</th>
+    <th rowspan="2" style="text-align:left;min-width:120px">Assignee</th>
+    <th rowspan="2" style="text-align:center;min-width:80px">Priority</th>
+    <th rowspan="2" style="text-align:center;min-width:90px">Status</th>
+    {% for s in stage_table_stages %}
+    {% set hex = s.color or '#3b82f6' %}
+    <th class="jt-stage-th" colspan="5" style="background:{{ hex }}">{{ s.name }}</th>
+    {% endfor %}
+  </tr>
+  <!-- Row 2: sub-headers per stage -->
+  <tr>
+    {% for s in stage_table_stages %}
+    {% set hex = s.color or '#3b82f6' %}
+    <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Planned entry (from ticket created_at + cumulative TaT)">Plan Start</th>
+    <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Planned completion">Plan End</th>
+    <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Actual entry time">Act. Start</th>
+    <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Actual completion">Act. End</th>
+    <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Act. End − Plan End">Delay</th>
+    {% endfor %}
+  </tr>
+</thead>
+<tbody>
+{% if table_tickets %}
+  {% for row in table_tickets %}{% set t = row.ticket %}
+  <tr>
+    <td class="jt-s0" style="left:0"><span style="font-family:monospace;font-size:12px;color:#60a5fa;font-weight:600">{{ t.display_id or t.id[:8] }}</span></td>
+    <td style="font-weight:600;color:var(--text-primary)">
+      {{ t.title[:45] }}{% if t.title|length > 45 %}…{% endif %}
+      {% if t.is_flagged %} 🚩{% endif %}
+    </td>
+    <td style="font-size:12px;color:var(--text-muted)">{{ row.assignee_name }}</td>
+    <td class="jt-cell"><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
+    <td class="jt-cell"><span class="st-badge st-{{ t.status }}">{{ t.status.replace('_',' ') }}</span></td>
+
+    {% for si in row.stages %}
+    {% set state_cls = 'jt-cur' if si.is_current else ('jt-past' if si.visited else 'jt-future') %}
+    {% set hex = si.stage.color or '#3b82f6' %}
+    {# Highlight current stage row with subtle tint #}
+    <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
+      {{ si.planned_start.strftime('%d %b, %H:%M') if si.planned_start else '—' }}
+    </td>
+    <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
+      {{ si.planned_end.strftime('%d %b, %H:%M') if si.planned_end else '—' }}
+    </td>
+    <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
+      {{ si.actual_start.strftime('%d %b, %H:%M') if si.actual_start else '—' }}
+    </td>
+    <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
+      {% if si.is_current and not si.actual_end %}<span style="color:{{ hex }};font-size:11px">● active</span>
+      {% else %}{{ si.actual_end.strftime('%d %b, %H:%M') if si.actual_end else '—' }}{% endif %}
+    </td>
+    <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
+      {% if si.delay_h is not none %}
+        {% set dh = si.delay_h|int %}{% set dm = ((si.delay_h % 1) * 60)|int %}
+        <span style="font-weight:600;color:{% if si.delay_positive %}#f87171{% else %}#6ee7b7{% endif %}">
+          {{ '+' if si.delay_positive else '-' }}{{ dh }}h{% if dm %} {{ dm }}m{% endif %}
+        </span>
+      {% elif si.visited %}—{% else %}<span style="opacity:.3">—</span>{% endif %}
+    </td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+{% else %}
+<tr><td colspan="100" style="text-align:center;padding:40px;color:#374151;font-size:13px">No tickets found for this flow.</td></tr>
+{% endif %}
+</tbody>
+</table>
+</div>
+
+{% else %}
+<div style="text-align:center;padding:60px 0">
+  <div style="font-size:32px;margin-bottom:10px">📋</div>
+  <div style="font-size:14px;font-weight:500;color:var(--text-faint);margin-bottom:4px">No active flows deployed</div>
+  <div style="font-size:12px;color:#374151">Contact your OmniFlow account manager to get started.</div>
+</div>
+{% endif %}
+{% endif %}
+
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     STAGE VIEW (formerly stage_table / P7-03 / P7-04)
+══════════════════════════════════════════════════════════════════════════ -->
+{% if view == 'stage' %}
 {% if active_flow and stage_table_stages %}
-<div style="display:grid;grid-template-columns:220px 1fr;gap:0;border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden;background:var(--bg-card)">
+<div style="display:grid;grid-template-columns:220px 1fr;gap:0;border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden;background:var(--bg-card);height:calc(100vh - 260px);min-height:520px">
 
   <!-- Left: stage list with descriptions -->
-  <div style="border-right:1px solid var(--border-subtle);background:var(--bg-input);padding:12px 0;overflow-y:auto;max-height:70vh">
+  <div style="border-right:1px solid var(--border-subtle);background:var(--bg-input);padding:12px 0;overflow-y:auto;height:100%">
     <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint);padding:0 14px;margin-bottom:8px">Flow Stages</div>
     {% for s in stage_table_stages %}
     {% set cnt = stage_ticket_counts.get(s.id, 0) %}
     {% set is_sel = active_stage and active_stage.id == s.id %}
-    <a href="/fms/dashboard?flow_id={{ active_flow.id }}&view=stage_table&stage_id={{ s.id }}"
+    <a href="/fms/dashboard?flow_id={{ active_flow.id }}&view=stage&stage_id={{ s.id }}"
        style="display:block;padding:8px 14px;text-decoration:none;transition:background .12s;
               background:{{ 'rgba(255,255,255,0.06)' if is_sel else 'transparent' }};
               border-left:3px solid {{ s.color or '#3b82f6' if is_sel else 'transparent' }}">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="width:8px;height:8px;border-radius:50%;background:{{ s.color or '#3b82f6' }};flex-shrink:0"></span>
-        <span style="flex:1;font-size:12px;font-weight:{{ '600' if is_sel else '500' }};color:{{ 'var(--text-strong)' if is_sel else 'var(--text-muted)' }}">{{ s.name }}</span>
-        {% if cnt %}<span style="font-size:10px;padding:1px 6px;border-radius:99px;background:{{ (s.color or '#3b82f6') + '28' }};color:var(--text-primary);flex-shrink:0">{{ cnt }}</span>{% endif %}
+        <span style="flex:1;font-size:12px;font-weight:{{ '600' if is_sel else '500' }};color:#111111">{{ s.name }}</span>
+        {% if cnt %}<span style="font-size:10px;padding:1px 6px;border-radius:99px;background:{{ (s.color or '#3b82f6') + '28' }};color:#333333;flex-shrink:0">{{ cnt }}</span>{% endif %}
         {% if s.is_terminal %}<span title="Terminal" style="font-size:9px;color:#6ee7b7;flex-shrink:0">✓</span>{% endif %}
       </div>
       {% if s.description %}
@@ -308,7 +448,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
   </div>
 
   <!-- Right: ticket table for selected stage -->
-  <div style="padding:16px;overflow-x:auto">
+  <div style="padding:16px;overflow:auto;height:100%">
     {% if active_stage %}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <div>
@@ -339,12 +479,12 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       </thead>
       <tbody>
       {% for row in stage_tickets %}{% set t = row.ticket %}
-      <tr onclick="window.location='/fms/tickets/{{ t.id }}'" style="cursor:pointer">
+      {% set can_act = user.role in ('ADMIN','MANAGER') or t.current_assignee_id == user.id %}
+      <tr>
         <td>
-          <a href="/fms/tickets/{{ t.id }}" onclick="event.stopPropagation()"
-             style="font-family:monospace;font-size:12px;color:#60a5fa;text-decoration:none;font-weight:600">
+          <span style="font-family:monospace;font-size:12px;color:#60a5fa;font-weight:600">
             {{ t.display_id or t.id[:8] }}
-          </a>
+          </span>
         </td>
         <td>
           <div style="font-weight:600;color:var(--text-primary)">
@@ -396,13 +536,92 @@ select option{background:var(--bg-card);color:var(--text-primary)}
         <td style="font-size:12px;color:{% if (sub.outstanding or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.outstanding|round(0)|int if sub.outstanding else 0 }}</td>
         <td style="font-size:11px;color:{% if sub.oldest_due and sub.oldest_due < now.date() %}#f87171{% else %}var(--text-faint){% endif %}">{{ sub.oldest_due.strftime('%d %b') if sub.oldest_due else '—' }}</td>
         {% endif %}
-        <td onclick="event.stopPropagation()">
-          {% if not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
-          <button onclick="openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ 'true' if active_stage.evidence_required else 'false' }}','{{ 'true' if active_stage.completion_note_required else 'false' }}')"
-                  class="btn btn-sm btn-green">
-            ✓ Mark Done
+        <td onclick="event.stopPropagation()" style="white-space:nowrap">
+          <div style="display:flex;align-items:center;gap:6px">
+          {# Manager override button: reverse a backward move within 2 hours #}
+          {% if t.id in override_eligible and user.role in ('ADMIN','MANAGER') %}
+          {% set prev_s = prev_stage_map.get(active_stage.id) %}
+          {% if prev_s %}
+          <button onclick="openOverrideModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.id }}','{{ prev_s.id }}','{{ t.current_assignee_id or '' }}')"
+                  class="btn btn-sm" style="border-color:rgba(251,191,36,.5);color:#fbbf24;font-size:11px">
+            ↩ Reverse
           </button>
           {% endif %}
+          {% endif %}
+
+          {# Three-dot menu — visible to all roles, options depend on role/assignee #}
+          <div style="position:relative;display:inline-block" class="fms-dot-menu-wrap">
+            <button onclick="toggleDotMenu(this)" style="background:none;border:1px solid var(--border-med);border-radius:6px;width:28px;height:28px;cursor:pointer;color:var(--text-faint);font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center">⋮</button>
+            <div class="fms-dot-menu" style="display:none;position:absolute;right:0;top:32px;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:8px;z-index:50;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,.5);overflow:hidden">
+
+              {# Mark Done — assignee or admin/manager, non-terminal, non-completed #}
+              {% if can_act and not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
+              {% set ns = next_stage_map.get(active_stage.id) %}
+              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ 'true' if active_stage.evidence_required else 'false' }}','{{ 'true' if active_stage.completion_note_required else 'false' }}')"
+                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:var(--text-primary);cursor:pointer;font-family:inherit">
+                ✓ Mark Done{% if ns %} → {{ ns.name[:20] }}{% endif %}
+              </button>
+              {% endif %}
+
+              {# Move Backward — assignee or admin/manager, not the first stage #}
+              {% set prev_s = prev_stage_map.get(active_stage.id) %}
+              {% if can_act and prev_s and t.status not in ('COMPLETED','CLOSED') %}
+              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openMoveBackwardModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ prev_s.id }}','{{ prev_s.name }}','{{ t.current_assignee_id or '' }}')"
+                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#fbbf24;cursor:pointer;font-family:inherit">
+                ← Return to {{ prev_s.name[:20] }}
+              </button>
+              {% endif %}
+
+              {# Flag / Unflag — all roles #}
+              {% if not t.is_flagged %}
+              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openFlagModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}')"
+                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#f87171;cursor:pointer;font-family:inherit">
+                🚩 Flag Ticket
+              </button>
+              {% else %}
+              <form method="post" action="/fms/tickets/{{ t.id }}/action" style="margin:0">
+                <input type="hidden" name="action" value="unflag">
+                <button type="submit" style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:var(--text-muted);cursor:pointer;font-family:inherit">
+                  🏳 Unflag
+                </button>
+              </form>
+              {% endif %}
+
+              {# Edit Assignee — admin/manager only #}
+              {% if user.role in ('ADMIN','MANAGER') %}
+              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openAssigneeModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ t.current_assignee_id or '' }}')"
+                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:var(--text-primary);cursor:pointer;font-family:inherit">
+                👤 Change Assignee
+              </button>
+              {% endif %}
+
+              {# Help Needed — all roles #}
+              {% if t.status not in ('COMPLETED','CLOSED') %}
+              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openHelpModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}')"
+                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#a78bfa;cursor:pointer;font-family:inherit">
+                🆘 Help Needed
+              </button>
+              {% endif %}
+
+              {# Notify — admin/manager #}
+              {% if user.role in ('ADMIN','MANAGER') %}
+              <button onclick="submitNotify('{{ t.id }}','{{ active_flow.id if active_flow else '' }}','{{ active_stage.id }}')"
+                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:var(--text-primary);cursor:pointer;font-family:inherit">
+                🔔 Notify Assignee
+              </button>
+              {% endif %}
+
+              {# Delete — admin only #}
+              {% if user.role == 'ADMIN' %}
+              <div style="border-top:1px solid var(--border-subtle);margin:4px 0"></div>
+              <button onclick="openDeleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_flow.id if active_flow else '' }}','{{ active_stage.id }}')"
+                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#f87171;cursor:pointer;font-family:inherit">
+                🗑 Delete Ticket
+              </button>
+              {% endif %}
+            </div>
+          </div>
+          </div>
         </td>
       </tr>
       {% endfor %}
@@ -450,7 +669,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       <div class="ticket-card{% if t.is_flagged %}" style="border-left:3px solid #ef4444{% else %}" style="border-left:3px solid {{ sc }}{% endif %}"
            data-ticket-id="{{ t.id }}"
            draggable="{{ 'true' if can_drag else 'false' }}"
-           onclick="location.href='/fms/tickets/{{ t.id }}'">
+           onclick="location.href='/fms/dashboard?view=stage&flow_id={{ active_flow.id }}&stage_id={{ t.current_stage_id }}'">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div class="tc-title">{{ t.title[:42] }}{% if t.title|length > 42 %}…{% endif %}</div>
           <span class="pri-badge pri-{{ t.priority }}" style="flex-shrink:0;font-size:9px">{{ t.priority[0] }}</span>
@@ -517,7 +736,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 <!-- ══════════════════════════════════════════════════════════════════════════
      CONSOLIDATED TABLE VIEW
 ══════════════════════════════════════════════════════════════════════════ -->
-{% if view == 'consolidated' %}
+{% if view == '_legacy_consolidated' %}
 {% if active_flow and stage_table_stages %}
 
 <style>
@@ -721,6 +940,86 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
 {% endif %}
 {% endif %}
 
+<!-- ══════════════════════════════════════════════════════════════════════════
+     TIMELINE VIEW — horizontal pipeline + tickets under each stage
+══════════════════════════════════════════════════════════════════════════ -->
+{% if view == 'timeline' %}
+{% if active_flow and timeline_data is defined and timeline_data %}
+<style>
+.tl-pipeline{display:flex;align-items:center;gap:0;overflow-x:auto;padding:16px 0 8px;margin-bottom:20px;scrollbar-width:thin}
+.tl-stage-node{display:flex;flex-direction:column;align-items:center;flex-shrink:0;min-width:120px;max-width:160px;cursor:pointer;text-decoration:none}
+.tl-node-circle{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;border:2px solid transparent;transition:all .15s}
+.tl-node-name{font-size:11px;font-weight:600;color:var(--text-muted);margin-top:6px;text-align:center;line-height:1.3;max-width:110px;word-break:break-word}
+.tl-node-count{font-size:10px;margin-top:2px;font-weight:700}
+.tl-arrow{font-size:16px;color:#374151;flex-shrink:0;margin:0 -4px;padding-bottom:20px}
+.tl-stage-cards{border:1px solid var(--border-subtle);border-radius:10px;background:var(--bg-card);padding:12px;margin-bottom:14px}
+.tl-stage-hdr{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border-subtle)}
+.tl-ticket-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;border:1px solid var(--border-subtle);margin-bottom:6px;background:var(--bg-input)}
+</style>
+
+<!-- Pipeline strip -->
+<div class="tl-pipeline">
+{% for item in timeline_data %}
+{% set s = item.stage %}
+{% set hex = s.color or '#3b82f6' %}
+<div class="tl-stage-node" onclick="document.getElementById('tl-section-{{ s.id }}').scrollIntoView({behavior:'smooth',block:'start'})">
+  <div class="tl-node-circle" style="background:{{ hex }}22;border-color:{{ hex }};color:{{ hex }}">{{ item.count }}</div>
+  <div class="tl-node-name" style="color:{{ hex if item.count > 0 else 'var(--text-faint)' }}">{{ s.name }}</div>
+  {% if item.count > 0 %}
+  <div class="tl-node-count" style="color:{{ hex }}">{{ item.count }} ticket{{ 's' if item.count != 1 }}</div>
+  {% else %}
+  <div class="tl-node-count" style="color:#374151">empty</div>
+  {% endif %}
+</div>
+{% if not loop.last %}<div class="tl-arrow">→</div>{% endif %}
+{% endfor %}
+</div>
+
+<!-- Ticket cards per stage -->
+{% for item in timeline_data %}
+{% set s = item.stage %}
+{% set hex = s.color or '#3b82f6' %}
+<div id="tl-section-{{ s.id }}" class="tl-stage-cards">
+  <div class="tl-stage-hdr">
+    <span style="width:10px;height:10px;border-radius:50%;background:{{ hex }};display:inline-block;flex-shrink:0"></span>
+    <span style="font-size:13px;font-weight:700;color:var(--text-strong)">{{ s.name }}</span>
+    <span style="font-size:11px;padding:2px 8px;border-radius:99px;background:{{ hex }}22;color:{{ hex }};margin-left:auto">{{ item.count }} ticket{{ 's' if item.count != 1 }}</span>
+  </div>
+  {% if item.tickets %}
+  {% for tr in item.tickets %}{% set t = tr.ticket %}
+  <div class="tl-ticket-row">
+    <span style="font-family:monospace;font-size:11px;color:#60a5fa;font-weight:600;white-space:nowrap">{{ t.display_id or t.id[:8] }}</span>
+    <span style="flex:1;font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+      {{ t.title[:50] }}{% if t.title|length > 50 %}…{% endif %}
+      {% if t.is_flagged %} 🚩{% endif %}
+    </span>
+    <span style="font-size:11px;color:var(--text-muted);white-space:nowrap">{{ tr.assignee_name }}</span>
+    <span class="pri-badge pri-{{ t.priority }}" style="font-size:10px;flex-shrink:0">{{ t.priority }}</span>
+    <span style="font-size:11px;color:var(--text-faint);white-space:nowrap;flex-shrink:0" title="Time at this stage">
+      {% set ts = tr.time_at_s %}
+      {% if ts < 3600 %}{{ (ts // 60) }}m
+      {% elif ts < 86400 %}{{ (ts // 3600) }}h {{ ((ts % 3600) // 60) }}m
+      {% else %}{{ (ts // 86400) }}d {{ ((ts % 86400) // 3600) }}h
+      {% endif %}
+    </span>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div style="text-align:center;padding:20px 0;color:#374151;font-size:12px">No tickets at this stage</div>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% else %}
+<div style="text-align:center;padding:60px 0">
+  <div style="font-size:32px;margin-bottom:10px">🗺</div>
+  <div style="font-size:14px;font-weight:500;color:var(--text-faint);margin-bottom:4px">No active flows deployed</div>
+  <div style="font-size:12px;color:#374151">Select a flow to view the pipeline.</div>
+</div>
+{% endif %}
+{% endif %}
+
+
 <!-- ── Escalations panel ──────────────────────────────────────────────────── -->
 {% if flagged_tickets and user.role in ('ADMIN','MANAGER') %}
 <div style="background:var(--bg-card);border:1px solid rgba(239,68,68,0.25);border-radius:10px;margin-top:20px">
@@ -730,7 +1029,7 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
   {% for t in flagged_tickets %}
   <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border-subtle)">
     <div>
-      <a href="/fms/tickets/{{ t.id }}" style="font-size:13px;font-weight:600;color:var(--text-primary)">{{ t.title[:50] }}</a>
+      <a href="/fms/dashboard?view=stage&flow_id={{ t.flow_id }}&stage_id={{ t.current_stage_id }}" style="font-size:13px;font-weight:600;color:var(--text-primary)">{{ t.title[:50] }}</a>
       {% if t.flagged_reason %}<div style="font-size:11px;color:var(--text-faint);margin-top:2px">{{ t.flagged_reason[:80] }}</div>{% endif %}
     </div>
     <span style="font-size:11px;color:var(--text-faint);background:var(--bg-elevated);padding:2px 8px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-left:12px">
@@ -996,6 +1295,173 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
   </div>
 </div>
 {% endif %}
+
+<!-- ── Delete confirmation modal ─────────────────────────────────────────── -->
+{% if user.role == 'ADMIN' %}
+<div id="fmsDeleteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:380px;max-width:95vw">
+    <div style="font-size:15px;font-weight:600;color:var(--text-strong);margin-bottom:8px">Delete this ticket?</div>
+    <div style="font-size:13px;color:var(--text-faint);margin-bottom:20px" id="fmsDeleteSubtitle"></div>
+    <p style="font-size:13px;color:#fca5a5;margin-bottom:20px">This cannot be undone.</p>
+    <form id="fmsDeleteForm" method="post">
+      <input type="hidden" name="flow_id" id="fmsDeleteFlowId">
+      <input type="hidden" name="stage_id" id="fmsDeleteStageId">
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="closeDeleteModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm" style="background:#ef4444;border-color:#ef4444;color:#fff">Confirm Delete</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Move Backward modal ────────────────────────────────────────────────── -->
+<div id="fmsMoveBackModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:420px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">Return Ticket to Previous Stage</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="fmsMoveBackSubtitle"></div>
+      </div>
+      <button onclick="closeMoveBackModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <form id="fmsMoveBackForm" method="post">
+      <input type="hidden" name="next_stage_id"    id="fmsMoveBackStageId">
+      <input type="hidden" name="new_assignee_id"  id="fmsMoveBackAssigneeId">
+      <input type="hidden" name="is_override"      value="false">
+      <input type="hidden" name="qty_completed"    value="0">
+      <input type="hidden" name="completion_note"  value="">
+      <div style="margin-bottom:14px;padding:10px 14px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:8px;font-size:12px;color:#fbbf24" id="fmsMoveBackTarget"></div>
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Reason for returning <span style="color:#f87171">*</span></label>
+        <textarea name="return_reason" id="fmsMoveBackReason" required rows="3"
+                  style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
+                  placeholder="Describe why this ticket is being returned…"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="closeMoveBackModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm" style="background:#f59e0b;border-color:#f59e0b;color:#000">← Return Ticket</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Flag ticket modal ───────────────────────────────────────────────────── -->
+<div id="fmsFlagModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:400px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">🚩 Flag this Ticket</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="fmsFlagSubtitle"></div>
+      </div>
+      <button onclick="closeFlagModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <form id="fmsFlagForm" method="post">
+      <input type="hidden" name="action" value="flag">
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Reason <span style="color:#f87171">*</span></label>
+        <textarea name="flag_reason" id="fmsFlagReason" required rows="3"
+                  style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
+                  placeholder="Why is this ticket being flagged?"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="closeFlagModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm" style="background:#ef4444;border-color:#ef4444;color:#fff">🚩 Flag Ticket</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Edit Assignee modal ─────────────────────────────────────────────────── -->
+<div id="fmsAssigneeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:400px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">👤 Change Stage Assignee</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="fmsAssigneeSubtitle"></div>
+      </div>
+      <button onclick="closeAssigneeModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <form id="fmsAssigneeForm" method="post">
+      <input type="hidden" name="action" value="reassign">
+      <input type="hidden" name="reason" value="Reassigned via Stage view">
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">New Assignee <span style="color:#f87171">*</span></label>
+        <select name="new_assignee_id" id="fmsAssigneeSelect" required
+                style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box">
+          <option value="">— select —</option>
+          {% for emp in employees %}
+          <option value="{{ emp.id }}">{{ emp.name }} · {{ emp.role }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="closeAssigneeModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">Save Assignee</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Help Needed modal ───────────────────────────────────────────────────── -->
+<div id="fmsHelpModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:420px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">🆘 Request Help</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="fmsHelpSubtitle"></div>
+      </div>
+      <button onclick="closeHelpModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <form id="fmsHelpForm" method="post">
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">What help is needed? <span style="color:#f87171">*</span></label>
+        <textarea name="reason" id="fmsHelpReason" required rows="3"
+                  style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
+                  placeholder="Describe what you need help with…"></textarea>
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Tag a helper (optional)</label>
+        <select name="helper_id" style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box">
+          <option value="">— None —</option>
+          {% for emp in employees %}
+          <option value="{{ emp.id }}">{{ emp.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="closeHelpModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm" style="background:#7c3aed;border-color:#7c3aed;color:#fff">🆘 Send Help Request</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Manager Override (Reverse Backward Move) modal ─────────────────────── -->
+<div id="fmsOverrideModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:400px;max-width:95vw">
+    <div style="font-size:15px;font-weight:600;color:var(--text-strong);margin-bottom:8px">↩ Reverse this Return?</div>
+    <div style="font-size:13px;color:var(--text-faint);margin-bottom:20px" id="fmsOverrideSubtitle">This will move the ticket back to its previous stage (manager override).</div>
+    <form id="fmsOverrideForm" method="post">
+      <input type="hidden" name="next_stage_id"   id="fmsOverridePrevStageId">
+      <input type="hidden" name="new_assignee_id" id="fmsOverrideAssigneeId">
+      <input type="hidden" name="is_override"     value="true">
+      <input type="hidden" name="qty_completed"   value="0">
+      <input type="hidden" name="completion_note" value="">
+      <input type="hidden" name="return_reason"   value="">
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="closeOverrideModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm" style="background:#f59e0b;border-color:#f59e0b;color:#000">↩ Reverse Return</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Hidden notify form ─────────────────────────────────────────────────── -->
+<form id="fmsNotifyForm" method="post" style="display:none">
+  <input type="hidden" name="flow_id" id="fmsNotifyFlowId">
+  <input type="hidden" name="stage_id" id="fmsNotifyStageId">
+</form>
 
 <!-- ── Drag-drop script ────────────────────────────────────────────────────── -->
 {% if can_drag and view == 'swimlane' %}
@@ -1344,23 +1810,26 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
   var form  = document.getElementById('scForm');
   form.action = '/fms/tickets/' + ticketId + '/transition';
 
-  document.getElementById('scModalTitle').textContent = 'Mark Stage Complete';
-  document.getElementById('scModalSubtitle').textContent = displayId + ' — ' + stageName;
+  document.getElementById('scModalTitle').textContent = 'Complete Stage: ' + stageName;
+  document.getElementById('scModalSubtitle').textContent = displayId;
 
   var activeStageId = "{{ active_stage.id if active_stage else '' }}";
   var ns = NEXT_STAGE_MAP[activeStageId];
   var sel = document.getElementById('scNextStageId');
+  var submitBtn = document.querySelector('#scForm button[type="submit"]');
   sel.innerHTML = '';
   if (ns) {
     var opt = document.createElement('option');
     opt.value = ns.id;
     opt.textContent = ns.name;
     sel.appendChild(opt);
+    if (submitBtn) submitBtn.textContent = '✓ Mark Done and Move to ' + ns.name;
   } else {
     var opt = document.createElement('option');
     opt.value = '';
     opt.textContent = '(terminal — will complete ticket)';
     sel.appendChild(opt);
+    if (submitBtn) submitBtn.textContent = '✓ Complete Ticket';
   }
 
   var noteLabel = document.getElementById('scNoteLabel');
@@ -1426,19 +1895,107 @@ function clearFmsSelection() {
   updateFmsBulkBar();
 }
 
-/* FMS individual send-back modal */
-function openFmsSendBack(ticketId, stageId, stageName) {
-  document.getElementById('fms-sendback-form').action = '/fms/tickets/' + ticketId + '/transition';
-  document.getElementById('fms-sendback-stage-id').value = stageId;
-  document.getElementById('fms-sendback-target').textContent = '→ ' + stageName;
-  document.getElementById('fms-sendback-reason').value = '';
-  document.getElementById('fms-sendback-modal').style.display = 'flex';
+/* Three-dot menu */
+function toggleDotMenu(btn) {
+  const menu = btn.nextElementSibling;
+  const isOpen = menu.style.display !== 'none';
+  document.querySelectorAll('.fms-dot-menu').forEach(m => m.style.display = 'none');
+  menu.style.display = isOpen ? 'none' : 'block';
 }
-function closeFmsSendBack() {
-  document.getElementById('fms-sendback-modal').style.display = 'none';
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.fms-dot-menu-wrap')) {
+    document.querySelectorAll('.fms-dot-menu').forEach(m => m.style.display = 'none');
+  }
+});
+
+/* Delete modal */
+function openDeleteModal(ticketId, displayId, flowId, stageId) {
+  document.querySelectorAll('.fms-dot-menu').forEach(m => m.style.display = 'none');
+  document.getElementById('fmsDeleteForm').action = '/fms/tickets/' + ticketId + '/delete';
+  document.getElementById('fmsDeleteSubtitle').textContent = displayId;
+  document.getElementById('fmsDeleteFlowId').value = flowId;
+  document.getElementById('fmsDeleteStageId').value = stageId;
+  document.getElementById('fmsDeleteModal').style.display = 'flex';
 }
-document.addEventListener('keydown', function(e){
-  if (e.key === 'Escape') closeFmsSendBack();
+function closeDeleteModal() {
+  document.getElementById('fmsDeleteModal').style.display = 'none';
+}
+
+/* Notify assignee */
+function submitNotify(ticketId, flowId, stageId) {
+  document.querySelectorAll('.fms-dot-menu').forEach(m => m.style.display = 'none');
+  const form = document.getElementById('fmsNotifyForm');
+  form.action = '/fms/tickets/' + ticketId + '/notify';
+  document.getElementById('fmsNotifyFlowId').value = flowId;
+  document.getElementById('fmsNotifyStageId').value = stageId;
+  form.submit();
+}
+
+/* ── Move Backward modal ─────────────────────────────────────────────────── */
+function openMoveBackwardModal(ticketId, displayId, prevStageId, prevStageName, currentAssigneeId) {
+  document.getElementById('fmsMoveBackForm').action = '/fms/tickets/' + ticketId + '/transition';
+  document.getElementById('fmsMoveBackStageId').value = prevStageId;
+  document.getElementById('fmsMoveBackAssigneeId').value = currentAssigneeId;
+  document.getElementById('fmsMoveBackSubtitle').textContent = displayId;
+  document.getElementById('fmsMoveBackTarget').textContent = '→ Return to: ' + prevStageName;
+  document.getElementById('fmsMoveBackReason').value = '';
+  document.getElementById('fmsMoveBackModal').style.display = 'flex';
+}
+function closeMoveBackModal() {
+  document.getElementById('fmsMoveBackModal').style.display = 'none';
+}
+
+/* ── Flag modal ──────────────────────────────────────────────────────────── */
+function openFlagModal(ticketId, displayId) {
+  document.getElementById('fmsFlagForm').action = '/fms/tickets/' + ticketId + '/action';
+  document.getElementById('fmsFlagSubtitle').textContent = displayId;
+  document.getElementById('fmsFlagReason').value = '';
+  document.getElementById('fmsFlagModal').style.display = 'flex';
+}
+function closeFlagModal() {
+  document.getElementById('fmsFlagModal').style.display = 'none';
+}
+
+/* ── Edit Assignee modal ─────────────────────────────────────────────────── */
+function openAssigneeModal(ticketId, displayId, currentAssigneeId) {
+  document.getElementById('fmsAssigneeForm').action = '/fms/tickets/' + ticketId + '/action';
+  document.getElementById('fmsAssigneeSubtitle').textContent = displayId;
+  document.getElementById('fmsAssigneeSelect').value = currentAssigneeId || '';
+  document.getElementById('fmsAssigneeModal').style.display = 'flex';
+}
+function closeAssigneeModal() {
+  document.getElementById('fmsAssigneeModal').style.display = 'none';
+}
+
+/* ── Help Needed modal ───────────────────────────────────────────────────── */
+function openHelpModal(ticketId, displayId) {
+  document.getElementById('fmsHelpForm').action = '/fms/tickets/' + ticketId + '/help_request';
+  document.getElementById('fmsHelpSubtitle').textContent = displayId;
+  document.getElementById('fmsHelpReason').value = '';
+  document.getElementById('fmsHelpModal').style.display = 'flex';
+}
+function closeHelpModal() {
+  document.getElementById('fmsHelpModal').style.display = 'none';
+}
+
+/* ── Manager Override modal ──────────────────────────────────────────────── */
+function openOverrideModal(ticketId, displayId, currentStageId, prevStageId, assigneeId) {
+  document.getElementById('fmsOverrideForm').action = '/fms/tickets/' + ticketId + '/transition';
+  document.getElementById('fmsOverridePrevStageId').value = prevStageId;
+  document.getElementById('fmsOverrideAssigneeId').value = assigneeId || '';
+  document.getElementById('fmsOverrideSubtitle').textContent =
+    displayId + ' — reverses the backward move (manager override, within 2h window)';
+  document.getElementById('fmsOverrideModal').style.display = 'flex';
+}
+function closeOverrideModal() {
+  document.getElementById('fmsOverrideModal').style.display = 'none';
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeMoveBackModal(); closeFlagModal(); closeAssigneeModal();
+    closeHelpModal(); closeOverrideModal();
+  }
 });
 </script>
 
