@@ -2336,8 +2336,8 @@ def fms_ticket_detail(
 async def fms_transition(
     request: Request,
     ticket_id: str,
-    next_stage_id: str = Form(...),
-    new_assignee_id: str = Form(...),
+    next_stage_id: str = Form(""),
+    new_assignee_id: str = Form(""),
     completion_note: str = Form(""),
     qty_completed: str = Form("0"),
     return_reason: str = Form(""),
@@ -2356,22 +2356,30 @@ async def fms_transition(
     if ticket.status in ("COMPLETED", "CLOSED"):
         raise HTTPException(400, "Ticket is already completed or closed")
 
-    next_stage = db.query(FMSStage).filter(
-        FMSStage.id == next_stage_id,
-        FMSStage.flow_id == ticket.flow_id).first()
-    if not next_stage:
-        raise HTTPException(400, "Invalid next stage")
+    # Empty next_stage_id means "complete the current terminal stage"
+    terminal_complete = not next_stage_id.strip()
+    next_stage = None
+    if not terminal_complete:
+        next_stage = db.query(FMSStage).filter(
+            FMSStage.id == next_stage_id,
+            FMSStage.flow_id == ticket.flow_id).first()
+        if not next_stage:
+            raise HTTPException(400, "Invalid next stage")
 
     cur_stage  = ticket.current_stage
     open_h     = _open_history(db, ticket_id)
 
-    # Determine direction (2-C-3/4)
-    cur_order  = cur_stage.order  if cur_stage  else 0
-    next_order = next_stage.order
-    direction  = "BACKWARD" if next_order < cur_order else "FORWARD"
+    if terminal_complete:
+        direction = "FORWARD"
+        next_order = (cur_stage.order if cur_stage else 0)
+    else:
+        # Determine direction (2-C-3/4)
+        cur_order  = cur_stage.order  if cur_stage  else 0
+        next_order = next_stage.order
+        direction  = "BACKWARD" if next_order < cur_order else "FORWARD"
 
-    # A1-5: Enforce linear stage movement
-    if not is_override:
+    # A1-5: Enforce linear stage movement (skip for terminal-complete)
+    if not is_override and not terminal_complete:
         if direction == "FORWARD" and next_order != cur_order + 1:
             raise HTTPException(400, "Tickets can only move to the next stage in sequence")
         if direction == "BACKWARD" and next_order != cur_order - 1:
@@ -2483,6 +2491,26 @@ async def fms_transition(
              f"From: {cur_stage.name if cur_stage else '?'} | "
              f"note: {completion_note[:80]}" if completion_note else "")
 
+    ticket.updated_at = datetime.utcnow()
+
+    if terminal_complete:
+        # Completing the current terminal stage — no new history row needed
+        ticket.status       = "COMPLETED"
+        ticket.completed_at = datetime.utcnow()
+        _log(db, ticket_id, user.id, "COMPLETED",
+             f"Completed terminal stage: {cur_stage.name if cur_stage else '?'}")
+        db.commit()
+        admins = _admin_ids(db, user.tenant_id)
+        broadcast_sync(user.tenant_id, admins, FMS_STAGE_TRANSITION, {
+            "ticket_id": ticket_id, "display_id": ticket.display_id,
+            "title": ticket.title, "stage": cur_stage.name if cur_stage else "",
+            "status": ticket.status,
+        })
+        return _redirect(
+            f"/fms/dashboard?view=stage"
+            f"{'&flow_id=' + ticket.flow_id if ticket.flow_id else ''}"
+        )
+
     # Look up planned dates for next stage from ticket schedule
     import json as _json2
     _sched: dict = {}
@@ -2509,7 +2537,6 @@ async def fms_transition(
     # Update ticket
     ticket.current_stage_id    = next_stage_id
     ticket.current_assignee_id = new_assignee_id
-    ticket.updated_at          = datetime.utcnow()
 
     if next_stage.is_terminal:
         ticket.status       = "COMPLETED"

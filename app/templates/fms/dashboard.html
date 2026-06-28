@@ -335,9 +335,10 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
   <tr>
     <th rowspan="2" class="jt-s0" style="text-align:left;min-width:72px;max-width:72px;left:0">ID</th>
     <th rowspan="2" style="text-align:left;min-width:200px;max-width:200px">Title</th>
-    <th rowspan="2" style="text-align:left;min-width:120px">Assignee</th>
+    <th rowspan="2" style="text-align:left;min-width:120px">Current Assignee</th>
     <th rowspan="2" style="text-align:center;min-width:80px">Priority</th>
     <th rowspan="2" style="text-align:center;min-width:90px">Status</th>
+    <th rowspan="2" style="text-align:left;min-width:120px">Current Stage</th>
     {% for s in stage_table_stages %}
     {% set hex = s.color or '#3b82f6' %}
     {% set jt_cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
@@ -373,6 +374,15 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     <td style="font-size:12px;color:var(--text-muted)">{{ row.assignee_name }}</td>
     <td class="jt-cell"><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
     <td class="jt-cell"><span class="st-badge st-{{ t.status }}">{{ t.status.replace('_',' ') }}</span></td>
+    <td style="font-size:12px">
+      {% if t.current_stage %}
+        {% set sc = t.current_stage.color or '#3b82f6' %}
+        <span style="display:inline-flex;align-items:center;gap:5px;background:{{ sc }}18;color:{{ sc }};border-radius:5px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap">
+          <span style="width:6px;height:6px;border-radius:50%;background:{{ sc }};flex-shrink:0"></span>
+          {{ t.current_stage.name }}
+        </span>
+      {% else %}—{% endif %}
+    </td>
 
     {% for si in row.stages %}
     {% set state_cls = 'jt-cur' if si.is_current else ('jt-past' if si.visited else 'jt-future') %}
