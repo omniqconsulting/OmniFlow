@@ -44,6 +44,7 @@ from .analytics import (
     get_checklist_by_template, get_checklist_by_dept,
     get_fms_scorecards, get_fms_flow_summary,
     get_fms_stage_breakdown, get_fms_weekly,
+    get_fms_employee_stage_kpis,
 )
 from .constants import (
     has_feature, get_limit, within_limit,
@@ -977,18 +978,24 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
     k.cl_on_time = cl_on_time
     k.fms_active = fms_active
     k.fms_tat_breaches = fms_tat_breaches
-    # FMS completed in period
+    # FMS on-time — stage-attributed, weighted average across all employees (Phase A5)
     try:
         from .database import FMSTicket as _FT2
         fms_completed = db.query(_FT2).filter(
             _FT2.tenant_id == tid, _FT2.is_deleted == False,
             _FT2.status.in_(["COMPLETED", "CLOSED"]),
             _FT2.updated_at >= df, _FT2.updated_at <= dt).count()
-        fms_on_time = db.query(_FT2).filter(
-            _FT2.tenant_id == tid, _FT2.is_deleted == False,
-            _FT2.status.in_(["COMPLETED", "CLOSED"]),
-            _FT2.updated_at >= df, _FT2.updated_at <= dt,
-            _FT2.due_at != None, _FT2.updated_at <= _FT2.due_at).count()
+        _all_emps = db.query(User).filter(
+            User.tenant_id == tid, User.is_deleted == False, User.is_active == True).all()
+        _weighted_sum = _weighted_total = 0
+        for _e in _all_emps:
+            _sk = get_fms_employee_stage_kpis(db, _e.id, tid, since=df)
+            if _sk["total_tickets"] > 0:
+                _weighted_sum   += _sk["fms_on_time_rate"] * _sk["total_tickets"]
+                _weighted_total += _sk["total_tickets"]
+        fms_on_time_rate = round(_weighted_sum / _weighted_total) if _weighted_total > 0 else 0
+        # Store sentinel counts so the template ratio (fms_on_time/fms_completed) still works
+        fms_on_time = round(fms_on_time_rate * fms_completed / 100) if fms_completed > 0 else 0
     except Exception:
         fms_completed = fms_on_time = 0
     k.fms_completed = fms_completed
@@ -1248,10 +1255,10 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
         ).order_by(ChecklistAssignment.due_at).all()
 
-        # ── Employee Performance Score (formula-driven) ───────────────────────
+        # ── Employee Performance Score (formula-driven, Phase A5 stage scoring) ─
         _has_fms = has_feature(tenant, "FMS", db) if hasattr(tenant, "plan") else True
-        _emp_fms_ontime = sum(1 for t in complete_fms if t.due_at and t.updated_at and t.updated_at <= t.due_at) if complete_fms else 0
-        _emp_fms_pct = round(_emp_fms_ontime / len(complete_fms) * 100) if complete_fms else None
+        _fms_stage = get_fms_employee_stage_kpis(db, user.id, user.tenant_id)
+        _emp_fms_pct = _fms_stage["fms_on_time_rate"] if _fms_stage["total_tickets"] > 0 else None
         _emp_kv = {
             "ticket_on_time":       int(kpis.get("on_time_rate", 0)) if kpis.get("total_assigned", 0) > 0 else None,
             "ticket_completion":    int(kpis.get("completion_rate", kpis.get("on_time_rate", 0))),
@@ -3923,38 +3930,13 @@ def employee_performance(
     cl_overdue = cl_base.filter(ChecklistAssignment.status == "OVERDUE").count()
     cl_compliance = round(cl_done / cl_total * 100) if cl_total else 0
 
-    from .database import FMSTicketHelper as _FTH
-    fms_base = (
-        db.query(_FTH)
-        .filter(_FTH.user_id == emp_id)
-        .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
-        .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
-                FMSTicket.created_at >= since)
-    )
-    fms_total = fms_base.count()
-    fms_done  = (
-        db.query(_FTH)
-        .filter(_FTH.user_id == emp_id)
-        .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
-        .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
-                FMSTicket.created_at >= since,
-                FMSTicket.status.in_(["COMPLETED", "CLOSED"]))
-        .count()
-    )
-    fms_on_time = (
-        db.query(_FTH)
-        .filter(_FTH.user_id == emp_id)
-        .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
-        .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
-                FMSTicket.created_at >= since,
-                FMSTicket.status.in_(["COMPLETED", "CLOSED"]),
-                FMSTicket.due_at != None,
-                FMSTicket.completed_at != None,
-                FMSTicket.completed_at <= FMSTicket.due_at)
-        .count()
-    )
-    fms_on_time_pct  = round(fms_on_time / fms_done * 100) if fms_done > 0 else 0
-    fms_complete_pct = round(fms_done / fms_total * 100)   if fms_total > 0 else 0
+    # ── FMS stage-level scoring (Phase A5) ─────────────────────────────────
+    fms_stage_kpis = get_fms_employee_stage_kpis(db, emp_id, tid, since=since)
+    fms_total      = fms_stage_kpis["total_tickets"]
+    fms_on_time    = fms_stage_kpis["on_time_tickets"]
+    fms_late       = fms_stage_kpis["late_tickets"]
+    fms_on_time_pct = fms_stage_kpis["fms_on_time_rate"]
+    fms_stage_detail = fms_stage_kpis["stage_detail"]
 
     # ── Score components (transparent calculation) ──────────────────────────
     _closed_30d   = ticket_kpis.get("closed_30d", 0)
@@ -3962,13 +3944,10 @@ def employee_performance(
     ticket_score = (ticket_kpis.get("on_time_rate", 0) if _closed_30d > 0
                     else (0 if _active_count > 0 else None))
     cl_score     = cl_compliance if cl_total > 0 else None
-    # FMS score: prefer on-time rate if due_at data exists, fall back to completion rate
-    fms_score    = fms_on_time_pct if (fms_done > 0 and fms_on_time > 0) else (fms_complete_pct if fms_total > 0 else None)
+    fms_score    = fms_on_time_pct if fms_total > 0 else None
 
-    # Always include all 3 components; value=None means no data yet (shown as placeholder)
-    fms_metric = "On-Time Rate" if (fms_done > 0 and fms_on_time > 0) else "Completion Rate"
-    fms_detail = (f"{fms_on_time} of {fms_done} on time" if (fms_done > 0 and fms_on_time > 0)
-                  else (f"{fms_done} of {fms_total} completed" if fms_total > 0 else "No flow ticket data yet"))
+    fms_detail = (f"{fms_on_time} of {fms_total} tickets on time"
+                  if fms_total > 0 else "No flow stage data yet")
     score_components = [
         {
             "label": "Tickets",
@@ -3988,7 +3967,7 @@ def employee_performance(
         },
         {
             "label": "Flow Tickets",
-            "metric": fms_metric,
+            "metric": "Stage On-Time Rate",
             "value": fms_score,
             "detail": fms_detail,
             "color": "#8b5cf6",
@@ -4001,7 +3980,7 @@ def employee_performance(
         "ticket_completion":    None,
         "checklist_compliance": cl_score,
         "checklist_on_time":    None,
-        "fms_on_time":          fms_on_time_pct if fms_done > 0 else None,
+        "fms_on_time":          fms_on_time_pct if fms_total > 0 else None,
     }
     overall_score, _ = _compute_perf_score(_ep_kv, _ep_fw)
     active_components = [c for c in score_components if c["value"] is not None]
@@ -4013,11 +3992,13 @@ def employee_performance(
         "ticket_kpis": ticket_kpis,
         "cl_total": cl_total, "cl_done": cl_done,
         "cl_overdue": cl_overdue, "cl_compliance": cl_compliance,
-        "fms_total": fms_total, "fms_done": fms_done,
-        "fms_on_time": fms_on_time, "fms_on_time_pct": fms_on_time_pct,
-        "fms_complete_pct": fms_complete_pct,
+        "fms_total": fms_total, "fms_on_time": fms_on_time,
+        "fms_late": fms_late, "fms_on_time_pct": fms_on_time_pct,
+        "fms_stage_detail": fms_stage_detail,
         "overall_score": overall_score,
         "score_components": score_components,
+        "active_formula": _get_active_formula(db, tid),
+        "perf_kpi_keys": _PERF_KPI_KEYS,
         "managers": db.query(User).filter(
             User.tenant_id == tid, User.is_deleted == False,
             User.role.in_(["ADMIN", "MANAGER"]),
@@ -4545,11 +4526,14 @@ def kpi_page(request: Request, user: User = Depends(get_current_user),
     if user.role in ("ADMIN", "MANAGER") and has_feature(tenant, "KPI_CHARTS_ADMIN", db):
         admin_kpis = get_all_employee_kpis(db, tid)
 
+    fms_stage_kpis = get_fms_employee_stage_kpis(db, user.id, tid)
+
     return templates.TemplateResponse(request, "kpi.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "kpis": kpis, "org_avg_tat": org_avg,
         "admin_kpis": admin_kpis,
+        "fms_stage_kpis": fms_stage_kpis,
         "can_export": has_feature(tenant, "CSV_EXPORT", db),
     })
 

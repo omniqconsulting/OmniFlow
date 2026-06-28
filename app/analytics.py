@@ -172,6 +172,9 @@ def get_all_employee_kpis(db: Session, tenant_id: str) -> list:
     result = []
     for emp in employees:
         kpis = get_employee_kpis(db, emp.id, tenant_id)
+        fms_kpis = get_fms_employee_stage_kpis(db, emp.id, tenant_id)
+        kpis["fms_on_time"] = fms_kpis["fms_on_time_rate"]
+        kpis["fms_total_tickets"] = fms_kpis["total_tickets"]
         kpis["user"] = emp
         result.append(kpis)
     # Sort by compliance rate ascending (worst first) for admin bar chart
@@ -624,6 +627,89 @@ def get_fms_stage_breakdown(db: Session, flow_id: str, tenant_id: str) -> list:
                         "oldest_hrs": oldest,
                         "breaches": breaches})
     return result
+
+
+def get_fms_employee_stage_kpis(db: Session, user_id: str, tenant_id: str, since=None) -> dict:
+    """Stage-level FMS on-time scoring for one employee — Phase A5.
+
+    Computes FMS on-time rate by measuring whether each stage history row
+    was completed within (entered_at + stage.target_tat_hours).  Scoring is
+    at the ticket level: a ticket is ON_TIME only if every evaluated stage is
+    on time.  Stages without a TaT target and in-progress stages are excluded
+    from the calculation entirely.
+    """
+    from .database import FMSStageHistory, FMSTicket, FMSStage
+    from collections import defaultdict
+
+    IST = timedelta(hours=5, minutes=30)
+
+    q = (db.query(FMSStageHistory)
+         .join(FMSTicket, FMSStageHistory.ticket_id == FMSTicket.id)
+         .filter(
+             FMSStageHistory.assignee_id == user_id,
+             FMSTicket.tenant_id == tenant_id,
+             FMSTicket.is_deleted == False,
+         ))
+    if since:
+        q = q.filter(FMSStageHistory.entered_at >= since)
+    rows = q.all()
+
+    by_ticket: dict = defaultdict(list)
+    for row in rows:
+        by_ticket[row.ticket_id].append(row)
+
+    total_tickets = on_time_tickets = late_tickets = 0
+    stage_detail = []
+
+    for ticket_id, history_rows in by_ticket.items():
+        ticket = history_rows[0].ticket
+        evaluated = []
+
+        for h in history_rows:
+            stage = db.query(FMSStage).get(h.stage_id)
+            target_tat = stage.target_tat_hours if stage else None
+            window_end = (h.entered_at + timedelta(hours=target_tat)) if (h.entered_at and target_tat) else None
+
+            if h.exited_at is None:
+                result = "IN_PROGRESS"
+            elif target_tat is None:
+                result = "NO_TAT"
+            elif h.exited_at <= window_end:
+                result = "ON_TIME"
+            else:
+                result = "LATE"
+
+            stage_detail.append({
+                "ticket_display_id": ticket.display_id or ticket_id[:8],
+                "ticket_title":      ticket.title,
+                "stage_name":        h.stage_name or (stage.name if stage else "—"),
+                "entered_at":        (h.entered_at + IST) if h.entered_at else None,
+                "exited_at":         (h.exited_at + IST) if h.exited_at else None,
+                "window_end":        (window_end + IST) if window_end else None,
+                "result":            result,
+            })
+
+            if result in ("ON_TIME", "LATE"):
+                evaluated.append(result)
+
+        if not evaluated:
+            continue
+
+        total_tickets += 1
+        if all(r == "ON_TIME" for r in evaluated):
+            on_time_tickets += 1
+        else:
+            late_tickets += 1
+
+    rate = round(on_time_tickets / total_tickets * 100) if total_tickets > 0 else 0
+
+    return {
+        "total_tickets":   total_tickets,
+        "on_time_tickets": on_time_tickets,
+        "late_tickets":    late_tickets,
+        "fms_on_time_rate": rate,
+        "stage_detail":    stage_detail,
+    }
 
 
 def get_fms_weekly(db: Session, tenant_id: str) -> dict:

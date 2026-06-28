@@ -138,91 +138,172 @@
     {% endif %}
   </div>
 
-  <!-- FMS -->
+  <!-- FMS Stage On-Time -->
   <div class="card" style="padding:20px">
-    <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">Flow Tickets ({{ period }})</div>
+    <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">Flow Tickets — Stage On-Time ({{ period }})</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
       <div style="background:var(--bg-input);border-radius:8px;padding:12px;text-align:center">
         <div style="font-size:22px;font-weight:700;color:#7dd3fc">{{ fms_total }}</div>
-        <div style="font-size:10px;color:var(--text-faint)">Assigned</div>
-      </div>
-      <div style="background:var(--bg-input);border-radius:8px;padding:12px;text-align:center">
-        <div style="font-size:22px;font-weight:700;color:#a78bfa">{{ fms_done }}</div>
-        <div style="font-size:10px;color:var(--text-faint)">Completed</div>
+        <div style="font-size:10px;color:var(--text-faint)">Tickets Scored</div>
       </div>
       <div style="background:var(--bg-input);border-radius:8px;padding:12px;text-align:center">
         <div style="font-size:22px;font-weight:700;color:#6ee7b7">{{ fms_on_time }}</div>
-        <div style="font-size:10px;color:var(--text-faint)">Completed On Time</div>
+        <div style="font-size:10px;color:var(--text-faint)">On Time</div>
+      </div>
+      <div style="background:var(--bg-input);border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#f87171">{{ fms_late }}</div>
+        <div style="font-size:10px;color:var(--text-faint)">Late</div>
       </div>
       <div style="background:var(--bg-input);border-radius:8px;padding:12px;text-align:center">
         <div style="font-size:22px;font-weight:700;color:{% if fms_on_time_pct >= 80 %}#6ee7b7{% elif fms_on_time_pct >= 60 %}#fbbf24{% else %}#f87171{% endif %}">{{ fms_on_time_pct }}%</div>
-        <div style="font-size:10px;color:var(--text-faint)">On-Time Rate</div>
+        <div style="font-size:10px;color:var(--text-faint)">Stage On-Time Rate</div>
       </div>
     </div>
     {% if fms_total > 0 %}
     <div>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-xfaint);margin-bottom:4px">
-        <span>Completion Rate</span><span>{{ fms_complete_pct }}%</span>
+        <span>On-Time Rate</span><span>{{ fms_on_time }} of {{ fms_total }} tickets</span>
       </div>
       <div style="background:var(--bg-elevated);border-radius:99px;height:6px;overflow:hidden">
-        <div style="height:100%;border-radius:99px;width:{{ fms_complete_pct }}%;background:{% if fms_complete_pct >= 80 %}#10b981{% elif fms_complete_pct >= 60 %}#f59e0b{% else %}#ef4444{% endif %}"></div>
+        <div style="height:100%;border-radius:99px;width:{{ fms_on_time_pct }}%;background:{% if fms_on_time_pct >= 80 %}#10b981{% elif fms_on_time_pct >= 60 %}#f59e0b{% else %}#ef4444{% endif %}"></div>
       </div>
     </div>
     {% else %}
-    <div style="text-align:center;color:var(--text-xfaint);font-size:12px;padding:16px 0">No flow tickets in this period</div>
+    <div style="text-align:center;color:var(--text-xfaint);font-size:12px;padding:16px 0">No flow stage data in this period</div>
     {% endif %}
   </div>
 </div>
 
-<!-- ── Score Breakdown ────────────────────────────────────────────────────── -->
-{% set active_comp_count = score_components | selectattr("value", "ne", none) | list | length %}
-<div class="card" style="padding:24px;margin-bottom:20px;background:transparent;border:1px solid var(--border-subtle)">
-  <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:20px">Score Breakdown</div>
+<!-- ── FMS Stage Detail Table ─────────────────────────────────────────────── -->
+{% if fms_stage_detail %}
+<div class="card" style="padding:20px;margin-bottom:20px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em">FMS Stage Performance Detail</div>
+    <button onclick="this.closest('.card').querySelector('.stage-detail-body').classList.toggle('hidden')"
+            style="font-size:11px;color:var(--text-faint);background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:4px;border:1px solid var(--border-subtle)">
+      Toggle ▾
+    </button>
+  </div>
+  <div style="font-size:11px;color:var(--text-xfaint);margin-bottom:14px">
+    {{ fms_on_time }} of {{ fms_total }} tickets on time · {{ fms_stage_detail | selectattr('result','in',['ON_TIME','LATE']) | list | length }} stages evaluated
+  </div>
 
-  <div style="display:flex;align-items:stretch;gap:0;flex-wrap:wrap">
-    {% for comp in score_components %}
-    {% set has_data = comp.value is not none %}
-    <!-- Component block -->
-    <div style="flex:1;min-width:100px;display:flex;flex-direction:column;align-items:center;padding:16px 12px;
-         background:var(--bg-input);border-radius:10px;opacity:{% if has_data %}1{% else %}0.45{% endif %}">
-      <div style="width:10px;height:10px;border-radius:50%;background:{{ comp.color }};margin-bottom:8px"></div>
-      <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:2px">{{ comp.label }}</div>
-      <div style="font-size:10px;color:var(--text-xfaint);margin-bottom:12px">{{ comp.metric }}</div>
-      {% if has_data %}
-      <div style="font-size:28px;font-weight:800;color:{{ comp.color }};line-height:1">{{ comp.value }}%</div>
-      <div style="font-size:10px;color:var(--text-faint);margin-top:6px">{{ comp.detail }}</div>
-      <div style="width:100%;background:var(--bg-elevated);border-radius:99px;height:4px;margin-top:10px;overflow:hidden">
-        <div style="height:100%;border-radius:99px;width:{{ comp.value }}%;background:{{ comp.color }};opacity:0.8"></div>
-      </div>
-      {% else %}
-      <div style="font-size:22px;font-weight:700;color:var(--text-xfaint);line-height:1">—</div>
-      <div style="font-size:10px;color:var(--text-xfaint);margin-top:6px">{{ comp.detail }}</div>
-      <div style="width:100%;background:var(--bg-elevated);border-radius:99px;height:4px;margin-top:10px"></div>
-      {% endif %}
+  <!-- Column legend -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
+    <div style="background:var(--bg-input);border-radius:8px;padding:10px 12px">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Entered (IST)</div>
+      <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">The exact moment this employee received ownership of the stage — this is when their personal timer starts.</div>
     </div>
-
-    {% if not loop.last %}
-    <div style="display:flex;align-items:center;padding:0 8px;color:var(--text-xfaint);font-size:18px;font-weight:300;flex-shrink:0">+</div>
-    {% endif %}
-    {% endfor %}
-
-    <!-- Divider + equals -->
-    <div style="display:flex;align-items:center;padding:0 8px;color:var(--text-faint);font-size:16px;font-weight:300;flex-shrink:0">
-      ÷ {{ active_comp_count if active_comp_count > 0 else '—' }} =
+    <div style="background:var(--bg-input);border-radius:8px;padding:10px 12px">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Window End</div>
+      <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">Entered + stage TaT target. If the employee exits before this time they are <span style="color:#6ee7b7;font-weight:600">On Time</span>, after it they are <span style="color:#f87171;font-weight:600">Late</span>.</div>
     </div>
-
-    <!-- Final Score -->
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px 20px;
-         border-radius:10px;border:2px solid
-         {% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% elif active_comp_count > 0 %}#ef4444{% else %}var(--border-subtle){% endif %};
-         min-width:100px;flex-shrink:0">
-      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Final Score</div>
-      <div style="font-size:36px;font-weight:800;line-height:1;
-           color:{% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% elif active_comp_count > 0 %}#ef4444{% else %}var(--text-xfaint){% endif %}">
-        {% if active_comp_count > 0 %}{{ overall_score }}%{% else %}—{% endif %}
+    <div style="background:var(--bg-input);border-radius:8px;padding:10px 12px">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Result</div>
+      <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">
+        <span style="color:#6ee7b7;font-weight:600">On Time</span> — exited within window ·
+        <span style="color:#f87171;font-weight:600">Late</span> — exited after window ·
+        <span style="color:#7dd3fc;font-weight:600">In Progress</span> — not yet exited ·
+        <span style="color:var(--text-xfaint);font-weight:600">No TAT</span> — stage has no target, excluded from score
       </div>
-      <div style="font-size:11px;color:var(--text-xfaint);margin-top:6px">
-        {% if active_comp_count == 0 %}No activity yet
+    </div>
+  </div>
+
+  <div class="stage-detail-body">
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="background:var(--bg-elevated)">
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Ticket</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Stage</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Entered (IST)</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Window End</th>
+            <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Exited (IST)</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in fms_stage_detail %}
+          <tr style="border-bottom:1px solid var(--border-subtle)">
+            <td style="padding:7px 10px">
+              <div style="font-weight:500;color:var(--text-primary)">{{ s.ticket_display_id }}</div>
+              <div style="font-size:11px;color:var(--text-xfaint);max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.ticket_title }}</div>
+            </td>
+            <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.stage_name }}</td>
+            <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.entered_at.strftime('%d %b %H:%M') if s.entered_at else '—' }}</td>
+            <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.window_end.strftime('%d %b %H:%M') if s.window_end else '—' }}</td>
+            <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.exited_at.strftime('%d %b %H:%M') if s.exited_at else '—' }}</td>
+            <td style="padding:7px 10px;text-align:center">
+              {% if s.result == 'ON_TIME' %}
+              <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#10b98122;color:#6ee7b7;font-weight:700">ON TIME</span>
+              {% elif s.result == 'LATE' %}
+              <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#ef444422;color:#f87171;font-weight:700">LATE</span>
+              {% elif s.result == 'IN_PROGRESS' %}
+              <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#3b82f622;color:#7dd3fc;font-weight:700">IN PROGRESS</span>
+              {% else %}
+              <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:var(--bg-elevated);color:var(--text-xfaint);font-weight:700">NO TAT</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Performance Score & Formula ───────────────────────────────────────── -->
+{% set _kpi_meta = {
+  'ticket_on_time':       {'label': 'Ticket On-Time Rate',    'color': '#3b82f6', 'group': 'Delegation'},
+  'ticket_completion':    {'label': 'Ticket Completion Rate', 'color': '#60a5fa', 'group': 'Delegation'},
+  'checklist_compliance': {'label': 'Checklist Compliance',   'color': '#10b981', 'group': 'Checklists'},
+  'checklist_on_time':    {'label': 'Checklist On-Time Rate', 'color': '#34d399', 'group': 'Checklists'},
+  'fms_on_time':          {'label': 'FMS Stage On-Time Rate', 'color': '#8b5cf6', 'group': 'FMS'},
+} %}
+{% set _fw = active_formula %}
+{% set _total_w = (_fw.values() | sum) if _fw else 0 %}
+
+{# Build a lookup: kpi_key → component value from score_components #}
+{% set _kv = namespace(ticket_on_time=none, ticket_completion=none, checklist_compliance=none, checklist_on_time=none, fms_on_time=none) %}
+{% for c in score_components %}
+  {% if c.label == 'Tickets' %}{% set _kv.ticket_on_time = c.value %}{% set _kv.ticket_completion = c.value %}
+  {% elif c.label == 'Checklists' %}{% set _kv.checklist_compliance = c.value %}{% set _kv.checklist_on_time = c.value %}
+  {% elif c.label == 'Flow Tickets' %}{% set _kv.fms_on_time = c.value %}{% endif %}
+{% endfor %}
+{% set _kv_map = {
+  'ticket_on_time': _kv.ticket_on_time,
+  'ticket_completion': _kv.ticket_completion,
+  'checklist_compliance': _kv.checklist_compliance,
+  'checklist_on_time': _kv.checklist_on_time,
+  'fms_on_time': _kv.fms_on_time,
+} %}
+
+{# Count active (have data + weight > 0) components for denominator display #}
+{% set _active_keys = [] %}
+{% for k in perf_kpi_keys %}
+  {% set w = _fw.get(k, 0) if _fw else 0 %}
+  {% if w > 0 and _kv_map[k] is not none %}
+    {% set _ = _active_keys.append(k) %}
+  {% endif %}
+{% endfor %}
+
+<div class="card" style="padding:24px;margin-bottom:20px">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em">Performance Score</div>
+      <div style="font-size:11px;color:var(--text-xfaint);margin-top:3px">How this score is calculated · <a href="/setup/performance-formula" style="color:#7dd3fc;text-decoration:none">Edit formula →</a></div>
+    </div>
+    <!-- Final score badge -->
+    <div style="display:flex;flex-direction:column;align-items:center;padding:14px 24px;border-radius:12px;
+         border:2px solid {% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% elif _active_keys %}#ef4444{% else %}var(--border-subtle){% endif %}">
+      <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Final Score</div>
+      <div style="font-size:38px;font-weight:800;line-height:1;
+           color:{% if overall_score >= 80 %}#10b981{% elif overall_score >= 60 %}#f59e0b{% elif _active_keys %}#ef4444{% else %}var(--text-xfaint){% endif %}">
+        {% if _active_keys %}{{ overall_score }}%{% else %}—{% endif %}
+      </div>
+      <div style="font-size:11px;color:var(--text-xfaint);margin-top:4px">
+        {% if not _active_keys %}No activity yet
         {% elif overall_score >= 80 %}Excellent
         {% elif overall_score >= 60 %}Good
         {% else %}Needs Improvement{% endif %}
@@ -230,9 +311,109 @@
     </div>
   </div>
 
-  <div style="margin-top:14px;font-size:11px;color:var(--text-xfaint);text-align:center">
-    Score = average across modules with data · dimmed modules have no activity this period
+  {% if _fw and _total_w > 0 %}
+  <!-- Weight distribution bar -->
+  <div style="display:flex;height:6px;border-radius:4px;overflow:hidden;gap:1px;margin-bottom:20px">
+    {% for k in perf_kpi_keys %}{% set w = _fw.get(k, 0) %}{% if w > 0 %}
+    {% set pct = ((w / _total_w) * 100) | round | int %}
+    <div style="flex:{{ pct }};background:{{ _kpi_meta[k].color }};{% if _kv_map[k] is none %}opacity:0.3{% endif %}" title="{{ _kpi_meta[k].label }}: {{ pct }}%"></div>
+    {% endif %}{% endfor %}
   </div>
+
+  <!-- KPI rows with full calculation -->
+  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
+    {% for k in perf_kpi_keys %}
+    {% set w = _fw.get(k, 0) %}
+    {% set meta = _kpi_meta[k] %}
+    {% set eff_pct = ((w / _total_w) * 100) | round | int if _total_w > 0 else 0 %}
+    {% set val = _kv_map[k] %}
+    {% set has_data = val is not none %}
+    {% set weighted_contribution = ((val * eff_pct / 100) | round | int) if has_data else none %}
+
+    <div style="display:grid;grid-template-columns:16px 1fr 90px 60px 80px 80px 70px;align-items:center;gap:10px;
+         padding:10px 14px;border-radius:8px;
+         background:{% if w == 0 or not has_data %}transparent{% else %}var(--bg-input){% endif %};
+         border:1px solid {% if w == 0 or not has_data %}transparent{% else %}var(--border-subtle){% endif %};
+         opacity:{% if w == 0 %}0.35{% elif not has_data %}0.55{% else %}1{% endif %}">
+
+      <!-- Dot -->
+      <div style="width:8px;height:8px;border-radius:50%;background:{{ meta.color }};flex-shrink:0"></div>
+
+      <!-- Name + group -->
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary)">{{ meta.label }}</div>
+        <div style="font-size:10px;color:var(--text-xfaint)">{{ meta.group }}{% if w == 0 %} · excluded{% endif %}</div>
+      </div>
+
+      <!-- Weight bar -->
+      <div style="display:flex;align-items:center;gap:6px">
+        <div style="flex:1;background:var(--bg-elevated);border-radius:99px;height:4px;overflow:hidden">
+          <div style="height:100%;border-radius:99px;width:{{ eff_pct }}%;background:{{ meta.color }};opacity:{% if has_data %}1{% else %}0.4{% endif %}"></div>
+        </div>
+        <div style="font-size:11px;font-weight:700;color:{{ meta.color }};white-space:nowrap;flex-shrink:0">{{ eff_pct if w > 0 else '—' }}%</div>
+      </div>
+
+      <!-- Separator × -->
+      <div style="font-size:13px;color:var(--text-xfaint);text-align:center">×</div>
+
+      <!-- Employee's actual KPI value -->
+      <div style="text-align:center">
+        {% if not has_data %}
+        <span style="font-size:12px;color:var(--text-xfaint)">no data</span>
+        {% else %}
+        <span style="font-size:16px;font-weight:800;color:{% if val >= 80 %}#6ee7b7{% elif val >= 60 %}#fbbf24{% else %}#f87171{% endif %}">{{ val }}%</span>
+        {% endif %}
+      </div>
+
+      <!-- Separator = -->
+      <div style="font-size:13px;color:var(--text-xfaint);text-align:center">=</div>
+
+      <!-- Weighted contribution -->
+      <div style="text-align:right">
+        {% if not has_data or w == 0 %}
+        <span style="font-size:12px;color:var(--text-xfaint)">—</span>
+        {% else %}
+        <span style="font-size:13px;font-weight:700;color:var(--text-primary)">{{ weighted_contribution }}pts</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Calculation summary row -->
+  {% if _active_keys %}
+  {% set _sum_pts = namespace(v=0) %}
+  {% for k in _active_keys %}
+    {% set w = _fw.get(k, 0) %}
+    {% set eff_pct = ((w / _total_w) * 100) | round | int %}
+    {% set _sum_pts.v = _sum_pts.v + ((_kv_map[k] * eff_pct / 100) | round | int) %}
+  {% endfor %}
+  <div style="padding:12px 14px;border-radius:8px;background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.2)">
+    <div style="font-size:11px;color:var(--text-xfaint);margin-bottom:6px">Calculation</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.8">
+      {% for k in _active_keys %}
+      {% set w = _fw.get(k, 0) %}
+      {% set eff_pct = ((w / _total_w) * 100) | round | int %}
+      {% set val = _kv_map[k] %}
+      {% set contrib = ((val * eff_pct / 100) | round | int) %}
+      <span style="color:{{ _kpi_meta[k].color }};font-weight:600">{{ _kpi_meta[k].label }}</span>
+      <span style="color:var(--text-xfaint)">({{ eff_pct }}% × {{ val }}% = <strong style="color:var(--text-primary)">{{ contrib }}pts</strong>)</span>
+      {% if not loop.last %}<span style="color:var(--text-xfaint);margin:0 4px">+</span>{% endif %}
+      {% endfor %}
+      <span style="color:var(--text-xfaint);margin:0 6px">→</span>
+      <span style="color:var(--text-xfaint)">sum = </span><strong style="color:var(--text-primary)">{{ _sum_pts.v }}pts</strong>
+      <span style="color:var(--text-xfaint);margin:0 4px">÷ {{ _active_keys | length }} active KPIs =</span>
+      <strong style="font-size:14px;color:{% if overall_score >= 80 %}#6ee7b7{% elif overall_score >= 60 %}#fbbf24{% else %}#f87171{% endif %}">{{ overall_score }}%</strong>
+    </div>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div style="font-size:12px;color:var(--text-xfaint);text-align:center;padding:16px 0">
+    No formula configured — using default weights.
+    <a href="/setup/performance-formula" style="color:#7dd3fc;text-decoration:none;margin-left:6px">Set up formula →</a>
+  </div>
+  {% endif %}
 </div>
 
 {% endblock %}
