@@ -37,9 +37,9 @@ html.light {
   --bg-modal:      #ffffff;
   --text-primary:  #1e293b;
   --text-strong:   #0f172a;
-  --text-muted:    #475569;
-  --text-faint:    #64748b;
-  --text-xfaint:   #94a3b8;
+  --text-muted:    #374151;
+  --text-faint:    #374151;
+  --text-xfaint:   #4B5563;
   --border-subtle: rgba(0,0,0,0.09);
   --border-med:    rgba(0,0,0,0.14);
   --border-strong: rgba(0,0,0,0.20);
@@ -84,6 +84,16 @@ html.light .btn-red:hover { background: #b91c1c !important; }
 html.light .btn-green { background: #059669 !important; color: #fff !important; border-color: transparent !important; }
 html.light .btn-purple { background: #7c3aed !important; color: #fff !important; border-color: transparent !important; }
 html.light .btn-sm { font-size: 11px; }
+/* E-03: Inactive stage nodes in FMS flow progress bar */
+html.light .hpb-step.is-future .hpb-label { color: #4B5563; }
+html.light .hpb-step:hover .hpb-node { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.2); }
+html.light .hpb-step.is-current:hover .hpb-node { background: color-mix(in srgb,var(--sc) 20%,rgba(255,255,255,0.8)); }
+html.light .hpb-dot-future { background: rgba(0,0,0,0.18); }
+html.light .hpb-meta-done { color: #059669; }
+/* E-03: Stage accordion visit rows — dark bg wrong in light mode */
+html.light .visit-row { background: #f1f5f9; border: 1px solid var(--border-subtle); }
+/* E-03: Non-active status tab labels */
+html.light .status-tab { color: #4B5563; }
 /* view-toggle buttons (List / Org Chart) */
 html.light .view-btn { color: #475569; background: transparent; border-color: rgba(0,0,0,0.18); }
 html.light .view-btn:hover { color: #1e293b; background: rgba(0,0,0,0.04); }
@@ -128,12 +138,12 @@ a:hover{color:#93c5fd}
 .card h2{font-size:14px;font-weight:600;color:var(--text-strong);margin-bottom:14px}
 
 /* ── BUTTONS ── */
-.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border-strong);background:var(--bg-elevated);color:var(--text-primary);text-decoration:none;transition:all 0.12s;font-family:inherit;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--border-strong);background:var(--bg-elevated);color:var(--text-primary);text-decoration:none;transition:all 0.12s;font-family:inherit;white-space:nowrap}
 .btn:hover{background:var(--bg-elevated);color:var(--text-strong);border-color:var(--border-strong)}
 .btn-primary{background:#3b82f6;border-color:transparent;color:#fff}
 .btn-primary:hover{background:var(--accent-hover);color:#fff}
-.btn-sm{padding:4px 10px;font-size:11px;border-radius:6px}
-.btn-xs{padding:3px 8px;font-size:11px;border-radius:5px}
+.btn-sm{padding:5px 12px;font-size:12px;border-radius:6px}
+.btn-xs{padding:4px 10px;font-size:12px;border-radius:5px}
 .btn-green{background:#059669;border-color:transparent;color:#fff}
 .btn-green:hover{background:#047857;color:#fff}
 .btn-red{background:#dc2626;border-color:transparent;color:#fff}
@@ -186,20 +196,20 @@ html.light input[type="datetime-local"]{color-scheme:light}
 
 /* ── TABLES ── */
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:9px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)}
-td{padding:11px 12px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;color:var(--text-primary)}
+th{text-align:left;padding:11px 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)}
+td{padding:13px 14px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;color:var(--text-primary);font-size:13px}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--row-hover)}
 
 /* ── BADGES ── */
-.badge{display:inline-block;padding:3px 9px;border-radius:99px;font-size:10px;font-weight:600;letter-spacing:0.02em}
-.badge-blue{background:rgba(59,130,246,0.18);color:#7dd3fc}
-.badge-green{background:rgba(16,185,129,0.18);color:#6ee7b7}
-.badge-red{background:rgba(239,68,68,0.18);color:#fca5a5}
-.badge-yellow{background:rgba(245,158,11,0.18);color:#fcd34d}
-.badge-purple{background:rgba(139,92,246,0.18);color:#c4b5fd}
-.badge-gray{background:var(--hover-bg);color:var(--text-muted)}
-.badge-amber{background:rgba(217,119,6,0.18);color:#fcd34d}
+.badge{display:inline-block;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:600;letter-spacing:0.02em}
+.badge-blue{background:rgba(59,130,246,0.22);color:#93c5fd}
+.badge-green{background:rgba(16,185,129,0.22);color:#6ee7b7}
+.badge-red{background:rgba(239,68,68,0.22);color:#fca5a5}
+.badge-yellow{background:rgba(245,158,11,0.22);color:#fcd34d}
+.badge-purple{background:rgba(139,92,246,0.22);color:#c4b5fd}
+.badge-gray{background:var(--hover-bg);color:var(--text-primary)}
+.badge-amber{background:rgba(217,119,6,0.22);color:#fcd34d}
 
 /* ── ALERTS ── */
 .alert{padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px}
@@ -212,15 +222,15 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .overdue{color:#f87171!important}
 .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
-.page-title{font-size:18px;font-weight:700;color:var(--text-strong)}
-.muted{color:var(--text-faint);font-size:12px}
+.page-title{font-size:19px;font-weight:700;color:var(--text-strong)}
+.muted{color:var(--text-faint);font-size:13px}
 
 /* ── KPI GRID (for dashboard) ── */
-.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px}
-.kpi-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:18px}
-.kpi-card .label{font-size:10px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:0.06em}
-.kpi-card .value{font-size:28px;font-weight:700;margin-top:8px;color:var(--text-strong)}
-.kpi-card .sub{font-size:11px;color:var(--text-faint);margin-top:4px}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+.kpi-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:20px 22px}
+.kpi-card .label{font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em}
+.kpi-card .value{font-size:30px;font-weight:700;margin-top:10px;color:var(--text-strong)}
+.kpi-card .sub{font-size:12px;color:var(--text-muted);margin-top:5px}
 
 /* ── LOAD BARS ── */
 .load-bar{height:5px;border-radius:3px;background:var(--hover-bg);overflow:hidden;margin-top:7px}
@@ -281,6 +291,9 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
   {% endif %}
   {% if has_fms %}
   <a href="/fms/dashboard" {% if '/fms' in request.url.path %}class="active"{% endif %}>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a>
+  {% endif %}
+  {% if has_knowledge_repo %}
+  <a href="/knowledge" {% if '/knowledge' in request.url.path %}class="active"{% endif %}>Knowledge</a>
   {% endif %}
   {% if user.role in ('ADMIN','MANAGER') %}
   <a href="/employees" {% if '/employees' in request.url.path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>

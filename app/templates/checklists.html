@@ -4,12 +4,12 @@
 .ev-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:200;align-items:center;justify-content:center}
 .ev-modal-bg.open{display:flex}
 .form-panel{margin-top:10px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:8px;padding:12px}
-.form-panel label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);display:block;margin-bottom:3px}
-.form-panel input,.form-panel select,.form-panel textarea{width:100%;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit;box-sizing:border-box}
+.form-panel label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);display:block;margin-bottom:4px}
+.form-panel input,.form-panel select,.form-panel textarea{width:100%;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;box-sizing:border-box}
 
 /* ── Filter bar ── */
-.cl-filter-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:12px 14px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-subtle);margin-bottom:12px}
-.cl-filter-bar .ms-label,.cl-filter-bar label{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:3px}
+.cl-filter-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:14px 16px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-subtle);margin-bottom:14px}
+.cl-filter-bar .ms-label,.cl-filter-bar label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);display:block;margin-bottom:4px}
 .cl-filter-bar select{background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none}
 
 /* ── Notification pill ── */
@@ -25,8 +25,8 @@
 
 /* ── Left nav ── */
 .cl-nav{width:188px;flex-shrink:0;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:3px;position:sticky;top:16px}
-.cl-nav-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-xfaint);padding:4px 8px 6px;margin-bottom:2px;border-bottom:1px solid var(--border-subtle)}
-.cl-nav-btn{width:100%;text-align:left;background:transparent;border:none;border-radius:8px;padding:9px 10px;font-size:12.5px;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .12s;display:flex;justify-content:space-between;align-items:center;gap:6px;line-height:1.3}
+.cl-nav-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);padding:4px 8px 6px;margin-bottom:2px;border-bottom:1px solid var(--border-subtle)}
+.cl-nav-btn{width:100%;text-align:left;background:transparent;border:none;border-radius:8px;padding:10px 10px;font-size:13px;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .12s;display:flex;justify-content:space-between;align-items:center;gap:6px;line-height:1.3}
 .cl-nav-btn .cl-nav-icon{font-size:14px;flex-shrink:0;opacity:.7}
 .cl-nav-btn .cl-nav-label{flex:1}
 .cl-nav-btn:hover{background:var(--hover-bg);color:var(--text-primary)}
@@ -55,6 +55,7 @@
     <button onclick="show('bulk-modal')" class="btn btn-outline btn-sm">⬆ Bulk Upload</button>
     <button onclick="show('create-modal')" class="btn btn-primary">+ New Checklist</button>
     {% endif %}
+    <a href="/checklists/export?{{ request.query_string.decode() }}" class="btn btn-outline btn-sm" title="Export filtered data as CSV">⬇ Export CSV</a>
   </div>
 </div>
 
@@ -240,26 +241,23 @@
           </div>
           <div style="font-size:11px;color:var(--text-faint);margin-top:2px;display:flex;align-items:center;gap:6px">
             <span>{{ a.user.name if a.user else '—' }}</span>
-            {% if a.template and a.template.frequency %}<span class="badge badge-gray" style="font-size:9px">{{ a.template.frequency }}</span>{% endif %}
+            {% if a.template and a.template.frequency %}<span class="badge badge-gray" style="font-size:11px">{{ a.template.frequency }}</span>{% endif %}
             <span style="color:#f87171">⏰ Due {{ a.due_at.strftime('%d %b, %I:%M %p') if a.due_at else '—' }}</span>
           </div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;flex-shrink:0">
-          {% if a.status == 'PENDING' %}
-          <form method="post" action="/checklists/start/{{ a.id }}">
-            <button type="submit" class="btn btn-sm btn-cyan" style="font-size:10px;padding:3px 8px">▶ Start</button>
-          </form>
-          {% endif %}
           {% set ev_req = a.evidence_required or (a.template and a.template.evidence_required) %}
           {% if ev_req %}
-          <button onclick="openCompleteModal('{{ a.id }}', true, true)" class="btn btn-sm btn-amber" style="font-size:10px;padding:3px 8px">✓ Complete</button>
+          <button onclick="openCompleteModal('{{ a.id }}', true, true)" class="btn btn-sm btn-amber" style="font-size:12px;padding:5px 10px">✓ Complete</button>
           {% else %}
-          <button onclick="toggleForm('tod-{{ a.id }}')" class="btn btn-sm btn-amber" style="font-size:10px;padding:3px 8px">✓ Complete</button>
+          <button onclick="toggleForm('tod-{{ a.id }}')" class="btn btn-sm btn-amber" style="font-size:12px;padding:5px 10px">✓ Complete</button>
           {% endif %}
           <form method="post" action="/checklists/assignments/{{ a.id }}/notify">
-            <button type="submit" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">🔔 Notify</button>
+            <button type="submit" class="btn btn-sm btn-outline" style="font-size:12px;padding:5px 10px">🔔 Notify</button>
           </form>
-          <button onclick="toggleForm('toed-{{ a.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">✏ Edit Due</button>
+          {% if user.role == 'ADMIN' and a.template %}
+          <button onclick="openEditModal('{{ a.template.id }}')" class="btn btn-sm btn-outline" style="font-size:12px;padding:5px 10px">✏ Edit</button>
+          {% endif %}
         </div>
       </div>
       <!-- Overdue complete inline form (delay reason required) -->
@@ -307,10 +305,10 @@
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead>
           <tr style="border-bottom:1px solid var(--border-subtle)">
-            <th style="text-align:left;padding:6px 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Checklist</th>
-            <th style="text-align:left;padding:6px 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Assigned To</th>
-            <th style="text-align:left;padding:6px 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Was Due</th>
-            <th style="text-align:left;padding:6px 10px;color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.05em">Reason</th>
+            <th style="text-align:left;padding:10px 12px;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em">Checklist</th>
+            <th style="text-align:left;padding:10px 12px;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em">Assigned To</th>
+            <th style="text-align:left;padding:10px 12px;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em">Was Due</th>
+            <th style="text-align:left;padding:10px 12px;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em">Reason</th>
           </tr>
         </thead>
         <tbody>
@@ -318,7 +316,7 @@
         <tr style="border-bottom:1px solid var(--border-subtle);{% if loop.last %}border-bottom:none{% endif %}">
           <td style="padding:8px 10px">
             <div style="font-weight:500;color:var(--text-primary)">{{ a.template.title if a.template else '—' }}</div>
-            {% if a.template and a.template.frequency %}<span class="badge badge-gray" style="font-size:9px">{{ a.template.frequency }}</span>{% endif %}
+            {% if a.template and a.template.frequency %}<span class="badge badge-gray" style="font-size:11px">{{ a.template.frequency }}</span>{% endif %}
           </td>
           <td style="padding:8px 10px;color:var(--text-muted)">{{ a.user.name if a.user else '—' }}</td>
           <td style="padding:8px 10px;color:#f87171">{{ a.due_at.strftime('%d %b %Y') if a.due_at else '—' }}</td>
@@ -353,37 +351,26 @@
               <div style="font-size:13px;font-weight:600;color:var(--text-strong)">{{ a.template.title if a.template else '—' }}</div>
               <div style="font-size:11px;color:var(--text-faint);margin-top:2px;display:flex;align-items:center;gap:6px">
                 <span>{{ a.user.name if a.user else '—' }}</span>
-                {% if a.template and a.template.frequency %}<span class="badge badge-gray" style="font-size:9px">{{ a.template.frequency }}</span>{% endif %}
+                {% if a.template and a.template.frequency %}<span class="badge badge-gray" style="font-size:11px">{{ a.template.frequency }}</span>{% endif %}
                 <span style="color:var(--text-muted)">Due {{ a.due_at.strftime('%d %b, %I:%M %p') if a.due_at else '—' }}</span>
               </div>
             </div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;flex-shrink:0">
-              {% if a.status == 'PENDING' %}
-              <form method="post" action="/checklists/start/{{ a.id }}">
-                <button type="submit" class="btn btn-sm btn-cyan" style="font-size:10px;padding:3px 8px">▶ Start</button>
-              </form>
-              {% endif %}
               {% set ev_req = a.evidence_required or (a.template and a.template.evidence_required) %}
               {% if ev_req %}
-              <button onclick="openCompleteModal('{{ a.id }}', false, true)" class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px">✓ Complete</button>
+              <button onclick="openCompleteModal('{{ a.id }}', false, true)" class="btn btn-sm btn-green" style="font-size:12px;padding:5px 10px">✓ Complete</button>
               {% else %}
               <form method="post" action="/checklists/complete/{{ a.id }}" enctype="multipart/form-data">
-                <button type="submit" class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px">✓ Complete</button>
+                <button type="submit" class="btn btn-sm btn-green" style="font-size:12px;padding:5px 10px">✓ Complete</button>
               </form>
               {% endif %}
               <form method="post" action="/checklists/assignments/{{ a.id }}/notify">
-                <button type="submit" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">🔔 Notify</button>
+                <button type="submit" class="btn btn-sm btn-outline" style="font-size:12px;padding:5px 10px">🔔 Notify</button>
               </form>
-              <button onclick="toggleForm('up-edit-{{ a.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">✏ Edit Due</button>
+              {% if user.role == 'ADMIN' and a.template %}
+              <button onclick="openEditModal('{{ a.template.id }}')" class="btn btn-sm btn-outline" style="font-size:12px;padding:5px 10px">✏ Edit</button>
+              {% endif %}
             </div>
-          </div>
-          <div id="up-edit-{{ a.id }}" style="display:none;margin-top:8px">
-            <form method="post" action="/checklists/assignments/{{ a.id }}/edit" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-              <input type="datetime-local" name="due_at" value="{{ a.due_at.strftime('%Y-%m-%dT%H:%M') if a.due_at else '' }}"
-                     style="background:var(--bg-card);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);color-scheme:dark;outline:none" required>
-              <button type="submit" class="btn btn-sm btn-primary">Save</button>
-              <button type="button" onclick="toggleForm('up-edit-{{ a.id }}')" class="btn btn-sm btn-gray">Cancel</button>
-            </form>
           </div>
         </div>
         {% endfor %}
@@ -426,7 +413,7 @@
     {% endif %}
     {% if templates_list %}
     <div style="overflow-x:auto">
-    <table id="cl-table">
+    <table id="cl-table" style="white-space:nowrap">
       <thead>
         <tr>
           {% if user.role == 'ADMIN' %}
@@ -463,7 +450,23 @@
           {% if t.evidence_required %}<span class="badge badge-amber" style="font-size:9px;margin-top:2px">Evidence Req</span>{% endif %}
           {% if not t.is_recurring %}<span class="badge badge-gray" style="font-size:9px;margin-top:3px">One-time</span>{% endif %}
         </td>
-        <td><span class="badge badge-blue" style="font-size:10px">{{ t.frequency }}</span></td>
+        <td><span class="badge badge-blue" style="font-size:10px">
+          {%- set _ft = t.frequency_type if t.frequency_type is defined else none -%}
+          {%- set _cfg = t.frequency_config if t.frequency_config is defined else none -%}
+          {%- if _ft == 'WEEKLY_CUSTOM' and _cfg -%}
+            {%- set _days = _cfg.get('days', []) -%}
+            {%- set _dn = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] -%}
+            {%- if _days | sort | list == [0,1,2,3,4] %}Every weekday
+            {%- else %}Every {% for d in _days | sort %}{{ _dn[d] }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif -%}
+          {%- elif _ft == 'MONTHLY_DATE' and _cfg -%}
+            Every month on the {{ _cfg.get('day','') }}th
+          {%- elif _ft == 'YEARLY_DATE' and _cfg -%}
+            {%- set _mns = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] -%}
+            Every year on {{ _cfg.get('day','') }} {{ _mns[(_cfg.get('month',1)-1)] }}
+          {%- else -%}
+            {{ {'DAILY':'Daily','WEEKLY':'Weekly','MONTHLY':'Monthly','YEARLY':'Yearly','TWICE_A_MONTH':'Twice a month','PER_SHIFT':'Per shift','QUARTERLY':'Quarterly'}.get(t.frequency, t.frequency) }}
+          {%- endif -%}
+        </span></td>
         <td style="font-size:12px;color:var(--text-muted)">
           {% if t.assigned_to_user %}
             <div style="font-weight:500;color:var(--text-primary)">{{ t.assigned_to_user.name }}</div>
@@ -498,32 +501,42 @@
           </span>
         </td>
         <td>
-          <div style="display:flex;gap:4px;flex-direction:column">
+          <div style="display:flex;gap:6px;align-items:center">
+            {# Complete button — primary action, always visible #}
             {% if s.next_assignment %}
               {% set na = s.next_assignment %}
               {% set ev_req = na.evidence_required or (na.template and na.template.evidence_required) %}
               {% if ev_req %}
               <button onclick="openCompleteModal('{{ na.id }}', {{ 'true' if na.status == 'OVERDUE' else 'false' }}, true)"
-                      class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px">📎 Complete</button>
+                      class="btn btn-sm btn-green" style="font-size:12px;padding:5px 10px">📎 Complete</button>
               {% else %}
-              <form method="post" action="/checklists/complete/{{ na.id }}" enctype="multipart/form-data">
-                <button type="submit" class="btn btn-sm btn-green" style="font-size:10px;padding:3px 8px;width:100%">✓ Complete</button>
+              <form method="post" action="/checklists/complete/{{ na.id }}" enctype="multipart/form-data" style="margin:0">
+                <button type="submit" class="btn btn-sm btn-green" style="font-size:12px;padding:5px 10px">✓ Complete</button>
               </form>
               {% endif %}
-              <form method="post" action="/checklists/assignments/{{ na.id }}/notify">
-                <button type="submit" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px;width:100%">🔔 Notify</button>
-              </form>
             {% else %}
-              <div style="font-size:10px;color:var(--text-faint);margin-bottom:2px">No pending assignment</div>
+              <span style="font-size:10px;color:var(--text-faint)">No pending</span>
             {% endif %}
-            <a href="/checklists/history/{{ t.id }}" class="btn btn-sm btn-gray" style="font-size:10px;padding:3px 8px;text-decoration:none;text-align:center">History</a>
-            {% if user.role == 'ADMIN' %}
-            <button onclick="openEditModal('{{ t.id }}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px">✏ Edit</button>
-            <form method="post" action="/checklists/templates/{{ t.id }}/delete"
-                  onsubmit="return confirm('Soft-delete this template? Existing assignments are retained.')">
-              <button type="submit" class="btn btn-sm btn-red" style="font-size:10px;padding:3px 8px;width:100%">Delete</button>
-            </form>
-            {% endif %}
+            {# Three-dot overflow menu #}
+            <div class="cl-action-menu" style="position:relative">
+              <button type="button" class="cl-dot-btn" onclick="clToggleMenu(this)" title="More actions"
+                      style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 7px;font-size:16px;cursor:pointer;color:var(--text-faint);line-height:1.4">&#8942;</button>
+              <div class="cl-dropdown" style="display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:140px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.18);z-index:100;overflow:hidden;font-family:inherit">
+                <a href="/checklists/history/{{ t.id }}" style="display:block;padding:8px 14px;font-size:12px;color:var(--text);text-decoration:none;white-space:nowrap" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">History</a>
+                {% if user.role == 'ADMIN' %}
+                <button type="button" onclick="clToggleMenu(this.closest('.cl-action-menu').querySelector('.cl-dot-btn'));openEditModal('{{ t.id }}')" style="display:block;width:100%;text-align:left;padding:8px 14px;font-size:12px;color:var(--text);background:none;border:none;cursor:pointer;white-space:nowrap" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">Edit</button>
+                {% if s.next_assignment %}
+                <form method="post" action="/checklists/assignments/{{ na.id }}/notify" style="margin:0">
+                  <button type="submit" style="display:block;width:100%;text-align:left;padding:8px 14px;font-size:12px;color:var(--text);background:none;border:none;cursor:pointer;white-space:nowrap" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">Notify</button>
+                </form>
+                {% endif %}
+                <form method="post" action="/checklists/templates/{{ t.id }}/delete" style="margin:0"
+                      onsubmit="return confirm('Soft-delete this template? Existing assignments are retained.')">
+                  <button type="submit" style="display:block;width:100%;text-align:left;padding:8px 14px;font-size:12px;color:#ef4444;background:none;border:none;cursor:pointer;white-space:nowrap" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">Delete</button>
+                </form>
+                {% endif %}
+              </div>
+            </div>
           </div>
         </td>
       </tr>
@@ -694,11 +707,6 @@
         </div>
         {% endif %}
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          {% if a.status == 'PENDING' %}
-          <form method="post" action="/checklists/start/{{ a.id }}">
-            <button type="submit" class="btn btn-sm btn-cyan">▶ Start</button>
-          </form>
-          {% endif %}
           {% if a.status in ('PENDING', 'IN_PROGRESS') %}
             {% set ev_req = a.evidence_required or (a.template and a.template.evidence_required) %}
             {% if ev_req %}
@@ -757,6 +765,8 @@
     "title": {{ t.title|tojson }},
     "description": {{ (t.description or '')|tojson }},
     "frequency": {{ t.frequency|tojson }},
+    "frequency_type": {{ (t.frequency_type or '')|tojson }},
+    "frequency_config": {{ (t.frequency_config or {})|tojson }},
     "evidence_required": {{ 'true' if t.evidence_required else 'false' }},
     "assigned_to_role": {{ (t.assigned_to_role or 'EMPLOYEE')|tojson }},
     "assigned_to_dept_id": {{ (t.assigned_to_dept_id or '')|tojson }},
@@ -788,12 +798,17 @@
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group">
-          <label>Frequency</label>
-          <select name="frequency" id="etm-freq" class="form-input">
-            {% for f in ['DAILY','WEEKLY','TWICE_A_MONTH','MONTHLY','QUARTERLY','YEARLY','PER_SHIFT'] %}
-            <option>{{ f }}</option>
-            {% endfor %}
+          <label>Frequency Type</label>
+          <select name="frequency_type" id="etm-freq-type" class="form-input" onchange="clFreqTypeChange(this,'etm')">
+            <option value="DAILY">Daily</option>
+            <option value="WEEKLY">Weekly</option>
+            <option value="MONTHLY">Monthly</option>
+            <option value="YEARLY">Yearly</option>
+            <option value="WEEKLY_CUSTOM">Custom — Days of Week</option>
+            <option value="MONTHLY_DATE">Custom — Day of Month</option>
+            <option value="YEARLY_DATE">Custom — Day of Year</option>
           </select>
+          <input type="hidden" name="frequency" id="etm-freq" value="DAILY">
         </div>
         <div class="form-group">
           <label>Status</label>
@@ -801,6 +816,34 @@
             <option value="1">Active</option>
             <option value="0">Inactive</option>
           </select>
+        </div>
+      </div>
+      {# E-14 custom frequency extra inputs (edit modal) #}
+      <div id="etm-freq-dow" style="display:none;margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text-faint);margin-bottom:6px;display:block">Select days (at least one required)</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          {% for day_i, day_n in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:4px 8px;border:1px solid var(--border);border-radius:6px">
+            <input type="checkbox" id="etm-dow-{{ day_i }}" value="{{ day_i }}" onchange="clDowChange('etm')"> {{ day_n }}
+          </label>
+          {% endfor %}
+        </div>
+        <input type="hidden" name="frequency_config_days" id="etm-cfg-days" value="">
+      </div>
+      <div id="etm-freq-dom" style="display:none;margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text-faint);margin-bottom:4px;display:block">Day of month (1–31)</label>
+        <input type="number" name="frequency_config_day" id="etm-cfg-day" min="1" max="31" class="form-input" style="width:100px" placeholder="e.g. 15">
+        <div id="etm-dom-note" style="display:none;font-size:11px;color:#fbbf24;margin-top:4px">Months with fewer days will skip this date.</div>
+      </div>
+      <div id="etm-freq-doy" style="display:none;margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text-faint);margin-bottom:4px;display:block">Day of year</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select name="frequency_config_month" id="etm-cfg-month" class="form-input" style="width:140px">
+            {% for mi, mn in [(1,'January'),(2,'February'),(3,'March'),(4,'April'),(5,'May'),(6,'June'),(7,'July'),(8,'August'),(9,'September'),(10,'October'),(11,'November'),(12,'December')] %}
+            <option value="{{ mi }}">{{ mn }}</option>
+            {% endfor %}
+          </select>
+          <input type="number" name="frequency_config_doy_day" id="etm-cfg-doy-day" min="1" max="31" class="form-input" style="width:80px" placeholder="Day">
         </div>
       </div>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);margin-bottom:16px;cursor:pointer">
@@ -836,6 +879,10 @@
             {% endfor %}
           </select>
         </div>
+      </div>
+
+      <div style="background:#1e3a5f;border:1px solid #2563eb;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#93c5fd">
+        ℹ Changing the assignee applies to future checklist instances only. Current pending assignments are not affected.
       </div>
 
       <div style="display:flex;gap:10px;justify-content:flex-end">
@@ -1010,13 +1057,18 @@
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group">
-          <label>Frequency</label>
-          <select name="frequency">
-            <option>DAILY</option><option>WEEKLY</option>
-            <option>TWICE_A_MONTH</option><option>MONTHLY</option>
-            <option>QUARTERLY</option><option>YEARLY</option>
-            <option>PER_SHIFT</option>
+          <label>Frequency Type</label>
+          <select name="frequency_type" id="cr-freq-type" class="form-input" onchange="clFreqTypeChange(this,'cr')">
+            <option value="DAILY">Daily</option>
+            <option value="WEEKLY">Weekly</option>
+            <option value="MONTHLY">Monthly</option>
+            <option value="YEARLY">Yearly</option>
+            <option value="WEEKLY_CUSTOM">Custom — Days of Week</option>
+            <option value="MONTHLY_DATE">Custom — Day of Month</option>
+            <option value="YEARLY_DATE">Custom — Day of Year</option>
           </select>
+          {# hidden legacy field for backward compat #}
+          <input type="hidden" name="frequency" id="cr-freq-hidden" value="DAILY">
         </div>
         <div class="form-group">
           <label>Recurring</label>
@@ -1024,6 +1076,34 @@
             <option value="true">Yes — auto-repeat</option>
             <option value="false">No — one time only</option>
           </select>
+        </div>
+      </div>
+      {# E-14 custom frequency extra inputs #}
+      <div id="cr-freq-dow" style="display:none;margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text-faint);margin-bottom:6px;display:block">Select days (at least one required)</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          {% for day_i, day_n in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:4px 8px;border:1px solid var(--border);border-radius:6px">
+            <input type="checkbox" name="cr_dow_{{ day_i }}" value="{{ day_i }}" onchange="clDowChange('cr')"> {{ day_n }}
+          </label>
+          {% endfor %}
+        </div>
+        <input type="hidden" name="frequency_config_days" id="cr-cfg-days" value="">
+      </div>
+      <div id="cr-freq-dom" style="display:none;margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text-faint);margin-bottom:4px;display:block">Day of month (1–31)</label>
+        <input type="number" name="frequency_config_day" id="cr-cfg-day" min="1" max="31" class="form-input" style="width:100px" placeholder="e.g. 15">
+        <div id="cr-dom-note" style="display:none;font-size:11px;color:#fbbf24;margin-top:4px">Months with fewer days will skip this date.</div>
+      </div>
+      <div id="cr-freq-doy" style="display:none;margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text-faint);margin-bottom:4px;display:block">Day of year</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select name="frequency_config_month" id="cr-cfg-month" class="form-input" style="width:140px">
+            {% for mi, mn in [(1,'January'),(2,'February'),(3,'March'),(4,'April'),(5,'May'),(6,'June'),(7,'July'),(8,'August'),(9,'September'),(10,'October'),(11,'November'),(12,'December')] %}
+            <option value="{{ mi }}">{{ mn }}</option>
+            {% endfor %}
+          </select>
+          <input type="number" name="frequency_config_doy_day" id="cr-cfg-doy-day" min="1" max="31" class="form-input" style="width:80px" placeholder="Day">
         </div>
       </div>
 
@@ -1072,6 +1152,21 @@
 {% endif %}
 
 <script>
+/* ── Three-dot overflow menu (E-12) ── */
+function clToggleMenu(btn) {
+  var menu = btn.closest('.cl-action-menu');
+  var drop = menu.querySelector('.cl-dropdown');
+  var isOpen = drop.style.display !== 'none';
+  // Close all open menus first
+  document.querySelectorAll('.cl-dropdown').forEach(function(d) { d.style.display = 'none'; });
+  if (!isOpen) drop.style.display = 'block';
+}
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.cl-action-menu')) {
+    document.querySelectorAll('.cl-dropdown').forEach(function(d) { d.style.display = 'none'; });
+  }
+});
+
 /* ── Checklist tab navigation ── */
 function showClTab(tab) {
   document.querySelectorAll('.cl-section').forEach(function(p) {
@@ -1120,17 +1215,65 @@ function onEtmUserChange(sel) {
   if (sel.value && roleEl && opt.dataset.role) roleEl.value = opt.dataset.role;
 }
 
+/* ── E-14: Frequency type UI ── */
+function clFreqTypeChange(sel, prefix) {
+  var val = sel.value;
+  var hiddenFreq = document.getElementById(prefix + '-freq' + (prefix === 'cr' ? '-hidden' : ''));
+  if (hiddenFreq) hiddenFreq.value = ['DAILY','WEEKLY','MONTHLY','YEARLY'].includes(val) ? val : 'DAILY';
+  ['dow','dom','doy'].forEach(function(t) {
+    var el = document.getElementById(prefix + '-freq-' + t);
+    if (el) el.style.display = 'none';
+  });
+  if (val === 'WEEKLY_CUSTOM') { var d = document.getElementById(prefix + '-freq-dow'); if (d) d.style.display = 'block'; }
+  else if (val === 'MONTHLY_DATE') {
+    var d2 = document.getElementById(prefix + '-freq-dom'); if (d2) d2.style.display = 'block';
+    var dayEl = document.getElementById(prefix + '-cfg-day');
+    if (dayEl) dayEl.addEventListener('input', function() {
+      var note = document.getElementById(prefix + '-dom-note');
+      if (note) note.style.display = parseInt(this.value) >= 29 ? 'block' : 'none';
+    });
+  }
+  else if (val === 'YEARLY_DATE') { var d3 = document.getElementById(prefix + '-freq-doy'); if (d3) d3.style.display = 'block'; }
+}
+
+function clDowChange(prefix) {
+  var days = [];
+  for (var i = 0; i <= 6; i++) {
+    var cb = document.getElementById(prefix + '-dow-' + i) ||
+             document.querySelector('[name="' + prefix + '_dow_' + i + '"]');
+    if (cb && cb.checked) days.push(i);
+  }
+  var hidden = document.getElementById(prefix + '-cfg-days');
+  if (hidden) hidden.value = days.join(',');
+}
+
 function openEditModal(tmplId) {
   var d = _tmplData[tmplId];
   if (!d) return;
   document.getElementById('etm-title').value = d.title || '';
   document.getElementById('etm-desc').value = d.description || '';
-  document.getElementById('etm-freq').value = d.frequency || 'DAILY';
   document.getElementById('etm-evreq').checked = d.evidence_required;
   document.getElementById('etm-role').value = d.assigned_to_role || 'EMPLOYEE';
   document.getElementById('etm-dept').value = d.assigned_to_dept_id || '';
   document.getElementById('etm-user').value = d.assigned_to_user_id || '';
   document.getElementById('etm-active').value = d.is_active ? '1' : '0';
+  // Populate frequency type
+  var ft = d.frequency_type || d.frequency || 'DAILY';
+  var ftSel = document.getElementById('etm-freq-type');
+  if (ftSel) { ftSel.value = ft; clFreqTypeChange(ftSel, 'etm'); }
+  var cfg = d.frequency_config || {};
+  if (ft === 'WEEKLY_CUSTOM' && cfg.days) {
+    for (var i = 0; i <= 6; i++) {
+      var cb = document.getElementById('etm-dow-' + i);
+      if (cb) cb.checked = cfg.days.indexOf(i) !== -1;
+    }
+    clDowChange('etm');
+  } else if (ft === 'MONTHLY_DATE' && cfg.day) {
+    var de = document.getElementById('etm-cfg-day'); if (de) de.value = cfg.day;
+  } else if (ft === 'YEARLY_DATE') {
+    var me = document.getElementById('etm-cfg-month'); if (me && cfg.month) me.value = cfg.month;
+    var de2 = document.getElementById('etm-cfg-doy-day'); if (de2 && cfg.day) de2.value = cfg.day;
+  }
   document.getElementById('edit-tmpl-form').action = '/checklists/templates/' + tmplId + '/edit';
   document.getElementById('edit-tmpl-modal').style.display = 'flex';
 }

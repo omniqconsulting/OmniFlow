@@ -24,8 +24,45 @@ def generate_recurring_checklists():
         ).all()
 
         for tmpl in templates:
-            # Determine lookback window and next due time by frequency
-            if tmpl.frequency == "DAILY":
+            # E-14: custom frequency types — check before falling through to legacy
+            ft = getattr(tmpl, "frequency_type", None)
+            cfg = getattr(tmpl, "frequency_config", None) or {}
+            if ft == "WEEKLY_CUSTOM":
+                days = cfg.get("days", [])
+                if now.weekday() not in days:
+                    continue
+                next_due = now.replace(hour=18, minute=0, second=0, microsecond=0)
+                if now.hour >= 18:
+                    next_due += timedelta(days=1)
+            elif ft == "MONTHLY_DATE":
+                target_day = cfg.get("day", 1)
+                if now.day != target_day:
+                    continue
+                # Silently skip if month has fewer days (e.g. Feb 30)
+                try:
+                    next_due = now.replace(day=target_day, hour=18, minute=0, second=0, microsecond=0)
+                except ValueError:
+                    continue
+            elif ft == "YEARLY_DATE":
+                target_month = cfg.get("month", 1)
+                target_day = cfg.get("day", 1)
+                if now.month != target_month or now.day != target_day:
+                    continue
+                try:
+                    next_due = now.replace(month=target_month, day=target_day, hour=18, minute=0, second=0, microsecond=0)
+                except ValueError:
+                    continue
+            elif ft in ("DAILY", "WEEKLY", "MONTHLY", "YEARLY", None):
+                # NULL frequency_type falls through to legacy field logic below
+                pass
+            else:
+                continue
+
+            if ft is not None and ft not in ("DAILY", "WEEKLY", "MONTHLY", "YEARLY"):
+                # Custom type handled above — skip to user assignment loop
+                pass
+            # Determine lookback window and next due time by frequency (legacy)
+            elif tmpl.frequency == "DAILY":
                 lookback = timedelta(days=1)
                 next_due = now.replace(hour=18, minute=0, second=0, microsecond=0)
                 if now.hour >= 18:
@@ -801,6 +838,214 @@ def invoice_overdue_check():
         db.close()
 
 
+# ── E-15: Delegation TaT + Unacknowledged monitors ───────────────────────────
+
+def delegation_tat_monitor():
+    """E-15: Every 30 min — notify manager at ticket_notif_tat_pct and ticket_notif_tat_pct_both of TaT elapsed."""
+    from .database import SessionLocal, Tenant, Ticket, TicketEvent, User, Notification
+    from .notifications import business_hours_elapsed
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
+        for tenant in tenants:
+            pct1 = getattr(tenant, 'ticket_notif_tat_pct', 80) or 0
+            pct2 = getattr(tenant, 'ticket_notif_tat_pct_both', 90) or 0
+            if pct1 == 0 and pct2 == 0:
+                continue
+            open_tickets = db.query(Ticket).filter(
+                Ticket.tenant_id == tenant.id,
+                Ticket.status == 'OPEN',
+                Ticket.due_at != None,
+                Ticket.is_deleted == False,
+            ).all()
+            for ticket in open_tickets:
+                if not ticket.due_at or not ticket.created_at:
+                    continue
+                total_biz = business_hours_elapsed(tenant, ticket.created_at, ticket.due_at)
+                if total_biz <= 0:
+                    continue
+                elapsed_biz = business_hours_elapsed(tenant, ticket.created_at, now)
+                pct_elapsed = (elapsed_biz / total_biz) * 100
+
+                # Find managers/admins
+                admins = db.query(User).filter(
+                    User.tenant_id == tenant.id, User.role == 'ADMIN',
+                    User.is_deleted == False, User.is_active == True,
+                ).all()
+                manager = None
+                if ticket.current_assignee_id:
+                    assignee = db.query(User).filter(User.id == ticket.current_assignee_id).first()
+                    if assignee and assignee.manager_id:
+                        manager = db.query(User).filter(User.id == assignee.manager_id).first()
+
+                # pct1: manager + employee; pct2: manager + admin + employee
+                mgr_id = manager.id if manager else None
+                for threshold_pct, audience_ids in [
+                    (pct1, ([mgr_id] if mgr_id else []) + ([ticket.current_assignee_id] if ticket.current_assignee_id else [])),
+                    (pct2, [u.id for u in admins] + ([mgr_id] if mgr_id else []) + ([ticket.current_assignee_id] if ticket.current_assignee_id else [])),
+                ]:
+                    if threshold_pct == 0 or pct_elapsed < threshold_pct:
+                        continue
+                    # Dedup: already notified at this threshold?
+                    already = db.query(TicketEvent).filter(
+                        TicketEvent.ticket_id == ticket.id,
+                        TicketEvent.event_type == 'TAT_ALERT',
+                        TicketEvent.notes.like(f'%{threshold_pct}%'),
+                    ).first()
+                    if already:
+                        continue
+                    # Log audit event
+                    db.add(TicketEvent(
+                        ticket_id=ticket.id,
+                        event_type='TAT_ALERT',
+                        notes=f'TaT alert at {threshold_pct}% threshold ({pct_elapsed:.0f}% elapsed)',
+                    ))
+                    for uid in set(audience_ids):
+                        if not uid:
+                            continue
+                        db.add(Notification(
+                            tenant_id=tenant.id, user_id=uid,
+                            notif_type='TICKET_REMINDER',
+                            title=f'⏱ TaT alert: {ticket.display_id or ticket.title}',
+                            body=f'{pct_elapsed:.0f}% of allowed time used on this ticket.',
+                            link=f'/tickets/{ticket.id}',
+                        ))
+            db.commit()
+    except Exception as e:
+        logger.error("delegation_tat_monitor error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def fms_stage_tat_monitor():
+    """E-15: Every 30 min — notify manager+admin+employee when FMS stage TaT exceeds fms_notif_tat_pct."""
+    from .database import SessionLocal, Tenant, FMSTicket, FMSStage, FMSStageHistory, User, Notification
+    from .notifications import business_hours_elapsed
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
+        for tenant in tenants:
+            tat_pct = getattr(tenant, 'fms_notif_tat_pct', 80) or 0
+            if tat_pct == 0:
+                continue
+            active = db.query(FMSTicket).filter(
+                FMSTicket.tenant_id == tenant.id,
+                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicket.is_deleted == False,
+                FMSTicket.current_stage_id != None,
+            ).all()
+            for ticket in active:
+                stage = db.query(FMSStage).filter(FMSStage.id == ticket.current_stage_id).first()
+                if not stage or not getattr(stage, 'tat_hours', None):
+                    continue
+                # Find when ticket entered current stage
+                entry = db.query(FMSStageHistory).filter(
+                    FMSStageHistory.ticket_id == ticket.id,
+                    FMSStageHistory.stage_id == ticket.current_stage_id,
+                ).order_by(FMSStageHistory.created_at.desc()).first()
+                if not entry:
+                    continue
+                elapsed = business_hours_elapsed(tenant, entry.created_at, now)
+                pct_used = (elapsed / stage.tat_hours) * 100
+                if pct_used < tat_pct:
+                    continue
+                # Dedup — one alert per stage entry
+                already = db.query(Notification).filter(
+                    Notification.notif_type == "TICKET_REMINDER",
+                    Notification.link == f"/fms/tickets/{ticket.id}",
+                    Notification.body.like(f"%stage TaT%"),
+                    Notification.created_at > (entry.created_at),
+                ).first()
+                if already:
+                    continue
+                # Audience: admins + manager + assignee
+                admins = db.query(User).filter(
+                    User.tenant_id == tenant.id, User.role == "ADMIN",
+                    User.is_deleted == False, User.is_active == True,
+                ).all()
+                assignee = db.query(User).filter(User.id == ticket.current_assignee_id).first() if ticket.current_assignee_id else None
+                manager = db.query(User).filter(User.id == assignee.manager_id).first() if assignee and assignee.manager_id else None
+                audience = list({u.id for u in admins} | ({manager.id} if manager else set()) | ({assignee.id} if assignee else set()))
+                for uid in audience:
+                    db.add(Notification(
+                        tenant_id=tenant.id, user_id=uid,
+                        notif_type="TICKET_REMINDER",
+                        title=f"⏱ Stage TaT alert: {ticket.title}",
+                        body=f"{pct_used:.0f}% of stage TaT used at '{stage.name}' stage.",
+                        link=f"/fms/tickets/{ticket.id}",
+                    ))
+            db.commit()
+    except Exception as e:
+        logger.error("fms_stage_tat_monitor error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def delegation_unacknowledged_monitor():
+    """E-15: Every 30 min — notify manager if ticket OPEN with no activity for ticket_notif_unack_hours business hours."""
+    from .database import SessionLocal, Tenant, Ticket, TicketEvent, User, Notification
+    from .notifications import business_hours_elapsed
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
+        for tenant in tenants:
+            unack_hours = getattr(tenant, 'ticket_notif_unack_hours', 4) or 0
+            if unack_hours == 0:
+                continue
+            open_tickets = db.query(Ticket).filter(
+                Ticket.tenant_id == tenant.id,
+                Ticket.status == 'OPEN',
+                Ticket.is_deleted == False,
+            ).all()
+            for ticket in open_tickets:
+                # Any event logged since creation?
+                any_event = db.query(TicketEvent).filter(
+                    TicketEvent.ticket_id == ticket.id,
+                ).first()
+                if any_event:
+                    continue
+                biz_elapsed = business_hours_elapsed(tenant, ticket.created_at, now)
+                if biz_elapsed < unack_hours:
+                    continue
+                # Find manager
+                manager = None
+                if ticket.current_assignee_id:
+                    assignee = db.query(User).filter(User.id == ticket.current_assignee_id).first()
+                    if assignee and assignee.manager_id:
+                        manager = db.query(User).filter(User.id == assignee.manager_id).first()
+                admins = db.query(User).filter(
+                    User.tenant_id == tenant.id, User.role == 'ADMIN',
+                    User.is_deleted == False, User.is_active == True,
+                ).all()
+                recipients = list({u.id for u in admins} | ({manager.id} if manager else set()))
+                for uid in recipients:
+                    dup = db.query(Notification).filter(
+                        Notification.user_id == uid,
+                        Notification.notif_type == 'TICKET_ESCALATION',
+                        Notification.link == f'/tickets/{ticket.id}',
+                        Notification.created_at > (now - timedelta(hours=unack_hours)),
+                    ).first()
+                    if not dup:
+                        db.add(Notification(
+                            tenant_id=tenant.id, user_id=uid,
+                            notif_type='TICKET_ESCALATION',
+                            title=f'⚠ No activity on {ticket.display_id or ticket.title}',
+                            body=f'Ticket has had no activity for {unack_hours}+ business hours.',
+                            link=f'/tickets/{ticket.id}',
+                        ))
+            db.commit()
+    except Exception as e:
+        logger.error("delegation_unacknowledged_monitor error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
 # ── Start / stop ──────────────────────────────────────────────────────────────
 
 def start_scheduler():
@@ -832,9 +1077,14 @@ def start_scheduler():
                       IntervalTrigger(hours=6), id="pod_chk",   replace_existing=True)
     scheduler.add_job(invoice_overdue_check,
                       IntervalTrigger(hours=6), id="inv_chk",   replace_existing=True)
+    # E-15 jobs
+    scheduler.add_job(delegation_tat_monitor,
+                      IntervalTrigger(minutes=30), id="deleg_tat",    replace_existing=True)
+    scheduler.add_job(fms_stage_tat_monitor,
+                      IntervalTrigger(minutes=30), id="fms_tat",      replace_existing=True)
     if not scheduler.running:
         scheduler.start()
-    logger.info("Scheduler started (11 jobs)")
+    logger.info("Scheduler started (13 jobs)")
 
 
 def stop_scheduler():

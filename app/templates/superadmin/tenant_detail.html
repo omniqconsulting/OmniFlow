@@ -418,11 +418,16 @@ document.addEventListener('DOMContentLoaded', function() {
             <button type="submit" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px;color:#7dd3fc;border-color:rgba(125,211,252,.3)">↻ Sync Library</button>
           </form>
           {% endif %}
-          <!-- Delete — only when no active tickets -->
+          <!-- Soft delete — only when no active tickets -->
           {% if not f.active_ticket_count or f.active_ticket_count == 0 %}
           <form method="post" action="/superadmin/tenants/{{ tenant.id }}/delete-flow/{{ f.id }}" style="display:inline"
-                onsubmit="return confirm('Permanently delete flow \'{{ f.name }}\' from {{ tenant.name }}? All ticket data will be soft-deleted.')">
-            <button type="submit" class="btn btn-sm btn-red" style="font-size:10px;padding:3px 8px">Delete</button>
+                onsubmit="return confirm('Archive flow \'{{ f.name }}\' from {{ tenant.name }}? All ticket data will be soft-deleted and recoverable.')">
+            <button type="submit" class="btn btn-sm btn-outline" style="font-size:10px;padding:3px 8px;color:#f87171;border-color:rgba(248,113,113,.3)">Archive</button>
+          </form>
+          <!-- Permanent delete — removes all data from DB, no recovery -->
+          <form method="post" action="/superadmin/tenants/{{ tenant.id }}/hard-delete-flow/{{ f.id }}" style="display:inline"
+                onsubmit="return confirm('⚠️ PERMANENTLY DELETE \'{{ f.name }}\' from {{ tenant.name }}?\n\nThis will erase all stages, tickets, stage history, and events for this flow from the database.\n\nThis action CANNOT be undone. Type the flow name to confirm.')">
+            <button type="submit" class="btn btn-sm btn-red" style="font-size:10px;padding:3px 8px">Perm. Delete</button>
           </form>
           {% else %}
           <span class="muted" style="font-size:10px" title="Cannot delete — has active tickets">{{ f.active_ticket_count }} active tickets</span>

@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Integer, Text, ForeignKey, Float, Date
+from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Integer, Text, ForeignKey, Float, Date, JSON
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, date
 import enum, uuid, os
@@ -93,6 +93,27 @@ class Tenant(Base):
     ai_custom_limit = Column(Integer, nullable=True)           # SA override for daily AI call limit (None = use plan default)
     checklist_notif_hours = Column(String, nullable=True)      # Comma-separated UTC hours for checklist notifications e.g. "8,13,18"
     checklist_overdue_hour = Column(String, nullable=True)     # Single IST hour for daily overdue WhatsApp e.g. "19". NULL = disabled.
+    # E-15: Office hours
+    work_start_time           = Column(String,  nullable=True, default='09:00')
+    work_end_time             = Column(String,  nullable=True, default='18:00')
+    work_days                 = Column(String,  nullable=True, default='0,1,2,3,4')
+    timezone                  = Column(String,  nullable=True, default='Asia/Kolkata')
+    suppress_notif_outside_hours = Column(Boolean, default=False)
+    # E-15: Checklist notification defaults
+    checklist_remind_before_hours = Column(Integer, default=2)
+    checklist_remind_repeat_hours = Column(Integer, default=4)
+    checklist_notif_on_assign     = Column(Boolean, default=True)
+    # E-15: Delegation ticket notification settings
+    ticket_notif_on_assign    = Column(Boolean, default=True)
+    ticket_notif_unack_hours  = Column(Integer, default=4)
+    ticket_notif_tat_pct      = Column(Integer, default=80)
+    ticket_notif_tat_pct_both = Column(Integer, default=90)
+    # E-15: FMS notification settings
+    fms_notif_on_open         = Column(Boolean, default=True)
+    fms_notif_on_stage_entry  = Column(Boolean, default=True)
+    fms_notif_tat_pct         = Column(Integer, default=80)
+    fms_notif_on_backward     = Column(Boolean, default=True)
+    fms_notif_on_flag         = Column(Boolean, default=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
 
     users = relationship("User", back_populates="tenant")
@@ -252,6 +273,9 @@ class ChecklistTemplate(Base):
     is_active = Column(Boolean, default=True)
     is_deleted = Column(Boolean, default=False)
     is_recurring = Column(Boolean, default=True)   # auto-schedule next on completion
+    # E-14: extended frequency fields (NULL = use legacy `frequency` column)
+    frequency_type   = Column(String, nullable=True)
+    frequency_config = Column(JSON,   nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     tenant = relationship("Tenant", back_populates="checklist_templates")
@@ -370,6 +394,27 @@ class TenantAIUsage(Base):
     call_count = Column(Integer,  default=0)
 
     tenant = relationship("Tenant")
+
+
+class PerformanceFormula(Base):
+    """Tenant-level configurable performance score formula with history.
+
+    Only one row per tenant has is_active=True — the current formula.
+    Previous formulas are retained (is_active=False) for audit history.
+    weights: {"ticket_on_time": 40, "ticket_completion": 20,
+               "checklist_compliance": 25, "checklist_on_time": 15, "fms_on_time": 0}
+    """
+    __tablename__ = "performance_formulas"
+    id           = Column(String,  primary_key=True, default=new_id)
+    tenant_id    = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    label        = Column(String,  nullable=True)   # optional human name
+    weights      = Column(JSON,    nullable=False)
+    is_active    = Column(Boolean, default=True)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
 
 
 class PlanUpgradeRequest(Base):
@@ -1027,6 +1072,58 @@ class WhatsAppMessageLog(Base):
     recipient = relationship("User", foreign_keys=[recipient_user_id])
 
 
+class TrainingMaterialCategory(Base):
+    __tablename__ = "training_material_categories"
+
+    id         = Column(String,  primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id  = Column(String,  nullable=False)
+    name       = Column(String,  nullable=False)
+    is_active  = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TrainingMaterial(Base):
+    __tablename__ = "training_materials"
+
+    id             = Column(String,  primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id      = Column(String,  nullable=False)
+    title          = Column(String,  nullable=False)
+    description    = Column(Text,    nullable=True)
+    file_name      = Column(String,  nullable=False)
+    file_path      = Column(String,  nullable=False)
+    file_type      = Column(String,  nullable=True)
+    file_size      = Column(Integer, nullable=True)
+    category       = Column(String,  nullable=True)
+    department_id  = Column(String,  nullable=True)
+    tags           = Column(String,  nullable=True)
+    uploaded_by_id = Column(String,  nullable=False)
+    is_deleted     = Column(Boolean, default=False)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
+
+class KnowledgeItem(Base):
+    """Knowledge Repository — documents, videos, audios, and links uploaded per tenant."""
+    __tablename__ = "knowledge_items"
+    id            = Column(String,  primary_key=True, default=new_id)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    title         = Column(String,  nullable=False)
+    description   = Column(Text,    nullable=True)
+    category      = Column(String,  nullable=True)   # free-text category / folder
+    tags          = Column(String,  nullable=True)   # comma-separated
+    media_kind    = Column(String,  nullable=True)   # document | video | audio | image | link
+    file_url      = Column(String,  nullable=True)   # served path for uploaded files
+    file_name     = Column(String,  nullable=True)   # original filename
+    file_type     = Column(String,  nullable=True)   # MIME type
+    file_size     = Column(Integer, nullable=True)   # bytes
+    external_url  = Column(String,  nullable=True)   # for link-type items
+    created_by_id = Column(String,  ForeignKey("users.id"), nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.utcnow)
+    is_deleted    = Column(Boolean,  default=False)
+
+    tenant      = relationship("Tenant")
+    created_by  = relationship("User", foreign_keys=[created_by_id])
+
 def create_tables():
     Base.metadata.create_all(bind=engine)
     # Run any pending Alembic migrations on startup
@@ -1070,6 +1167,19 @@ def _pg_add_columns():
         "ALTER TABLE library_label_bundles ADD COLUMN IF NOT EXISTS fms_p VARCHAR",
         # Login tracking
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP",
+        # E-14: custom checklist frequency
+        "ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS frequency_type VARCHAR",
+        "ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS frequency_config JSONB",
+        # Performance formula (new table — CREATE IF NOT EXISTS is safe to repeat)
+        """CREATE TABLE IF NOT EXISTS performance_formulas (
+            id VARCHAR PRIMARY KEY,
+            tenant_id VARCHAR REFERENCES tenants(id),
+            label VARCHAR,
+            weights JSONB NOT NULL,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            created_by_id VARCHAR REFERENCES users(id)
+        )""",
     ]
     try:
         with engine.begin() as conn:

@@ -337,7 +337,7 @@ def sa_tenant_detail(request: Request, tenant_id: str,
     fms_flows = db.query(FMSFlow).filter(
         FMSFlow.tenant_id == tenant_id,
         FMSFlow.is_deleted == False,
-    ).order_by(FMSFlow.created_at).all()
+    ).order_by(FMSFlow.name).all()
     # Annotate with active ticket count
     for f in fms_flows:
         f.active_ticket_count = db.query(FMSTicket).filter(
@@ -1122,3 +1122,40 @@ def sa_delete_flow(
         db.delete(tracking)
     db.commit()
     return _redirect(f"/superadmin/tenants/{tenant_id}?msg=flow_deleted")
+
+
+@router.post("/tenants/{tenant_id}/hard-delete-flow/{flow_id}")
+def sa_hard_delete_flow(
+    tenant_id: str, flow_id: str,
+    sa: SuperAdmin = Depends(get_current_sa),
+    db: Session = Depends(get_db),
+):
+    """Permanently remove a flow and all its stage/ticket data from the database."""
+    from .database import FMSStage, FMSStageHistory, FMSTicket, FMSEvent
+    flow = db.query(FMSFlow).filter(
+        FMSFlow.id == flow_id,
+        FMSFlow.tenant_id == tenant_id,
+    ).first()
+    if not flow:
+        raise HTTPException(404, "Flow not found")
+
+    # Delete all related data in dependency order
+    ticket_ids = [t.id for t in db.query(FMSTicket.id).filter(FMSTicket.flow_id == flow_id).all()]
+    if ticket_ids:
+        db.query(FMSStageHistory).filter(FMSStageHistory.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
+        db.query(FMSEvent).filter(FMSEvent.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
+        db.query(FMSTicket).filter(FMSTicket.flow_id == flow_id).delete(synchronize_session=False)
+    db.query(FMSStage).filter(FMSStage.flow_id == flow_id).delete(synchronize_session=False)
+
+    # Remove deployment tracking record if present
+    tracking = db.query(TenantDeployedItem).filter(
+        TenantDeployedItem.tenant_id == tenant_id,
+        TenantDeployedItem.item_type == "flow",
+        TenantDeployedItem.library_item_id == flow.library_flow_id,
+    ).first()
+    if tracking:
+        db.delete(tracking)
+
+    db.delete(flow)
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=flow_permanently_deleted")

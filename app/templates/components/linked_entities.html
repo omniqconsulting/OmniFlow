@@ -10,7 +10,29 @@
     readonly        — True on detail pages, False on create/edit forms
 #}
 
-{% if not readonly %}
+<style>
+.le-search-input{width:100%;padding:7px 10px;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;font-size:12px;color:var(--text-primary);outline:none;margin-bottom:8px}
+.le-search-input:focus{border-color:var(--accent)}
+.le-list-box{max-height:220px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-input)}
+.le-group-title{font-size:10px;font-weight:700;color:var(--text-xfaint);text-transform:uppercase;letter-spacing:.06em;padding:6px 10px 3px;background:var(--bg-elevated)}
+.le-item{padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer;transition:background .1s}
+.le-item:hover{background:var(--hover-bg)}
+.le-item.selected{background:rgba(59,130,246,0.12);color:#60a5fa}
+.le-item.hidden{display:none}
+.le-group.all-hidden{display:none}
+.le-no-results{padding:10px;font-size:12px;color:var(--text-faint);text-align:center}
+.le-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.25);border-radius:99px;padding:3px 10px;font-size:11px;color:#93c5fd;margin:3px}
+.le-chip .le-chip-remove{cursor:pointer;color:#60a5fa;font-size:14px;line-height:1}
+.le-chips{display:flex;flex-wrap:wrap;margin-top:6px;min-height:0}
+.le-ref-chip{display:inline-flex;flex-direction:column;background:var(--border-subtle);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;margin:3px}
+.le-ref-type{font-size:10px;color:var(--text-xfaint);text-transform:uppercase;letter-spacing:.05em}
+.le-ref-label{color:var(--text-primary);font-weight:500;margin-top:2px}
+</style>
+
+{# ── E-06: Only Admin/Manager see the add/search UI ────────────────────── #}
+{% set can_add = user.role in ('ADMIN', 'MANAGER') %}
+
+{% if not readonly and can_add %}
 {# ── CREATE / EDIT form section ─────────────────────────────────────────── #}
 <div class="card" style="padding:14px;margin-top:12px" id="linked-entities-section">
   <div style="font-weight:600;font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
@@ -18,128 +40,382 @@
     <span style="font-size:11px;font-weight:400;color:var(--text-faint)">Optional — link related records to this item</span>
   </div>
 
-  <div id="linked-entity-selections" style="display:flex;flex-direction:column;gap:8px">
+  {# ── E-04: Searchable typeahead ───────────────────────────────────────── #}
+  <input type="text" class="le-search-input" id="le-create-search"
+         placeholder="Search customers, materials, vendors…"
+         oninput="leCreateFilter(this.value)" autocomplete="off">
 
-    {% if entity_options.get('CUSTOMER') %}
-    <div class="linked-entity-row">
-      <label class="form-label" style="font-size:12px;margin-bottom:3px">Customer</label>
-      <select name="linked_customer" class="form-input" style="font-size:13px"
-              onchange="showEntityDetail(this, 'customer-detail')">
-        <option value="">— None —</option>
-        {% for opt in entity_options['CUSTOMER'] %}
-        <option value="{{ opt.id }}" data-label="{{ opt.label }}" data-detail="{{ opt.detail }}">{{ opt.label }}</option>
-        {% endfor %}
-      </select>
-      <div id="customer-detail" class="entity-detail-card" style="display:none"></div>
+  <div class="le-list-box" id="le-create-list">
+    {% set ns = namespace(has_any=false) %}
+
+    {% if entity_options.get('CUSTOMER') %}{% set ns.has_any = true %}
+    <div class="le-group" data-group="CUSTOMER">
+      <div class="le-group-title">Customers</div>
+      {% for opt in entity_options['CUSTOMER'] %}
+      <div class="le-item" data-label="{{ opt.label | lower }}" data-display="{{ opt.label }}"
+           onclick="leCreateSelect('linked_customer','{{ opt.id }}','{{ opt.label | replace("'","\\'")|replace('"','&quot;') }}','CUSTOMER',this)">{{ opt.label }}</div>
+      {% endfor %}
     </div>
     {% endif %}
 
-    {% if entity_options.get('END_PRODUCT') %}
-    <div class="linked-entity-row">
-      <label class="form-label" style="font-size:12px;margin-bottom:3px">End Product</label>
-      <select name="linked_end_product" class="form-input" style="font-size:13px"
-              onchange="showEntityDetail(this, 'endproduct-detail')">
-        <option value="">— None —</option>
-        {% for opt in entity_options['END_PRODUCT'] %}
-        <option value="{{ opt.id }}" data-label="{{ opt.label }}" data-detail="{{ opt.detail }}">{{ opt.label }}</option>
-        {% endfor %}
-      </select>
-      <div id="endproduct-detail" class="entity-detail-card" style="display:none"></div>
+    {% if entity_options.get('END_PRODUCT') %}{% set ns.has_any = true %}
+    <div class="le-group" data-group="END_PRODUCT">
+      <div class="le-group-title">End Products</div>
+      {% for opt in entity_options['END_PRODUCT'] %}
+      <div class="le-item" data-label="{{ opt.label | lower }}" data-display="{{ opt.label }}"
+           onclick="leCreateSelect('linked_end_product','{{ opt.id }}','{{ opt.label | replace("'","\\'")|replace('"','&quot;') }}','END_PRODUCT',this)">{{ opt.label }}</div>
+      {% endfor %}
     </div>
     {% endif %}
 
-    {% if entity_options.get('MATERIAL') %}
-    <div class="linked-entity-row">
-      <label class="form-label" style="font-size:12px;margin-bottom:3px">Raw Material</label>
-      <select name="linked_material" class="form-input" style="font-size:13px"
-              onchange="showEntityDetail(this, 'material-detail')">
-        <option value="">— None —</option>
-        {% for opt in entity_options['MATERIAL'] %}
-        <option value="{{ opt.id }}" data-label="{{ opt.label }}" data-detail="{{ opt.detail }}">{{ opt.label }}</option>
-        {% endfor %}
-      </select>
-      <div id="material-detail" class="entity-detail-card" style="display:none"></div>
+    {% if entity_options.get('MATERIAL') %}{% set ns.has_any = true %}
+    <div class="le-group" data-group="MATERIAL">
+      <div class="le-group-title">Raw Materials</div>
+      {% for opt in entity_options['MATERIAL'] %}
+      <div class="le-item" data-label="{{ opt.label | lower }}" data-display="{{ opt.label }}"
+           onclick="leCreateSelect('linked_material','{{ opt.id }}','{{ opt.label | replace("'","\\'")|replace('"','&quot;') }}','MATERIAL',this)">{{ opt.label }}</div>
+      {% endfor %}
     </div>
     {% endif %}
 
-    {% if entity_options.get('VENDOR') %}
-    <div class="linked-entity-row">
-      <label class="form-label" style="font-size:12px;margin-bottom:3px">Vendor</label>
-      <select name="linked_vendor" class="form-input" style="font-size:13px">
-        <option value="">— None —</option>
-        {% for opt in entity_options['VENDOR'] %}
-        <option value="{{ opt.id }}" data-label="{{ opt.label }}">{{ opt.label }}</option>
-        {% endfor %}
-      </select>
+    {% if entity_options.get('VENDOR') %}{% set ns.has_any = true %}
+    <div class="le-group" data-group="VENDOR">
+      <div class="le-group-title">Vendors</div>
+      {% for opt in entity_options['VENDOR'] %}
+      <div class="le-item" data-label="{{ opt.label | lower }}" data-display="{{ opt.label }}"
+           onclick="leCreateSelect('linked_vendor','{{ opt.id }}','{{ opt.label | replace("'","\\'")|replace('"','&quot;') }}','VENDOR',this)">{{ opt.label }}</div>
+      {% endfor %}
     </div>
     {% endif %}
 
     {% for key, items in entity_options.items() %}
-    {% if key.startswith('CUSTOM_LIST:') %}
+    {% if key.startswith('CUSTOM_LIST:') %}{% set ns.has_any = true %}
     {% set parts = key.split(':') %}
     {% set list_id = parts[1] %}
     {% set list_name = parts[2] %}
-    <div class="linked-entity-row">
-      <label class="form-label" style="font-size:12px;margin-bottom:3px">{{ list_name }}</label>
-      <select name="linked_custom_{{ list_id }}" class="form-input" style="font-size:13px"
-              data-list-id="{{ list_id }}" data-list-name="{{ list_name }}">
-        <option value="">— None —</option>
-        {% for opt in items %}
-        <option value="{{ opt.id }}" data-label="{{ opt.label }}">{{ opt.label }}</option>
-        {% endfor %}
-      </select>
+    <div class="le-group" data-group="CUSTOM_LIST:{{ list_id }}">
+      <div class="le-group-title">{{ list_name }}</div>
+      {% for opt in items %}
+      <div class="le-item" data-label="{{ opt.label | lower }}" data-display="{{ opt.label }}"
+           onclick="leCreateSelect('linked_custom_{{ list_id }}','{{ opt.id }}','{{ opt.label | replace("'","\\'")|replace('"','&quot;') }}','CUSTOM_LIST',this)">{{ opt.label }}</div>
+      {% endfor %}
     </div>
     {% endif %}
     {% endfor %}
 
-    <!-- Other / free text — always shown -->
-    <div class="linked-entity-row">
-      <label class="form-label" style="font-size:12px;margin-bottom:3px">Additional Reference</label>
-      <input name="linked_other" class="form-input" style="font-size:13px"
-             placeholder="Free text — any other reference (optional)">
-    </div>
+    {% if not ns.has_any %}
+    <div class="le-no-results">No entities configured yet. Add them in Setup.</div>
+    {% endif %}
+  </div>
 
+  {# E-04/E-07: No-results + inline add prompt #}
+  <div id="le-create-no-results" style="display:none;padding:8px 0;font-size:12px;color:var(--text-faint)">
+    No matches found.
+    <span id="le-create-no-results-text"></span>
+    <button type="button" class="btn btn-xs btn-outline" style="margin-left:6px" onclick="leCreateAddCustom()">Add as custom entry</button>
+  </div>
+
+  {# Selected items display #}
+  <div class="le-chips" id="le-create-chips"></div>
+
+  {# Hidden inputs for form submission — updated by JS #}
+  <div id="le-create-hidden"></div>
+
+  {# Always-present free text field (additional reference) #}
+  <div style="margin-top:8px">
+    <label style="font-size:10px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:3px">Additional Reference</label>
+    <input name="linked_other" id="le-create-other" class="form-input" style="font-size:13px"
+           placeholder="Free text — any other reference (optional)">
   </div>
 </div>
-
-<style>
-.entity-detail-card {
-  margin-top:4px; padding:8px 10px; background:rgba(59,130,246,0.06);
-  border:1px solid rgba(59,130,246,0.2); border-radius:6px;
-  font-size:12px; color:#93c5fd;
-}
-.linked-entity-row { display:flex; flex-direction:column; }
-</style>
 
 <script>
-function showEntityDetail(select, detailId) {
-  const card = document.getElementById(detailId);
-  const opt = select.options[select.selectedIndex];
-  const detail = opt ? opt.dataset.detail : '';
-  if (detail && detail !== 'undefined') {
-    card.textContent = detail;
-    card.style.display = 'block';
-  } else {
-    card.style.display = 'none';
+(function() {
+  // Track selections per entity type for create form
+  const _leCreateSel = {};
+
+  window.leCreateFilter = function(q) {
+    const term = q.trim().toLowerCase();
+    const list  = document.getElementById('le-create-list');
+    const noRes = document.getElementById('le-create-no-results');
+    const noTxt = document.getElementById('le-create-no-results-text');
+    let anyVisible = false;
+    list.querySelectorAll('.le-group').forEach(grp => {
+      let grpVisible = false;
+      grp.querySelectorAll('.le-item').forEach(item => {
+        const match = !term || item.dataset.label.includes(term);
+        item.classList.toggle('hidden', !match);
+        if (match) grpVisible = true;
+      });
+      grp.classList.toggle('all-hidden', !grpVisible);
+      if (grpVisible) anyVisible = true;
+    });
+    if (!anyVisible && term) {
+      noRes.style.display = '';
+      noTxt.textContent = '"' + q.trim() + '" not found in your repository.';
+    } else {
+      noRes.style.display = 'none';
+    }
+  };
+
+  window.leCreateSelect = function(fieldName, id, label, type, el) {
+    // Deselect previous in same group
+    const grp = el.closest('.le-group');
+    if (grp) grp.querySelectorAll('.le-item.selected').forEach(i => i.classList.remove('selected'));
+    el.classList.add('selected');
+    _leCreateSel[type] = {fieldName, id, label};
+    _leRenderCreateChips();
+    _leRenderCreateHidden();
+  };
+
+  window.leCreateAddCustom = function() {
+    const q = (document.getElementById('le-create-search').value || '').trim();
+    if (!q) return;
+    _leCreateSel['OTHER'] = {fieldName: 'linked_other', id: '', label: q};
+    document.getElementById('le-create-other').value = q;
+    document.getElementById('le-create-no-results').style.display = 'none';
+    _leRenderCreateChips();
+  };
+
+  function _leRenderCreateChips() {
+    const chips = document.getElementById('le-create-chips');
+    chips.innerHTML = '';
+    Object.entries(_leCreateSel).forEach(([type, sel]) => {
+      const chip = document.createElement('span');
+      chip.className = 'le-chip';
+      chip.innerHTML = '<span>' + _leEsc(sel.label) + '</span><span class="le-chip-remove" onclick="_leCreateDeselect(\'' + type + '\')">×</span>';
+      chips.appendChild(chip);
+    });
   }
-}
+
+  function _leRenderCreateHidden() {
+    const hidden = document.getElementById('le-create-hidden');
+    hidden.innerHTML = '';
+    Object.entries(_leCreateSel).forEach(([type, sel]) => {
+      if (type === 'OTHER') return; // handled by the visible other input
+      const inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = sel.fieldName;
+      inp.value = sel.id;
+      hidden.appendChild(inp);
+    });
+  }
+
+  window._leCreateDeselect = function(type) {
+    const sel = _leCreateSel[type];
+    if (sel) {
+      // Un-highlight item in list
+      const list = document.getElementById('le-create-list');
+      list.querySelectorAll('.le-item.selected').forEach(i => {
+        if (i.dataset.display === sel.label) i.classList.remove('selected');
+      });
+      if (type === 'OTHER') document.getElementById('le-create-other').value = '';
+    }
+    delete _leCreateSel[type];
+    _leRenderCreateChips();
+    _leRenderCreateHidden();
+  };
+
+  function _leEsc(s) {
+    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+})();
 </script>
 
-{% else %}
-{# ── READ-ONLY display on detail pages ─────────────────────────────────── #}
-{% if linked_refs %}
-<div class="card" style="padding:14px;margin-top:12px">
-  <div style="font-weight:600;font-size:13px;margin-bottom:10px">🔗 Linked Entities</div>
-  <div style="display:flex;flex-wrap:wrap;gap:8px">
-    {% for ref in linked_refs %}
-    <div style="background:var(--border-subtle);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px">
-      <span style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:0.05em">
-        {% if ref.entity_type == 'CUSTOM_LIST' %}Ref{% else %}{{ ref.entity_type.replace('_',' ') }}{% endif %}
-      </span>
-      <div style="color:var(--text-primary);font-weight:500;margin-top:2px">{{ ref.entity_label or ref.custom_text or '—' }}</div>
-    </div>
-    {% endfor %}
+{% elif readonly %}
+{# ── DETAIL PAGE — read-only list + add panel for Admin/Manager ──────────── #}
+<div class="card" style="padding:14px;margin-top:12px" id="le-detail-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div style="font-weight:600;font-size:13px">🔗 Linked Entities</div>
+    {% if can_add %}
+    <button type="button" class="btn btn-xs btn-outline" onclick="leDetailToggleAdd()">+ Add</button>
+    {% endif %}
   </div>
+
+  {# Existing linked refs — visible to all roles #}
+  <div id="le-detail-refs" style="display:flex;flex-wrap:wrap;gap:6px">
+    {% if linked_refs %}
+      {% for ref in linked_refs %}
+      <div class="le-ref-chip" id="le-ref-{{ ref.id }}">
+        <span class="le-ref-type">{% if ref.entity_type == 'CUSTOM_LIST' %}Ref{% elif ref.entity_type == 'OTHER' %}Custom{% else %}{{ ref.entity_type.replace('_',' ') }}{% endif %}</span>
+        <span class="le-ref-label">{{ ref.entity_label or ref.custom_text or '—' }}</span>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p style="font-size:12px;color:var(--text-faint);margin:0" id="le-no-refs-msg">No linked entities yet.</p>
+    {% endif %}
+  </div>
+
+  {% if can_add %}
+  {# Add panel (E-04 typeahead + E-07 inline add) #}
+  <div id="le-detail-add-panel" style="display:none;margin-top:12px;border-top:1px solid var(--border-subtle);padding-top:12px">
+    <input type="text" class="le-search-input" id="le-detail-search"
+           placeholder="Search entities…"
+           oninput="leDetailFilter(this.value)" autocomplete="off">
+
+    <div class="le-list-box" id="le-detail-list">
+      {% if entity_options is defined %}
+        {% set ns2 = namespace(has_any2=false) %}
+
+        {% if entity_options.get('CUSTOMER') %}{% set ns2.has_any2 = true %}
+        <div class="le-group" data-group="CUSTOMER">
+          <div class="le-group-title">Customers</div>
+          {% for opt in entity_options['CUSTOMER'] %}
+          <div class="le-item" data-label="{{ opt.label | lower }}" data-display="{{ opt.label }}"
+               data-type="CUSTOMER" data-id="{{ opt.id }}"
+               onclick="leDetailSelect('CUSTOMER','{{ opt.id }}','{{ opt.label | replace("'","\\'")|replace('"','&quot;') }}',this)">{{ opt.label }}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if entity_options.get('END_PRODUCT') %}{% set ns2.has_any2 = true %}
+        <div class="le-group" data-group="END_PRODUCT">
+          <div class="le-group-title">End Products</div>
+          {% for opt in entity_options['END_PRODUCT'] %}
+          <div class="le-item" data-label="{{ opt.label | lower }}" data-display="{{ opt.label }}"
+               data-type="END_PRODUCT" data-id="{{ opt.id }}"
+               onclick="leDetailSelect('END_PRODUCT','{{ opt.id }}','{{ opt.label | replace("'","\\'")|replace('"','&quot;') }}',this)">{{ opt.label }}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if entity_options.get('MATERIAL') %}{% set ns2.has_any2 = true %}
+        <div class="le-group" data-group="MATERIAL">
+          <div class="le-group-title">Raw Materials</div>
+          {% for opt in entity_options['MATERIAL'] %}
+          <div class="le-item" data-label="{{ opt.label | lower }}" data-display="{{ opt.label }}"
+               data-type="MATERIAL" data-id="{{ opt.id }}"
+               onclick="leDetailSelect('MATERIAL','{{ opt.id }}','{{ opt.label | replace("'","\\'")|replace('"','&quot;') }}',this)">{{ opt.label }}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if entity_options.get('VENDOR') %}{% set ns2.has_any2 = true %}
+        <div class="le-group" data-group="VENDOR">
+          <div class="le-group-title">Vendors</div>
+          {% for opt in entity_options['VENDOR'] %}
+          <div class="le-item" data-label="{{ opt.label | lower }}" data-display="{{ opt.label }}"
+               data-type="VENDOR" data-id="{{ opt.id }}"
+               onclick="leDetailSelect('VENDOR','{{ opt.id }}','{{ opt.label | replace("'","\\'")|replace('"','&quot;') }}',this)">{{ opt.label }}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% for key, items in entity_options.items() %}
+        {% if key.startswith('CUSTOM_LIST:') %}{% set ns2.has_any2 = true %}
+        {% set parts = key.split(':') %}
+        {% set list_id = parts[1] %}
+        {% set list_name = parts[2] %}
+        <div class="le-group" data-group="CUSTOM_LIST:{{ list_id }}">
+          <div class="le-group-title">{{ list_name }}</div>
+          {% for opt in items %}
+          <div class="le-item" data-label="{{ opt.label | lower }}" data-display="{{ opt.label }}"
+               data-type="CUSTOM_LIST" data-id="{{ opt.id }}" data-list-id="{{ list_id }}"
+               onclick="leDetailSelect('CUSTOM_LIST','{{ opt.id }}','{{ opt.label | replace("'","\\'")|replace('"','&quot;') }}',this)">{{ opt.label }}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        {% if not ns2.has_any2 %}
+        <div class="le-no-results">No entities configured in Setup.</div>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    <div id="le-detail-no-results" style="display:none;padding:8px 0;font-size:12px;color:var(--text-faint)">
+      <span id="le-detail-no-results-text"></span>
+      <button type="button" class="btn btn-xs btn-outline" style="margin-left:6px" onclick="leDetailAddCustom()">Add</button>
+    </div>
+    <div id="le-detail-saving" style="display:none;font-size:11px;color:var(--text-faint);margin-top:4px">Saving…</div>
+  </div>
+  {% endif %}
 </div>
-{% endif %}
+
+<script>
+(function() {
+  const _leParentType = '{{ parent_type }}';
+  const _leParentId   = '{{ parent_id }}';
+
+  window.leDetailToggleAdd = function() {
+    const p = document.getElementById('le-detail-add-panel');
+    p.style.display = p.style.display === 'none' ? '' : 'none';
+    if (p.style.display === '') document.getElementById('le-detail-search').focus();
+  };
+
+  window.leDetailFilter = function(q) {
+    const term = q.trim().toLowerCase();
+    const list  = document.getElementById('le-detail-list');
+    const noRes = document.getElementById('le-detail-no-results');
+    const noTxt = document.getElementById('le-detail-no-results-text');
+    let anyVisible = false;
+    list.querySelectorAll('.le-group').forEach(grp => {
+      let grpVisible = false;
+      grp.querySelectorAll('.le-item').forEach(item => {
+        const match = !term || item.dataset.label.includes(term);
+        item.classList.toggle('hidden', !match);
+        if (match) grpVisible = true;
+      });
+      grp.classList.toggle('all-hidden', !grpVisible);
+      if (grpVisible) anyVisible = true;
+    });
+    if (!anyVisible && term) {
+      noRes.style.display = '';
+      noTxt.textContent = '"' + q.trim() + '" not found in your repository. Add it as a custom entry?';
+    } else {
+      noRes.style.display = 'none';
+    }
+  };
+
+  window.leDetailSelect = function(type, id, label, el) {
+    _leDetailSave(type, id, label);
+  };
+
+  window.leDetailAddCustom = function() {
+    const q = (document.getElementById('le-detail-search').value || '').trim();
+    if (!q) return;
+    _leDetailSave('OTHER', '', q, q);
+  };
+
+  function _leDetailSave(type, id, label, customText) {
+    const saving = document.getElementById('le-detail-saving');
+    saving.style.display = '';
+    const body = new FormData();
+    body.append('parent_type', _leParentType);
+    body.append('parent_id', _leParentId);
+    body.append('entity_type', type);
+    body.append('entity_id', id || '');
+    body.append('entity_label', label || '');
+    body.append('custom_text', customText || '');
+    fetch('/api/linked-entities/add', {method: 'POST', body})
+      .then(r => r.json())
+      .then(data => {
+        saving.style.display = 'none';
+        if (data.error) { alert(data.error); return; }
+        _leDetailAppendChip(data.id, data.entity_type, data.entity_label || customText || label);
+        // Clear search
+        document.getElementById('le-detail-search').value = '';
+        leDetailFilter('');
+        document.getElementById('le-detail-no-results').style.display = 'none';
+      })
+      .catch(() => { saving.style.display = 'none'; alert('Failed to save. Please try again.'); });
+  }
+
+  function _leDetailAppendChip(refId, type, label) {
+    const noMsg = document.getElementById('le-no-refs-msg');
+    if (noMsg) noMsg.remove();
+    const container = document.getElementById('le-detail-refs');
+    const chip = document.createElement('div');
+    chip.className = 'le-ref-chip';
+    chip.id = 'le-ref-' + refId;
+    const typeLabel = type === 'CUSTOM_LIST' ? 'Ref' : type === 'OTHER' ? 'Custom' : type.replace(/_/g,' ');
+    chip.innerHTML = '<span class="le-ref-type">' + typeLabel + '</span><span class="le-ref-label">' + _leEsc2(label) + '</span>';
+    container.appendChild(chip);
+  }
+
+  function _leEsc2(s) {
+    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+})();
+</script>
 {% endif %}

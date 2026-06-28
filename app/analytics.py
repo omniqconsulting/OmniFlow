@@ -4,7 +4,7 @@ KPI & analytics calculation engine — Phase 0-E-9, 0-G-1 through 0-G-11
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import or_ as _or
-from .database import Ticket, ChecklistAssignment, ChecklistTemplate, User, Department
+from .database import Ticket, ChecklistAssignment, ChecklistTemplate, User, Department, Tenant
 
 
 def _resolve_filter_uids(db, tenant_id, dept_ids=None, manager_ids=None):
@@ -28,8 +28,8 @@ def _resolve_filter_uids(db, tenant_id, dept_ids=None, manager_ids=None):
     return [u.id for u in q.all()]
 
 
-def calc_tat_hours(ticket) -> float | None:
-    """Turnaround time for a ticket from creation to close/done."""
+def calc_tat_hours(ticket, tenant=None) -> float | None:
+    """Turnaround time for a ticket — business hours if tenant is configured, else wall-clock."""
     if not ticket.created_at:
         return None
     end = ticket.closed_at
@@ -37,6 +37,9 @@ def calc_tat_hours(ticket) -> float | None:
         end = datetime.utcnow()
     if not end:
         return None
+    if tenant and getattr(tenant, 'work_start_time', None):
+        from .notifications import business_hours_elapsed
+        return business_hours_elapsed(tenant, ticket.created_at, end)
     return max((end - ticket.created_at).total_seconds() / 3600, 0)
 
 
@@ -49,7 +52,8 @@ def get_org_avg_tat(db: Session, tenant_id: str) -> float:
         Ticket.status.in_(["DONE", "CLOSED"]),
         Ticket.created_at >= since,
     ).all()
-    tats = [calc_tat_hours(t) for t in closed]
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    tats = [calc_tat_hours(t, tenant) for t in closed]
     tats = [x for x in tats if x is not None]
     return round(sum(tats) / len(tats), 1) if tats else 0.0
 
@@ -61,6 +65,7 @@ def get_employee_kpis(db: Session, user_id: str, tenant_id: str) -> dict:
     """
     now = datetime.utcnow()
     since_30 = now - timedelta(days=30)
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
 
     # ── Closed tickets last 30 days ──────────────────────────────────────────
     closed = db.query(Ticket).filter(
@@ -71,7 +76,7 @@ def get_employee_kpis(db: Session, user_id: str, tenant_id: str) -> dict:
         Ticket.created_at >= since_30,
     ).all()
 
-    tats = [calc_tat_hours(t) for t in closed]
+    tats = [calc_tat_hours(t, tenant) for t in closed]
     tats = [x for x in tats if x is not None]
     avg_tat = round(sum(tats) / len(tats), 1) if tats else 0.0
 
@@ -167,6 +172,9 @@ def get_all_employee_kpis(db: Session, tenant_id: str) -> list:
     result = []
     for emp in employees:
         kpis = get_employee_kpis(db, emp.id, tenant_id)
+        fms_kpis = get_fms_employee_stage_kpis(db, emp.id, tenant_id)
+        kpis["fms_on_time"] = fms_kpis["fms_on_time_rate"]
+        kpis["fms_total_tickets"] = fms_kpis["total_tickets"]
         kpis["user"] = emp
         result.append(kpis)
     # Sort by compliance rate ascending (worst first) for admin bar chart
@@ -230,6 +238,7 @@ def get_delegation_scorecards(db: Session, tenant_id: str,
                                dept_ids: list = None,
                                manager_ids: list = None) -> dict:
     start, now = _date_bounds(date_from, date_to)
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     _uids = _resolve_filter_uids(db, tenant_id, dept_ids, manager_ids)
 
     def _scope(q):
@@ -244,7 +253,7 @@ def get_delegation_scorecards(db: Session, tenant_id: str,
     closed = base().filter(
         Ticket.status.in_(["DONE","CLOSED"]),
         Ticket.created_at >= start).all()
-    tats = [x for x in [calc_tat_hours(t) for t in closed] if x is not None]
+    tats = [x for x in [calc_tat_hours(t, tenant) for t in closed] if x is not None]
     avg_tat = round(sum(tats)/len(tats), 1) if tats else 0.0
     due_24h = base().filter(
         Ticket.status.notin_(["CLOSED","DONE"]),
@@ -348,6 +357,7 @@ def get_employee_tat_ranking(db: Session, tenant_id: str, date_from: str = None,
                               dept_ids: list = None, manager_ids: list = None) -> list:
     start, _ = _date_bounds(date_from, date_to)
     org_avg = get_org_avg_tat(db, tenant_id)
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     scoped_uids = _resolve_filter_uids(db, tenant_id, dept_ids, manager_ids)
     eq = db.query(User).filter(User.tenant_id==tenant_id,
         User.is_deleted==False, User.is_active==True)
@@ -358,7 +368,7 @@ def get_employee_tat_ranking(db: Session, tenant_id: str, date_from: str = None,
         closed = db.query(Ticket).filter(Ticket.tenant_id==tenant_id,
             Ticket.is_deleted==False, Ticket.current_assignee_id==emp.id,
             Ticket.status.in_(["DONE","CLOSED"]), Ticket.created_at>=start).all()
-        tats = [x for x in [calc_tat_hours(t) for t in closed] if x is not None]
+        tats = [x for x in [calc_tat_hours(t, tenant) for t in closed] if x is not None]
         avg = round(sum(tats)/len(tats),1) if tats else None
         result.append({
             "name": emp.name,
@@ -617,6 +627,89 @@ def get_fms_stage_breakdown(db: Session, flow_id: str, tenant_id: str) -> list:
                         "oldest_hrs": oldest,
                         "breaches": breaches})
     return result
+
+
+def get_fms_employee_stage_kpis(db: Session, user_id: str, tenant_id: str, since=None) -> dict:
+    """Stage-level FMS on-time scoring for one employee — Phase A5.
+
+    Computes FMS on-time rate by measuring whether each stage history row
+    was completed within (entered_at + stage.target_tat_hours).  Scoring is
+    at the ticket level: a ticket is ON_TIME only if every evaluated stage is
+    on time.  Stages without a TaT target and in-progress stages are excluded
+    from the calculation entirely.
+    """
+    from .database import FMSStageHistory, FMSTicket, FMSStage
+    from collections import defaultdict
+
+    IST = timedelta(hours=5, minutes=30)
+
+    q = (db.query(FMSStageHistory)
+         .join(FMSTicket, FMSStageHistory.ticket_id == FMSTicket.id)
+         .filter(
+             FMSStageHistory.assignee_id == user_id,
+             FMSTicket.tenant_id == tenant_id,
+             FMSTicket.is_deleted == False,
+         ))
+    if since:
+        q = q.filter(FMSStageHistory.entered_at >= since)
+    rows = q.all()
+
+    by_ticket: dict = defaultdict(list)
+    for row in rows:
+        by_ticket[row.ticket_id].append(row)
+
+    total_tickets = on_time_tickets = late_tickets = 0
+    stage_detail = []
+
+    for ticket_id, history_rows in by_ticket.items():
+        ticket = history_rows[0].ticket
+        evaluated = []
+
+        for h in history_rows:
+            stage = db.query(FMSStage).get(h.stage_id)
+            target_tat = stage.target_tat_hours if stage else None
+            window_end = (h.entered_at + timedelta(hours=target_tat)) if (h.entered_at and target_tat) else None
+
+            if h.exited_at is None:
+                result = "IN_PROGRESS"
+            elif target_tat is None:
+                result = "NO_TAT"
+            elif h.exited_at <= window_end:
+                result = "ON_TIME"
+            else:
+                result = "LATE"
+
+            stage_detail.append({
+                "ticket_display_id": ticket.display_id or ticket_id[:8],
+                "ticket_title":      ticket.title,
+                "stage_name":        h.stage_name or (stage.name if stage else "—"),
+                "entered_at":        (h.entered_at + IST) if h.entered_at else None,
+                "exited_at":         (h.exited_at + IST) if h.exited_at else None,
+                "window_end":        (window_end + IST) if window_end else None,
+                "result":            result,
+            })
+
+            if result in ("ON_TIME", "LATE"):
+                evaluated.append(result)
+
+        if not evaluated:
+            continue
+
+        total_tickets += 1
+        if all(r == "ON_TIME" for r in evaluated):
+            on_time_tickets += 1
+        else:
+            late_tickets += 1
+
+    rate = round(on_time_tickets / total_tickets * 100) if total_tickets > 0 else 0
+
+    return {
+        "total_tickets":   total_tickets,
+        "on_time_tickets": on_time_tickets,
+        "late_tickets":    late_tickets,
+        "fms_on_time_rate": rate,
+        "stage_detail":    stage_detail,
+    }
 
 
 def get_fms_weekly(db: Session, tenant_id: str) -> dict:

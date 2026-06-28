@@ -20,7 +20,7 @@
 <!-- ── Performance Score ──────────────────────────────────────── -->
 <div style="display:grid;grid-template-columns:148px 1fr;gap:14px;margin-bottom:20px;align-items:stretch">
   <div class="card" style="text-align:center;padding:20px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0">
-    <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">My Score</div>
+    <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">My Score</div>
     <div style="
       width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;
       background:conic-gradient(
@@ -35,7 +35,7 @@
     </div>
   </div>
   <div class="card" style="padding:16px 20px;display:flex;flex-direction:column;justify-content:center;gap:10px;margin:0">
-    <div style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Score Breakdown (30 days)</div>
+    <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Score Breakdown (30 days)</div>
     {% for c in perf_components %}
     <div>
       <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
@@ -110,12 +110,12 @@
         {% if t.is_flagged %}<span style="color:#f87171">🚩</span> {% endif %}{{ t.title }}
       </td>
       <td>
-        <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}" style="font-size:9px">
+        <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}" style="font-size:11px">
           {{ t.priority }}
         </span>
       </td>
       <td>
-        <span class="badge {% if t.status=='OPEN' %}badge-blue{% elif t.status=='IN_PROGRESS' %}badge-yellow{% elif t.status=='HELP_REQUESTED' %}badge-red{% else %}badge-gray{% endif %}" style="font-size:9px">
+        <span class="badge {% if t.status=='OPEN' %}badge-blue{% elif t.status=='DONE' %}badge-green{% else %}badge-gray{% endif %}" style="font-size:11px">
           {{ t.status }}
         </span>
       </td>
@@ -157,7 +157,7 @@
       <td style="font-weight:500;color:var(--text-primary)">{{ t.title }}</td>
       <td style="font-size:12px;color:var(--text-muted)">{{ t.current_stage.name if t.current_stage else '—' }}</td>
       <td>
-        <span class="badge badge-blue" style="font-size:9px">{{ t.status }}</span>
+        <span class="badge badge-blue" style="font-size:11px">{{ t.status }}</span>
       </td>
       <td><a href="/fms/{{ t.id }}" class="btn btn-sm btn-outline">View</a></td>
     </tr>
@@ -169,7 +169,7 @@
       <td style="font-weight:500;color:var(--text-primary)">{{ t.title }}</td>
       <td style="font-size:12px;color:var(--text-muted)">{{ t.current_stage.name if t.current_stage else '—' }}</td>
       <td>
-        <span class="badge badge-green" style="font-size:9px">{{ t.status }}</span>
+        <span class="badge badge-green" style="font-size:11px">{{ t.status }}</span>
       </td>
       <td><a href="/fms/{{ t.id }}" class="btn btn-sm btn-outline">View</a></td>
     </tr>

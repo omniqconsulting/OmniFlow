@@ -103,6 +103,12 @@
             </div>
           </div>
 
+          {# E-05: Linked Entities for FMS tickets #}
+          {% set parent_type = 'FMS_TICKET' %}
+          {% set parent_id = '' %}
+          {% set readonly = false %}
+          {% include "components/linked_entities.html" %}
+
           <!-- Stage Timeline (collapsible) -->
           <div id="timelineToggleRow" style="display:none;margin-bottom:8px">
             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleTimeline()">

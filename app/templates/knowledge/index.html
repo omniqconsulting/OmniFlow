@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Repository{% endblock %}
+{% block content %}
+
+<style>
+.kr-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
+.kr-header h1{font-size:20px;font-weight:700;color:var(--text-primary);margin:0}
+.kr-actions{display:flex;gap:8px;flex-wrap:wrap}
+.kr-layout{display:grid;grid-template-columns:210px 1fr;gap:20px;align-items:start}
+@media(max-width:700px){.kr-layout{grid-template-columns:1fr}}
+/* Sidebar */
+.kr-sidebar{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:14px}
+.kr-sidebar h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin:0 0 10px}
+.kr-filter-btn{display:block;width:100%;text-align:left;background:none;border:none;padding:6px 8px;border-radius:6px;font-size:13px;color:var(--text-muted);cursor:pointer;transition:.15s}
+.kr-filter-btn:hover,.kr-filter-btn.active{background:rgba(99,102,241,.15);color:#818cf8}
+.kr-filter-sep{border:none;border-top:1px solid var(--border-subtle);margin:10px 0}
+/* Search bar */
+.kr-search-bar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.kr-search-bar input{flex:1;min-width:180px;background:var(--bg-input);border:1px solid var(--border-med);border-radius:8px;padding:8px 12px;font-size:13px;color:var(--text-primary);outline:none}
+/* Table */
+.kr-table{width:100%;border-collapse:collapse;font-size:13px}
+.kr-table th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);padding:8px 10px;text-align:left;border-bottom:1px solid var(--border-subtle);white-space:nowrap}
+.kr-table td{padding:10px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;color:var(--text-muted)}
+.kr-table tr:last-child td{border-bottom:none}
+.kr-table tr:hover td{background:rgba(255,255,255,.03)}
+.kr-title{font-weight:600;color:var(--text-primary)}
+.kr-title a{color:inherit;text-decoration:none}
+.kr-title a:hover{color:#818cf8;text-decoration:underline}
+/* Kind badge */
+.kr-kind{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap}
+.kr-kind-document{background:rgba(99,102,241,.15);color:#818cf8}
+.kr-kind-video{background:rgba(239,68,68,.15);color:#f87171}
+.kr-kind-audio{background:rgba(234,179,8,.15);color:#facc15}
+.kr-kind-image{background:rgba(34,197,94,.15);color:#4ade80}
+.kr-kind-link{background:rgba(14,165,233,.15);color:#38bdf8}
+/* Category pill */
+.kr-cat{font-size:11px;padding:2px 8px;border-radius:20px;background:var(--bg-input);color:var(--text-faint)}
+/* Empty state */
+.kr-empty{text-align:center;padding:60px 0;color:var(--text-faint)}
+.kr-empty-icon{font-size:40px;margin-bottom:12px}
+/* Pagination */
+.kr-pager{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:18px;font-size:13px;color:var(--text-muted)}
+.kr-pager a{padding:5px 12px;border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-muted);text-decoration:none}
+.kr-pager a:hover{border-color:#818cf8;color:#818cf8}
+/* Toast */
+.kr-toast{position:fixed;top:70px;right:20px;background:#10b981;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.3);animation:fadeOut 3.5s forwards}
+@keyframes fadeOut{0%,70%{opacity:1}100%{opacity:0;pointer-events:none}}
+</style>
+
+{% set msg = request.query_params.get('msg','') %}
+{% if msg %}
+<div class="kr-toast">
+  {% if msg == 'uploaded' %}File uploaded successfully
+  {% elif msg == 'deleted' %}Item deleted
+  {% elif msg.startswith('bulk_') %}{{ msg[5:] }} file(s) uploaded
+  {% else %}Saved{% endif %}
+</div>
+{% endif %}
+
+<div class="kr-header">
+  <h1>📚 Knowledge Repository</h1>
+  <div class="kr-actions">
+    {% if user.role in ('ADMIN','MANAGER') %}
+    <button class="btn btn-sm" onclick="document.getElementById('bulkModal').style.display='flex'">⬆ Bulk Upload</button>
+    <button class="btn btn-sm btn-primary" onclick="document.getElementById('uploadModal').style.display='flex'">+ Add Item</button>
+    {% endif %}
+  </div>
+</div>
+
+<div class="kr-layout">
+  <!-- Sidebar filters -->
+  <div class="kr-sidebar">
+    <h3>Type</h3>
+    <a href="{{ request.url.path }}?search={{ search }}&category={{ category }}&kind=" class="kr-filter-btn{% if not kind %} active{% endif %}">All types</a>
+    {% for k, icon in [('document','📄'),('video','🎬'),('audio','🎵'),('image','🖼'),('link','🔗')] %}
+    <a href="{{ request.url.path }}?search={{ search }}&category={{ category }}&kind={{ k }}" class="kr-filter-btn{% if kind == k %} active{% endif %}">{{ icon }} {{ k|capitalize }}</a>
+    {% endfor %}
+
+    {% if categories %}
+    <hr class="kr-filter-sep">
+    <h3>Category</h3>
+    <a href="{{ request.url.path }}?search={{ search }}&category=&kind={{ kind }}" class="kr-filter-btn{% if not category %} active{% endif %}">All categories</a>
+    {% for cat in categories %}
+    <a href="{{ request.url.path }}?search={{ search }}&category={{ cat }}&kind={{ kind }}" class="kr-filter-btn{% if category == cat %} active{% endif %}" title="{{ cat }}">
+      {{ cat[:22] }}{% if cat|length > 22 %}…{% endif %}
+    </a>
+    {% endfor %}
+    {% endif %}
+  </div>
+
+  <!-- Main content -->
+  <div>
+    <!-- Search -->
+    <form method="get" class="kr-search-bar">
+      <input name="search" value="{{ search }}" placeholder="Search by title, tags, description…" autocomplete="off">
+      <input type="hidden" name="category" value="{{ category }}">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <button type="submit" class="btn btn-sm">Search</button>
+      {% if search or category or kind %}
+      <a href="/knowledge" class="btn btn-sm" style="color:var(--text-faint)">Clear</a>
+      {% endif %}
+    </form>
+
+    <!-- Results table -->
+    <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden">
+      {% if items %}
+      <table class="kr-table">
+        <thead>
+          <tr>
+            <th style="width:36px"></th>
+            <th>Title</th>
+            <th>Type</th>
+            <th>Category</th>
+            <th>Tags</th>
+            <th>Size</th>
+            <th>Uploaded By</th>
+            <th>Date</th>
+            {% if user.role in ('ADMIN','MANAGER') %}<th></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+        {% for it in items %}
+        <tr>
+          <td style="text-align:center;font-size:18px;padding:6px 8px">
+            {% if it.media_kind == 'video' %}🎬
+            {% elif it.media_kind == 'audio' %}🎵
+            {% elif it.media_kind == 'image' %}🖼
+            {% elif it.media_kind == 'link' %}🔗
+            {% else %}📄{% endif %}
+          </td>
+          <td>
+            <div class="kr-title">
+              {% if it.file_url %}
+              <a href="{{ it.file_url }}" target="_blank" rel="noopener">{{ it.title }}</a>
+              {% elif it.external_url %}
+              <a href="{{ it.external_url }}" target="_blank" rel="noopener">{{ it.title }}</a>
+              {% else %}
+              {{ it.title }}
+              {% endif %}
+            </div>
+            {% if it.description %}
+            <div style="font-size:11px;color:var(--text-faint);margin-top:2px">{{ it.description[:80] }}{% if it.description|length > 80 %}…{% endif %}</div>
+            {% endif %}
+          </td>
+          <td><span class="kr-kind kr-kind-{{ it.media_kind or 'document' }}">{{ (it.media_kind or 'document')|capitalize }}</span></td>
+          <td>{% if it.category %}<span class="kr-cat">{{ it.category }}</span>{% else %}—{% endif %}</td>
+          <td style="font-size:11px;color:var(--text-faint);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ it.tags or '—' }}</td>
+          <td style="white-space:nowrap">{{ it._size_label }}</td>
+          <td style="white-space:nowrap">{{ it.created_by.name if it.created_by else '—' }}</td>
+          <td style="white-space:nowrap">{{ it.created_at.strftime('%d %b %Y') if it.created_at else '—' }}</td>
+          {% if user.role in ('ADMIN','MANAGER') %}
+          <td>
+            <form method="post" action="/knowledge/{{ it.id }}/delete" onsubmit="return confirm('Delete this item?')">
+              <button type="submit" style="background:none;border:none;cursor:pointer;color:#f87171;font-size:13px;padding:2px 6px" title="Delete">🗑</button>
+            </form>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="kr-empty">
+        <div class="kr-empty-icon">📂</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px">No items found</div>
+        <div style="font-size:13px">
+          {% if search or category or kind %}Adjust your filters or <a href="/knowledge" style="color:#818cf8">clear all</a>
+          {% else %}Upload your first document, video, or audio to get started{% endif %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="kr-pager">
+      {% if page > 1 %}<a href="?search={{ search }}&category={{ category }}&kind={{ kind }}&page={{ page - 1 }}">← Prev</a>{% endif %}
+      <span>Page {{ page }} of {{ total_pages }} &nbsp;·&nbsp; {{ total }} item{{ 's' if total != 1 }}</span>
+      {% if page < total_pages %}<a href="?search={{ search }}&category={{ category }}&kind={{ kind }}&page={{ page + 1 }}">Next →</a>{% endif %}
+    </div>
+    {% else %}
+    <div style="text-align:right;font-size:12px;color:var(--text-faint);margin-top:10px">{{ total }} item{{ 's' if total != 1 }}</div>
+    {% endif %}
+  </div>
+</div>
+
+
+<!-- ── Upload Modal ── -->
+<div id="uploadModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:24px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h2 style="font-size:16px;font-weight:700;margin:0">Add Knowledge Item</h2>
+      <button onclick="document.getElementById('uploadModal').style.display='none'" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <form method="post" action="/knowledge/upload" enctype="multipart/form-data">
+      <div class="fm-group">
+        <label>Title <span style="color:#f87171">*</span></label>
+        <input type="text" name="title" required placeholder="Descriptive title for this item" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);box-sizing:border-box">
+      </div>
+      <div class="fm-group">
+        <label>Description</label>
+        <textarea name="description" rows="2" placeholder="Brief description (optional)" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fm-group">
+          <label>Category</label>
+          <input type="text" name="category" list="kr-cats" placeholder="e.g. SOPs, Training" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);box-sizing:border-box">
+          <datalist id="kr-cats">
+            {% for cat in categories %}<option value="{{ cat }}">{% endfor %}
+          </datalist>
+        </div>
+        <div class="fm-group">
+          <label>Tags</label>
+          <input type="text" name="tags" placeholder="tag1, tag2, tag3" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);box-sizing:border-box">
+        </div>
+      </div>
+      <div class="fm-group">
+        <label>File Upload</label>
+        <input type="file" name="file" id="uploadFile" accept="*/*" style="width:100%;background:var(--bg-input);border:1px dashed var(--border-med);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-muted);box-sizing:border-box">
+        <div style="font-size:11px;color:var(--text-faint);margin-top:4px">Documents, videos, audio, images — up to 20 MB</div>
+      </div>
+      <div class="fm-group">
+        <label>— or External Link —</label>
+        <input type="url" name="external_url" placeholder="https://…" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);box-sizing:border-box">
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+        <button type="button" onclick="document.getElementById('uploadModal').style.display='none'" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">Upload</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- ── Bulk Upload Modal ── -->
+<div id="bulkModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:24px;width:100%;max-width:480px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h2 style="font-size:16px;font-weight:700;margin:0">Bulk Upload</h2>
+      <button onclick="document.getElementById('bulkModal').style.display='none'" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <form method="post" action="/knowledge/bulk-upload" enctype="multipart/form-data" id="bulkForm">
+      <div class="fm-group">
+        <label>Files <span style="color:#f87171">*</span></label>
+        <div id="dropZone" style="border:2px dashed var(--border-med);border-radius:10px;padding:30px 20px;text-align:center;cursor:pointer;transition:.2s;background:var(--bg-input)"
+             onclick="document.getElementById('bulkFiles').click()"
+             ondragover="event.preventDefault();this.style.borderColor='#818cf8'"
+             ondragleave="this.style.borderColor=''"
+             ondrop="handleDrop(event)">
+          <div style="font-size:28px;margin-bottom:8px">📂</div>
+          <div style="font-size:13px;color:var(--text-muted)">Click or drag &amp; drop files here</div>
+          <div style="font-size:11px;color:var(--text-faint);margin-top:4px">Select multiple files at once</div>
+          <div id="bulkFileList" style="margin-top:10px;font-size:12px;color:#818cf8"></div>
+        </div>
+        <input type="file" name="files" id="bulkFiles" multiple accept="*/*" style="display:none" onchange="updateBulkList(this.files)">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px">
+        <div class="fm-group">
+          <label>Category (applies to all)</label>
+          <input type="text" name="category" list="kr-cats-bulk" placeholder="Optional" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);box-sizing:border-box">
+          <datalist id="kr-cats-bulk">
+            {% for cat in categories %}<option value="{{ cat }}">{% endfor %}
+          </datalist>
+        </div>
+        <div class="fm-group">
+          <label>Tags (applies to all)</label>
+          <input type="text" name="tags" placeholder="tag1, tag2" style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);box-sizing:border-box">
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+        <button type="button" onclick="document.getElementById('bulkModal').style.display='none'" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary" id="bulkSubmitBtn">Upload All</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function updateBulkList(files) {
+  var list = document.getElementById('bulkFileList');
+  if (!files || !files.length) { list.textContent = ''; return; }
+  list.textContent = files.length + ' file' + (files.length > 1 ? 's' : '') + ' selected: ' +
+    Array.from(files).slice(0,5).map(function(f){return f.name;}).join(', ') +
+    (files.length > 5 ? ' …' : '');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').style.borderColor = '';
+  var dt = e.dataTransfer;
+  if (dt && dt.files.length) {
+    document.getElementById('bulkFiles').files = dt.files;
+    updateBulkList(dt.files);
+  }
+}
+
+document.getElementById('bulkForm').addEventListener('submit', function() {
+  document.getElementById('bulkSubmitBtn').disabled = true;
+  document.getElementById('bulkSubmitBtn').textContent = 'Uploading…';
+});
+
+// Close modals on backdrop click
+['uploadModal','bulkModal'].forEach(function(id) {
+  document.getElementById(id).addEventListener('click', function(e) {
+    if (e.target === this) this.style.display = 'none';
+  });
+});
+
+// Auto-dismiss toast
+setTimeout(function() {
+  var t = document.querySelector('.kr-toast');
+  if (t) t.remove();
+}, 4000);
+</script>
+
+{% endblock %}

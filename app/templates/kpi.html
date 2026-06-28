@@ -41,7 +41,61 @@
     <div class="value">{{ kpis.closed_30d }}</div>
     <div class="sub">tickets closed</div>
   </div>
+  {% if fms_stage_kpis and fms_stage_kpis.total_tickets > 0 %}
+  <div class="kpi-card" title="Based on {{ fms_stage_kpis.stage_detail | selectattr('result','in',['ON_TIME','LATE']) | list | length }} stages across {{ fms_stage_kpis.total_tickets }} tickets">
+    <div class="label">FMS Stage On-Time Rate</div>
+    <div class="value" style="color:{% if fms_stage_kpis.fms_on_time_rate >= 80 %}#10b981{% elif fms_stage_kpis.fms_on_time_rate >= 60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ fms_stage_kpis.fms_on_time_rate }}%</div>
+    <div class="sub">{{ fms_stage_kpis.on_time_tickets }} of {{ fms_stage_kpis.total_tickets }} tickets on time</div>
+  </div>
+  {% endif %}
 </div>
+
+{% if fms_stage_kpis and fms_stage_kpis.stage_detail %}
+<!-- FMS Stage Detail (self-view) -->
+<div class="card" style="margin-top:16px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <h2 style="margin:0">FMS Stage Performance</h2>
+    <button onclick="document.getElementById('fmsDetailTable').classList.toggle('hidden')"
+            style="font-size:11px;color:var(--text-faint);background:none;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 10px;cursor:pointer">
+      Show / Hide
+    </button>
+  </div>
+  <div style="font-size:12px;color:var(--text-xfaint);margin-bottom:10px">
+    Based on {{ fms_stage_kpis.stage_detail | selectattr('result','in',['ON_TIME','LATE']) | list | length }} stages across {{ fms_stage_kpis.total_tickets }} tickets
+  </div>
+  <div id="fmsDetailTable" class="hidden">
+    <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Ticket</th><th>Stage</th><th>Entered (IST)</th><th>Window End</th><th>Exited (IST)</th><th style="text-align:center">Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in fms_stage_kpis.stage_detail %}
+          <tr>
+            <td>
+              <div style="font-weight:500">{{ s.ticket_display_id }}</div>
+              <div style="font-size:11px;color:var(--text-xfaint)">{{ s.ticket_title }}</div>
+            </td>
+            <td class="muted">{{ s.stage_name }}</td>
+            <td class="muted">{{ s.entered_at.strftime('%d %b %H:%M') if s.entered_at else '—' }}</td>
+            <td class="muted">{{ s.window_end.strftime('%d %b %H:%M') if s.window_end else '—' }}</td>
+            <td class="muted">{{ s.exited_at.strftime('%d %b %H:%M') if s.exited_at else '—' }}</td>
+            <td style="text-align:center">
+              {% if s.result == 'ON_TIME' %}<span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#10b98122;color:#6ee7b7;font-weight:700">ON TIME</span>
+              {% elif s.result == 'LATE' %}<span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#ef444422;color:#f87171;font-weight:700">LATE</span>
+              {% elif s.result == 'IN_PROGRESS' %}<span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#3b82f622;color:#7dd3fc;font-weight:700">IN PROGRESS</span>
+              {% else %}<span style="font-size:10px;padding:2px 8px;border-radius:99px;background:var(--bg-elevated);color:var(--text-xfaint);font-weight:700">NO TAT</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- 8-week compliance trend -->
 <div class="card">

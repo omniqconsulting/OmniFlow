@@ -110,14 +110,7 @@
         {{ emp.name }}
         {% if emp.employee_id %}<span style="font-size:10px;color:var(--text-xfaint);margin-left:6px">{{ emp.employee_id }}</span>{% endif %}
       </td>
-      <td style="color:var(--text-muted)">
-        {{ emp.phone }}
-        {% if emp.mobile_verified %}
-          <span class="badge badge-green" title="Validated by {{ emp.mobile_verified_by_user.name if emp.mobile_verified_by_user else '' }} on {{ emp.mobile_verified_at.strftime('%d %b %Y') if emp.mobile_verified_at }}">Validated</span>
-        {% else %}
-          <span class="badge badge-gray">Not validated</span>
-        {% endif %}
-      </td>
+      <td style="color:var(--text-muted);white-space:nowrap">{{ emp.phone }}</td>
       <td>
         <span class="badge {% if emp.role=='ADMIN' %}badge-purple{% elif emp.role=='MANAGER' %}badge-blue{% else %}badge-gray{% endif %}">
           {{ emp.role }}
@@ -130,21 +123,32 @@
           {{ emp.status if emp.status else ('Active' if emp.is_active else 'Inactive') }}
         </span>
       </td>
-      <td style="display:flex;gap:5px;flex-wrap:wrap">
-        <a href="/employees/{{ emp.id }}/performance" class="btn btn-sm btn-outline" title="Performance">📊</a>
-        {% if user.role == 'ADMIN' %}
-        <button onclick="toggleRow('pw-{{ emp.id }}')" class="btn btn-sm btn-gray">Reset PW</button>
-        <button onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-outline" style="color:#fbbf24;border-color:rgba(251,191,36,.3)">Edit</button>
-        <form method="post" action="/employees/{{ emp.id }}/toggle-validated" style="display:inline">
-          <button type="submit" class="btn btn-sm btn-outline">{{ 'Unmark Validated' if emp.mobile_verified else 'Mark as Validated' }}</button>
-        </form>
-        {% if emp.status != 'TERMINATED' and emp.id != user.id %}
-        <button onclick="openTerminate('{{ emp.id }}','{{ emp.name | e }}')" class="btn btn-sm btn-outline" style="color:#f87171;border-color:rgba(248,113,113,.3)">Terminate</button>
-        {% endif %}
-        {% if emp.id != user.id %}
-        <button onclick="confirmDelete('{{ emp.id }}','{{ emp.name | e }}')" class="btn btn-sm btn-red">Delete</button>
-        {% endif %}
-        {% endif %}
+      <td>
+        <div style="display:flex;gap:6px;align-items:center">
+          <a href="/employees/{{ emp.id }}/performance" class="btn btn-sm btn-outline" title="Performance" style="padding:3px 8px">📊</a>
+          {% if user.role == 'ADMIN' %}
+          <form method="post" action="/employees/{{ emp.id }}/toggle-validated" style="display:inline">
+            <button type="submit" class="btn btn-sm" style="font-size:10px;padding:3px 8px;{% if emp.mobile_verified %}background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);color:#6ee7b7{% else %}background:rgba(255,255,255,0.04);border:1px solid var(--border-subtle);color:var(--text-muted){% endif %}">
+              {{ '✓ Validated' if emp.mobile_verified else 'Not Validated' }}
+            </button>
+          </form>
+          {# Three-dot menu #}
+          <div class="emp-action-menu" style="position:relative">
+            <button type="button" onclick="empToggleMenu(this)" style="background:none;border:1px solid var(--border-subtle);border-radius:6px;padding:2px 7px;font-size:16px;cursor:pointer;color:var(--text-faint);line-height:1.4;font-family:inherit">&#8942;</button>
+            <div class="emp-dropdown" style="display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:150px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.18);z-index:200;overflow:hidden;font-family:inherit">
+              <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));toggleRow('pw-{{ emp.id }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:var(--text-primary);background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">🔑 Reset Password</button>
+              <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));toggleRow('edit-{{ emp.id }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:var(--text-primary);background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">✏ Edit</button>
+              {% if emp.status != 'TERMINATED' and emp.id != user.id %}
+              <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));openTerminate('{{ emp.id }}','{{ emp.name | e }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:#f87171;background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">⛔ Terminate</button>
+              {% endif %}
+              {% if emp.id != user.id %}
+              <div style="height:1px;background:var(--border-subtle);margin:2px 0"></div>
+              <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));confirmDelete('{{ emp.id }}','{{ emp.name | e }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:#f87171;background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='rgba(239,68,68,0.08)'" onmouseleave="this.style.background=''">🗑 Delete</button>
+              {% endif %}
+            </div>
+          </div>
+          {% endif %}
+        </div>
       </td>
     </tr>
 
@@ -489,6 +493,19 @@
 <script>
 function show(id){ document.getElementById(id).style.display = 'flex'; }
 function hide(id){ document.getElementById(id).style.display = 'none'; }
+
+function empToggleMenu(btn) {
+  var drop = btn.parentElement.querySelector('.emp-dropdown');
+  var isOpen = drop.style.display !== 'none';
+  document.querySelectorAll('.emp-dropdown').forEach(function(d){ d.style.display='none'; });
+  drop.style.display = isOpen ? 'none' : 'block';
+}
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.emp-action-menu')) {
+    document.querySelectorAll('.emp-dropdown').forEach(function(d){ d.style.display='none'; });
+  }
+});
+
 function toggleRow(id){
   var el = document.getElementById(id);
   el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'table-row' : 'none';

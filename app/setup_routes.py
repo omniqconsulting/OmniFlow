@@ -20,7 +20,7 @@ from .database import (
     User, Tenant, Branch, Department,
     Customer, EndProduct, Vendor, RawMaterial,
     CustomReferenceList, CustomReferenceItem,
-    FMSFlow, FMSStage, FMSTicket,
+    FMSFlow, FMSStage, FMSTicket, FMSStageHistory,
 )
 from .auth import require_admin
 from .labels import get_labels
@@ -53,10 +53,11 @@ def _nav_ctx(db: Session, user: User) -> dict:
     from .constants import has_feature
     tenant = db.query(Tenant).get(user.tenant_id)
     return {
-        "has_inventory":  has_feature(tenant, "INVENTORY",  db),
-        "has_fms":        has_feature(tenant, "FMS",        db),
-        "has_checklists": has_feature(tenant, "CHECKLISTS", db),
-        "has_ai":         has_feature(tenant, "ASK_AI",     db),
+        "has_inventory":       has_feature(tenant, "INVENTORY",       db),
+        "has_fms":             has_feature(tenant, "FMS",             db),
+        "has_knowledge_repo":  has_feature(tenant, "KNOWLEDGE_REPO",  db),
+        "has_checklists":      has_feature(tenant, "CHECKLISTS",      db),
+        "has_ai":              has_feature(tenant, "ASK_AI",          db),
     }
 
 
@@ -913,3 +914,325 @@ def org_chart_page(
 @router.get("/setup/employees")
 def setup_employees_redirect(user: User = Depends(require_admin)):
     return _redir("/employees")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SETUP FLOWS — Client Flow Builder (Phase A4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+import json as _json_flows
+
+
+def _get_active_employees(db: Session, tenant_id: str):
+    return db.query(User).filter(
+        User.tenant_id == tenant_id,
+        User.is_deleted == False,
+        User.is_active == True,
+    ).order_by(User.name).all()
+
+
+@router.get("/setup/flows", response_class=HTMLResponse)
+def setup_flows_list(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from .constants import has_feature, PLAN_LIMITS
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "FMS", db):
+        return _redir("/setup?err=FMS+not+enabled")
+
+    flows = db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == False,
+    ).order_by(FMSFlow.created_at).all()
+
+    plan = tenant.plan or "STARTER"
+    max_flows = PLAN_LIMITS.get(plan, {}).get("max_fms_flows")
+    at_limit = max_flows is not None and len(flows) >= max_flows
+
+    flow_info = []
+    for f in flows:
+        stage_count = len([s for s in f.stages if not s.is_deleted])
+        active_tickets = db.query(FMSTicket).filter(
+            FMSTicket.flow_id == f.id,
+            FMSTicket.is_deleted == False,
+            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+        ).count()
+        flow_info.append({
+            "flow": f,
+            "stage_count": stage_count,
+            "active_tickets": active_tickets,
+            "can_delete": active_tickets == 0,
+        })
+
+    return templates.TemplateResponse(request, "setup/flows.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "flow_info": flow_info,
+        "at_limit": at_limit,
+        "max_flows": max_flows,
+        "active_section": "flows",
+    })
+
+
+@router.get("/setup/flows/new", response_class=HTMLResponse)
+def setup_flow_new(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from .constants import has_feature, PLAN_LIMITS
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "FMS", db):
+        return _redir("/setup?err=FMS+not+enabled")
+
+    plan = tenant.plan or "STARTER"
+    max_flows = PLAN_LIMITS.get(plan, {}).get("max_fms_flows")
+    current = db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == False,
+    ).count()
+    if max_flows is not None and current >= max_flows:
+        return _redir("/setup/flows?err=Flow+limit+reached+for+your+plan")
+
+    employees = _get_active_employees(db, user.tenant_id)
+    return templates.TemplateResponse(request, "setup/flow_edit.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "flow": None,
+        "stages_json": "[]",
+        "employees": employees,
+        "active_section": "flows",
+    })
+
+
+@router.get("/setup/flows/{flow_id}/edit", response_class=HTMLResponse)
+def setup_flow_edit_get(
+    flow_id: str,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    flow = db.query(FMSFlow).filter(
+        FMSFlow.id == flow_id,
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == False,
+    ).first()
+    if not flow:
+        return _redir("/setup/flows?err=Flow+not+found")
+
+    stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order)
+    import json as _jf
+    stages_data = []
+    for s in stages:
+        try:
+            cf = _jf.loads(s.custom_fields_json or "[]")
+        except Exception:
+            cf = []
+        stages_data.append({
+            "id": s.id,
+            "name": s.name,
+            "order": s.order,
+            "default_assignee_id": s.default_assignee_id or "",
+            "target_tat_hours": s.target_tat_hours,
+            "completion_note_required": s.completion_note_required,
+            "is_terminal": s.is_terminal,
+            "custom_fields": cf,
+        })
+
+    employees = _get_active_employees(db, user.tenant_id)
+    return templates.TemplateResponse(request, "setup/flow_edit.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "flow": flow,
+        "stages_json": _jf.dumps(stages_data),
+        "employees": employees,
+        "active_section": "flows",
+    })
+
+
+@router.post("/setup/flows/new")
+async def setup_flow_create(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from .constants import has_feature, PLAN_LIMITS
+    import json as _jf
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "FMS", db):
+        return _redir("/setup/flows?err=FMS+not+enabled")
+
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    description = (form.get("description") or "").strip()
+    color = (form.get("color") or "#3b82f6").strip()
+    is_active = form.get("is_active") == "1"
+    stages_json_raw = (form.get("stages_json") or "[]").strip()
+
+    if not name:
+        return _redir("/setup/flows/new?err=Flow+name+is+required")
+
+    plan = tenant.plan or "STARTER"
+    max_flows = PLAN_LIMITS.get(plan, {}).get("max_fms_flows")
+    current = db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == False,
+    ).count()
+    if max_flows is not None and current >= max_flows:
+        return _redir("/setup/flows?err=Flow+limit+reached+for+your+plan")
+
+    try:
+        stages_data = _jf.loads(stages_json_raw)
+    except Exception:
+        stages_data = []
+
+    flow = FMSFlow(
+        id=new_id(),
+        tenant_id=user.tenant_id,
+        name=name,
+        description=description or None,
+        color=color,
+        is_active=is_active,
+        created_by_id=user.id,
+    )
+    db.add(flow)
+    db.flush()
+
+    for i, s in enumerate(stages_data):
+        sname = (s.get("name") or "").strip()
+        if not sname:
+            continue
+        tat = s.get("target_tat_hours")
+        if tat is not None:
+            try:
+                tat = int(tat)
+            except Exception:
+                tat = None
+        cf = s.get("custom_fields", [])
+        db.add(FMSStage(
+            id=s.get("id") or new_id(),
+            flow_id=flow.id,
+            tenant_id=user.tenant_id,
+            name=sname,
+            order=i,
+            default_assignee_id=s.get("default_assignee_id") or None,
+            target_tat_hours=tat,
+            completion_note_required=bool(s.get("completion_note_required")),
+            is_terminal=bool(s.get("is_terminal")),
+            custom_fields_json=_jf.dumps(cf),
+        ))
+
+    db.commit()
+    return _redir("/setup/flows?msg=Flow+created")
+
+
+@router.post("/setup/flows/{flow_id}/edit")
+async def setup_flow_update(
+    flow_id: str,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    import json as _jf
+    flow = db.query(FMSFlow).filter(
+        FMSFlow.id == flow_id,
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == False,
+    ).first()
+    if not flow:
+        return _redir("/setup/flows?err=Flow+not+found")
+
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    description = (form.get("description") or "").strip()
+    color = (form.get("color") or "#3b82f6").strip()
+    is_active = form.get("is_active") == "1"
+    stages_json_raw = (form.get("stages_json") or "[]").strip()
+
+    if not name:
+        return _redir(f"/setup/flows/{flow_id}/edit?err=Flow+name+is+required")
+
+    try:
+        stages_data = _jf.loads(stages_json_raw)
+    except Exception:
+        stages_data = []
+
+    flow.name = name
+    flow.description = description or None
+    flow.color = color
+    flow.is_active = is_active
+    flow.updated_at = datetime.utcnow()
+
+    submitted_ids = {s.get("id") for s in stages_data if s.get("id")}
+    existing = {s.id: s for s in flow.stages if not s.is_deleted}
+
+    for sid, stage in existing.items():
+        if sid not in submitted_ids:
+            stage.is_deleted = True
+
+    for i, s in enumerate(stages_data):
+        sname = (s.get("name") or "").strip()
+        if not sname:
+            continue
+        tat = s.get("target_tat_hours")
+        if tat is not None:
+            try:
+                tat = int(tat)
+            except Exception:
+                tat = None
+        cf = s.get("custom_fields", [])
+        sid = s.get("id")
+        if sid and sid in existing:
+            stage = existing[sid]
+            stage.name = sname
+            stage.order = i
+            stage.default_assignee_id = s.get("default_assignee_id") or None
+            stage.target_tat_hours = tat
+            stage.completion_note_required = bool(s.get("completion_note_required"))
+            stage.is_terminal = bool(s.get("is_terminal"))
+            stage.custom_fields_json = _jf.dumps(cf)
+        else:
+            db.add(FMSStage(
+                id=new_id(),
+                flow_id=flow.id,
+                tenant_id=user.tenant_id,
+                name=sname,
+                order=i,
+                default_assignee_id=s.get("default_assignee_id") or None,
+                target_tat_hours=tat,
+                completion_note_required=bool(s.get("completion_note_required")),
+                is_terminal=bool(s.get("is_terminal")),
+                custom_fields_json=_jf.dumps(cf),
+            ))
+
+    db.commit()
+    return _redir("/setup/flows?msg=Flow+updated")
+
+
+@router.post("/setup/flows/{flow_id}/delete")
+def setup_flow_delete(
+    flow_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    flow = db.query(FMSFlow).filter(
+        FMSFlow.id == flow_id,
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == False,
+    ).first()
+    if not flow:
+        return _redir("/setup/flows?err=Flow+not+found")
+
+    active_tickets = db.query(FMSTicket).filter(
+        FMSTicket.flow_id == flow_id,
+        FMSTicket.is_deleted == False,
+        FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+    ).count()
+    if active_tickets > 0:
+        return _redir("/setup/flows?err=Cannot+delete+flow+with+active+tickets")
+
+    flow.is_deleted = True
+    db.commit()
+    return _redir("/setup/flows?msg=Flow+deleted")
+
