@@ -1893,6 +1893,7 @@ const STAGE_CF_DEFS = {
   {{ s.id | tojson }}: {{ cf | tojson }}{% if not loop.last %},{% endif %}
   {% endfor %}
 };
+const REF_LISTS = {{ ref_lists_json | safe }};
 
 function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired, noteRequired, stageId) {
   var modal = document.getElementById('stageCompleteModal');
@@ -1988,6 +1989,14 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
         inp.style.cssText = INP_STYLE;
         var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
         (f.options || []).forEach(function(o) {
+          var op = document.createElement('option'); op.value=o; op.textContent=o; inp.appendChild(op);
+        });
+      } else if (f.field_type === 'ref_list') {
+        inp = document.createElement('select');
+        inp.style.cssText = INP_STYLE;
+        var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
+        var rl = (REF_LISTS || []).find(function(l){ return l.id === f.ref_list_id; });
+        ((rl && rl.items) || []).forEach(function(o) {
           var op = document.createElement('option'); op.value=o; op.textContent=o; inp.appendChild(op);
         });
       } else if (f.field_type === 'yesno') {

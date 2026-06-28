@@ -996,6 +996,11 @@ def setup_flow_new(
         return _redir("/setup/flows?err=Flow+limit+reached+for+your+plan")
 
     employees = _get_active_employees(db, user.tenant_id)
+    ref_lists = db.query(CustomReferenceList).filter(
+        CustomReferenceList.tenant_id == user.tenant_id,
+        CustomReferenceList.is_deleted == False,
+        CustomReferenceList.is_active == True,
+    ).order_by(CustomReferenceList.list_name).all()
     return templates.TemplateResponse(request, "setup/flow_edit.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -1003,6 +1008,8 @@ def setup_flow_new(
         "stages_json": "[]",
         "employees": employees,
         "active_section": "flows",
+        "ref_lists": ref_lists,
+        "ref_lists_json": __import__('json').dumps([{"id": l.id, "name": l.list_name, "items": [i.value for i in l.items if i.is_active and not i.is_deleted]} for l in ref_lists]) if ref_lists else "[]",
     })
 
 
@@ -1041,6 +1048,11 @@ def setup_flow_edit_get(
         })
 
     employees = _get_active_employees(db, user.tenant_id)
+    ref_lists = db.query(CustomReferenceList).filter(
+        CustomReferenceList.tenant_id == user.tenant_id,
+        CustomReferenceList.is_deleted == False,
+        CustomReferenceList.is_active == True,
+    ).order_by(CustomReferenceList.list_name).all()
     return templates.TemplateResponse(request, "setup/flow_edit.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -1048,6 +1060,8 @@ def setup_flow_edit_get(
         "stages_json": _jf.dumps(stages_data),
         "employees": employees,
         "active_section": "flows",
+        "ref_lists": ref_lists,
+        "ref_lists_json": _jf.dumps([{"id": l.id, "name": l.list_name, "items": [i.value for i in l.items if i.is_active and not i.is_deleted]} for l in ref_lists]),
     })
 
 

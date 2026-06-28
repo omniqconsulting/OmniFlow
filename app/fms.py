@@ -21,6 +21,7 @@ from .database import (
     Notification, MediaUpload,
     PMSDailyLog, DispatchRecord, InvoiceRecord,
     Customer, Vendor, RawMaterial,
+    CustomReferenceList, CustomReferenceItem,
 )
 from .auth import get_current_user, require_admin, require_manager
 from .labels import get_labels, DEFAULT_L
@@ -132,16 +133,15 @@ def _planned_dates(ticket, stages) -> dict:
     sorted_stages = sorted([s for s in stages if not getattr(s, "is_deleted", False)], key=lambda s: s.order)
     result = {}
     cursor = ticket.created_at
-    none_from = False
     for s in sorted_stages:
-        if none_from or not s.target_tat_hours:
-            result[s.id] = (None, None)
-            none_from = True
-        else:
-            ps = cursor
+        ps = cursor
+        if s.target_tat_hours:
             pe = cursor + timedelta(hours=s.target_tat_hours)
-            result[s.id] = (ps, pe)
-            cursor = pe
+        else:
+            # No TAT defined — give a 1-minute placeholder so plan dates are always present
+            pe = cursor + timedelta(minutes=1)
+        result[s.id] = (ps, pe)
+        cursor = pe
     return result
 
 
@@ -1251,6 +1251,15 @@ def _fms_dashboard_inner(
         awaiting_count=awaiting_count,
         compliance=compliance,
         now=now,
+        ref_lists_json=__import__('json').dumps([
+            {"id": l.id, "name": l.list_name,
+             "items": [i.value for i in l.items if i.is_active and not i.is_deleted]}
+            for l in db.query(CustomReferenceList).filter(
+                CustomReferenceList.tenant_id == user.tenant_id,
+                CustomReferenceList.is_deleted == False,
+                CustomReferenceList.is_active == True,
+            ).all()
+        ]),
     ))
 
 
@@ -1990,8 +1999,24 @@ async def fms_bulk_transition(
         completion_note = (form.get(f"completion_note_{t_id}") or "").strip()
         cur_stage = ticket.current_stage
         if cur_stage and cur_stage.completion_note_required and not completion_note:
-            skipped.append(f"{ticket.display_id or t_id[:8]}: completion note required")
+            skipped.append(f"{ticket.display_id or t_id[:8]}: completion note required — open individually")
             continue
+
+        # Check required custom fields — bulk UI has no field inputs, skip those tickets
+        if cur_stage and cur_stage.custom_fields_json:
+            try:
+                import json as _json
+                _fdefs = _json.loads(cur_stage.custom_fields_json)
+                _required = [f.get("label", f.get("id","")) for f in _fdefs
+                             if f.get("required") and f.get("field_type") != "formula"]
+                if _required:
+                    skipped.append(
+                        f"{ticket.display_id or t_id[:8]}: required fields not filled "
+                        f"({', '.join(_required)}) — open individually"
+                    )
+                    continue
+            except Exception:
+                pass
 
         open_h = _open_history(db, t_id)
         if open_h:
@@ -2334,7 +2359,8 @@ async def fms_transition(
                 continue  # evaluated in second pass
             key = f"cf__{fid}"
             val = str(form_data.get(key, "") or "").strip()
-            if fdef.get("required") and not val:
+            # Required-field enforcement only applies on FORWARD moves
+            if fdef.get("required") and not val and direction != "BACKWARD":
                 missing_required.append(fdef.get("label", fid))
             if val:
                 custom_fields_data[fid] = val

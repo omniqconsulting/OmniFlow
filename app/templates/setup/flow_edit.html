@@ -148,7 +148,8 @@
           <option value="number">Number</option>
           <option value="date">Date</option>
           <option value="yesno">Yes / No</option>
-          <option value="dropdown">Dropdown</option>
+          <option value="dropdown">Dropdown (custom options)</option>
+          <option value="ref_list">Reference List (from Setup)</option>
           <option value="formula" id="formulaOption">Formula (calculated)</option>
         </select>
         <div id="formulaNote" style="display:none;font-size:11px;color:#a78bfa;margin-top:4px">
@@ -160,6 +161,21 @@
       <div class="fe-group" id="colOptionsGroup" style="display:none">
         <label class="fe-label">Options (one per line)</label>
         <textarea class="fe-input" id="colOptions" rows="4" placeholder="Option 1&#10;Option 2&#10;Option 3"></textarea>
+      </div>
+
+      <!-- reference list picker -->
+      <div class="fe-group" id="colRefListGroup" style="display:none">
+        <label class="fe-label">Select List <span style="color:#f87171">*</span></label>
+        <select class="fe-input" id="colRefListId" onchange="onRefListChange()">
+          <option value="">— choose a list —</option>
+          {% for rl in ref_lists %}
+          <option value="{{ rl.id }}">{{ rl.list_name }}</option>
+          {% endfor %}
+        </select>
+        <div id="colRefListPreview" style="display:none;font-size:11px;color:var(--text-faint);margin-top:5px;padding:6px 10px;background:var(--bg-elevated);border-radius:6px;line-height:1.6"></div>
+        {% if not ref_lists %}
+        <div style="font-size:11px;color:#fb923c;margin-top:4px">No reference lists found. Create one in Setup → Reference Lists first.</div>
+        {% endif %}
       </div>
 
       <!-- formula builder -->
@@ -255,7 +271,9 @@ function buildStageEl(s, i) {
   var cfHtml = (s.custom_fields || []).map(function(c) {
     var typeTag = c.field_type === 'formula'
       ? '<span class="col-row-type" style="color:#a78bfa">formula</span>'
-      : '<span class="col-row-type">' + c.field_type + '</span>';
+      : c.field_type === 'ref_list'
+        ? '<span class="col-row-type" style="color:#34d399">list: ' + _esc(c.ref_list_name || c.ref_list_id || '') + '</span>'
+        : '<span class="col-row-type">' + c.field_type + '</span>';
     return '<div class="col-row" data-col-id="' + c.id + '">' +
       '<span class="col-row-label">' + _esc(c.label) + '</span>' +
       typeTag +
@@ -431,6 +449,10 @@ function editColumn(stageIdx, colId) {
     if (col.field_type === 'dropdown') {
       document.getElementById('colOptions').value = (col.options || []).join('\n');
     }
+    if (col.field_type === 'ref_list') {
+      document.getElementById('colRefListId').value = col.ref_list_id || '';
+      onRefListChange();
+    }
     if (col.field_type === 'formula') {
       _formulaSteps = JSON.parse(JSON.stringify(col.formula_steps || []));
     } else {
@@ -454,6 +476,8 @@ function _resetNewPanel() {
   document.getElementById('colLabel').value = '';
   document.getElementById('colType').value = 'text';
   document.getElementById('colOptions').value = '';
+  document.getElementById('colRefListId').value = '';
+  document.getElementById('colRefListPreview').style.display = 'none';
   document.getElementById('colRequired').checked = false;
   document.getElementById('colCarryForward').checked = false;
   _formulaSteps = [];
@@ -496,14 +520,30 @@ function onReuseColChange() {
 }
 
 // ── New column panel — type switching ─────────────────────────────────────
+var _refListsData = {{ ref_lists_json | safe }};
+
 function onColTypeChange() {
   var t = document.getElementById('colType').value;
-  document.getElementById('colOptionsGroup').style.display  = t === 'dropdown' ? '' : 'none';
-  document.getElementById('formulaBuilder').style.display   = t === 'formula'  ? '' : 'none';
-  document.getElementById('formulaNote').style.display      = t === 'formula'  ? '' : 'none';
+  document.getElementById('colOptionsGroup').style.display   = t === 'dropdown' ? '' : 'none';
+  document.getElementById('colRefListGroup').style.display   = t === 'ref_list' ? '' : 'none';
+  document.getElementById('formulaBuilder').style.display    = t === 'formula'  ? '' : 'none';
+  document.getElementById('formulaNote').style.display       = t === 'formula'  ? '' : 'none';
   document.getElementById('colRequiredGroup').style.display     = t === 'formula' ? 'none' : '';
   document.getElementById('colCarryForwardGroup').style.display = t === 'formula' ? 'none' : '';
   if (t === 'formula') _renderFormulaBuilder();
+}
+
+function onRefListChange() {
+  var listId = document.getElementById('colRefListId').value;
+  var preview = document.getElementById('colRefListPreview');
+  if (!listId) { preview.style.display = 'none'; return; }
+  var lst = _refListsData.find(function(l){ return l.id === listId; });
+  if (!lst) { preview.style.display = 'none'; return; }
+  var items = lst.items.slice(0, 8);
+  preview.innerHTML = '<strong>' + lst.name + '</strong>: ' + items.map(function(v){
+    return '<span style="background:var(--bg-input);padding:1px 6px;border-radius:4px;margin:2px">' + v + '</span>';
+  }).join('') + (lst.items.length > 8 ? ' <em>+' + (lst.items.length - 8) + ' more</em>' : '');
+  preview.style.display = '';
 }
 
 // ── Formula builder ────────────────────────────────────────────────────────
@@ -639,6 +679,14 @@ function saveColumn() {
       ? document.getElementById('colOptions').value.split('\n').map(function(l){return l.trim();}).filter(Boolean)
       : [];
 
+    var refListId = '', refListName = '';
+    if (ft === 'ref_list') {
+      refListId = document.getElementById('colRefListId').value;
+      if (!refListId) { alert('Please select a reference list.'); return; }
+      var rl = _refListsData.find(function(l){ return l.id === refListId; });
+      refListName = rl ? rl.name : '';
+    }
+
     var formulaSteps = [];
     if (ft === 'formula') {
       formulaSteps = _formulaSteps.filter(function(st){return st.col_id;});
@@ -653,6 +701,8 @@ function saveColumn() {
       required: ft !== 'formula' && document.getElementById('colRequired').checked,
       carry_forward: ft !== 'formula' && document.getElementById('colCarryForward').checked,
       options: opts,
+      ref_list_id: refListId,
+      ref_list_name: refListName,
       formula_steps: formulaSteps,
       source_stage_id: null,
     };
