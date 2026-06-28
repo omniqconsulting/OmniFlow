@@ -3,6 +3,14 @@
 {% block content %}
 <style>
 .fe-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:20px 24px;margin-bottom:16px}
+/* color palette */
+.clr-palette{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.clr-swatch{width:24px;height:24px;border-radius:6px;border:2px solid transparent;cursor:pointer;transition:transform .1s,border-color .1s;flex-shrink:0}
+.clr-swatch:hover{transform:scale(1.18)}
+.clr-swatch.selected{border-color:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.4),0 0 6px rgba(255,255,255,.3)}
+.clr-custom{width:28px;height:28px;border-radius:6px;border:2px solid var(--border-med);cursor:pointer;padding:0;background:none;overflow:hidden;flex-shrink:0}
+.clr-custom::-webkit-color-swatch-wrapper{padding:0}
+.clr-custom::-webkit-color-swatch{border:none;border-radius:4px}
 .fe-label{display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
 .fe-input{width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;transition:border-color .12s;box-sizing:border-box}
 .fe-input:focus{border-color:#3b82f6}
@@ -148,7 +156,8 @@
           <option value="number">Number</option>
           <option value="date">Date</option>
           <option value="yesno">Yes / No</option>
-          <option value="dropdown">Dropdown</option>
+          <option value="dropdown">Dropdown (custom options)</option>
+          <option value="ref_list">Reference List (from Setup)</option>
           <option value="formula" id="formulaOption">Formula (calculated)</option>
         </select>
         <div id="formulaNote" style="display:none;font-size:11px;color:#a78bfa;margin-top:4px">
@@ -160,6 +169,34 @@
       <div class="fe-group" id="colOptionsGroup" style="display:none">
         <label class="fe-label">Options (one per line)</label>
         <textarea class="fe-input" id="colOptions" rows="4" placeholder="Option 1&#10;Option 2&#10;Option 3"></textarea>
+      </div>
+
+      <!-- reference list picker -->
+      <div class="fe-group" id="colRefListGroup" style="display:none">
+        <label class="fe-label">Select List <span style="color:#f87171">*</span></label>
+        <select class="fe-input" id="colRefListId" onchange="onRefListChange()">
+          <option value="">— choose a list —</option>
+          {% set sys_lists = ref_lists | selectattr('system') | list %}
+          {% set cust_lists = ref_lists | rejectattr('system') | list %}
+          {% if sys_lists %}
+          <optgroup label="── System Lists ──">
+            {% for rl in sys_lists %}
+            <option value="{{ rl.id }}">{{ rl.name }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
+          {% if cust_lists %}
+          <optgroup label="── Custom Lists ──">
+            {% for rl in cust_lists %}
+            <option value="{{ rl.id }}">{{ rl.name }}</option>
+            {% endfor %}
+          </optgroup>
+          {% endif %}
+        </select>
+        <div id="colRefListPreview" style="display:none;font-size:11px;color:var(--text-faint);margin-top:5px;padding:6px 10px;background:var(--bg-elevated);border-radius:6px;line-height:1.6"></div>
+        {% if not ref_lists %}
+        <div style="font-size:11px;color:#fb923c;margin-top:4px">No reference lists found. Create one in Setup → Reference Lists first.</div>
+        {% endif %}
       </div>
 
       <!-- formula builder -->
@@ -255,7 +292,9 @@ function buildStageEl(s, i) {
   var cfHtml = (s.custom_fields || []).map(function(c) {
     var typeTag = c.field_type === 'formula'
       ? '<span class="col-row-type" style="color:#a78bfa">formula</span>'
-      : '<span class="col-row-type">' + c.field_type + '</span>';
+      : c.field_type === 'ref_list'
+        ? '<span class="col-row-type" style="color:#34d399">list: ' + _esc(c.ref_list_name || c.ref_list_id || '') + '</span>'
+        : '<span class="col-row-type">' + c.field_type + '</span>';
     return '<div class="col-row" data-col-id="' + c.id + '">' +
       '<span class="col-row-label">' + _esc(c.label) + '</span>' +
       typeTag +
@@ -268,13 +307,21 @@ function buildStageEl(s, i) {
       '</div>';
   }).join('');
 
+  var stageColor = s.color || '#3b82f6';
+  var swatchesHtml = PALETTE_COLORS.map(function(c) {
+    return '<span class="clr-swatch' + (c === stageColor ? ' selected' : '') + '" ' +
+      'style="background:' + c + '" title="' + c + '" ' +
+      'onclick="setStageColor(' + i + ',\'' + c + '\',this)"></span>';
+  }).join('');
+
   el.innerHTML =
-    '<div class="stage-row-hdr" onclick="toggleStage(' + i + ')">' +
+    '<div class="stage-row-hdr" onclick="toggleStage(' + i + ')" style="border-left:4px solid ' + stageColor + ';border-radius:0 0 0 0">' +
       '<span class="drag-handle" onclick="event.stopPropagation()">⠿</span>' +
-      '<span style="background:rgba(59,130,246,0.2);color:#7dd3fc;border-radius:99px;padding:2px 8px;font-size:10px;font-weight:700;flex-shrink:0">' + (i + 1) + '</span>' +
+      '<span style="background:' + stageColor + '33;color:' + stageColor + ';border-radius:99px;padding:2px 8px;font-size:10px;font-weight:700;flex-shrink:0">' + (i + 1) + '</span>' +
       '<span style="flex:1;font-size:13px;font-weight:600;color:var(--text-strong)">' + _esc(s.name || 'Unnamed Stage') + '</span>' +
       (s.is_terminal ? '<span style="font-size:10px;color:#6ee7b7;background:rgba(16,185,129,0.15);border-radius:4px;padding:2px 6px">Terminal</span>' : '') +
       (colCount ? '<span style="font-size:10px;color:var(--text-faint)">' + colCount + ' col' + (colCount !== 1 ? 's' : '') + '</span>' : '') +
+      '<span style="width:12px;height:12px;border-radius:50%;background:' + stageColor + ';display:inline-block;flex-shrink:0"></span>' +
       '<button type="button" onclick="event.stopPropagation();removeStage(' + i + ')" style="background:none;border:none;cursor:pointer;font-size:14px;color:#f87171;padding:0 4px" title="Remove stage">✕</button>' +
     '</div>' +
     '<div class="stage-row-body">' +
@@ -282,6 +329,14 @@ function buildStageEl(s, i) {
         '<div class="fe-group" style="grid-column:1/-1">' +
           '<label class="fe-label">Stage Name <span style="color:#f87171">*</span></label>' +
           '<input class="fe-input" value="' + _esc(s.name || '') + '" placeholder="Stage name" oninput="onStageName(' + i + ',this.value)">' +
+        '</div>' +
+        '<div class="fe-group" style="grid-column:1/-1">' +
+          '<label class="fe-label">Stage Colour</label>' +
+          '<div class="clr-palette" id="palette_' + i + '">' +
+            swatchesHtml +
+            '<input type="color" class="clr-custom" id="clrCustom_' + i + '" value="' + stageColor + '" ' +
+              'title="Custom colour" oninput="setStageColor(' + i + ',this.value,null,this)">' +
+          '</div>' +
         '</div>' +
         '<div class="fe-group">' +
           '<label class="fe-label">Default Assignee</label>' +
@@ -345,9 +400,44 @@ function onTaT(i, val, unit) {
   var n = parseFloat(val);
   stages[i].target_tat_hours = (!val || isNaN(n)) ? null : (unit === 'days' ? n * 8 : n);
 }
+var PALETTE_COLORS = [
+  '#3b82f6','#60a5fa','#2563eb','#1d4ed8',
+  '#10b981','#34d399','#059669','#065f46',
+  '#f97316','#fb923c','#ea580c','#c2410c',
+  '#ef4444','#f87171','#dc2626','#9f1239',
+  '#8b5cf6','#a78bfa','#7c3aed','#6d28d9',
+  '#ec4899','#f472b6','#db2777','#be185d',
+  '#eab308','#fbbf24','#ca8a04','#92400e',
+  '#14b8a6','#2dd4bf','#0d9488','#0f766e',
+  '#64748b','#94a3b8','#475569','#1e293b',
+];
+
+function setStageColor(idx, color, swatchEl, customInput) {
+  stages[idx].color = color;
+  var palette = document.getElementById('palette_' + idx);
+  if (palette) {
+    palette.querySelectorAll('.clr-swatch').forEach(function(s){ s.classList.remove('selected'); });
+    if (swatchEl) swatchEl.classList.add('selected');
+  }
+  if (!customInput) {
+    var ci = document.getElementById('clrCustom_' + idx);
+    if (ci) ci.value = color;
+  }
+  var rows = document.querySelectorAll('.stage-row');
+  if (rows[idx]) {
+    var hdr = rows[idx].querySelector('.stage-row-hdr');
+    if (hdr) hdr.style.borderLeftColor = color;
+    var spans = hdr ? hdr.querySelectorAll('span') : [];
+    if (spans[1]) { spans[1].style.background = color + '33'; spans[1].style.color = color; }
+    var dot = hdr ? hdr.querySelector('span[style*="border-radius:50%"]') : null;
+    if (dot) dot.style.background = color;
+  }
+}
+
 function addStage() {
-  stages.push({ id: uuid(), name: '', order: stages.length, default_assignee_id: '',
-    target_tat_hours: null, completion_note_required: false, is_terminal: false,
+  stages.push({ id: uuid(), name: '', order: stages.length, color: '#3b82f6',
+    default_assignee_id: '', target_tat_hours: null,
+    completion_note_required: false, is_terminal: false,
     custom_fields: [], _open: true });
   renderStages();
   setTimeout(function() {
@@ -431,6 +521,10 @@ function editColumn(stageIdx, colId) {
     if (col.field_type === 'dropdown') {
       document.getElementById('colOptions').value = (col.options || []).join('\n');
     }
+    if (col.field_type === 'ref_list') {
+      document.getElementById('colRefListId').value = col.ref_list_id || '';
+      onRefListChange();
+    }
     if (col.field_type === 'formula') {
       _formulaSteps = JSON.parse(JSON.stringify(col.formula_steps || []));
     } else {
@@ -454,6 +548,8 @@ function _resetNewPanel() {
   document.getElementById('colLabel').value = '';
   document.getElementById('colType').value = 'text';
   document.getElementById('colOptions').value = '';
+  document.getElementById('colRefListId').value = '';
+  document.getElementById('colRefListPreview').style.display = 'none';
   document.getElementById('colRequired').checked = false;
   document.getElementById('colCarryForward').checked = false;
   _formulaSteps = [];
@@ -496,14 +592,30 @@ function onReuseColChange() {
 }
 
 // ── New column panel — type switching ─────────────────────────────────────
+var _refListsData = {{ ref_lists_json | safe }};
+
 function onColTypeChange() {
   var t = document.getElementById('colType').value;
-  document.getElementById('colOptionsGroup').style.display  = t === 'dropdown' ? '' : 'none';
-  document.getElementById('formulaBuilder').style.display   = t === 'formula'  ? '' : 'none';
-  document.getElementById('formulaNote').style.display      = t === 'formula'  ? '' : 'none';
+  document.getElementById('colOptionsGroup').style.display   = t === 'dropdown' ? '' : 'none';
+  document.getElementById('colRefListGroup').style.display   = t === 'ref_list' ? '' : 'none';
+  document.getElementById('formulaBuilder').style.display    = t === 'formula'  ? '' : 'none';
+  document.getElementById('formulaNote').style.display       = t === 'formula'  ? '' : 'none';
   document.getElementById('colRequiredGroup').style.display     = t === 'formula' ? 'none' : '';
   document.getElementById('colCarryForwardGroup').style.display = t === 'formula' ? 'none' : '';
   if (t === 'formula') _renderFormulaBuilder();
+}
+
+function onRefListChange() {
+  var listId = document.getElementById('colRefListId').value;
+  var preview = document.getElementById('colRefListPreview');
+  if (!listId) { preview.style.display = 'none'; return; }
+  var lst = _refListsData.find(function(l){ return l.id === listId; });
+  if (!lst) { preview.style.display = 'none'; return; }
+  var items = lst.items.slice(0, 8);
+  preview.innerHTML = '<strong>' + lst.name + '</strong>: ' + items.map(function(v){
+    return '<span style="background:var(--bg-input);padding:1px 6px;border-radius:4px;margin:2px">' + v + '</span>';
+  }).join('') + (lst.items.length > 8 ? ' <em>+' + (lst.items.length - 8) + ' more</em>' : '');
+  preview.style.display = '';
 }
 
 // ── Formula builder ────────────────────────────────────────────────────────
@@ -639,6 +751,14 @@ function saveColumn() {
       ? document.getElementById('colOptions').value.split('\n').map(function(l){return l.trim();}).filter(Boolean)
       : [];
 
+    var refListId = '', refListName = '';
+    if (ft === 'ref_list') {
+      refListId = document.getElementById('colRefListId').value;
+      if (!refListId) { alert('Please select a reference list.'); return; }
+      var rl = _refListsData.find(function(l){ return l.id === refListId; });
+      refListName = rl ? rl.name : '';
+    }
+
     var formulaSteps = [];
     if (ft === 'formula') {
       formulaSteps = _formulaSteps.filter(function(st){return st.col_id;});
@@ -653,6 +773,8 @@ function saveColumn() {
       required: ft !== 'formula' && document.getElementById('colRequired').checked,
       carry_forward: ft !== 'formula' && document.getElementById('colCarryForward').checked,
       options: opts,
+      ref_list_id: refListId,
+      ref_list_name: refListName,
       formula_steps: formulaSteps,
       source_stage_id: null,
     };

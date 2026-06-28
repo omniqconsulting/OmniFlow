@@ -21,6 +21,7 @@ from .database import (
     Notification, MediaUpload,
     PMSDailyLog, DispatchRecord, InvoiceRecord,
     Customer, Vendor, RawMaterial,
+    CustomReferenceList, CustomReferenceItem,
 )
 from .auth import get_current_user, require_admin, require_manager
 from .labels import get_labels, DEFAULT_L
@@ -33,6 +34,43 @@ from .notifications import (
     notify_fms_ticket_opened,
 )
 from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION
+import json as _json_module
+
+
+def _build_ref_lists_json(tenant_id: str, db) -> str:
+    """Combined system entity tables + custom reference lists for field-builder dropdowns."""
+    result = []
+    _sys = [
+        ("__system_customer__",    "Customers",     Customer,    "name"),
+        ("__system_vendor__",      "Vendors",       Vendor,      "name"),
+        ("__system_rawmaterial__", "Raw Materials", RawMaterial, "name"),
+        ("__system_endproduct__",  "EndProduct",    None,        "name"),
+        ("__system_department__",  "Departments",   Department,  "name"),
+        ("__system_branch__",      "Branches",      Branch,      "name"),
+    ]
+    # import EndProduct locally to avoid re-importing at module level
+    from .database import EndProduct as _EP
+    _sys[3] = ("__system_endproduct__", "End Products", _EP, "name")
+
+    for sys_id, sys_name, model, name_col in _sys:
+        rows = db.query(model).filter(
+            model.tenant_id == tenant_id,
+            model.is_deleted == False,
+        ).order_by(getattr(model, name_col)).all()
+        items = [getattr(r, name_col) for r in rows if getattr(r, name_col, None)]
+        if items:
+            result.append({"id": sys_id, "name": sys_name, "items": items, "system": True})
+
+    custom = db.query(CustomReferenceList).filter(
+        CustomReferenceList.tenant_id == tenant_id,
+        CustomReferenceList.is_deleted == False,
+        CustomReferenceList.is_active != False,
+    ).order_by(CustomReferenceList.list_name).all()
+    for l in custom:
+        items = [i.value for i in l.items if i.is_active and not i.is_deleted]
+        result.append({"id": l.id, "name": l.list_name, "items": items, "system": False})
+
+    return _json_module.dumps(result)
 
 
 def _next_fms_display_id(db: Session, tenant: Tenant) -> str:
@@ -132,16 +170,15 @@ def _planned_dates(ticket, stages) -> dict:
     sorted_stages = sorted([s for s in stages if not getattr(s, "is_deleted", False)], key=lambda s: s.order)
     result = {}
     cursor = ticket.created_at
-    none_from = False
     for s in sorted_stages:
-        if none_from or not s.target_tat_hours:
-            result[s.id] = (None, None)
-            none_from = True
-        else:
-            ps = cursor
+        ps = cursor
+        if s.target_tat_hours:
             pe = cursor + timedelta(hours=s.target_tat_hours)
-            result[s.id] = (ps, pe)
-            cursor = pe
+        else:
+            # No TAT defined — give a 1-minute placeholder so plan dates are always present
+            pe = cursor + timedelta(minutes=1)
+        result[s.id] = (ps, pe)
+        cursor = pe
     return result
 
 
@@ -1251,6 +1288,7 @@ def _fms_dashboard_inner(
         awaiting_count=awaiting_count,
         compliance=compliance,
         now=now,
+        ref_lists_json=_build_ref_lists_json(user.tenant_id, db),
     ))
 
 
@@ -1993,10 +2031,66 @@ async def fms_bulk_transition(
             skipped.append(f"{ticket.display_id or t_id[:8]}: completion note required")
             continue
 
+        # Collect and validate per-ticket custom field values from bulk modal
+        import json as _json
+        custom_fields_data: dict = {}
+        if cur_stage and cur_stage.custom_fields_json:
+            try:
+                field_defs = _json.loads(cur_stage.custom_fields_json)
+            except Exception:
+                field_defs = []
+
+            missing_required = []
+            for fdef in field_defs:
+                fid = fdef.get("id", "")
+                if fdef.get("field_type") == "formula":
+                    continue
+                # Values are submitted as bulk_cf__{fid}__{ticket_id}
+                val = str(form.get(f"bulk_cf__{fid}__{t_id}", "") or "").strip()
+                if fdef.get("required") and not val:
+                    missing_required.append(fdef.get("label", fid))
+                if val:
+                    custom_fields_data[fid] = val
+
+            if missing_required:
+                skipped.append(
+                    f"{ticket.display_id or t_id[:8]}: required field(s) not filled: "
+                    f"{', '.join(missing_required)}"
+                )
+                continue
+
+            # Second pass — evaluate formula columns
+            def _eval_formula_bulk(steps: list) -> str | None:
+                result = None
+                for i, step in enumerate(steps):
+                    raw = custom_fields_data.get(step.get("col_id", ""), "")
+                    try:
+                        val = float(raw)
+                    except (ValueError, TypeError):
+                        return None
+                    if i == 0:
+                        result = val; continue
+                    op = step.get("op", "+")
+                    if op == "+":   result += val
+                    elif op == "-": result -= val
+                    elif op == "*": result *= val
+                    elif op == "/":
+                        if val == 0: return None
+                        result /= val
+                if result is None: return None
+                return str(int(result)) if result == int(result) else f"{result:.4f}".rstrip("0")
+
+            for fdef in field_defs:
+                if fdef.get("field_type") != "formula": continue
+                computed = _eval_formula_bulk(fdef.get("formula_steps") or [])
+                if computed is not None:
+                    custom_fields_data[fdef.get("id", "")] = computed
+
         open_h = _open_history(db, t_id)
         if open_h:
             open_h.exited_at = now
             open_h.completion_note = completion_note or None
+            open_h.custom_fields_data_json = _json.dumps(custom_fields_data) if custom_fields_data else None
             _log(db, t_id, user.id, "STAGE_EXITED",
                  f"From: {cur_stage.name if cur_stage else '?'}")
 
@@ -2334,7 +2428,8 @@ async def fms_transition(
                 continue  # evaluated in second pass
             key = f"cf__{fid}"
             val = str(form_data.get(key, "") or "").strip()
-            if fdef.get("required") and not val:
+            # Required-field enforcement only applies on FORWARD moves
+            if fdef.get("required") and not val and direction != "BACKWARD":
                 missing_required.append(fdef.get("label", fid))
             if val:
                 custom_fields_data[fid] = val
