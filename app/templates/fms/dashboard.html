@@ -340,18 +340,23 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     <th rowspan="2" style="text-align:center;min-width:90px">Status</th>
     {% for s in stage_table_stages %}
     {% set hex = s.color or '#3b82f6' %}
-    <th class="jt-stage-th" colspan="5" style="background:{{ hex }}">{{ s.name }}</th>
+    {% set jt_cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
+    <th class="jt-stage-th" colspan="{{ 5 + (jt_cf_defs | length) }}" style="background:{{ hex }}">{{ s.name }}</th>
     {% endfor %}
   </tr>
   <!-- Row 2: sub-headers per stage -->
   <tr>
     {% for s in stage_table_stages %}
     {% set hex = s.color or '#3b82f6' %}
+    {% set jt_cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Planned entry (from ticket created_at + cumulative TaT)">Plan Start</th>
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Planned completion">Plan End</th>
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Actual entry time">Act. Start</th>
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Actual completion">Act. End</th>
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Act. End − Plan End">Delay</th>
+    {% for fdef in jt_cf_defs %}
+    <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}">{{ fdef.label }}</th>
+    {% endfor %}
     {% endfor %}
   </tr>
 </thead>
@@ -371,6 +376,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     {% for si in row.stages %}
     {% set state_cls = 'jt-cur' if si.is_current else ('jt-past' if si.visited else 'jt-future') %}
     {% set hex = si.stage.color or '#3b82f6' %}
+    {% set jt_cf_defs = si.stage.custom_fields_json | from_json if si.stage.custom_fields_json else [] %}
     {# Highlight current stage row with subtle tint #}
     <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
       {{ si.planned_start.strftime('%d %b, %H:%M') if si.planned_start else '—' }}
@@ -393,6 +399,11 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         </span>
       {% elif si.visited %}—{% else %}<span style="opacity:.3">—</span>{% endif %}
     </td>
+    {% for fdef in jt_cf_defs %}
+    <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
+      {{ si.cf.get(fdef.id, si.cf.get(fdef.label, '—')) if (si.visited or si.is_current) else '' }}
+    </td>
+    {% endfor %}
     {% endfor %}
   </tr>
   {% endfor %}

@@ -1015,6 +1015,7 @@ def _fms_dashboard_inner(
         if filter_date_to:
             tq = tq.filter(FMSTicket.created_at <= filter_date_to)
 
+        import json as _json
         for t in tq.order_by(FMSTicket.created_at.desc()).all():
             pd = _planned_dates(t, stage_table_stages)
 
@@ -1025,6 +1026,29 @@ def _fms_dashboard_inner(
             visit_map: dict = {}
             for h in all_hist:
                 visit_map[h.stage_id] = h  # last assignment wins (most recent visit)
+
+            # Build cumulative cf_all across all history entries (UUID + label keyed)
+            cf_cumulative: dict = {}
+            for h in all_hist:
+                if not h.custom_fields_data_json:
+                    continue
+                try:
+                    cf_data = _json.loads(h.custom_fields_data_json)
+                except Exception:
+                    continue
+                cf_cumulative.update(cf_data)
+                src_stage = next(
+                    (s for s in stage_table_stages if s.id == h.stage_id), None
+                )
+                if src_stage and src_stage.custom_fields_json:
+                    try:
+                        for fdef in _json.loads(src_stage.custom_fields_json):
+                            fid = fdef.get("id", "")
+                            lbl = fdef.get("label", "")
+                            if fid and lbl and fid in cf_data:
+                                cf_cumulative[lbl] = cf_data[fid]
+                    except Exception:
+                        pass
 
             stages_info = []
             for s in stage_table_stages:
@@ -1049,6 +1073,7 @@ def _fms_dashboard_inner(
                     "delay_positive":delay_positive,
                     "is_current":    is_current,
                     "visited":       h is not None,
+                    "cf":            cf_cumulative,
                 })
 
             table_tickets.append({
