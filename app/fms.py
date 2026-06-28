@@ -2252,7 +2252,7 @@ async def fms_transition(
 
     qty = int(qty_completed) if qty_completed.strip().isdigit() else 0
 
-    # Collect custom field values for current stage
+    # Collect custom field values for current stage (A4 + Phase B)
     import json as _json
     custom_fields_data = {}
     if cur_stage:
@@ -2261,11 +2261,56 @@ async def fms_transition(
         except Exception:
             field_defs = []
         form_data = await request.form()
+
+        # First pass — collect all non-formula values keyed by id
+        missing_required = []
         for fdef in field_defs:
-            key = f"cf__{fdef.get('label','')}"
-            val = form_data.get(key, "")
+            fid = fdef.get("id", "")
+            if fdef.get("field_type") == "formula":
+                continue  # evaluated in second pass
+            key = f"cf__{fid}"
+            val = str(form_data.get(key, "") or "").strip()
+            if fdef.get("required") and not val:
+                missing_required.append(fdef.get("label", fid))
             if val:
-                custom_fields_data[fdef.get("label", "")] = str(val)
+                custom_fields_data[fid] = val
+        if missing_required:
+            raise HTTPException(400, f"Required column(s) not filled: {', '.join(missing_required)}")
+
+        # Second pass — evaluate formula columns server-side
+        def _eval_formula(steps: list) -> str | None:
+            result = None
+            for i, step in enumerate(steps):
+                col_id = step.get("col_id", "")
+                raw = custom_fields_data.get(col_id, "")
+                try:
+                    val = float(raw)
+                except (ValueError, TypeError):
+                    return None  # referenced column missing or non-numeric
+                if i == 0:
+                    result = val
+                    continue
+                op = step.get("op", "+")
+                if op == "+":   result += val
+                elif op == "-": result -= val
+                elif op == "*": result *= val
+                elif op == "/":
+                    if val == 0:
+                        return None
+                    result /= val
+            if result is None:
+                return None
+            # Return as integer string if it's a whole number, else up to 4 dp
+            return str(int(result)) if result == int(result) else f"{result:.4f}".rstrip("0")
+
+        for fdef in field_defs:
+            if fdef.get("field_type") != "formula":
+                continue
+            fid = fdef.get("id", "")
+            steps = fdef.get("formula_steps") or []
+            computed = _eval_formula(steps)
+            if computed is not None:
+                custom_fields_data[fid] = computed
 
     # Close current stage history row
     if open_h:
@@ -2716,3 +2761,54 @@ def _save_stages(db: Session, flow_id: str, tenant_id: str, stages_json: str):
             completion_note_required=bool(s.get("completion_note_required", False)),
             is_terminal=bool(s.get("is_terminal", False)),
         ))
+
+@router.get("/tickets/{ticket_id}/cf-carry-forward")
+def fms_cf_carry_forward(
+    ticket_id: str,
+    stage_id: str = Query(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return carry-forward pre-fill values for a ticket entering a stage.
+    Looks up stage custom_fields_json, finds columns with carry_forward=true,
+    then searches stage history for the most recent value per column id.
+    Returns {column_id: value} for all columns that have a prior value.
+    """
+    import json as _json
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    stage = db.query(FMSStage).filter(
+        FMSStage.id == stage_id,
+        FMSStage.tenant_id == user.tenant_id,
+    ).first()
+    if not stage:
+        return {"values": {}}
+
+    try:
+        field_defs = _json.loads(stage.custom_fields_json or "[]")
+    except Exception:
+        field_defs = []
+
+    cf_ids = [f["id"] for f in field_defs if f.get("carry_forward") and f.get("id")]
+    if not cf_ids:
+        return {"values": {}}
+
+    histories = db.query(FMSStageHistory).filter(
+        FMSStageHistory.ticket_id == ticket_id,
+        FMSStageHistory.custom_fields_data_json.isnot(None),
+    ).order_by(FMSStageHistory.entered_at.desc()).all()
+
+    values = {}
+    remaining = set(cf_ids)
+    for h in histories:
+        if not remaining:
+            break
+        try:
+            data = _json.loads(h.custom_fields_data_json)
+        except Exception:
+            continue
+        for cid in list(remaining):
+            if cid in data:
+                values[cid] = data[cid]
+                remaining.discard(cid)
+
+    return {"values": values}

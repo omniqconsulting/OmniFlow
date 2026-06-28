@@ -59,6 +59,13 @@ html.light .setup-sidenav .nav-section-label { color: #94a3b8; }
     📋 Custom Lists
   </a>
 
+  {% if has_fms %}
+  <div class="nav-section-label">FMS</div>
+  <a href="/setup/flows" class="{{ 'active' if active_section == 'flows' else '' }}">
+    🔀 Flows
+  </a>
+  {% endif %}
+
   <div class="nav-section-label">Configuration</div>
   <a href="/setup/notifications" class="{{ 'active' if active_section == 'notifications' else '' }}">
     🔔 Notifications

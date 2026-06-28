@@ -1,0 +1,695 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit Flow' if flow else 'New Flow' }} — Setup{% endblock %}
+{% block content %}
+<style>
+.fe-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:20px 24px;margin-bottom:16px}
+.fe-label{display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.fe-input{width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;transition:border-color .12s;box-sizing:border-box}
+.fe-input:focus{border-color:#3b82f6}
+.fe-group{margin-bottom:14px}
+.stage-row{background:var(--bg-input);border:1px solid var(--border-med);border-radius:8px;margin-bottom:8px;overflow:hidden}
+.stage-row-hdr{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;user-select:none}
+.stage-row-body{padding:14px 16px;border-top:1px solid var(--border-subtle);display:none}
+.stage-row.open .stage-row-body{display:block}
+.drag-handle{cursor:grab;color:var(--text-xfaint);font-size:16px;flex-shrink:0}
+.col-row{display:flex;align-items:center;gap:8px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:6px;padding:8px 12px;margin-bottom:6px;font-size:12px}
+.col-row-label{flex:1;font-weight:500;color:var(--text-primary)}
+.col-row-type{font-size:10px;color:var(--text-faint);background:var(--bg-elevated);border-radius:4px;padding:2px 6px}
+.toggle-wrap{display:flex;align-items:center;gap:8px}
+.toggle-wrap input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:#3b82f6}
+.note-warn{font-size:11px;color:#fbbf24;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.2);border-radius:6px;padding:8px 12px;margin-bottom:14px}
+/* unified col modal tabs */
+.col-tab{padding:7px 16px;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;border:1px solid var(--border-med);background:transparent;color:var(--text-faint);font-family:inherit;transition:all .12s}
+.col-tab.active{background:rgba(59,130,246,0.15);border-color:rgba(59,130,246,0.5);color:#7dd3fc}
+/* formula builder */
+.formula-step{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.formula-step select{flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 9px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit}
+.formula-step .op-sel{width:60px;flex:none}
+.formula-preview{font-size:11px;color:#7dd3fc;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:6px;padding:7px 10px;font-family:monospace;min-height:28px;margin-top:4px}
+</style>
+
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+  <a href="/setup/flows" style="color:var(--text-faint);text-decoration:none;font-size:13px">← Flows</a>
+  <span style="color:var(--text-xfaint)">/</span>
+  <h2 class="page-title" style="margin:0">{{ 'Edit Flow: ' + flow.name if flow else 'New Flow' }}</h2>
+</div>
+
+{% if request.query_params.get('err') %}
+<div class="alert alert-red" style="margin-bottom:16px">{{ request.query_params.get('err').replace('+',' ') }}</div>
+{% endif %}
+
+{% if flow %}
+<div class="note-warn">
+  ⚠️ Reordering stages only affects new tickets — existing in-progress tickets are unaffected.
+</div>
+{% endif %}
+
+<form id="flowForm" method="post"
+      action="{{ '/setup/flows/' + flow.id + '/edit' if flow else '/setup/flows/new' }}">
+  <input type="hidden" name="stages_json" id="stagesJsonInput">
+
+  <!-- Flow settings -->
+  <div class="fe-card">
+    <h3 style="font-size:14px;font-weight:600;color:var(--text-strong);margin:0 0 16px">Flow Settings</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="fe-group" style="grid-column:1/-1">
+        <label class="fe-label">Flow Name <span style="color:#f87171">*</span></label>
+        <input class="fe-input" name="name" required maxlength="200" value="{{ flow.name if flow else '' }}" placeholder="e.g. Production Flow">
+      </div>
+      <div class="fe-group" style="grid-column:1/-1">
+        <label class="fe-label">Description</label>
+        <textarea class="fe-input" name="description" rows="2" placeholder="Optional description">{{ flow.description if flow else '' }}</textarea>
+      </div>
+      <div class="fe-group">
+        <label class="fe-label">Colour</label>
+        <input type="color" name="color" value="{{ flow.color if flow else '#3b82f6' }}"
+               style="width:60px;height:36px;border:1px solid var(--border-med);border-radius:7px;background:var(--bg-input);padding:2px;cursor:pointer">
+      </div>
+      <div class="fe-group">
+        <label class="fe-label">Active</label>
+        <div class="toggle-wrap" style="margin-top:8px">
+          <input type="checkbox" name="is_active" value="1" id="isActiveCb"
+                 {% if not flow or flow.is_active %}checked{% endif %}>
+          <label for="isActiveCb" style="font-size:13px;color:var(--text-muted)">Flow is active</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stages -->
+  <div class="fe-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3 style="font-size:14px;font-weight:600;color:var(--text-strong);margin:0">Stages</h3>
+      <button type="button" onclick="addStage()" class="btn btn-sm btn-outline">+ Add Stage</button>
+    </div>
+    <div id="stageList"></div>
+    <div id="noStagesHint" style="text-align:center;padding:24px;color:var(--text-faint);font-size:13px;display:none">
+      No stages yet. Click <strong>+ Add Stage</strong> to add one.
+    </div>
+  </div>
+
+  <!-- Submit -->
+  <div style="display:flex;justify-content:flex-end;gap:10px">
+    <a href="/setup/flows" class="btn btn-outline">Cancel</a>
+    <button type="submit" class="btn btn-primary">{{ 'Save Changes' if flow else 'Create Flow' }}</button>
+  </div>
+</form>
+
+<!-- ── Unified Add Column Modal ─────────────────────────────────────────── -->
+<div id="colModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:400;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:12px;padding:22px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto">
+
+    <!-- header -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:14px;font-weight:600;color:var(--text-strong);margin:0" id="colModalTitle">Add Column</h3>
+      <button type="button" onclick="closeColModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+
+    <!-- mode tabs (hidden when editing existing col) -->
+    <div id="colModeTabs" style="display:flex;gap:6px;margin-bottom:16px">
+      <button type="button" class="col-tab active" id="tabNew"    onclick="setColMode('new')">✦ New column</button>
+      <button type="button" class="col-tab"         id="tabReuse" onclick="setColMode('reuse')">↗ Reuse from prior stage</button>
+    </div>
+
+    <!-- ── REUSE PANEL ─────────────────────────────────────────────────── -->
+    <div id="colReusePanel" style="display:none">
+      <div style="font-size:12px;color:var(--text-faint);margin-bottom:10px">
+        Pick a column from an earlier stage. Its ID, label, and type are preserved — carry-forward is automatically enabled so the previous value pre-fills.
+      </div>
+      <div class="fe-group">
+        <label class="fe-label">Column from prior stage <span style="color:#f87171">*</span></label>
+        <select class="fe-input" id="reuseColSel" onchange="onReuseColChange()">
+          <option value="">— select —</option>
+        </select>
+      </div>
+      <!-- preview of selected col -->
+      <div id="reuseColPreview" style="display:none;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:7px;padding:10px 12px;font-size:12px;margin-bottom:10px">
+        <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Preview</div>
+        <div id="reuseColPreviewContent"></div>
+      </div>
+      <div class="fe-group">
+        <div class="toggle-wrap">
+          <input type="checkbox" id="reuseRequired">
+          <label for="reuseRequired" style="font-size:13px;color:var(--text-muted)">Required on this stage</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── NEW COLUMN PANEL ────────────────────────────────────────────── -->
+    <div id="colNewPanel">
+      <div class="fe-group">
+        <label class="fe-label">Label <span style="color:#f87171">*</span></label>
+        <input class="fe-input" id="colLabel" placeholder="e.g. Batch Number">
+      </div>
+      <div class="fe-group">
+        <label class="fe-label">Field Type <span style="color:#f87171">*</span></label>
+        <select class="fe-input" id="colType" onchange="onColTypeChange()">
+          <option value="text">Text</option>
+          <option value="number">Number</option>
+          <option value="date">Date</option>
+          <option value="yesno">Yes / No</option>
+          <option value="dropdown">Dropdown</option>
+          <option value="formula" id="formulaOption">Formula (calculated)</option>
+        </select>
+        <div id="formulaNote" style="display:none;font-size:11px;color:#a78bfa;margin-top:4px">
+          Formula columns are auto-calculated at Mark Done — not filled manually.
+        </div>
+      </div>
+
+      <!-- dropdown options -->
+      <div class="fe-group" id="colOptionsGroup" style="display:none">
+        <label class="fe-label">Options (one per line)</label>
+        <textarea class="fe-input" id="colOptions" rows="4" placeholder="Option 1&#10;Option 2&#10;Option 3"></textarea>
+      </div>
+
+      <!-- formula builder -->
+      <div id="formulaBuilder" style="display:none">
+        <label class="fe-label">Formula <span style="color:#f87171">*</span></label>
+        <div id="formulaSteps" style="margin-bottom:6px"></div>
+        <button type="button" onclick="addFormulaStep()" class="btn btn-sm" style="font-size:11px;padding:4px 10px;margin-bottom:8px">+ Add Column</button>
+        <div class="fe-label" style="margin-top:8px">Preview</div>
+        <div class="formula-preview" id="formulaPreview">—</div>
+        <div style="font-size:10px;color:var(--text-faint);margin-top:6px">
+          Operators: <strong>+</strong> add &nbsp; <strong>−</strong> subtract &nbsp; <strong>×</strong> multiply &nbsp; <strong>÷</strong> divide
+        </div>
+      </div>
+
+      <!-- required / carry-forward (hidden for formula) -->
+      <div id="colRequiredGroup" class="fe-group">
+        <div class="toggle-wrap">
+          <input type="checkbox" id="colRequired">
+          <label for="colRequired" style="font-size:13px;color:var(--text-muted)">Required — must be filled before Mark Done</label>
+        </div>
+      </div>
+      <div id="colCarryForwardGroup" class="fe-group">
+        <div class="toggle-wrap">
+          <input type="checkbox" id="colCarryForward">
+          <label for="colCarryForward" style="font-size:13px;color:var(--text-muted)">Carry forward — pre-fill from previous stage</label>
+        </div>
+      </div>
+    </div>
+
+    <input type="hidden" id="colEditId">
+    <input type="hidden" id="colEditStageIdx">
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button type="button" onclick="closeColModal()" class="btn btn-sm">Cancel</button>
+      <button type="button" onclick="saveColumn()" class="btn btn-sm btn-primary" id="colSaveBtn">Save Column</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const EMPLOYEES = [
+  {% for e in employees %}
+  {id: {{ e.id | tojson }}, name: {{ e.name | tojson }}, role: {{ e.role | tojson }} }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+
+var stages = {{ stages_json | safe }};
+var _pickingForStageIdx = null;
+var _colMode = 'new';           // 'new' | 'reuse'
+var _formulaSteps = [];         // [{col_id, op}]
+var _availNumericCols = [];     // for formula builder: all numeric cols visible to this stage
+
+function uuid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function renderStages() {
+  var list = document.getElementById('stageList');
+  list.innerHTML = '';
+  var hint = document.getElementById('noStagesHint');
+  if (!stages.length) { hint.style.display = ''; return; }
+  hint.style.display = 'none';
+  stages.forEach(function(s, i) { list.appendChild(buildStageEl(s, i)); });
+}
+
+function buildStageEl(s, i) {
+  var el = document.createElement('div');
+  el.className = 'stage-row' + (s._open ? ' open' : '');
+  el.dataset.idx = i;
+  el.draggable = true;
+  el.addEventListener('dragstart', onDragStart);
+  el.addEventListener('dragover',  onDragOver);
+  el.addEventListener('drop',      onDrop);
+  el.addEventListener('dragend',   onDragEnd);
+
+  var assigneeOpts = '<option value="">— None —</option>' +
+    EMPLOYEES.map(function(e) {
+      return '<option value="' + e.id + '"' + (s.default_assignee_id === e.id ? ' selected' : '') + '>' +
+             e.name + ' · ' + e.role + '</option>';
+    }).join('');
+
+  var tatVal = '', tatUnit = 'hours';
+  if (s.target_tat_hours) {
+    if (s.target_tat_hours % 8 === 0) { tatVal = s.target_tat_hours / 8; tatUnit = 'days'; }
+    else { tatVal = s.target_tat_hours; tatUnit = 'hours'; }
+  }
+
+  var colCount = (s.custom_fields || []).length;
+  var cfHtml = (s.custom_fields || []).map(function(c) {
+    var typeTag = c.field_type === 'formula'
+      ? '<span class="col-row-type" style="color:#a78bfa">formula</span>'
+      : '<span class="col-row-type">' + c.field_type + '</span>';
+    return '<div class="col-row" data-col-id="' + c.id + '">' +
+      '<span class="col-row-label">' + _esc(c.label) + '</span>' +
+      typeTag +
+      (c.required ? '<span style="font-size:10px;color:#f87171">req</span>' : '') +
+      (c.carry_forward ? '<span style="font-size:10px;color:#7dd3fc">↺ fwd</span>' : '') +
+      (c.source_stage_id ? '<span style="font-size:10px;color:#a78bfa">↗ reused</span>' : '') +
+      (c.field_type === 'formula' ? '<span style="font-size:10px;color:#a78bfa" title="' + _formulaDesc(c) + '">∑</span>' : '') +
+      '<button type="button" onclick="editColumn(' + i + ',\'' + c.id + '\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-faint);padding:0 4px">✏️</button>' +
+      '<button type="button" onclick="removeColumn(' + i + ',\'' + c.id + '\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:#f87171;padding:0 4px">✕</button>' +
+      '</div>';
+  }).join('');
+
+  el.innerHTML =
+    '<div class="stage-row-hdr" onclick="toggleStage(' + i + ')">' +
+      '<span class="drag-handle" onclick="event.stopPropagation()">⠿</span>' +
+      '<span style="background:rgba(59,130,246,0.2);color:#7dd3fc;border-radius:99px;padding:2px 8px;font-size:10px;font-weight:700;flex-shrink:0">' + (i + 1) + '</span>' +
+      '<span style="flex:1;font-size:13px;font-weight:600;color:var(--text-strong)">' + _esc(s.name || 'Unnamed Stage') + '</span>' +
+      (s.is_terminal ? '<span style="font-size:10px;color:#6ee7b7;background:rgba(16,185,129,0.15);border-radius:4px;padding:2px 6px">Terminal</span>' : '') +
+      (colCount ? '<span style="font-size:10px;color:var(--text-faint)">' + colCount + ' col' + (colCount !== 1 ? 's' : '') + '</span>' : '') +
+      '<button type="button" onclick="event.stopPropagation();removeStage(' + i + ')" style="background:none;border:none;cursor:pointer;font-size:14px;color:#f87171;padding:0 4px" title="Remove stage">✕</button>' +
+    '</div>' +
+    '<div class="stage-row-body">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">' +
+        '<div class="fe-group" style="grid-column:1/-1">' +
+          '<label class="fe-label">Stage Name <span style="color:#f87171">*</span></label>' +
+          '<input class="fe-input" value="' + _esc(s.name || '') + '" placeholder="Stage name" oninput="onStageName(' + i + ',this.value)">' +
+        '</div>' +
+        '<div class="fe-group">' +
+          '<label class="fe-label">Default Assignee</label>' +
+          '<select class="fe-input" onchange="stages[' + i + '].default_assignee_id=this.value">' + assigneeOpts + '</select>' +
+        '</div>' +
+        '<div class="fe-group">' +
+          '<label class="fe-label">Target TaT</label>' +
+          '<div style="display:flex;gap:6px">' +
+            '<input class="fe-input" type="number" min="1" value="' + (tatVal || '') + '" placeholder="—" style="width:80px" oninput="onTaT(' + i + ',this.value,this.parentNode.querySelector(\'select\').value)">' +
+            '<select class="fe-input" style="width:90px" onchange="onTaT(' + i + ',this.parentNode.querySelector(\'input\').value,this.value)">' +
+              '<option value="hours"' + (tatUnit === 'hours' ? ' selected' : '') + '>Hours</option>' +
+              '<option value="days"'  + (tatUnit === 'days'  ? ' selected' : '') + '>Days</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:20px;margin-bottom:14px">' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer">' +
+          '<input type="checkbox" ' + (s.completion_note_required ? 'checked' : '') + ' onchange="stages[' + i + '].completion_note_required=this.checked" style="accent-color:#3b82f6"> Note Required' +
+        '</label>' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer">' +
+          '<input type="checkbox" ' + (s.is_terminal ? 'checked' : '') + ' onchange="stages[' + i + '].is_terminal=this.checked;renderStages()" style="accent-color:#3b82f6"> Terminal Stage' +
+        '</label>' +
+      '</div>' +
+      '<div style="border-top:1px solid var(--border-subtle);padding-top:12px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+          '<span style="font-size:12px;font-weight:600;color:var(--text-strong)">Custom Columns</span>' +
+          '<button type="button" onclick="openAddColumn(' + i + ')" class="btn btn-sm btn-outline" style="font-size:11px;padding:4px 10px">+ Add Column</button>' +
+        '</div>' +
+        '<div id="cfList_' + i + '">' + (cfHtml || '<div style="font-size:11px;color:var(--text-faint);padding:4px 0">No columns defined for this stage.</div>') + '</div>' +
+      '</div>' +
+    '</div>';
+
+  return el;
+}
+
+function _esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function _formulaDesc(col) {
+  if (!col.formula_steps || !col.formula_steps.length) return 'No formula';
+  return col.formula_steps.map(function(st, idx) {
+    var label = _colLabelById(st.col_id) || st.col_id;
+    return (idx === 0 ? '' : ' ' + (st.op || '+') + ' ') + label;
+  }).join('');
+}
+
+function _colLabelById(id) {
+  for (var si = 0; si < stages.length; si++) {
+    var c = (stages[si].custom_fields || []).find(function(c){ return c.id === id; });
+    if (c) return c.label;
+  }
+  return id;
+}
+
+// ── Stage mutations ────────────────────────────────────────────────────────
+function toggleStage(i) { stages[i]._open = !stages[i]._open; renderStages(); }
+function onStageName(i, val) { stages[i].name = val; }
+function onTaT(i, val, unit) {
+  var n = parseFloat(val);
+  stages[i].target_tat_hours = (!val || isNaN(n)) ? null : (unit === 'days' ? n * 8 : n);
+}
+function addStage() {
+  stages.push({ id: uuid(), name: '', order: stages.length, default_assignee_id: '',
+    target_tat_hours: null, completion_note_required: false, is_terminal: false,
+    custom_fields: [], _open: true });
+  renderStages();
+  setTimeout(function() {
+    var rows = document.querySelectorAll('.stage-row');
+    if (rows.length) rows[rows.length - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 50);
+}
+function removeStage(i) {
+  if (!confirm('Remove stage "' + (stages[i].name || 'this stage') + '"?')) return;
+  stages.splice(i, 1); renderStages();
+}
+
+// ── Drag-to-reorder ────────────────────────────────────────────────────────
+var _dragIdx = null;
+function onDragStart(e) { _dragIdx = parseInt(this.dataset.idx); e.dataTransfer.effectAllowed='move'; this.style.opacity='0.4'; }
+function onDragOver(e) {
+  e.preventDefault(); e.dataTransfer.dropEffect='move';
+  document.querySelectorAll('.stage-row').forEach(function(el){el.style.borderTop='';});
+  this.style.borderTop = '2px solid #3b82f6';
+}
+function onDrop(e) {
+  e.preventDefault();
+  var t = parseInt(this.dataset.idx);
+  if (_dragIdx === null || _dragIdx === t) return;
+  var m = stages.splice(_dragIdx, 1)[0]; stages.splice(t, 0, m); renderStages();
+}
+function onDragEnd(e) {
+  this.style.opacity=''; document.querySelectorAll('.stage-row').forEach(function(el){el.style.borderTop='';});
+  _dragIdx = null;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UNIFIED ADD COLUMN MODAL
+// ══════════════════════════════════════════════════════════════════════════════
+
+function openAddColumn(stageIdx) {
+  _pickingForStageIdx = stageIdx;
+  document.getElementById('colModalTitle').textContent = 'Add Column';
+  document.getElementById('colEditId').value = '';
+  document.getElementById('colEditStageIdx').value = stageIdx;
+  document.getElementById('colModeTabs').style.display = 'flex';
+
+  // Check if prior stages have any columns (enables Reuse tab)
+  var hasPrior = false;
+  for (var si = 0; si < stageIdx; si++) {
+    if ((stages[si].custom_fields || []).length) { hasPrior = true; break; }
+  }
+  document.getElementById('tabReuse').disabled = !hasPrior;
+  document.getElementById('tabReuse').style.opacity = hasPrior ? '1' : '0.4';
+  document.getElementById('tabReuse').title = hasPrior ? '' : 'No columns on prior stages yet';
+
+  setColMode('new');
+  _resetNewPanel();
+  _populateReuseDropdown(stageIdx);
+  document.getElementById('colModal').style.display = 'flex';
+}
+
+function editColumn(stageIdx, colId) {
+  var col = (stages[stageIdx].custom_fields || []).find(function(c){return c.id===colId;});
+  if (!col) return;
+  _pickingForStageIdx = stageIdx;
+  document.getElementById('colModalTitle').textContent = 'Edit Column';
+  document.getElementById('colEditId').value = col.id;
+  document.getElementById('colEditStageIdx').value = stageIdx;
+  document.getElementById('colModeTabs').style.display = col.source_stage_id ? 'none' : 'none'; // always hide tabs on edit
+
+  if (col.source_stage_id) {
+    // Editing a reused column — only allow toggling required
+    setColMode('reuse');
+    _populateReuseDropdown(stageIdx);
+    document.getElementById('reuseColSel').value = col.id;
+    onReuseColChange();
+    document.getElementById('reuseRequired').checked = !!col.required;
+    document.getElementById('reuseColSel').disabled = true; // lock selection when editing
+  } else {
+    setColMode('new');
+    document.getElementById('colLabel').value = col.label || '';
+    document.getElementById('colType').value = col.field_type || 'text';
+    document.getElementById('colRequired').checked = !!col.required;
+    document.getElementById('colCarryForward').checked = !!col.carry_forward;
+    if (col.field_type === 'dropdown') {
+      document.getElementById('colOptions').value = (col.options || []).join('\n');
+    }
+    if (col.field_type === 'formula') {
+      _formulaSteps = JSON.parse(JSON.stringify(col.formula_steps || []));
+    } else {
+      _formulaSteps = [];
+    }
+    onColTypeChange();
+  }
+  document.getElementById('colModal').style.display = 'flex';
+}
+
+function setColMode(mode) {
+  _colMode = mode;
+  document.getElementById('tabNew').className   = 'col-tab' + (mode === 'new'   ? ' active' : '');
+  document.getElementById('tabReuse').className = 'col-tab' + (mode === 'reuse' ? ' active' : '');
+  document.getElementById('colNewPanel').style.display   = mode === 'new'   ? '' : 'none';
+  document.getElementById('colReusePanel').style.display = mode === 'reuse' ? '' : 'none';
+  if (mode === 'reuse') document.getElementById('reuseColSel').disabled = false;
+}
+
+function _resetNewPanel() {
+  document.getElementById('colLabel').value = '';
+  document.getElementById('colType').value = 'text';
+  document.getElementById('colOptions').value = '';
+  document.getElementById('colRequired').checked = false;
+  document.getElementById('colCarryForward').checked = false;
+  _formulaSteps = [];
+  onColTypeChange();
+}
+
+// ── Reuse panel ────────────────────────────────────────────────────────────
+function _populateReuseDropdown(stageIdx) {
+  var sel = document.getElementById('reuseColSel');
+  sel.innerHTML = '<option value="">— select a column —</option>';
+  var current = (stages[stageIdx].custom_fields || []).map(function(c){return c.id;});
+  for (var si = 0; si < stageIdx; si++) {
+    (stages[si].custom_fields || []).forEach(function(c) {
+      if (current.indexOf(c.id) >= 0) return; // already added
+      var opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = stages[si].name + ' → ' + c.label + ' (' + c.field_type + ')';
+      opt.dataset.colJson = JSON.stringify({ stageIdx: si, col: c });
+      sel.appendChild(opt);
+    });
+  }
+  document.getElementById('reuseColPreview').style.display = 'none';
+  document.getElementById('reuseRequired').checked = false;
+}
+
+function onReuseColChange() {
+  var sel = document.getElementById('reuseColSel');
+  var opt = sel.options[sel.selectedIndex];
+  var preview = document.getElementById('reuseColPreview');
+  var content = document.getElementById('reuseColPreviewContent');
+  if (!opt || !opt.dataset.colJson) { preview.style.display = 'none'; return; }
+  var data = JSON.parse(opt.dataset.colJson);
+  var c = data.col;
+  content.innerHTML =
+    '<strong>' + _esc(c.label) + '</strong> · <em>' + c.field_type + '</em>' +
+    (c.required ? ' · <span style="color:#f87171">required</span>' : '') +
+    (c.options && c.options.length ? '<div style="font-size:11px;color:var(--text-faint);margin-top:3px">Options: ' + c.options.map(_esc).join(', ') + '</div>' : '') +
+    '<div style="font-size:11px;color:#7dd3fc;margin-top:3px">↺ Carry-forward will be auto-enabled</div>';
+  preview.style.display = '';
+}
+
+// ── New column panel — type switching ─────────────────────────────────────
+function onColTypeChange() {
+  var t = document.getElementById('colType').value;
+  document.getElementById('colOptionsGroup').style.display  = t === 'dropdown' ? '' : 'none';
+  document.getElementById('formulaBuilder').style.display   = t === 'formula'  ? '' : 'none';
+  document.getElementById('formulaNote').style.display      = t === 'formula'  ? '' : 'none';
+  document.getElementById('colRequiredGroup').style.display     = t === 'formula' ? 'none' : '';
+  document.getElementById('colCarryForwardGroup').style.display = t === 'formula' ? 'none' : '';
+  if (t === 'formula') _renderFormulaBuilder();
+}
+
+// ── Formula builder ────────────────────────────────────────────────────────
+function _numericColsUpTo(stageIdx) {
+  var cols = [];
+  for (var si = 0; si <= stageIdx; si++) {
+    (stages[si].custom_fields || []).forEach(function(c) {
+      if (c.field_type === 'number') cols.push({ col: c, stageName: stages[si].name });
+    });
+  }
+  return cols;
+}
+
+function _renderFormulaBuilder() {
+  var stageIdx = parseInt(document.getElementById('colEditStageIdx').value);
+  _availNumericCols = _numericColsUpTo(stageIdx);
+  var container = document.getElementById('formulaSteps');
+  container.innerHTML = '';
+
+  if (!_formulaSteps.length) {
+    _formulaSteps = [{ col_id: '', op: null }];
+  }
+
+  _formulaSteps.forEach(function(step, idx) {
+    var row = document.createElement('div');
+    row.className = 'formula-step';
+
+    // operator (not for first step)
+    if (idx > 0) {
+      var opSel = document.createElement('select');
+      opSel.className = 'op-sel';
+      ['+','-','*','/'].forEach(function(op) {
+        var o = document.createElement('option');
+        o.value = op; o.textContent = op === '*' ? '×' : op === '/' ? '÷' : op;
+        if (step.op === op) o.selected = true;
+        opSel.appendChild(o);
+      });
+      (function(i){ opSel.onchange = function(){ _formulaSteps[i].op = this.value; _updateFormulaPreview(); }; })(idx);
+      row.appendChild(opSel);
+    }
+
+    // column selector
+    var colSel = document.createElement('select');
+    colSel.style.flex = '1';
+    var blank = document.createElement('option'); blank.value=''; blank.textContent='— pick column —'; colSel.appendChild(blank);
+    _availNumericCols.forEach(function(item) {
+      var o = document.createElement('option');
+      o.value = item.col.id;
+      o.textContent = item.stageName + ' → ' + item.col.label;
+      if (item.col.id === step.col_id) o.selected = true;
+      colSel.appendChild(o);
+    });
+    (function(i){ colSel.onchange = function(){ _formulaSteps[i].col_id = this.value; _updateFormulaPreview(); }; })(idx);
+    row.appendChild(colSel);
+
+    // remove button (not for first step)
+    if (idx > 0) {
+      var rm = document.createElement('button');
+      rm.type = 'button';
+      rm.textContent = '✕';
+      rm.style.cssText = 'background:none;border:none;cursor:pointer;color:#f87171;font-size:14px;padding:0 2px';
+      (function(i){ rm.onclick = function(){ _formulaSteps.splice(i,1); _renderFormulaBuilder(); }; })(idx);
+      row.appendChild(rm);
+    }
+
+    container.appendChild(row);
+  });
+
+  if (!_availNumericCols.length) {
+    container.innerHTML = '<div style="font-size:12px;color:#f87171;padding:6px 0">No number columns defined yet — add number columns to earlier stages first.</div>';
+    document.getElementById('formulaSteps').appendChild;
+  }
+
+  _updateFormulaPreview();
+}
+
+function addFormulaStep() {
+  _formulaSteps.push({ col_id: '', op: '+' });
+  _renderFormulaBuilder();
+}
+
+function _updateFormulaPreview() {
+  var preview = document.getElementById('formulaPreview');
+  var parts = _formulaSteps.map(function(st, idx) {
+    var label = _availNumericCols.find(function(it){return it.col.id===st.col_id;});
+    var name = label ? label.col.label : '?';
+    return (idx === 0 ? '' : ' ' + (st.op || '+') + ' ') + name;
+  }).join('');
+  preview.textContent = parts || '—';
+}
+
+// ── Save column ────────────────────────────────────────────────────────────
+function saveColumn() {
+  var stageIdx = parseInt(document.getElementById('colEditStageIdx').value);
+  var editId   = document.getElementById('colEditId').value;
+
+  if (_colMode === 'reuse') {
+    var sel = document.getElementById('reuseColSel');
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.dataset.colJson) { alert('Please select a column to reuse.'); return; }
+    var data = JSON.parse(opt.dataset.colJson);
+    var origCol = data.col;
+    var origStageIdx = data.stageIdx;
+
+    if (!stages[stageIdx].custom_fields) stages[stageIdx].custom_fields = [];
+
+    if (editId) {
+      // editing a reused col — only update required
+      var existing = stages[stageIdx].custom_fields.find(function(c){return c.id===editId;});
+      if (existing) existing.required = document.getElementById('reuseRequired').checked;
+    } else {
+      var already = stages[stageIdx].custom_fields.find(function(c){return c.id===origCol.id;});
+      if (already) { alert('This column is already added to this stage.'); return; }
+      stages[stageIdx].custom_fields.push({
+        id: origCol.id,
+        label: origCol.label,
+        field_type: origCol.field_type,
+        required: document.getElementById('reuseRequired').checked,
+        carry_forward: true,
+        options: origCol.options || [],
+        formula_steps: origCol.formula_steps || [],
+        source_stage_id: stages[origStageIdx].id,
+      });
+    }
+
+  } else {
+    // new column
+    var label = document.getElementById('colLabel').value.trim();
+    if (!label) { alert('Column label is required.'); return; }
+    var ft = document.getElementById('colType').value;
+
+    var opts = ft === 'dropdown'
+      ? document.getElementById('colOptions').value.split('\n').map(function(l){return l.trim();}).filter(Boolean)
+      : [];
+
+    var formulaSteps = [];
+    if (ft === 'formula') {
+      formulaSteps = _formulaSteps.filter(function(st){return st.col_id;});
+      if (formulaSteps.length < 1) { alert('Add at least one column to the formula.'); return; }
+      if (_availNumericCols.length === 0) { alert('No number columns available for formula.'); return; }
+    }
+
+    var col = {
+      id: editId || uuid(),
+      label: label,
+      field_type: ft,
+      required: ft !== 'formula' && document.getElementById('colRequired').checked,
+      carry_forward: ft !== 'formula' && document.getElementById('colCarryForward').checked,
+      options: opts,
+      formula_steps: formulaSteps,
+      source_stage_id: null,
+    };
+
+    if (!stages[stageIdx].custom_fields) stages[stageIdx].custom_fields = [];
+    if (editId) {
+      var idx = stages[stageIdx].custom_fields.findIndex(function(c){return c.id===editId;});
+      if (idx >= 0) stages[stageIdx].custom_fields[idx] = col;
+    } else {
+      stages[stageIdx].custom_fields.push(col);
+    }
+  }
+
+  closeColModal();
+  renderStages();
+}
+
+function removeColumn(stageIdx, colId) {
+  stages[stageIdx].custom_fields = (stages[stageIdx].custom_fields || []).filter(function(c){return c.id!==colId;});
+  renderStages();
+}
+
+function closeColModal() {
+  document.getElementById('colModal').style.display = 'none';
+  document.getElementById('reuseColSel').disabled = false;
+  _formulaSteps = [];
+}
+
+// ── Form submit ────────────────────────────────────────────────────────────
+document.getElementById('flowForm').addEventListener('submit', function(e) {
+  if (!stages.filter(function(s){return (s.name||'').trim();}).length) {
+    e.preventDefault(); alert('Please add at least one stage with a name.'); return;
+  }
+  var clean = stages.map(function(s){ var o=Object.assign({},s); delete o._open; return o; });
+  document.getElementById('stagesJsonInput').value = JSON.stringify(clean);
+});
+
+renderStages();
+</script>
+{% endblock %}

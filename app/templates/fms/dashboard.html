@@ -490,6 +490,14 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           {% elif active_stage.sub_module_tag == 'INVOICE' %}
           <th>Total Inv.</th><th>Received</th><th>Outstanding</th><th>Oldest Due</th>
           {% endif %}
+          {# A4: custom stage columns — show up to 3, rest in tooltip #}
+          {% set stage_cf_defs = active_stage.custom_fields_json | from_json if active_stage.custom_fields_json else [] %}
+          {% for fdef in stage_cf_defs[:3] %}
+          <th style="font-size:11px;color:var(--text-faint);white-space:nowrap">{{ fdef.label }}</th>
+          {% endfor %}
+          {% if stage_cf_defs | length > 3 %}
+          <th style="font-size:11px;color:var(--text-faint)" title="{{ stage_cf_defs[3:] | map(attribute='label') | join(', ') }}">+{{ stage_cf_defs | length - 3 }} more</th>
+          {% endif %}
           <th></th>
         </tr>
       </thead>
@@ -562,6 +570,25 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         <td style="font-size:12px;color:{% if (sub.outstanding or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.outstanding|round(0)|int if sub.outstanding else 0 }}</td>
         <td style="font-size:11px;color:{% if sub.oldest_due and sub.oldest_due < now.date() %}#f87171{% else %}var(--text-faint){% endif %}">{{ sub.oldest_due.strftime('%d %b') if sub.oldest_due else '—' }}</td>
         {% endif %}
+        {# A4: custom stage column values — read from open history row #}
+        {% if stage_cf_defs %}
+        {% set open_h = row.entered_at and namespace(cf={}) %}
+        {% set _h = namespace(cf={}) %}
+        {% for h in t.stage_history %}
+          {% if h.stage_id == active_stage.id and h.exited_at is none and h.custom_fields_data_json %}
+            {% set _h_cf = h.custom_fields_data_json | from_json %}
+            {% if _h_cf %}{% set _h = namespace(cf=_h_cf) %}{% endif %}
+          {% endif %}
+        {% endfor %}
+        {% for fdef in stage_cf_defs[:3] %}
+        <td style="font-size:12px;color:var(--text-muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          {{ _h.cf.get(fdef.id, _h.cf.get(fdef.label, '—')) }}
+        </td>
+        {% endfor %}
+        {% if stage_cf_defs | length > 3 %}
+        <td style="font-size:11px;color:var(--text-faint)" title="{{ stage_cf_defs[3:] | map(attribute='label') | join(', ') }}">…</td>
+        {% endif %}
+        {% endif %}
         <td onclick="event.stopPropagation()" style="white-space:nowrap">
           <div style="display:flex;align-items:center;gap:6px">
           {# Manager override button: reverse a backward move within 2 hours #}
@@ -583,7 +610,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
               {# Mark Done — assignee or admin/manager, non-terminal, non-completed #}
               {% if can_act and not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
               {% set ns = next_stage_map.get(active_stage.id) %}
-              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ 'true' if active_stage.evidence_required else 'false' }}','{{ 'true' if active_stage.completion_note_required else 'false' }}')"
+              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ 'true' if active_stage.evidence_required else 'false' }}','{{ 'true' if active_stage.completion_note_required else 'false' }}','{{ active_stage.id }}')"
                       style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:var(--text-primary);cursor:pointer;font-family:inherit">
                 ✓ Mark Done{% if ns %} → {{ ns.name[:20] }}{% endif %}
               </button>
@@ -913,7 +940,7 @@ html.light .ctv-table tbody tr:hover .ctv-sticky{background:#eff6ff !important}
     </td>
     {% for fdef in cf_defs %}
     <td class="ctv-cell ctv-col-cfdata    {{ bg }}" style="font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis">
-      {{ sd.cf.get(fdef.label, '—') }}
+      {{ sd.cf.get(fdef.id, sd.cf.get(fdef.label, '—')) }}
     </td>
     {% endfor %}
     {% else %}
@@ -1276,6 +1303,9 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
         <textarea name="completion_note" id="scNote" rows="2"
                   style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical"></textarea>
       </div>
+
+      <!-- Custom stage columns (A4) -->
+      <div id="scCustomFields"></div>
 
       <!-- Evidence upload (shown when evidence_required) -->
       <div class="fm-group" id="scEvidenceGroup" style="display:none">
@@ -1846,7 +1876,14 @@ const NEXT_STAGE_MAP = {
   {% endfor %}
 };
 
-function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired, noteRequired) {
+const STAGE_CF_DEFS = {
+  {% for s in stage_table_stages %}
+  {% set cf = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
+  {{ s.id | tojson }}: {{ cf | tojson }}{% if not loop.last %},{% endif %}
+  {% endfor %}
+};
+
+function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired, noteRequired, stageId) {
   var modal = document.getElementById('stageCompleteModal');
   var form  = document.getElementById('scForm');
   form.action = '/fms/tickets/' + ticketId + '/transition';
@@ -1854,7 +1891,7 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
   document.getElementById('scModalTitle').textContent = 'Complete Stage: ' + stageName;
   document.getElementById('scModalSubtitle').textContent = displayId;
 
-  var activeStageId = "{{ active_stage.id if active_stage else '' }}";
+  var activeStageId = stageId || "{{ active_stage.id if active_stage else '' }}";
   var ns = NEXT_STAGE_MAP[activeStageId];
   var sel = document.getElementById('scNextStageId');
   var submitBtn = document.querySelector('#scForm button[type="submit"]');
@@ -1892,6 +1929,123 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
   } else {
     evGroup.style.display = 'none';
     evFile.required = false;
+  }
+
+  // A4 + Phase B: render custom columns (including formula columns)
+  var cfContainer = document.getElementById('scCustomFields');
+  cfContainer.innerHTML = '';
+  var cfDefs = (STAGE_CF_DEFS && activeStageId) ? (STAGE_CF_DEFS[activeStageId] || []) : [];
+  if (cfDefs.length) {
+    var INP_STYLE = 'width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box';
+
+    cfDefs.forEach(function(f) {
+      var grp = document.createElement('div');
+      grp.className = 'fm-group';
+
+      // ── Formula column — read-only calculated display ──────────────────
+      if (f.field_type === 'formula') {
+        var lbl = document.createElement('label');
+        lbl.innerHTML = f.label + ' <span style="font-size:10px;color:#a78bfa;font-weight:400">(auto-calculated)</span>';
+        grp.appendChild(lbl);
+        var display = document.createElement('div');
+        display.id = 'sc_formula_' + f.id;
+        display.style.cssText = 'background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.25);border-radius:7px;padding:8px 11px;font-size:13px;color:#a78bfa;font-weight:600;min-height:36px';
+        display.textContent = '—';
+        grp.appendChild(display);
+        // hidden input carries the computed value in the POST
+        var hidden = document.createElement('input');
+        hidden.type = 'hidden'; hidden.name = 'cf__' + f.id; hidden.id = 'sc_fhidden_' + f.id;
+        grp.appendChild(hidden);
+        cfContainer.appendChild(grp);
+        return;
+      }
+
+      var lbl = document.createElement('label');
+      lbl.innerHTML = f.label + (f.required ? ' <span style="color:#f87171">*</span>' : '');
+      grp.appendChild(lbl);
+
+      var inp;
+      if (f.field_type === 'dropdown') {
+        inp = document.createElement('select');
+        inp.style.cssText = INP_STYLE;
+        var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
+        (f.options || []).forEach(function(o) {
+          var op = document.createElement('option'); op.value=o; op.textContent=o; inp.appendChild(op);
+        });
+      } else if (f.field_type === 'yesno') {
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;gap:16px;margin-top:6px';
+        ['Yes','No'].forEach(function(v) {
+          var rl = document.createElement('label');
+          rl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer';
+          var rb = document.createElement('input');
+          rb.type='radio'; rb.name='cf__'+f.id; rb.value=v;
+          if (f.required) rb.required=true;
+          rl.appendChild(rb); rl.appendChild(document.createTextNode(v)); wrap.appendChild(rl);
+        });
+        grp.appendChild(wrap);
+        cfContainer.appendChild(grp);
+        return;
+      } else {
+        inp = document.createElement('input');
+        inp.type = f.field_type==='number' ? 'number' : f.field_type==='date' ? 'date' : 'text';
+        inp.style.cssText = INP_STYLE;
+      }
+      inp.name = 'cf__' + f.id;
+      if (f.required) inp.required = true;
+      grp.appendChild(inp);
+      cfContainer.appendChild(grp);
+    });
+
+    // ── Formula recalculation — runs whenever any number input changes ──
+    function _recalcFormulas() {
+      cfDefs.forEach(function(f) {
+        if (f.field_type !== 'formula' || !f.formula_steps || !f.formula_steps.length) return;
+        var result = null;
+        var valid = true;
+        f.formula_steps.forEach(function(step, idx) {
+          var el = cfContainer.querySelector('[name="cf__' + step.col_id + '"]');
+          var val = el ? parseFloat(el.value) : NaN;
+          if (isNaN(val)) { valid = false; return; }
+          if (idx === 0) { result = val; return; }
+          var op = step.op || '+';
+          if (op === '+') result += val;
+          else if (op === '-') result -= val;
+          else if (op === '*') result *= val;
+          else if (op === '/') result = val !== 0 ? result / val : NaN;
+        });
+        var display = document.getElementById('sc_formula_' + f.id);
+        var hidden  = document.getElementById('sc_fhidden_' + f.id);
+        var computed = (valid && result !== null && !isNaN(result))
+          ? parseFloat(result.toFixed(4)).toString()
+          : '';
+        if (display) display.textContent = computed || '—';
+        if (hidden)  hidden.value = computed;
+      });
+    }
+
+    // attach listeners to all number inputs
+    cfContainer.addEventListener('input', function(e) {
+      if (e.target && e.target.type === 'number') _recalcFormulas();
+    });
+    _recalcFormulas();
+
+    // ── Carry-forward pre-fill ─────────────────────────────────────────
+    var carryIds = cfDefs.filter(function(f){ return f.carry_forward && f.field_type !== 'formula'; }).map(function(f){return f.id;});
+    if (carryIds.length) {
+      fetch('/fms/tickets/' + ticketId + '/cf-carry-forward?stage_id=' + encodeURIComponent(activeStageId))
+        .then(function(r){return r.json();})
+        .then(function(data){
+          var vals = data.values || {};
+          cfDefs.forEach(function(f) {
+            if (!f.carry_forward || !vals[f.id]) return;
+            var el = cfContainer.querySelector('[name="cf__' + f.id + '"]');
+            if (el) { el.value = vals[f.id]; }
+          });
+          _recalcFormulas(); // recalc after carry-forward fills number inputs
+        })
+        .catch(function(){});
+    }
   }
 
   modal.classList.add('open');
