@@ -1072,6 +1072,35 @@ class WhatsAppMessageLog(Base):
     recipient = relationship("User", foreign_keys=[recipient_user_id])
 
 
+class TrainingMaterialCategory(Base):
+    __tablename__ = "training_material_categories"
+
+    id         = Column(String,  primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id  = Column(String,  nullable=False)
+    name       = Column(String,  nullable=False)
+    is_active  = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TrainingMaterial(Base):
+    __tablename__ = "training_materials"
+
+    id             = Column(String,  primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id      = Column(String,  nullable=False)
+    title          = Column(String,  nullable=False)
+    description    = Column(Text,    nullable=True)
+    file_name      = Column(String,  nullable=False)
+    file_path      = Column(String,  nullable=False)
+    file_type      = Column(String,  nullable=True)
+    file_size      = Column(Integer, nullable=True)
+    category       = Column(String,  nullable=True)
+    department_id  = Column(String,  nullable=True)
+    tags           = Column(String,  nullable=True)
+    uploaded_by_id = Column(String,  nullable=False)
+    is_deleted     = Column(Boolean, default=False)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
+
 class KnowledgeItem(Base):
     """Knowledge Repository — documents, videos, audios, and links uploaded per tenant."""
     __tablename__ = "knowledge_items"
