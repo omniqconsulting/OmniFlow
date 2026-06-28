@@ -1063,17 +1063,19 @@ def _fms_dashboard_inner(
                     delay_h    = round(abs(delay_secs) / 3600, 1)
                     delay_positive = delay_secs > 0
                 is_current = (s.id == t.current_stage_id)
+                assignee_name = h.assignee.name if (h and h.assignee) else "—"
                 stages_info.append({
-                    "stage":         s,
-                    "planned_start": ps,
-                    "planned_end":   pe,
-                    "actual_start":  actual_start,
-                    "actual_end":    actual_end,
-                    "delay_h":       delay_h,
-                    "delay_positive":delay_positive,
-                    "is_current":    is_current,
-                    "visited":       h is not None,
-                    "cf":            cf_cumulative,
+                    "stage":          s,
+                    "planned_start":  ps,
+                    "planned_end":    pe,
+                    "actual_start":   actual_start,
+                    "actual_end":     actual_end,
+                    "delay_h":        delay_h,
+                    "delay_positive": delay_positive,
+                    "is_current":     is_current,
+                    "visited":        h is not None,
+                    "cf":             cf_cumulative,
+                    "assignee_name":  assignee_name,
                 })
 
             table_tickets.append({

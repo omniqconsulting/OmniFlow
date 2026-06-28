@@ -63,6 +63,9 @@ app.include_router(sa_router)
 app.include_router(lib_router)
 from .fms import router as fms_router
 app.include_router(fms_router)
+
+from .knowledge import router as knowledge_router
+app.include_router(knowledge_router)
 from .submodules import router as submodules_router
 app.include_router(submodules_router)
 from .ai_router import router as ai_router, _get_ai_limit as _get_ai_limit_for_tenant
@@ -270,15 +273,16 @@ def _nav_ctx(db, user, tenant=None) -> dict:
     try:
         t = tenant or db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
         return {
-            "has_inventory":  has_feature(t, "INVENTORY",  db) if t else False,
-            "has_fms":        has_feature(t, "FMS",        db) if t else False,
+            "has_inventory":       has_feature(t, "INVENTORY",       db) if t else False,
+            "has_fms":             has_feature(t, "FMS",             db) if t else False,
+            "has_knowledge_repo":  has_feature(t, "KNOWLEDGE_REPO",  db) if t else False,
             # Checklists is a core feature always available on all paid plans
             "has_checklists": True,
         }
     except Exception as _e:
         import logging as _log
         _log.getLogger(__name__).warning("_nav_ctx failed: %s", _e)
-        return {"has_inventory": False, "has_fms": False, "has_checklists": True}
+        return {"has_inventory": False, "has_fms": False, "has_knowledge_repo": False, "has_checklists": True}
 
 def _has_inv(db, user) -> bool:
     return _nav_ctx(db, user)["has_inventory"]

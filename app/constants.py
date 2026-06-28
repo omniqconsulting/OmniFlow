@@ -62,6 +62,7 @@ FEATURE_CATALOG = {
     "DEDICATED_SUPPORT":    ("Dedicated Support",            "Support",      PLAN_ENTERPRISE),
     # ── Modules (domain-agnostic, SA opts-in per tenant) ──────────────────────
     "FMS":                  ("Flow Board / Pipeline",        "Modules",      PLAN_PROFESSIONAL),
+    "KNOWLEDGE_REPO":       ("Knowledge Repository",         "Modules",      PLAN_PROFESSIONAL),
 }
 
 # Back-compat: keep the flat FEATURES dict so existing has_feature() calls work

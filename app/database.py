@@ -1072,6 +1072,29 @@ class WhatsAppMessageLog(Base):
     recipient = relationship("User", foreign_keys=[recipient_user_id])
 
 
+class KnowledgeItem(Base):
+    """Knowledge Repository — documents, videos, audios, and links uploaded per tenant."""
+    __tablename__ = "knowledge_items"
+    id            = Column(String,  primary_key=True, default=new_id)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    title         = Column(String,  nullable=False)
+    description   = Column(Text,    nullable=True)
+    category      = Column(String,  nullable=True)   # free-text category / folder
+    tags          = Column(String,  nullable=True)   # comma-separated
+    media_kind    = Column(String,  nullable=True)   # document | video | audio | image | link
+    file_url      = Column(String,  nullable=True)   # served path for uploaded files
+    file_name     = Column(String,  nullable=True)   # original filename
+    file_type     = Column(String,  nullable=True)   # MIME type
+    file_size     = Column(Integer, nullable=True)   # bytes
+    external_url  = Column(String,  nullable=True)   # for link-type items
+    created_by_id = Column(String,  ForeignKey("users.id"), nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.utcnow)
+    is_deleted    = Column(Boolean,  default=False)
+
+    tenant      = relationship("Tenant")
+    created_by  = relationship("User", foreign_keys=[created_by_id])
+
 def create_tables():
     Base.metadata.create_all(bind=engine)
     # Run any pending Alembic migrations on startup

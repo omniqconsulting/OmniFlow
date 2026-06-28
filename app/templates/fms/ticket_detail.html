@@ -428,19 +428,23 @@ select option{background:var(--bg-card)}
             {% if fdef.description %}
             <div style="font-size:10px;color:var(--text-faint);margin-bottom:4px">{{ fdef.description }}</div>
             {% endif %}
-            {% if fdef.type == 'longtext' %}
+            {% if fdef.field_type == 'formula' %}
+            <div style="background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.25);border-radius:6px;padding:7px 10px;font-size:12px;color:#a78bfa;font-weight:600;min-height:32px">
+              {{ fdef.label }} <span style="font-size:10px;font-weight:400;opacity:.7">(auto-calculated)</span>
+            </div>
+            {% elif fdef.field_type == 'longtext' or fdef.type == 'longtext' %}
             <textarea name="cf__{{ fdef.label }}" rows="2" placeholder="{{ fdef.description or '' }}"
               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);resize:vertical"
               {{ 'required' if fdef.required }}></textarea>
-            {% elif fdef.type == 'number' %}
+            {% elif fdef.field_type == 'number' or fdef.type == 'number' %}
             <input type="number" name="cf__{{ fdef.label }}" placeholder="0"
               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
               {{ 'required' if fdef.required }}>
-            {% elif fdef.type == 'date' %}
+            {% elif fdef.field_type == 'date' or fdef.type == 'date' %}
             <input type="date" name="cf__{{ fdef.label }}"
               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
               {{ 'required' if fdef.required }}>
-            {% elif fdef.type == 'dropdown' %}
+            {% elif fdef.field_type == 'dropdown' or fdef.type == 'dropdown' %}
             <select name="cf__{{ fdef.label }}"
               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
               {{ 'required' if fdef.required }}>
@@ -449,7 +453,7 @@ select option{background:var(--bg-card)}
               {% if opt.strip() %}<option value="{{ opt.strip() }}">{{ opt.strip() }}</option>{% endif %}
               {% endfor %}
             </select>
-            {% elif fdef.type == 'entity_link' and user.role == 'ADMIN' %}
+            {% elif (fdef.field_type == 'entity_link' or fdef.type == 'entity_link') and user.role == 'ADMIN' %}
             <select name="cf__{{ fdef.label }}"
               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
               {{ 'required' if fdef.required }}>
@@ -458,7 +462,7 @@ select option{background:var(--bg-card)}
               <option value="{{ item.name }}">{{ item.name }}</option>
               {% endfor %}
             </select>
-            {% elif fdef.type == 'entity_link' %}
+            {% elif fdef.field_type == 'entity_link' or fdef.type == 'entity_link' %}
             <input type="text" name="cf__{{ fdef.label }}" placeholder="Enter {{ fdef.entity_type or 'entity' }} name"
               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary)"
               {{ 'required' if fdef.required }}>

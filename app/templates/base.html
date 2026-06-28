@@ -292,6 +292,9 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
   {% if has_fms %}
   <a href="/fms/dashboard" {% if '/fms' in request.url.path %}class="active"{% endif %}>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a>
   {% endif %}
+  {% if has_knowledge_repo %}
+  <a href="/knowledge" {% if '/knowledge' in request.url.path %}class="active"{% endif %}>Knowledge</a>
+  {% endif %}
   {% if user.role in ('ADMIN','MANAGER') %}
   <a href="/employees" {% if '/employees' in request.url.path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>
   {% endif %}
