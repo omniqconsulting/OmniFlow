@@ -123,12 +123,9 @@ select option{background:var(--bg-card);color:var(--text-primary)}
   </div>
   <div style="display:flex;gap:8px;align-items:center">
     {% if user.role in ('ADMIN','MANAGER') %}
-    <a href="/fms/tickets/bulk-template" class="btn btn-outline btn-sm">⬇ Template</a>
+    <a href="/fms/tickets/bulk-template?flow_id={{ active_flow.id if active_flow else '' }}" class="btn btn-outline btn-sm">⬇ Template</a>
     <button onclick="show('fms-bulk-modal')" class="btn btn-outline btn-sm">⬆ Bulk Upload</button>
-    <button class="btn btn-primary btn-sm"
-            onclick="openTicketModal('{{ active_flow.id if active_flow else '' }}')">
-      + New Ticket
-    </button>
+    <a href="/fms/tickets/bulk-create" class="btn btn-primary btn-sm">+ New Ticket Create</a>
     {% endif %}
     <a href="/fms/tickets/export?{{ request.query_string.decode() }}" class="btn btn-outline btn-sm" title="Export filtered data as CSV">⬇ Export CSV</a>
     {% if view == 'stage' %}
@@ -450,6 +447,10 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
   <!-- Right: ticket table for selected stage -->
   <div style="padding:16px;overflow:auto;height:100%">
     {% if active_stage %}
+    {% set next_stage_for_bulk = next_stage_map.get(active_stage.id) %}
+    {% if next_stage_for_bulk %}
+    <script>window._bulkNextStageName = {{ next_stage_for_bulk.name | tojson }};</script>
+    {% endif %}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <div>
         <div style="font-size:14px;font-weight:600;color:var(--text-strong)">{{ active_stage.name }}</div>
@@ -459,12 +460,27 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           {% if active_stage.evidence_required %} · <span style="color:#fbbf24">📎 Evidence Required</span>{% endif %}
         </div>
       </div>
+      {% if next_stage_for_bulk and stage_tickets and user.role in ('ADMIN','MANAGER') %}
+      <div id="bulkTransitionBar" style="display:none;align-items:center;gap:8px">
+        <span id="bulkSelCount" style="font-size:12px;color:var(--text-faint)">0 selected</span>
+        <button onclick="openBulkTransitionModal()"
+                class="btn btn-primary btn-sm">
+          Transition <span id="bulkSelCountBtn">0</span> Selected →
+        </button>
+      </div>
+      {% endif %}
     </div>
 
     {% if stage_tickets %}
-    <table class="list-table">
+    <table class="list-table" id="stageTicketTable">
       <thead>
         <tr style="background:var(--bg-input)">
+          {% if next_stage_for_bulk and user.role in ('ADMIN','MANAGER') %}
+          <th style="width:36px;padding:8px">
+            <input type="checkbox" id="selectAllCb" title="Select all" onchange="onSelectAll(this)"
+                   style="cursor:pointer;width:15px;height:15px">
+          </th>
+          {% endif %}
           <th>ID</th><th>Title</th><th>Assignee</th><th>Priority</th><th>TaT</th><th>Due</th>
           {# P7-04: dynamic sub-module columns #}
           {% if active_stage.sub_module_tag == 'PMS' %}
@@ -481,6 +497,16 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
       {% for row in stage_tickets %}{% set t = row.ticket %}
       {% set can_act = user.role in ('ADMIN','MANAGER') or t.current_assignee_id == user.id %}
       <tr>
+        {% if next_stage_for_bulk and user.role in ('ADMIN','MANAGER') %}
+        <td style="text-align:center;padding:8px 4px" onclick="event.stopPropagation()">
+          <input type="checkbox" class="bulk-ticket-cb"
+                 value="{{ t.id }}"
+                 data-title="{{ t.display_id or t.id[:8] }} — {{ t.title[:50] | replace('"', '&quot;') }}"
+                 data-note-required="{{ 'true' if active_stage.completion_note_required else 'false' }}"
+                 onchange="onBulkCbChange()"
+                 style="cursor:pointer;width:15px;height:15px">
+        </td>
+        {% endif %}
         <td>
           <span style="font-family:monospace;font-size:12px;color:#60a5fa;font-weight:600">
             {{ t.display_id or t.id[:8] }}
@@ -1273,23 +1299,38 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
 <!-- ── P7-07: Bulk upload modal ──────────────────────────────────────────── -->
 {% if user.role in ('ADMIN','MANAGER') %}
 <div id="fms-bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;z-index:300">
-  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:440px;max-width:95vw">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:460px;max-width:95vw">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Bulk Upload FMS Tickets</h3>
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Upload FMS History</h3>
       <button onclick="hide('fms-bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint)">×</button>
     </div>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
-      Upload CSV to create multiple FMS tickets at once.
-      <a href="/fms/tickets/bulk-template" style="color:#3b82f6;text-decoration:none">Download template →</a>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+      Select a flow, download its template, fill it in, then upload the Excel file to import tickets with full stage history.
     </p>
     <form method="post" action="/fms/tickets/bulk-upload" enctype="multipart/form-data">
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Flow *</label>
+        <select name="upload_flow_id" id="uploadFlowSelect" required
+                onchange="document.getElementById('uploadTplLink').href='/fms/tickets/bulk-template?flow_id='+this.value"
+                style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit">
+          <option value="">— Select a flow —</option>
+          {% for f in flows %}
+          <option value="{{ f.id }}" {% if active_flow and active_flow.id == f.id %}selected{% endif %}>{{ f.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="margin-bottom:12px">
+        <a id="uploadTplLink" href="/fms/tickets/bulk-template?flow_id={{ active_flow.id if active_flow else '' }}"
+           style="font-size:12px;color:#3b82f6;text-decoration:none">⬇ Download flow template →</a>
+      </div>
       <div style="margin-bottom:16px">
-        <input type="file" name="file" accept=".csv" required
+        <label style="display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Excel File (.xlsx) *</label>
+        <input type="file" name="file" accept=".xlsx,.xls" required
                style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);box-sizing:border-box">
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" onclick="hide('fms-bulk-modal')" class="btn btn-outline">Cancel</button>
-        <button type="submit" class="btn btn-primary">Upload & Create</button>
+        <button type="submit" class="btn btn-primary">Upload & Import</button>
       </div>
     </form>
   </div>
@@ -1994,9 +2035,100 @@ function closeOverrideModal() {
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     closeMoveBackModal(); closeFlagModal(); closeAssigneeModal();
-    closeHelpModal(); closeOverrideModal();
+    closeHelpModal(); closeOverrideModal(); closeBulkTransitionModal();
   }
 });
+
+/* ── Bulk Stage Transition ───────────────────────────────────────────────── */
+function onSelectAll(cb) {
+  document.querySelectorAll('.bulk-ticket-cb').forEach(function(c) { c.checked = cb.checked; });
+  onBulkCbChange();
+}
+
+function onBulkCbChange() {
+  var checked = document.querySelectorAll('.bulk-ticket-cb:checked');
+  var n = checked.length;
+  var bar = document.getElementById('bulkTransitionBar');
+  var selectAll = document.getElementById('selectAllCb');
+  var all = document.querySelectorAll('.bulk-ticket-cb');
+  if (bar) {
+    bar.style.display = n > 0 ? 'flex' : 'none';
+    document.getElementById('bulkSelCount').textContent = n + ' selected';
+    document.getElementById('bulkSelCountBtn').textContent = n;
+  }
+  if (selectAll && all.length > 0) {
+    selectAll.indeterminate = n > 0 && n < all.length;
+    selectAll.checked = n === all.length;
+  }
+  if (n > 20) {
+    alert('Maximum 20 tickets per bulk transition. Please deselect some tickets.');
+    checked[checked.length - 1].checked = false;
+    onBulkCbChange();
+  }
+}
+
+function openBulkTransitionModal() {
+  var checked = document.querySelectorAll('.bulk-ticket-cb:checked');
+  if (checked.length === 0) return;
+  var n = checked.length;
+  var nextName = (window._bulkNextStageName || 'Next Stage');
+  document.getElementById('bulkTransitionTitle').textContent =
+    'Move ' + n + ' Ticket' + (n !== 1 ? 's' : '') + ' to ' + nextName;
+  var body = document.getElementById('bulkTransitionBody');
+  body.innerHTML = '';
+  checked.forEach(function(cb) {
+    var noteRequired = cb.dataset.noteRequired === 'true';
+    var section = document.createElement('div');
+    section.style.cssText = 'border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:12px 14px;margin-bottom:10px';
+    section.innerHTML =
+      '<div style="font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:' + (noteRequired ? '10px' : '0') + '">' +
+        _besc(cb.dataset.title) +
+      '</div>' +
+      (noteRequired ?
+        '<div>' +
+          '<label style="display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Completion Notes *</label>' +
+          '<textarea name="completion_note_' + cb.value + '" rows="2" required placeholder="Required for this stage…"' +
+            ' style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);font-family:inherit;resize:vertical;min-height:52px;outline:none"></textarea>' +
+        '</div>' : '') +
+      '<input type="hidden" name="ticket_ids" value="' + cb.value + '">';
+    body.appendChild(section);
+  });
+  document.getElementById('bulkTransitionModal').style.display = 'flex';
+}
+
+function closeBulkTransitionModal() {
+  document.getElementById('bulkTransitionModal').style.display = 'none';
+}
+
+function _besc(s) {
+  var d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+}
 </script>
+
+<!-- ── Bulk Transition Modal ──────────────────────────────────────────────── -->
+<div id="bulkTransitionModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);z-index:300;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;width:100%;max-width:680px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 32px 64px rgba(0,0,0,.7)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0">
+      <h3 id="bulkTransitionTitle" style="font-size:15px;font-weight:700;color:var(--text-strong);margin:0">
+        Move Tickets to Next Stage
+      </h3>
+      <button onclick="closeBulkTransitionModal()" style="background:none;border:none;color:var(--text-faint);font-size:20px;cursor:pointer;padding:0;line-height:1">×</button>
+    </div>
+    <form id="bulkTransitionForm" method="post" action="/fms/tickets/bulk-transition">
+      <input type="hidden" name="flow_id" value="{{ active_flow.id if active_flow else '' }}">
+      <input type="hidden" name="current_stage_id" value="{{ active_stage.id if active_stage else '' }}">
+      {% if active_stage and next_stage_map.get(active_stage.id) %}
+      <input type="hidden" name="next_stage_id" value="{{ next_stage_map[active_stage.id].id }}">
+      {% endif %}
+      <div id="bulkTransitionBody" style="padding:16px 20px;overflow-y:auto;flex:1">
+        <!-- ticket sections injected by JS -->
+      </div>
+      <div style="padding:14px 20px;border-top:1px solid rgba(255,255,255,.07);display:flex;justify-content:flex-end;gap:10px;flex-shrink:0;background:var(--bg-input);border-radius:0 0 14px 14px">
+        <button type="button" onclick="closeBulkTransitionModal()" class="btn btn-gray btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Move All</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 {% endblock %}

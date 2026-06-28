@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}New Ticket Create{% endblock %}
+{% block content %}
+<style>
+.bc-wrap{max-width:100%;margin:0 auto;padding:0 4px}
+.bc-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:24px}
+.bc-title{font-size:20px;font-weight:700;color:var(--text-strong);margin-bottom:4px}
+.bc-sub{font-size:13px;color:var(--text-faint);margin-bottom:20px}
+.fm-group label{display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.fm-group input,.fm-group select{background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;transition:border-color .12s}
+.fm-group input:focus,.fm-group select:focus{border-color:#3b82f6}
+.fm-group select option{background:var(--bg-card)}
+
+.bc-table-wrap{overflow-x:auto;border:1px solid var(--border-subtle);border-radius:8px}
+#bcTable{border-collapse:collapse;width:100%;min-width:900px;font-size:13px}
+#bcTable thead tr{background:var(--bg-input)}
+#bcTable th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);padding:8px 10px;white-space:nowrap;border-bottom:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle)}
+#bcTable th:last-child{border-right:none}
+#bcTable th.stage-hdr{background:rgba(59,130,246,.08);color:#60a5fa}
+#bcTable td{padding:0;border-bottom:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle)}
+#bcTable td:last-child{border-right:none}
+#bcTable tbody tr:last-child td{border-bottom:none}
+#bcTable tbody tr:hover td{background:rgba(255,255,255,.015)}
+.bc-row-num{font-size:11px;color:var(--text-xfaint);text-align:center;padding:8px 6px;width:36px}
+#bcTable td input,#bcTable td select{width:100%;background:transparent;border:none;padding:9px 10px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;min-width:0}
+#bcTable td input:focus,#bcTable td select:focus{background:rgba(59,130,246,.06)}
+#bcTable td select option{background:var(--bg-card)}
+.del-btn{background:none;border:none;color:var(--text-xfaint);font-size:18px;cursor:pointer;width:32px;height:32px;border-radius:4px;display:block;margin:auto;line-height:1}
+.del-btn:hover{color:#f87171}
+
+.bc-footer{display:flex;align-items:center;justify-content:space-between;margin-top:16px;flex-wrap:wrap;gap:10px}
+.bc-add-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;border:1.5px dashed rgba(255,255,255,.18);background:transparent;font-size:13px;color:var(--text-faint);cursor:pointer;font-family:inherit;transition:all .12s}
+.bc-add-btn:hover{border-color:#3b82f6;color:#60a5fa}
+.bc-submit{padding:9px 20px;border-radius:8px;background:#3b82f6;color:#fff;border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:background .12s}
+.bc-submit:hover{background:#2563eb}
+.bc-submit:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
+.row-err-bg td{background:rgba(239,68,68,.06)!important}
+.bc-err-banner{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#fca5a5}
+.bc-err-banner ul{margin:6px 0 0 16px;padding:0}
+.bc-err-banner li{margin-bottom:4px}
+.no-flow-hint{text-align:center;color:var(--text-xfaint);font-size:13px;padding:24px;font-style:italic}
+</style>
+
+<div class="bc-wrap">
+  <div style="margin-bottom:16px">
+    <a href="/fms/dashboard?view=stage" style="font-size:12px;color:var(--text-faint);text-decoration:none">← Back to Dashboard</a>
+  </div>
+  <div class="bc-card">
+    <div class="bc-title">New Ticket Create</div>
+    <div class="bc-sub">Create one or more tickets at once. Select a flow, configure per-stage assignees and TaT, then submit.</div>
+
+    {% if error %}
+    <div class="bc-err-banner">⚠ {{ error }}</div>
+    {% endif %}
+    {% if row_errors %}
+    <div class="bc-err-banner">
+      <strong>Please fix the following errors (no tickets were created):</strong>
+      <ul>
+        {% for e in row_errors %}
+        <li>Row {{ e.row }} ({{ e.title }}): {{ e.errors | join(', ') }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/fms/tickets/bulk-create" id="bcForm">
+      <!-- Top controls row -->
+      <div style="display:flex;align-items:flex-end;gap:16px;margin-bottom:20px;flex-wrap:wrap">
+        <div class="fm-group" style="min-width:240px;flex:1">
+          <label>Flow *</label>
+          <select name="flow_id" id="flowSelect" onchange="onFlowChange(this.value)" required style="width:100%">
+            <option value="">— Select a flow —</option>
+            {% for f in flows %}
+            <option value="{{ f.id }}" {% if saved_flow_id and saved_flow_id == f.id %}selected{% endif %}>{{ f.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="fm-group">
+          <label>TaT Unit</label>
+          <select name="tat_unit" id="tatUnit" style="width:120px">
+            <option value="hours">Hours</option>
+            <option value="days">Days</option>
+          </select>
+        </div>
+      </div>
+
+      <input type="hidden" name="row_count" id="rowCount" value="0">
+
+      <!-- Ticket grid -->
+      <div class="bc-table-wrap" id="bcTableWrap">
+        <table id="bcTable">
+          <thead>
+            <tr id="bcHeaderRow">
+              <th style="width:36px">#</th>
+              <th style="min-width:200px">Title *</th>
+              <th style="width:100px">Priority</th>
+              <th style="width:130px">Due Date *</th>
+              <th style="width:120px">WO Number</th>
+              <th style="width:80px">Qty</th>
+              <th style="width:90px">Unit</th>
+              <!-- stage headers injected here -->
+              <th style="width:36px"></th>
+            </tr>
+          </thead>
+          <tbody id="bcRows">
+            <tr><td colspan="99" class="no-flow-hint">Select a flow above to load stage columns and add ticket rows.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="bc-footer">
+        <button type="button" class="bc-add-btn" onclick="addRow()" id="addRowBtn" disabled>+ Add Row</button>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:12px;color:var(--text-faint)" id="rowCountLabel">0 rows</span>
+          <button type="submit" class="bc-submit" id="submitBtn" disabled>Create Tickets</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+var rowIndex = 0;
+var rowCount = 0;
+var currentStages = [];    // [{id, name, default_assignee_id, target_tat_hours}, ...]
+var currentEmployees = []; // [{id, name}, ...]
+
+function _esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function buildEmployeeOptions(selectedId) {
+  var opts = '<option value="">— default —</option>';
+  currentEmployees.forEach(function(e) {
+    opts += '<option value="' + _esc(e.id) + '"' + (e.id === selectedId ? ' selected' : '') + '>' + _esc(e.name) + '</option>';
+  });
+  return opts;
+}
+
+function buildStageHeaderCells() {
+  var hdr = document.getElementById('bcHeaderRow');
+  // Remove existing stage headers (before the last <th>)
+  var ths = Array.from(hdr.querySelectorAll('th.stage-hdr'));
+  ths.forEach(function(th){ th.remove(); });
+  var lastTh = hdr.querySelector('th:last-child');
+  currentStages.forEach(function(s) {
+    var th1 = document.createElement('th');
+    th1.className = 'stage-hdr';
+    th1.style.minWidth = '160px';
+    th1.textContent = s.name + ' Assignee';
+    hdr.insertBefore(th1, lastTh);
+    var th2 = document.createElement('th');
+    th2.className = 'stage-hdr';
+    th2.style.width = '90px';
+    th2.textContent = s.name + ' TaT';
+    hdr.insertBefore(th2, lastTh);
+  });
+}
+
+function buildStageCells(i) {
+  var html = '';
+  currentStages.forEach(function(s) {
+    html += '<td><select name="row_stage_assignee_' + i + '_' + _esc(s.id) + '">' + buildEmployeeOptions(s.default_assignee_id) + '</select></td>';
+    html += '<td><input type="number" name="row_stage_tat_' + i + '_' + _esc(s.id) + '" min="0" step="0.5" placeholder="' + (s.target_tat_hours || '') + '" style="width:80px"></td>';
+  });
+  return html;
+}
+
+function addRow(data) {
+  if (currentStages.length === 0) { alert('Select a flow first.'); return; }
+  var i = rowIndex++;
+  rowCount++;
+  var prio = (data && data.priority) || 'MEDIUM';
+  var tr = document.createElement('tr');
+  tr.dataset.idx = i;
+  tr.innerHTML =
+    '<td class="bc-row-num">' + rowCount + '</td>' +
+    '<td><input type="text" name="row_title_' + i + '" placeholder="Ticket title" maxlength="200" required></td>' +
+    '<td><select name="row_priority_' + i + '">' +
+      ['LOW','MEDIUM','HIGH','CRITICAL'].map(function(p){ return '<option value="' + p + '"' + (p===prio?' selected':'') + '>' + p + '</option>'; }).join('') +
+    '</select></td>' +
+    '<td><input type="date" name="row_due_date_' + i + '" required></td>' +
+    '<td><input type="text" name="row_wo_number_' + i + '" placeholder="Optional"></td>' +
+    '<td><input type="number" name="row_target_qty_' + i + '" min="0" step="1" placeholder="—"></td>' +
+    '<td><input type="text" name="row_qty_unit_' + i + '" placeholder="pcs/kg/m" style="width:80px"></td>' +
+    buildStageCells(i) +
+    '<td style="text-align:center"><button type="button" class="del-btn" onclick="removeRow(this)" title="Remove">×</button></td>';
+  document.getElementById('bcRows').appendChild(tr);
+  updateCountLabel();
+  if (rowCount >= 50) document.getElementById('addRowBtn').disabled = true;
+}
+
+function removeRow(btn) {
+  var tr = btn.closest('tr');
+  tr.parentNode.removeChild(tr);
+  rowCount--;
+  document.querySelectorAll('#bcRows tr').forEach(function(r, idx){ var n = r.querySelector('.bc-row-num'); if(n) n.textContent = idx+1; });
+  updateCountLabel();
+  document.getElementById('addRowBtn').disabled = rowCount >= 50 || currentStages.length === 0;
+}
+
+function updateCountLabel() {
+  document.getElementById('rowCountLabel').textContent = rowCount + ' row' + (rowCount !== 1 ? 's' : '');
+  document.getElementById('rowCount').value = rowCount;
+  var btn = document.getElementById('submitBtn');
+  btn.textContent = 'Create ' + rowCount + ' Ticket' + (rowCount !== 1 ? 's' : '');
+  btn.disabled = rowCount < 1 || currentStages.length === 0;
+}
+
+function onFlowChange(flowId) {
+  if (!flowId) {
+    currentStages = []; currentEmployees = [];
+    document.getElementById('bcRows').innerHTML = '<tr><td colspan="99" class="no-flow-hint">Select a flow above to load stage columns and add ticket rows.</td></tr>';
+    buildStageHeaderCells();
+    document.getElementById('addRowBtn').disabled = true;
+    document.getElementById('submitBtn').disabled = true;
+    return;
+  }
+  fetch('/fms/api/flow/' + flowId + '/defaults')
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      currentStages = data.stages || [];
+      currentEmployees = data.employees || [];
+      rowIndex = 0; rowCount = 0;
+      document.getElementById('bcRows').innerHTML = '';
+      buildStageHeaderCells();
+      document.getElementById('addRowBtn').disabled = false;
+      addRow(); addRow(); addRow();
+      updateCountLabel();
+    })
+    .catch(function(){ alert('Failed to load flow data. Please try again.'); });
+}
+
+document.getElementById('bcForm').addEventListener('submit', function(e){
+  if (currentStages.length === 0) { e.preventDefault(); alert('Please select a flow.'); return; }
+  if (rowCount < 1) { e.preventDefault(); alert('Add at least 1 ticket row.'); return; }
+  if (rowCount > 50) { e.preventDefault(); alert('Maximum 50 rows per create.'); return; }
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('submitBtn').textContent = 'Creating…';
+});
+
+// If flow was pre-selected (e.g. after error), reload
+document.addEventListener('DOMContentLoaded', function(){
+  var sel = document.getElementById('flowSelect');
+  if (sel.value) onFlowChange(sel.value);
+});
+</script>
+{% endblock %}

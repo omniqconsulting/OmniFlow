@@ -1431,115 +1431,544 @@ def fms_ticket_notify(
 # ── P7-07: Bulk upload FMS tickets ────────────────────────────────────────────
 
 @router.get("/tickets/bulk-template")
-def fms_bulk_template(user: User = Depends(require_manager)):
-    import csv as _csv, io as _io
-    buf = _io.StringIO()
-    w = _csv.writer(buf)
-    w.writerow(["title","description","flow_name","priority","assignee_phone",
-                "due_at","target_qty","qty_unit","wo_number","evidence_required"])
-    w.writerow(["Mandatory. Max 200 chars","Mandatory. Work description",
-                "Exact active flow name","LOW|MEDIUM|HIGH|CRITICAL",
-                "Active user phone number","YYYY-MM-DD HH:MM (24h)",
-                "Integer (opt)","pcs/kg/m etc (opt)","WO ref (opt)","TRUE|FALSE (default FALSE)"])
-    w.writerow(["Steel Frame Batch","Cut and weld 100 frames","Manufacturing Flow",
-                "MEDIUM","+911234567890","2026-07-20 18:00","100","pcs","WO-001","FALSE"])
-    buf.seek(0)
+def fms_bulk_template(
+    flow_id: str = "",
+    user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    import io as _io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    flow = None
+    if flow_id:
+        flow = db.query(FMSFlow).filter(
+            FMSFlow.id == flow_id,
+            FMSFlow.tenant_id == user.tenant_id,
+            FMSFlow.is_deleted == False,
+        ).first()
+    if not flow:
+        flow = db.query(FMSFlow).filter(
+            FMSFlow.tenant_id == user.tenant_id,
+            FMSFlow.is_active == True,
+            FMSFlow.is_deleted == False,
+        ).order_by(FMSFlow.name).first()
+
+    stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order) if flow else []
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "FMS Tickets"
+
+    base_headers = ["Title *", "Priority", "Due Date (YYYY-MM-DD)", "WO Number", "Target Qty", "Qty Unit", "TaT Unit (Days/Hours)"]
+    stage_headers = []
+    for s in stages:
+        stage_headers.append(f"{s.name} Assignee Phone")
+        stage_headers.append(f"{s.name} TaT")
+    all_headers = base_headers + stage_headers
+
+    hdr_fill = PatternFill("solid", fgColor="1E293B")
+    hdr_font = Font(bold=True, color="FFFFFF", size=11)
+    for col, h in enumerate(all_headers, 1):
+        c = ws.cell(row=1, column=col, value=h)
+        c.font = hdr_font; c.fill = hdr_fill
+        c.alignment = Alignment(horizontal="center", wrap_text=True)
+
+    inst_fill = PatternFill("solid", fgColor="374151")
+    inst_font = Font(italic=True, color="9CA3AF", size=10)
+    instructions = [
+        "Required. Max 200 chars", "LOW / MEDIUM / HIGH / CRITICAL",
+        "e.g. 2026-08-15", "Optional WO/PO ref",
+        "Optional integer", "Optional: pcs/kg/m",
+        "Days or Hours — applies to all TaT columns in this sheet",
+    ]
+    for s in stages:
+        instructions.append(f"Phone of assignee for {s.name} (blank = flow default)")
+        instructions.append(f"TaT for {s.name} (blank = flow default {s.target_tat_hours or '—'})")
+    for col, inst in enumerate(instructions, 1):
+        c = ws.cell(row=2, column=col, value=inst)
+        c.font = inst_font; c.fill = inst_fill
+        c.alignment = Alignment(wrap_text=True)
+
+    sample = ["Sample Ticket WO-001", "MEDIUM", "2026-08-20", "WO-001", "100", "pcs", "Hours"]
+    for s in stages:
+        sample.append("")
+        sample.append(str(s.target_tat_hours) if s.target_tat_hours else "24")
+    for col, val in enumerate(sample, 1):
+        ws.cell(row=3, column=col, value=val)
+
+    col_widths = [30, 12, 18, 14, 10, 10, 20]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    for i in range(len(stages)):
+        ws.column_dimensions[get_column_letter(8 + i * 2 - 1)].width = 22
+        ws.column_dimensions[get_column_letter(8 + i * 2)].width = 12
+    ws.freeze_panes = "A3"
+
+    buf = _io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    fname = f"fms_{flow.name.replace(' ', '_')}_template.xlsx" if flow else "fms_template.xlsx"
     return StreamingResponse(
-        iter([buf.read().encode()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=fms_tickets_template.csv"},
+        iter([buf.read()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
     )
 
 
 @router.post("/tickets/bulk-upload")
 async def fms_bulk_upload(
+    request: Request,
     file: UploadFile = File(...),
-    user: User = Depends(require_manager), db: Session = Depends(get_db),
+    upload_flow_id: str = Form(...),
+    user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
 ):
-    import csv as _csv, io as _io
-    content = (await file.read()).decode("utf-8-sig")
-    reader = _csv.DictReader(_io.StringIO(content))
-    errors = []
-    created = 0
-    for i, row in enumerate(reader, start=1):
-        if i == 2:
-            continue  # skip description row
-        title = (row.get("title") or "").strip()
-        desc  = (row.get("description") or "").strip()
-        flow_name = (row.get("flow_name") or "").strip()
-        priority = (row.get("priority") or "MEDIUM").strip().upper()
-        phone = (row.get("assignee_phone") or "").strip()
-        due_str = (row.get("due_at") or "").strip()
+    import io as _io
+    from openpyxl import load_workbook
 
-        if not title or not desc or not flow_name or not phone or not due_str:
-            errors.append((i, title or "(blank)", "title, description, flow_name, assignee_phone, due_at are required"))
+    flow = db.query(FMSFlow).filter(
+        FMSFlow.id == upload_flow_id,
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_active == True,
+        FMSFlow.is_deleted == False,
+    ).first()
+    if not flow:
+        return _redirect("/fms/dashboard?err=Flow+not+found")
+
+    stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order)
+    if not stages:
+        return _redirect("/fms/dashboard?err=Flow+has+no+stages")
+
+    content = await file.read()
+    try:
+        wb = load_workbook(filename=_io.BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        return _redirect("/fms/dashboard?err=Invalid+Excel+file+-+please+use+the+downloaded+template")
+
+    ws = wb.active
+    all_rows = list(ws.iter_rows(values_only=True))
+    if len(all_rows) < 3:
+        return _redirect("/fms/dashboard?err=File+too+short")
+
+    headers = [str(h).strip() if h is not None else "" for h in all_rows[0]]
+
+    stage_phone_cols = {s.id: headers.index(f"{s.name} Assignee Phone") for s in stages if f"{s.name} Assignee Phone" in headers}
+    stage_tat_cols   = {s.id: headers.index(f"{s.name} TaT")            for s in stages if f"{s.name} TaT"            in headers}
+    tat_unit_col     = headers.index("TaT Unit (Days/Hours)") if "TaT Unit (Days/Hours)" in headers else None
+
+    warnings = []
+    created_count = 0
+    tenant = db.query(Tenant).get(user.tenant_id)
+
+    for row_num, row in enumerate(all_rows[2:], start=3):
+        if not any(row):
             continue
-        if priority not in ("LOW","MEDIUM","HIGH","CRITICAL"):
-            errors.append((i, title, f"Invalid priority: {priority}")); continue
 
-        flow = db.query(FMSFlow).filter(
-            FMSFlow.tenant_id == user.tenant_id,
-            FMSFlow.name == flow_name, FMSFlow.is_active == True,
-            FMSFlow.is_deleted == False).first()
-        if not flow:
-            errors.append((i, title, f"Flow not found: {flow_name}")); continue
+        def cell(idx, r=row):
+            return str(r[idx]).strip() if idx < len(r) and r[idx] is not None else ""
 
-        assignee = db.query(User).filter(
-            User.tenant_id == user.tenant_id, User.phone == phone,
-            User.is_deleted == False).first()
-        if not assignee:
-            errors.append((i, title, f"User not found with phone: {phone}")); continue
+        title = cell(0)
+        priority = cell(1).upper() or "MEDIUM"
+        due_date_str = cell(2)
+        wo_number = cell(3)
+        target_qty_str = cell(4)
+        qty_unit = cell(5)
+        tat_unit_str = cell(tat_unit_col).lower() if tat_unit_col is not None else "hours"
+        tat_mult = 24.0 if "day" in tat_unit_str else 1.0
 
-        first_stage = db.query(FMSStage).filter(
-            FMSStage.flow_id == flow.id, FMSStage.is_deleted == False,
-        ).order_by(FMSStage.order).first()
-        if not first_stage:
-            errors.append((i, title, f"Flow has no stages: {flow_name}")); continue
+        if not title:
+            warnings.append(f"Row {row_num}: Title required — skipped")
+            continue
+        if len(title) > 200:
+            title = title[:200]
+        if priority not in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
+            priority = "MEDIUM"
 
-        try:
-            due = datetime.strptime(due_str, "%Y-%m-%d %H:%M")
-        except ValueError:
-            errors.append((i, title, f"Invalid due_at format: {due_str}")); continue
+        due_date = None
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d %H:%M"):
+            try:
+                due_date = datetime.strptime(due_date_str, fmt); break
+            except ValueError:
+                pass
+        if due_date is None:
+            warnings.append(f"Row {row_num} ({title}): Invalid Due Date '{due_date_str}' — skipped")
+            continue
 
-        tq = (row.get("target_qty") or "").strip()
-        ev_req = (row.get("evidence_required") or "FALSE").strip().upper() == "TRUE"
+        # Build per-stage assignees and schedule
+        stage_assignees: dict = {}
+        stage_schedule: dict = {}
+        cursor = datetime.utcnow()
+        for s in stages:
+            assignee_id = s.default_assignee_id
+            if s.id in stage_phone_cols:
+                phone = cell(stage_phone_cols[s.id])
+                if phone:
+                    u = db.query(User).filter(
+                        User.tenant_id == user.tenant_id, User.phone == phone,
+                        User.is_deleted == False,
+                    ).first()
+                    if u:
+                        assignee_id = u.id
+                    else:
+                        warnings.append(f"Row {row_num}: Phone '{phone}' not found for stage '{s.name}' — using default")
+            if assignee_id:
+                stage_assignees[s.id] = assignee_id
+
+            tat_hours = float(s.target_tat_hours or 24)
+            if s.id in stage_tat_cols:
+                raw = cell(stage_tat_cols[s.id])
+                try:
+                    tat_hours = float(raw) * tat_mult
+                except (ValueError, TypeError):
+                    pass
+            p_end = cursor + timedelta(hours=tat_hours)
+            stage_schedule[s.id] = {"planned_start": cursor.isoformat(), "planned_end": p_end.isoformat()}
+            cursor = p_end
+
+        first_assignee_id = stage_assignees.get(stages[0].id) or stages[0].default_assignee_id
+        first_sched = stage_schedule.get(stages[0].id, {})
 
         ticket = FMSTicket(
             tenant_id=user.tenant_id, flow_id=flow.id,
-            current_stage_id=first_stage.id, title=title,
-            description=desc, priority=priority,
-            wo_number=(row.get("wo_number") or "").strip() or None,
-            target_qty=int(tq) if tq.isdigit() else None,
-            qty_unit=(row.get("qty_unit") or "").strip() or None,
-            current_assignee_id=assignee.id, due_at=due,
-            created_by_id=user.id, status="ACTIVE",
+            current_stage_id=stages[0].id, title=title,
+            priority=priority, wo_number=wo_number or None,
+            target_qty=int(target_qty_str) if target_qty_str.isdigit() else None,
+            qty_unit=qty_unit or None,
+            current_assignee_id=first_assignee_id,
+            due_at=due_date, created_by_id=user.id, status="ACTIVE",
+            stage_assignees_json=_json.dumps(stage_assignees) if stage_assignees else None,
+            stage_schedule_json=_json.dumps(stage_schedule) if stage_schedule else None,
         )
-        db.add(ticket)
-        db.flush()
-        tenant = db.query(Tenant).get(user.tenant_id)
+        db.add(ticket); db.flush()
+        ticket.display_id = _next_fms_display_id(db, tenant)
+        db.add(FMSStageHistory(
+            ticket_id=ticket.id, stage_id=stages[0].id,
+            stage_name=stages[0].name, assignee_id=first_assignee_id,
+            direction="FORWARD",
+            planned_start=datetime.fromisoformat(first_sched["planned_start"]) if first_sched.get("planned_start") else None,
+            planned_end=datetime.fromisoformat(first_sched["planned_end"]) if first_sched.get("planned_end") else None,
+        ))
+        _log(db, ticket.id, user.id, "CREATED", f"History import: {title}")
+        created_count += 1
+
+    db.commit()
+
+    from urllib.parse import quote as _q
+    base_msg = f"{created_count} ticket(s) imported from '{flow.name}'"
+    if warnings:
+        base_msg += f". {len(warnings)} warning(s): {'; '.join(warnings[:3])}"
+    return _redirect(f"/fms/dashboard?view=stage&flow_id={flow.id}&msg={_q(base_msg)}")
+
+
+@router.get("/api/flow/{flow_id}/defaults")
+def fms_api_flow_defaults(
+    flow_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return stage names, default assignee names, and TaT values for bulk-create AJAX."""
+    from fastapi.responses import JSONResponse
+    flow = _get_flow(db, flow_id, user.tenant_id)
+    stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order)
+    result = []
+    for s in stages:
+        assignee_name = None
+        if s.default_assignee_id:
+            u = db.query(User).get(s.default_assignee_id)
+            assignee_name = u.name if u else None
+        result.append({
+            "id": s.id,
+            "name": s.name,
+            "default_assignee_name": assignee_name,
+            "default_assignee_id": s.default_assignee_id,
+            "target_tat_hours": s.target_tat_hours,
+            "order": s.order,
+        })
+    employees = db.query(User).filter(
+        User.tenant_id == user.tenant_id,
+        User.is_deleted == False,
+        User.is_active == True,
+    ).order_by(User.name).all()
+    emp_list = [{"id": e.id, "name": e.name} for e in employees]
+    return JSONResponse({"stages": result, "employees": emp_list})
+
+
+@router.get("/tickets/bulk-create", response_class=HTMLResponse)
+def fms_bulk_create_get(
+    request: Request,
+    user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """A3-1: Bulk ticket creation form."""
+    flows = db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == user.tenant_id, FMSFlow.is_active == True,
+        FMSFlow.is_deleted == False,
+    ).order_by(FMSFlow.name).all()
+    return templates.TemplateResponse(request, "fms/bulk_create.html", _ctx(
+        request, user, db, flows=flows, priorities=PRIORITIES,
+    ))
+
+
+@router.post("/tickets/bulk-create")
+async def fms_bulk_create_post(
+    request: Request,
+    user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """A3-1: Process bulk ticket creation — all-or-nothing validation."""
+    form = await request.form()
+    flow_id = (form.get("flow_id") or "").strip()
+    flows = db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == user.tenant_id, FMSFlow.is_active == True,
+        FMSFlow.is_deleted == False,
+    ).order_by(FMSFlow.name).all()
+
+    def _reraise(error, row_errors=None):
+        return templates.TemplateResponse(request, "fms/bulk_create.html", _ctx(
+            request, user, db, flows=flows, priorities=PRIORITIES,
+            error=error, row_errors=row_errors or [],
+            saved_flow_id=flow_id, saved_form=form,
+        ))
+
+    if not flow_id:
+        return _reraise("Please select a flow before submitting.")
+
+    flow = _get_flow(db, flow_id, user.tenant_id)
+    stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order)
+    if not stages:
+        return _reraise("Selected flow has no stages configured.")
+
+    first_stage = stages[0]
+
+    try:
+        row_count = int(form.get("row_count") or "0")
+    except ValueError:
+        row_count = 0
+
+    if row_count < 1:
+        return _reraise("At least 1 ticket row is required.")
+    if row_count > 50:
+        return _reraise("Maximum 50 rows per bulk create.")
+
+    today = datetime.utcnow().date()
+    errors = []
+    tickets_data = []
+
+    tat_unit = (form.get("tat_unit") or "hours").strip().lower()
+    tat_mult = 24.0 if tat_unit == "days" else 1.0
+
+    for i in range(row_count):
+        title = (form.get(f"row_title_{i}") or "").strip()
+        priority = (form.get(f"row_priority_{i}") or "MEDIUM").strip().upper()
+        due_date_str = (form.get(f"row_due_date_{i}") or "").strip()
+        wo_number = (form.get(f"row_wo_number_{i}") or "").strip()
+        target_qty_str = (form.get(f"row_target_qty_{i}") or "").strip()
+        qty_unit = (form.get(f"row_qty_unit_{i}") or "").strip()
+
+        row_errs = []
+        due_date = None
+        if not title:
+            row_errs.append("Title is required")
+        elif len(title) > 200:
+            row_errs.append("Title must be at most 200 characters")
+        if priority not in PRIORITIES:
+            row_errs.append(f"Invalid priority '{priority}'")
+        if not due_date_str:
+            row_errs.append("Due date is required")
+        else:
+            try:
+                due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
+                if due_date.date() <= today:
+                    row_errs.append("Due date must be a future date")
+            except ValueError:
+                row_errs.append("Invalid due date format")
+
+        if row_errs:
+            errors.append({"row": i + 1, "title": title or f"Row {i + 1}", "errors": row_errs})
+        else:
+            # Collect per-stage assignee and TaT
+            stage_assignees: dict = {}
+            stage_schedule: dict = {}
+            cursor = datetime.utcnow()
+            for s in stages:
+                aid = (form.get(f"row_stage_assignee_{i}_{s.id}") or "").strip() or s.default_assignee_id
+                if aid:
+                    stage_assignees[s.id] = aid
+                tat_hours = float(s.target_tat_hours or 24)
+                raw_tat = (form.get(f"row_stage_tat_{i}_{s.id}") or "").strip()
+                if raw_tat:
+                    try:
+                        tat_hours = float(raw_tat) * tat_mult
+                    except ValueError:
+                        pass
+                p_end = cursor + timedelta(hours=tat_hours)
+                stage_schedule[s.id] = {"planned_start": cursor.isoformat(), "planned_end": p_end.isoformat()}
+                cursor = p_end
+
+            tickets_data.append({
+                "title": title, "priority": priority,
+                "due_date": due_date, "wo_number": wo_number or None,
+                "target_qty": int(target_qty_str) if target_qty_str.isdigit() else None,
+                "qty_unit": qty_unit or None,
+                "stage_assignees": stage_assignees,
+                "stage_schedule": stage_schedule,
+            })
+
+    if errors:
+        return _reraise(None, errors)
+
+    # All rows valid — create all tickets
+    tenant = db.query(Tenant).get(user.tenant_id)
+    admins = _admin_ids(db, user.tenant_id)
+
+    created = []
+    for td in tickets_data:
+        first_assignee_id = td["stage_assignees"].get(first_stage.id) or first_stage.default_assignee_id
+        first_sched = td["stage_schedule"].get(first_stage.id, {})
+        ticket = FMSTicket(
+            tenant_id=user.tenant_id, flow_id=flow_id,
+            current_stage_id=first_stage.id, title=td["title"],
+            priority=td["priority"], due_at=td["due_date"],
+            wo_number=td["wo_number"],
+            target_qty=td["target_qty"], qty_unit=td["qty_unit"],
+            current_assignee_id=first_assignee_id,
+            created_by_id=user.id, status="ACTIVE",
+            stage_assignees_json=_json.dumps(td["stage_assignees"]) if td["stage_assignees"] else None,
+            stage_schedule_json=_json.dumps(td["stage_schedule"]) if td["stage_schedule"] else None,
+        )
+        db.add(ticket); db.flush()
         ticket.display_id = _next_fms_display_id(db, tenant)
         db.add(FMSStageHistory(
             ticket_id=ticket.id, stage_id=first_stage.id,
-            stage_name=first_stage.name, assignee_id=assignee.id,
+            stage_name=first_stage.name, assignee_id=first_assignee_id,
             direction="FORWARD",
+            planned_start=datetime.fromisoformat(first_sched["planned_start"]) if first_sched.get("planned_start") else None,
+            planned_end=datetime.fromisoformat(first_sched["planned_end"]) if first_sched.get("planned_end") else None,
         ))
-        _log(db, ticket.id, user.id, "CREATED", f"Bulk import: {title}")
-        created += 1
+        _log(db, ticket.id, user.id, "CREATED", td["title"])
+        created.append((ticket, first_assignee_id))
 
     db.commit()
-    if errors:
-        buf = _io.StringIO()
-        w = _csv.writer(buf)
-        w.writerow(["row","title","error"])
-        for (r, t, e) in errors:
-            w.writerow([r, t, e])
-        buf.seek(0)
-        return StreamingResponse(
-            iter([buf.read().encode()]),
-            media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=fms_upload_errors.csv"},
-        )
-    return _redirect(f"/fms/dashboard?uploaded={created}")
+
+    # Notify stage-1 assignee for each created ticket
+    for ticket, first_aid in created:
+        if first_aid:
+            mgrs = _manager_ids_for(db, first_aid)
+            notify_fms_stage_transition(
+                user.tenant_id, ticket.id, ticket.title,
+                first_stage.name, user.id, admins, mgrs, first_aid,
+            )
+
+    from urllib.parse import quote as _q
+    n = len(created)
+    msg = _q(f"{n} ticket{'s' if n != 1 else ''} created successfully")
+    return _redirect(f"/fms/dashboard?view=stage&flow_id={flow_id}&msg={msg}")
+
+
+
+
+
+@router.post("/tickets/bulk-transition")
+async def fms_bulk_transition(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """A3-2: Bulk stage transition — partial success allowed."""
+    if not _can_transition(user, FMSTicket(current_assignee_id=user.id)):
+        # Allow admin/manager always; employees handled per-ticket below
+        pass
+    if user.role not in ("ADMIN", "MANAGER", "EMPLOYEE"):
+        raise HTTPException(403, "Not authorised")
+
+    form = await request.form()
+    ticket_ids = form.getlist("ticket_ids")
+    next_stage_id = (form.get("next_stage_id") or "").strip()
+    flow_id = (form.get("flow_id") or "").strip()
+    current_stage_id = (form.get("current_stage_id") or "").strip()
+
+    if not ticket_ids or not next_stage_id:
+        return _redirect(f"/fms/dashboard?view=stage&flow_id={flow_id}&err=Invalid+bulk+transition+request")
+
+    if len(ticket_ids) > 20:
+        return _redirect(f"/fms/dashboard?view=stage&flow_id={flow_id}&err=Maximum+20+tickets+per+bulk+transition")
+
+    tid = user.tenant_id
+    next_stage = db.query(FMSStage).filter(FMSStage.id == next_stage_id).first()
+    if not next_stage:
+        return _redirect(f"/fms/dashboard?view=stage&flow_id={flow_id}&err=Invalid+target+stage")
+
+    admins = _admin_ids(db, tid)
+    moved = 0
+    skipped = []
+    now = datetime.utcnow()
+
+    for t_id in ticket_ids:
+        ticket = db.query(FMSTicket).filter(
+            FMSTicket.id == t_id,
+            FMSTicket.tenant_id == tid,
+            FMSTicket.is_deleted == False,
+        ).first()
+        if not ticket:
+            skipped.append(f"{t_id[:8]}: not found")
+            continue
+        if ticket.status in ("COMPLETED", "CLOSED"):
+            skipped.append(f"{ticket.display_id or t_id[:8]}: already completed/closed")
+            continue
+        if current_stage_id and ticket.current_stage_id != current_stage_id:
+            skipped.append(f"{ticket.display_id or t_id[:8]}: no longer at this stage")
+            continue
+        if user.role == "EMPLOYEE" and not _can_transition(user, ticket):
+            skipped.append(f"{ticket.display_id or t_id[:8]}: not your ticket")
+            continue
+
+        completion_note = (form.get(f"completion_note_{t_id}") or "").strip()
+        cur_stage = ticket.current_stage
+        if cur_stage and cur_stage.completion_note_required and not completion_note:
+            skipped.append(f"{ticket.display_id or t_id[:8]}: completion note required")
+            continue
+
+        open_h = _open_history(db, t_id)
+        if open_h:
+            open_h.exited_at = now
+            open_h.completion_note = completion_note or None
+            _log(db, t_id, user.id, "STAGE_EXITED",
+                 f"From: {cur_stage.name if cur_stage else '?'}")
+
+        new_assignee_id = next_stage.default_assignee_id or ticket.current_assignee_id
+        db.add(FMSStageHistory(
+            ticket_id=t_id, stage_id=next_stage_id,
+            stage_name=next_stage.name, assignee_id=new_assignee_id,
+            direction="FORWARD",
+        ))
+        ticket.current_stage_id = next_stage_id
+        ticket.current_assignee_id = new_assignee_id
+        ticket.updated_at = now
+        if next_stage.is_terminal:
+            ticket.status = "COMPLETED"
+            ticket.completed_at = now
+        else:
+            ticket.status = "ACTIVE"
+        _log(db, t_id, user.id, "STAGE_ENTERED", f"To: {next_stage.name}")
+
+        # Notify new assignee
+        if new_assignee_id:
+            mgrs = _manager_ids_for(db, new_assignee_id)
+            notify_fms_stage_transition(
+                tid, t_id, ticket.title, next_stage.name, user.id,
+                admins, mgrs, new_assignee_id,
+            )
+        moved += 1
+
+    db.commit()
+
+    from urllib.parse import quote as _q
+    if skipped:
+        msg = _q(f"{moved} moved; {len(skipped)} skipped: {'; '.join(skipped[:3])}")
+        return _redirect(f"/fms/dashboard?view=stage&flow_id={flow_id}&stage_id={next_stage_id}&msg={msg}")
+    msg = _q(f"{moved} ticket{'s' if moved != 1 else ''} moved to {next_stage.name}")
+    return _redirect(f"/fms/dashboard?view=stage&flow_id={flow_id}&stage_id={next_stage_id}&msg={msg}")
 
 
 @router.get("/tickets/{ticket_id}", response_class=HTMLResponse)
