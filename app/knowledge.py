@@ -10,14 +10,37 @@ from fastapi import APIRouter, Depends, Form, File, UploadFile, HTTPException, R
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
-from .database import get_db, KnowledgeItem
+from .database import get_db, KnowledgeItem, Tenant
 from .auth import get_current_user, User
 from .constants import has_feature
-from .database import Tenant
+from .templates_env import templates
+from .labels import get_labels, DEFAULT_L
+from .database import Notification
 
 router = APIRouter()
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
+def _L(db, user):
+    if user is None:
+        return DEFAULT_L
+    return get_labels(db, user.tenant_id)
+
+def _unread(db: Session, user: User) -> int:
+    return db.query(Notification).filter(
+        Notification.user_id == user.id, Notification.is_read == False).count()
+
+def _ctx(request, user, db, **kw):
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user else None
+    return {
+        "request": request, "user": user,
+        "L": _L(db, user), "unread": _unread(db, user),
+        "has_inventory":       has_feature(tenant, "INVENTORY",       db) if tenant else False,
+        "has_fms":             has_feature(tenant, "FMS",             db) if tenant else False,
+        "has_knowledge_repo":  has_feature(tenant, "KNOWLEDGE_REPO",  db) if tenant else False,
+        "has_checklists": True,
+        **kw,
+    }
 
 def _require_feature(user: User, db: Session):
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
@@ -67,7 +90,6 @@ def knowledge_index(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from .main import templates, _L, _nav_ctx, _unread
     _require_feature(user, db)
 
     q = db.query(KnowledgeItem).filter(
@@ -105,21 +127,18 @@ def knowledge_index(
     ).distinct().all()
     categories = sorted(set(r[0] for r in all_cats if r[0]))
 
-    return templates.TemplateResponse(request, "knowledge/index.html", {
-        "user": user,
-        "unread": _unread(db, user),
-        "L": _L(db, user),
-        **_nav_ctx(db, user),
-        "items": items,
-        "total": total,
-        "page": page,
-        "total_pages": total_pages,
-        "search": search,
-        "category": category,
-        "kind": kind,
-        "categories": categories,
-        "size_label": _size_label,
-    })
+    return templates.TemplateResponse(request, "knowledge/index.html", _ctx(
+        request, user, db,
+        items=items,
+        total=total,
+        page=page,
+        total_pages=total_pages,
+        search=search,
+        category=category,
+        kind=kind,
+        categories=categories,
+        size_label=_size_label,
+    ))
 
 
 # ── upload (single) ───────────────────────────────────────────────────────────
