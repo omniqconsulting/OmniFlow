@@ -33,6 +33,41 @@ import json as _json
 from markupsafe import Markup as _Markup
 
 
+def _build_ref_lists_json(tenant_id: str, db) -> str:
+    """Return JSON array of all selectable lists: system entity tables + custom reference lists."""
+    result = []
+
+    # ── System entity tables ──────────────────────────────────────────────────
+    _sys = [
+        ("__system_customer__",    "Customers",      Customer,     "name"),
+        ("__system_vendor__",      "Vendors",        Vendor,       "name"),
+        ("__system_rawmaterial__", "Raw Materials",  RawMaterial,  "name"),
+        ("__system_endproduct__",  "End Products",   EndProduct,   "name"),
+        ("__system_department__",  "Departments",    Department,   "name"),
+        ("__system_branch__",      "Branches",       Branch,       "name"),
+    ]
+    for sys_id, sys_name, model, name_col in _sys:
+        rows = db.query(model).filter(
+            model.tenant_id == tenant_id,
+            model.is_deleted == False,
+        ).order_by(getattr(model, name_col)).all()
+        items = [getattr(r, name_col) for r in rows if getattr(r, name_col, None)]
+        if items:
+            result.append({"id": sys_id, "name": sys_name, "items": items, "system": True})
+
+    # ── Custom reference lists ────────────────────────────────────────────────
+    custom = db.query(CustomReferenceList).filter(
+        CustomReferenceList.tenant_id == tenant_id,
+        CustomReferenceList.is_deleted == False,
+        CustomReferenceList.is_active != False,
+    ).order_by(CustomReferenceList.list_name).all()
+    for l in custom:
+        items = [i.value for i in l.items if i.is_active and not i.is_deleted]
+        result.append({"id": l.id, "name": l.list_name, "items": items, "system": False})
+
+    return _json.dumps(result)
+
+
 def _redir(path: str):
     return RedirectResponse(path, status_code=302)
 
@@ -996,11 +1031,7 @@ def setup_flow_new(
         return _redir("/setup/flows?err=Flow+limit+reached+for+your+plan")
 
     employees = _get_active_employees(db, user.tenant_id)
-    ref_lists = db.query(CustomReferenceList).filter(
-        CustomReferenceList.tenant_id == user.tenant_id,
-        CustomReferenceList.is_deleted == False,
-        CustomReferenceList.is_active == True,
-    ).order_by(CustomReferenceList.list_name).all()
+    ref_lists_json = _build_ref_lists_json(user.tenant_id, db)
     return templates.TemplateResponse(request, "setup/flow_edit.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -1008,8 +1039,8 @@ def setup_flow_new(
         "stages_json": "[]",
         "employees": employees,
         "active_section": "flows",
-        "ref_lists": ref_lists,
-        "ref_lists_json": __import__('json').dumps([{"id": l.id, "name": l.list_name, "items": [i.value for i in l.items if i.is_active and not i.is_deleted]} for l in ref_lists]) if ref_lists else "[]",
+        "ref_lists": _json.loads(ref_lists_json),
+        "ref_lists_json": ref_lists_json,
     })
 
 
@@ -1040,6 +1071,7 @@ def setup_flow_edit_get(
             "id": s.id,
             "name": s.name,
             "order": s.order,
+            "color": s.color or "#3b82f6",
             "default_assignee_id": s.default_assignee_id or "",
             "target_tat_hours": s.target_tat_hours,
             "completion_note_required": s.completion_note_required,
@@ -1048,11 +1080,7 @@ def setup_flow_edit_get(
         })
 
     employees = _get_active_employees(db, user.tenant_id)
-    ref_lists = db.query(CustomReferenceList).filter(
-        CustomReferenceList.tenant_id == user.tenant_id,
-        CustomReferenceList.is_deleted == False,
-        CustomReferenceList.is_active == True,
-    ).order_by(CustomReferenceList.list_name).all()
+    ref_lists_json = _build_ref_lists_json(user.tenant_id, db)
     return templates.TemplateResponse(request, "setup/flow_edit.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -1060,8 +1088,8 @@ def setup_flow_edit_get(
         "stages_json": _jf.dumps(stages_data),
         "employees": employees,
         "active_section": "flows",
-        "ref_lists": ref_lists,
-        "ref_lists_json": _jf.dumps([{"id": l.id, "name": l.list_name, "items": [i.value for i in l.items if i.is_active and not i.is_deleted]} for l in ref_lists]),
+        "ref_lists": _json.loads(ref_lists_json),
+        "ref_lists_json": ref_lists_json,
     })
 
 
@@ -1130,6 +1158,7 @@ async def setup_flow_create(
             tenant_id=user.tenant_id,
             name=sname,
             order=i,
+            color=(s.get("color") or "#3b82f6").strip(),
             default_assignee_id=s.get("default_assignee_id") or None,
             target_tat_hours=tat,
             completion_note_required=bool(s.get("completion_note_required")),
@@ -1204,6 +1233,7 @@ async def setup_flow_update(
             stage.default_assignee_id = s.get("default_assignee_id") or None
             stage.target_tat_hours = tat
             stage.completion_note_required = bool(s.get("completion_note_required"))
+            stage.color = (s.get("color") or "#3b82f6").strip()
             stage.is_terminal = bool(s.get("is_terminal"))
             stage.custom_fields_json = _jf.dumps(cf)
         else:
@@ -1213,6 +1243,7 @@ async def setup_flow_update(
                 tenant_id=user.tenant_id,
                 name=sname,
                 order=i,
+                color=(s.get("color") or "#3b82f6").strip(),
                 default_assignee_id=s.get("default_assignee_id") or None,
                 target_tat_hours=tat,
                 completion_note_required=bool(s.get("completion_note_required")),

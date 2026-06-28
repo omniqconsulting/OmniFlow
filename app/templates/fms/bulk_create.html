@@ -95,9 +95,6 @@
               <th style="min-width:200px">Title *</th>
               <th style="width:100px">Priority</th>
               <th style="width:130px">Due Date *</th>
-              <th style="width:120px">WO Number</th>
-              <th style="width:80px">Qty</th>
-              <th style="width:90px">Unit</th>
               <!-- stage headers injected here -->
               <th style="width:36px"></th>
             </tr>
@@ -180,9 +177,6 @@ function addRow(data) {
       ['LOW','MEDIUM','HIGH','CRITICAL'].map(function(p){ return '<option value="' + p + '"' + (p===prio?' selected':'') + '>' + p + '</option>'; }).join('') +
     '</select></td>' +
     '<td><input type="date" name="row_due_date_' + i + '" required></td>' +
-    '<td><input type="text" name="row_wo_number_' + i + '" placeholder="Optional"></td>' +
-    '<td><input type="number" name="row_target_qty_' + i + '" min="0" step="1" placeholder="—"></td>' +
-    '<td><input type="text" name="row_qty_unit_' + i + '" placeholder="pcs/kg/m" style="width:80px"></td>' +
     buildStageCells(i) +
     '<td style="text-align:center"><button type="button" class="del-btn" onclick="removeRow(this)" title="Remove">×</button></td>';
   document.getElementById('bcRows').appendChild(tr);

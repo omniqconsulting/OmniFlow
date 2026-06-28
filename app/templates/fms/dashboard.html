@@ -290,7 +290,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 </div>
 {% endif %}
 {% if request.query_params.get('msg') %}
-<div style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#6ee7b7">
+<div style="background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.4);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;font-weight:500;color:#059669">
   ✓ {{ request.query_params.get('msg') }}
 </div>
 {% endif %}
@@ -485,6 +485,19 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
       </div>
       {% endif %}
     </div>
+
+    <!-- Sticky bulk bar — appears at top when scrolled and tickets are selected -->
+    {% if next_stage_for_bulk and stage_tickets and user.role in ('ADMIN','MANAGER') %}
+    <div id="stickyBulkBar" style="display:none;position:sticky;top:0;z-index:40;background:var(--bg-card);border:1px solid var(--border-med);border-radius:8px;padding:8px 14px;margin-bottom:10px;align-items:center;justify-content:space-between;gap:8px;box-shadow:0 4px 16px rgba(0,0,0,.35)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="stickySelectAllCb" title="Select all" onchange="onSelectAll(this)" style="cursor:pointer;width:15px;height:15px">
+        <span id="stickyBulkCount" style="font-size:12px;color:var(--text-faint)">0 selected</span>
+      </div>
+      <button onclick="openBulkTransitionModal()" class="btn btn-primary btn-sm">
+        Transition <span id="stickyBulkCountBtn">0</span> Selected →
+      </button>
+    </div>
+    {% endif %}
 
     {% if stage_tickets %}
     <table class="list-table" id="stageTicketTable">
@@ -1297,9 +1310,9 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
       </div>
 
       <!-- Assignee for next stage -->
-      <div class="fm-group">
+      <div class="fm-group" id="scAssigneeGroup">
         <label>Assign to (next stage)</label>
-        <select name="new_assignee_id" id="scAssignee" required
+        <select name="new_assignee_id" id="scAssignee"
                 style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none">
           <option value="">— select assignee —</option>
           {% for emp in employees %}
@@ -1906,27 +1919,40 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
   var activeStageId = stageId || "{{ active_stage.id if active_stage else '' }}";
   var ns = NEXT_STAGE_MAP[activeStageId];
   var sel = document.getElementById('scNextStageId');
+  var nextStageGroup = document.getElementById('scNextStageGroup');
   var submitBtn = document.querySelector('#scForm button[type="submit"]');
   sel.innerHTML = '';
   if (ns) {
+    nextStageGroup.style.display = '';
+    sel.required = true;
     var opt = document.createElement('option');
     opt.value = ns.id;
     opt.textContent = ns.name;
     sel.appendChild(opt);
     if (submitBtn) submitBtn.textContent = '✓ Mark Done and Move to ' + ns.name;
   } else {
+    nextStageGroup.style.display = 'none';
+    sel.required = false;
     var opt = document.createElement('option');
     opt.value = '';
-    opt.textContent = '(terminal — will complete ticket)';
+    opt.textContent = '';
     sel.appendChild(opt);
     if (submitBtn) submitBtn.textContent = '✓ Complete Ticket';
   }
 
-  // Pre-select the next stage's default assignee if one is configured
+  // Show/hide assignee group and pre-populate default assignee
   var scAssigneeEl = document.getElementById('scAssignee');
+  var scAssigneeGroup = document.getElementById('scAssigneeGroup');
   scAssigneeEl.value = '';
-  if (ns && ns.default_assignee_id) {
-    scAssigneeEl.value = ns.default_assignee_id;
+  scAssigneeEl.required = false;
+  if (ns) {
+    scAssigneeGroup.style.display = '';
+    if (ns.default_assignee_id) {
+      scAssigneeEl.value = ns.default_assignee_id;
+    }
+  } else {
+    // Terminal stage — no next assignee needed
+    scAssigneeGroup.style.display = 'none';
   }
 
   var noteLabel = document.getElementById('scNoteLabel');
@@ -2230,16 +2256,27 @@ function onBulkCbChange() {
   var checked = document.querySelectorAll('.bulk-ticket-cb:checked');
   var n = checked.length;
   var bar = document.getElementById('bulkTransitionBar');
+  var stickyBar = document.getElementById('stickyBulkBar');
   var selectAll = document.getElementById('selectAllCb');
+  var stickySelectAll = document.getElementById('stickySelectAllCb');
   var all = document.querySelectorAll('.bulk-ticket-cb');
   if (bar) {
     bar.style.display = n > 0 ? 'flex' : 'none';
     document.getElementById('bulkSelCount').textContent = n + ' selected';
     document.getElementById('bulkSelCountBtn').textContent = n;
   }
+  if (stickyBar) {
+    stickyBar.style.display = n > 0 ? 'flex' : 'none';
+    document.getElementById('stickyBulkCount').textContent = n + ' selected';
+    document.getElementById('stickyBulkCountBtn').textContent = n;
+  }
   if (selectAll && all.length > 0) {
     selectAll.indeterminate = n > 0 && n < all.length;
     selectAll.checked = n === all.length;
+  }
+  if (stickySelectAll && all.length > 0) {
+    stickySelectAll.indeterminate = n > 0 && n < all.length;
+    stickySelectAll.checked = n === all.length;
   }
   if (n > 20) {
     alert('Maximum 20 tickets per bulk transition. Please deselect some tickets.');
@@ -2255,23 +2292,94 @@ function openBulkTransitionModal() {
   var nextName = (window._bulkNextStageName || 'Next Stage');
   document.getElementById('bulkTransitionTitle').textContent =
     'Move ' + n + ' Ticket' + (n !== 1 ? 's' : '') + ' to ' + nextName;
+
+  // Get custom field defs for the active stage
+  var stageId = document.querySelector('input[name="current_stage_id"]') &&
+                document.querySelector('input[name="current_stage_id"]').value || '';
+  var cfDefs = (typeof STAGE_CF_DEFS !== 'undefined' && stageId) ? (STAGE_CF_DEFS[stageId] || []) : [];
+  var nonFormulaDefs = cfDefs.filter(function(f){ return f.field_type !== 'formula'; });
+
+  var INP = 'width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);font-family:inherit;outline:none;box-sizing:border-box';
+
   var body = document.getElementById('bulkTransitionBody');
   body.innerHTML = '';
+
+  // If there are custom fields, show a header note
+  if (nonFormulaDefs.length) {
+    var note = document.createElement('div');
+    note.style.cssText = 'font-size:12px;color:var(--text-faint);margin-bottom:12px;padding:8px 12px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:6px';
+    note.textContent = 'Fill in stage data for each ticket below before moving.';
+    body.appendChild(note);
+  }
+
   checked.forEach(function(cb) {
     var noteRequired = cb.dataset.noteRequired === 'true';
+    var hasFields = nonFormulaDefs.length > 0 || noteRequired;
     var section = document.createElement('div');
     section.style.cssText = 'border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:12px 14px;margin-bottom:10px';
-    section.innerHTML =
-      '<div style="font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:' + (noteRequired ? '10px' : '0') + '">' +
-        _besc(cb.dataset.title) +
-      '</div>' +
-      (noteRequired ?
-        '<div>' +
-          '<label style="display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Completion Notes *</label>' +
-          '<textarea name="completion_note_' + cb.value + '" rows="2" required placeholder="Required for this stage…"' +
-            ' style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);font-family:inherit;resize:vertical;min-height:52px;outline:none"></textarea>' +
-        '</div>' : '') +
-      '<input type="hidden" name="ticket_ids" value="' + cb.value + '">';
+
+    var titleDiv = document.createElement('div');
+    titleDiv.style.cssText = 'font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:' + (hasFields ? '10px' : '0');
+    titleDiv.textContent = cb.dataset.title;
+    section.appendChild(titleDiv);
+
+    // Completion note
+    if (noteRequired) {
+      var ng = document.createElement('div');
+      ng.style.marginBottom = '8px';
+      ng.innerHTML = '<label style="display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Completion Notes *</label>' +
+        '<textarea name="completion_note_' + cb.value + '" rows="2" required placeholder="Required for this stage…" style="' + INP + ';resize:vertical;min-height:52px"></textarea>';
+      section.appendChild(ng);
+    }
+
+    // Custom field inputs
+    nonFormulaDefs.forEach(function(f) {
+      var fg = document.createElement('div');
+      fg.style.marginBottom = '8px';
+      var lbl = document.createElement('label');
+      lbl.style.cssText = 'display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px';
+      lbl.innerHTML = _besc(f.label) + (f.required ? ' <span style="color:#f87171">*</span>' : '');
+      fg.appendChild(lbl);
+
+      var inp;
+      var fname = 'bulk_cf__' + f.id + '__' + cb.value;
+      if (f.field_type === 'dropdown') {
+        inp = document.createElement('select');
+        inp.style.cssText = INP;
+        var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
+        (f.options || []).forEach(function(o){ var op=document.createElement('option');op.value=o;op.textContent=o;inp.appendChild(op); });
+      } else if (f.field_type === 'ref_list') {
+        inp = document.createElement('select');
+        inp.style.cssText = INP;
+        var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
+        var rl = (typeof REF_LISTS !== 'undefined' ? REF_LISTS : []).find(function(l){ return l.id === f.ref_list_id; });
+        ((rl && rl.items) || []).forEach(function(o){ var op=document.createElement('option');op.value=o;op.textContent=o;inp.appendChild(op); });
+      } else if (f.field_type === 'yesno') {
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;gap:16px;margin-top:4px';
+        ['Yes','No'].forEach(function(v){
+          var rl=document.createElement('label');
+          rl.style.cssText='display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer';
+          var rb=document.createElement('input');rb.type='radio';rb.name=fname;rb.value=v;
+          if(f.required)rb.required=true;
+          rl.appendChild(rb);rl.appendChild(document.createTextNode(v));wrap.appendChild(rl);
+        });
+        fg.appendChild(wrap);
+        section.appendChild(fg);
+        return;
+      } else {
+        inp = document.createElement('input');
+        inp.type = f.field_type==='number' ? 'number' : f.field_type==='date' ? 'date' : 'text';
+        inp.style.cssText = INP;
+        inp.placeholder = f.label;
+      }
+      inp.name = fname;
+      if (f.required) inp.required = true;
+      fg.appendChild(inp);
+      section.appendChild(fg);
+    });
+
+    section.appendChild(Object.assign(document.createElement('input'), {type:'hidden', name:'ticket_ids', value:cb.value}));
     body.appendChild(section);
   });
   document.getElementById('bulkTransitionModal').style.display = 'flex';
