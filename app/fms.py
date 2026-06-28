@@ -934,6 +934,41 @@ def _fms_dashboard_inner(
                 else:
                     pct, tc = None, "gray"
                 sub_cols = _submodule_cols(db, t, active_stage.sub_module_tag)
+                # Aggregate custom field values from ALL stage history entries.
+                # Keys are UUID-based (per field def), so we also add label-keyed
+                # entries using the stage's field definitions — this allows cross-stage
+                # column display when two stages share the same label name.
+                # Build a label-keyed lookup of all custom field values across every
+                # stage this ticket has visited, using a direct DB query (avoids
+                # lazy-load uncertainty). Also index by UUID so reused-column refs work.
+                import json as _json
+                cf_all: dict = {}
+                all_hist = (
+                    db.query(FMSStageHistory)
+                    .filter(FMSStageHistory.ticket_id == t.id)
+                    .order_by(FMSStageHistory.entered_at)
+                    .all()
+                )
+                for sh in all_hist:
+                    if not sh.custom_fields_data_json:
+                        continue
+                    try:
+                        cf_data = _json.loads(sh.custom_fields_data_json)
+                    except Exception:
+                        continue
+                    cf_all.update(cf_data)  # UUID-keyed
+                    src_stage = next(
+                        (s for s in stage_table_stages if s.id == sh.stage_id), None
+                    )
+                    if src_stage and src_stage.custom_fields_json:
+                        try:
+                            for fdef in _json.loads(src_stage.custom_fields_json):
+                                fid = fdef.get("id", "")
+                                lbl = fdef.get("label", "")
+                                if fid and lbl and fid in cf_data:
+                                    cf_all[lbl] = cf_data[fid]  # label-keyed
+                        except Exception:
+                            pass
                 stage_tickets.append({
                     "ticket": t,
                     "tat_pct": pct,
@@ -941,6 +976,7 @@ def _fms_dashboard_inner(
                     "assignee_name": t.current_assignee.name if t.current_assignee else "—",
                     "sub": sub_cols,
                     "entered_at": h.entered_at if h else None,
+                    "cf_all": cf_all,
                 })
 
     # Next/prev stage maps (used by Mark Done and Move Backward modals)

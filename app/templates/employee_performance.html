@@ -402,7 +402,7 @@
       {% endfor %}
       <span style="color:var(--text-xfaint);margin:0 6px">→</span>
       <span style="color:var(--text-xfaint)">sum = </span><strong style="color:var(--text-primary)">{{ _sum_pts.v }}pts</strong>
-      <span style="color:var(--text-xfaint);margin:0 4px">÷ {{ _active_keys | length }} active KPIs =</span>
+      <span style="color:var(--text-xfaint);margin:0 4px">÷ {{ (_total_w * 100) | round | int }}% active weight =</span>
       <strong style="font-size:14px;color:{% if overall_score >= 80 %}#6ee7b7{% elif overall_score >= 60 %}#fbbf24{% else %}#f87171{% endif %}">{{ overall_score }}%</strong>
     </div>
   </div>

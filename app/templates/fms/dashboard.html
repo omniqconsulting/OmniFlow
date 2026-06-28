@@ -481,7 +481,11 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
                    style="cursor:pointer;width:15px;height:15px">
           </th>
           {% endif %}
-          <th>ID</th><th>Title</th><th>Assignee</th><th>Priority</th><th>TaT</th><th>Due</th>
+          <th>ID</th><th>Title</th><th>Assignee</th><th>Priority</th>
+          <th title="TaT % = time elapsed in this stage ÷ stage's target Turn-Around-Time × 100. Green &lt;50%, Amber &lt;90%, Red ≥90%.">
+            TaT % *
+          </th>
+          <th>Due</th>
           {# P7-04: dynamic sub-module columns #}
           {% if active_stage.sub_module_tag == 'PMS' %}
           <th>Target</th><th>Cumul. Qty</th><th>% Progress</th><th>Blockers</th><th>Last Entry</th>
@@ -570,19 +574,11 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         <td style="font-size:12px;color:{% if (sub.outstanding or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.outstanding|round(0)|int if sub.outstanding else 0 }}</td>
         <td style="font-size:11px;color:{% if sub.oldest_due and sub.oldest_due < now.date() %}#f87171{% else %}var(--text-faint){% endif %}">{{ sub.oldest_due.strftime('%d %b') if sub.oldest_due else '—' }}</td>
         {% endif %}
-        {# A4: custom stage column values — read from open history row #}
+        {# A4: custom stage column values — aggregated from all stage visits #}
         {% if stage_cf_defs %}
-        {% set open_h = row.entered_at and namespace(cf={}) %}
-        {% set _h = namespace(cf={}) %}
-        {% for h in t.stage_history %}
-          {% if h.stage_id == active_stage.id and h.exited_at is none and h.custom_fields_data_json %}
-            {% set _h_cf = h.custom_fields_data_json | from_json %}
-            {% if _h_cf %}{% set _h = namespace(cf=_h_cf) %}{% endif %}
-          {% endif %}
-        {% endfor %}
         {% for fdef in stage_cf_defs[:3] %}
         <td style="font-size:12px;color:var(--text-muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-          {{ _h.cf.get(fdef.id, _h.cf.get(fdef.label, '—')) }}
+          {{ row.cf_all.get(fdef.id, row.cf_all.get(fdef.label, '—')) }}
         </td>
         {% endfor %}
         {% if stage_cf_defs | length > 3 %}
@@ -1872,7 +1868,7 @@ function toggleForm(id){
 
 const NEXT_STAGE_MAP = {
   {% for sid, ns in next_stage_map.items() %}
-  "{{ sid }}": { id: "{{ ns.id }}", name: {{ ns.name | tojson }} }{% if not loop.last %},{% endif %}
+  "{{ sid }}": { id: "{{ ns.id }}", name: {{ ns.name | tojson }}, default_assignee_id: {{ (ns.default_assignee_id or '') | tojson }} }{% if not loop.last %},{% endif %}
   {% endfor %}
 };
 
@@ -1908,6 +1904,13 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
     opt.textContent = '(terminal — will complete ticket)';
     sel.appendChild(opt);
     if (submitBtn) submitBtn.textContent = '✓ Complete Ticket';
+  }
+
+  // Pre-select the next stage's default assignee if one is configured
+  var scAssigneeEl = document.getElementById('scAssignee');
+  scAssigneeEl.value = '';
+  if (ns && ns.default_assignee_id) {
+    scAssigneeEl.value = ns.default_assignee_id;
   }
 
   var noteLabel = document.getElementById('scNoteLabel');
