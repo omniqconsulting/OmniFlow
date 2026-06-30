@@ -97,6 +97,9 @@ def _nav_ctx(db: Session, user: User) -> dict:
         "has_ai":                has_feature(tenant, "ASK_AI",          db),
         "has_sales":             "SALES"     in modules and has_feature(tenant, "SALES_MODULE",     db),
         "has_inventory_module":  "INVENTORY" in modules and has_feature(tenant, "INVENTORY_MODULE",  db),
+        "has_sales_analytics":   has_feature(tenant, "SALES_ANALYTICS", db)
+                                  and has_feature(tenant, "SALES_MODULE", db)
+                                  and "SALES" in modules and user.role in ("ADMIN", "MANAGER"),
         "user_modules":          modules,
     }
 
