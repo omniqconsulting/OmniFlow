@@ -293,9 +293,10 @@ def _nav_ctx(db, user, tenant=None) -> dict:
             "has_fms":               has_feature(t, "FMS",             db) if t else False,
             "has_knowledge_repo":    has_feature(t, "KNOWLEDGE_REPO",  db) if t else False,
             "has_checklists":        True,
-            "has_sales":             "SALES"     in modules,
-            "has_inventory_module":  "INVENTORY" in modules,
+            "has_sales":             "SALES"     in modules and (has_feature(t, "SALES_MODULE",     db) if t else False),
+            "has_inventory_module":  "INVENTORY" in modules and (has_feature(t, "INVENTORY_MODULE",  db) if t else False),
             "has_sales_analytics":   (has_feature(t, "SALES_ANALYTICS", db) if t else False)
+                                      and (has_feature(t, "SALES_MODULE", db) if t else False)
                                       and "SALES" in modules and user.role in ("ADMIN", "MANAGER"),
             "user_modules":          modules,
         }

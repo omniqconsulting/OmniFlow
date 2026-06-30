@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from .database import get_db, new_id, Product, ProductSchemaField, UnitOfMeasure, User, ProductStock
-from .auth import get_current_user, require_admin, require_manager, has_module
+from .auth import get_current_user, require_admin, require_manager, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 
@@ -25,16 +25,10 @@ router = APIRouter()
 PAGE_SIZE = 30
 TIER_CHOICES = ("A", "B", "C", "D", "UNRANKED")
 
-
-def _require_sales(user: User = Depends(get_current_user)) -> User:
-    if not has_module(user, "SALES"):
-        raise HTTPException(status_code=403, detail="Sales module not enabled for this user")
-    return user
+_require_sales = require_module("SALES", "SALES_MODULE")
 
 
-def _require_sales_editor(user: User = Depends(get_current_user)) -> User:
-    if not has_module(user, "SALES"):
-        raise HTTPException(status_code=403, detail="Sales module not enabled for this user")
+def _require_sales_editor(user: User = Depends(_require_sales)) -> User:
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(status_code=403, detail="Manager or Admin only")
     return user

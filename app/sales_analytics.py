@@ -37,6 +37,8 @@ def _require_analytics(request: Request, user: User = Depends(get_current_user),
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(status_code=403, detail="Admin/Manager only")
     tenant = user.tenant
+    if not has_feature(tenant, "SALES_MODULE", db):
+        raise HTTPException(status_code=403, detail="Sales module not enabled for this tenant")
     if not has_feature(tenant, "SALES_ANALYTICS", db):
         raise HTTPException(status_code=403, detail="Sales Analytics not enabled for this tenant")
     return user

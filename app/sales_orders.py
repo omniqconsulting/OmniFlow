@@ -19,7 +19,7 @@ from .database import (
     InventoryPurchaseOrder, InventoryPOItem, SalesOrder, SalesOrderItem,
     PriceList, PriceListItem, CustomerPriceOverride,
 )
-from .auth import get_current_user, has_module
+from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 from .sales_inventory import reserve_stock_for_item, release_all_reservations, fulfill_reservation
@@ -27,11 +27,7 @@ from .constants import SALES_MARGIN_FLOOR_PCT
 
 router = APIRouter()
 
-
-def _require_sales(user: User = Depends(get_current_user)) -> User:
-    if not has_module(user, "SALES"):
-        raise HTTPException(status_code=403, detail="Sales module not enabled for this user")
-    return user
+_require_sales = require_module("SALES", "SALES_MODULE")
 
 
 def _ctx(db: Session, user: User, **extra) -> dict:

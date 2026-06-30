@@ -14,7 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .database import get_db, new_id, Customer, CRMCallLog, User, Tenant, SalesOrder, PriceList
-from .auth import get_current_user, has_module
+from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 
@@ -25,11 +25,7 @@ TIER_CHOICES = ("A", "B", "C", "UNRANKED")
 OUTCOME_CHOICES = ("CONNECTED", "NO_ANSWER", "CALLBACK", "ORDER_PLACED", "NOT_INTERESTED")
 _PHONE_RE = re.compile(r"^[0-9+\-() ]{7,20}$")
 
-
-def _require_sales(user: User = Depends(get_current_user)) -> User:
-    if not has_module(user, "SALES"):
-        raise HTTPException(status_code=403, detail="Sales module not enabled for this user")
-    return user
+_require_sales = require_module("SALES", "SALES_MODULE")
 
 
 def _ctx(db: Session, user: User, **extra) -> dict:

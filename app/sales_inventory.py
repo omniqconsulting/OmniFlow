@@ -18,22 +18,16 @@ from .database import (
     ProductStock, StockLedgerEntry, InventoryPurchaseOrder, InventoryPOItem,
     StockReservation,
 )
-from .auth import get_current_user, require_manager, has_module
+from .auth import get_current_user, require_manager, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 
 router = APIRouter()
 
-
-def _require_inventory(user: User = Depends(get_current_user)) -> User:
-    if not has_module(user, "INVENTORY"):
-        raise HTTPException(status_code=403, detail="Inventory module not enabled for this user")
-    return user
+_require_inventory = require_module("INVENTORY", "INVENTORY_MODULE")
 
 
-def _require_inventory_manager(user: User = Depends(get_current_user)) -> User:
-    if not has_module(user, "INVENTORY"):
-        raise HTTPException(status_code=403, detail="Inventory module not enabled for this user")
+def _require_inventory_manager(user: User = Depends(_require_inventory)) -> User:
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(status_code=403, detail="Manager or Admin only")
     return user
