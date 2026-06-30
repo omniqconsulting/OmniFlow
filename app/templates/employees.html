@@ -242,6 +242,29 @@
               <input name="address" value="{{ emp.address or '' }}" placeholder="optional">
             </div>
           </div>
+          <div class="form-section" style="margin-bottom:12px">
+            <label>Module Access</label>
+            <p class="help-text" style="font-size:11px;color:var(--text-faint);margin:2px 0 6px">
+              Admin and Manager roles automatically see all modules.
+              For Employee role, select which modules this user can access.
+            </p>
+            {% if emp.role == "EMPLOYEE" %}
+            <div class="checkbox-group" style="display:flex;gap:16px">
+              <label style="font-size:12px;display:flex;align-items:center;gap:5px">
+                <input type="checkbox" name="module_sales"
+                       {% if '"SALES"' in (emp.module_access_json or '') %}checked{% endif %}>
+                Sales (Contacts, Catalog, Orders, Pricing)
+              </label>
+              <label style="font-size:12px;display:flex;align-items:center;gap:5px">
+                <input type="checkbox" name="module_inventory"
+                       {% if '"INVENTORY"' in (emp.module_access_json or '') %}checked{% endif %}>
+                Inventory / Godown (Stock management, Purchase orders)
+              </label>
+            </div>
+            {% else %}
+            <p class="muted" style="font-size:12px;color:var(--text-faint)">All modules visible (Admin / Manager role).</p>
+            {% endif %}
+          </div>
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
             <button type="button" onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>

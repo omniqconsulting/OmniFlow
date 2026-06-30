@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Purchase Orders{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+  <div>
+    <h2 class="page-title">Purchase Orders</h2>
+    <div class="muted">{{ pos|length }} order{{ '' if pos|length == 1 else 's' }}</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/inventory-v2" class="btn btn-sm btn-gray">← Dashboard</a>
+    <a href="/inventory-v2/purchase-orders/new" class="btn btn-sm btn-primary">+ New PO</a>
+  </div>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+{% set status_colors = {'DRAFT':'#94a3b8','SUBMITTED':'#3b82f6','APPROVED':'#8b5cf6','PARTIALLY_RECEIVED':'#f59e0b','RECEIVED':'#22c55e','CANCELLED':'#ef4444'} %}
+
+{% if pos %}
+<div class="card" style="padding:0;overflow:hidden">
+<table style="width:100%;font-size:13px;border-collapse:collapse">
+  <thead>
+    <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+      <th style="padding:8px 12px">PO ID</th><th style="padding:8px 12px">Vendor</th>
+      <th style="padding:8px 12px">Expected Arrival</th><th style="padding:8px 12px">Items</th>
+      <th style="padding:8px 12px">Status</th><th style="padding:8px 12px"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for po in pos %}
+    <tr style="border-bottom:1px solid var(--border-subtle)">
+      <td style="padding:8px 12px">{{ po.display_id }}</td>
+      <td style="padding:8px 12px">{{ po.vendor_name_snapshot or '—' }}</td>
+      <td style="padding:8px 12px">{{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</td>
+      <td style="padding:8px 12px">{{ po.items|length }}</td>
+      <td style="padding:8px 12px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(po.status,'#94a3b8') }}">{{ po.status }}</span></td>
+      <td style="padding:8px 12px"><a href="/inventory-v2/purchase-orders/{{ po.id }}" class="btn btn-xs btn-outline">View</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
+  <div style="font-size:40px;margin-bottom:12px">📋</div>
+  <div style="font-size:15px;font-weight:500;margin-bottom:8px">No purchase orders yet</div>
+  <a href="/inventory-v2/purchase-orders/new" class="btn btn-primary" style="margin-top:8px;display:inline-block">+ Create your first PO</a>
+</div>
+{% endif %}
+{% endblock %}

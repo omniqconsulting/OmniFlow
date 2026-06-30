@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Customer Price Overrides{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Customer Price Overrides</h2>
+    <div class="muted">{{ overrides|length }} active override{{ '' if overrides|length == 1 else 's' }}</div>
+  </div>
+  <a href="/sales/pricing" class="btn btn-sm btn-outline">← Pricing Overview</a>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+{% if is_admin %}
+<div class="card" style="padding:16px;margin-bottom:18px">
+  <h3 style="margin-top:0">New Override</h3>
+  <form method="post" action="/sales/pricing/overrides/create" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Customer *</label><br>
+      <select name="customer_id" required style="min-width:160px">
+        {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Product *</label><br>
+      <select name="product_id" required style="min-width:160px">
+        {% for p in products %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Price *</label><br>
+      <input name="unit_price" type="number" step="0.01" required style="width:110px">
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Valid From</label><br>
+      <input name="valid_from" type="date">
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Valid To</label><br>
+      <input name="valid_to" type="date">
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Reason</label><br>
+      <input name="reason" style="min-width:160px">
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">Create</button>
+  </form>
+</div>
+{% endif %}
+
+{% if overrides %}
+<table style="width:100%;font-size:13px;border-collapse:collapse">
+  <thead>
+    <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+      <th style="padding:6px 8px">Customer</th><th style="padding:6px 8px">Product</th>
+      <th style="padding:6px 8px">Price</th><th style="padding:6px 8px">Valid From</th>
+      <th style="padding:6px 8px">Valid To</th><th style="padding:6px 8px">Reason</th>
+      {% if is_admin %}<th style="padding:6px 8px"></th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for o in overrides %}
+    <tr style="border-bottom:1px solid var(--border-subtle)">
+      <td style="padding:6px 8px">{{ o.customer.name if o.customer else '—' }}</td>
+      <td style="padding:6px 8px">{{ o.product.name if o.product else '—' }}</td>
+      <td style="padding:6px 8px">₹{{ '%.2f'|format(o.unit_price) }}</td>
+      <td style="padding:6px 8px">{{ o.valid_from.strftime('%d %b %Y') if o.valid_from else '—' }}</td>
+      <td style="padding:6px 8px">{{ o.valid_to.strftime('%d %b %Y') if o.valid_to else '—' }}</td>
+      <td style="padding:6px 8px">{{ o.reason or '—' }}</td>
+      {% if is_admin %}
+      <td style="padding:6px 8px">
+        <form method="post" action="/sales/pricing/overrides/{{ o.id }}/revoke" style="display:inline" onsubmit="return confirm('Revoke this override?')">
+          <button type="submit" class="btn btn-sm btn-outline" style="color:#ef4444">Revoke</button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="muted">No active overrides.</div>
+{% endif %}
+
+{% endblock %}

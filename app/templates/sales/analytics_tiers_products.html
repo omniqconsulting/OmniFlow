@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Product Tiers{% endblock %}
+{% block content %}
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Product Tiers</h2>
+    <div class="muted">Pareto-based tiering by 90-day revenue contribution</div>
+  </div>
+  <a href="/sales/analytics" class="btn btn-sm btn-outline">← Insights</a>
+</div>
+
+<form method="get" action="/sales/analytics/tiers/products" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">
+  <select name="tier">
+    <option value="">All Tiers</option>
+    {% for t in tier_choices %}
+    <option value="{{ t }}" {{ 'selected' if filter_tier == t else '' }}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn btn-sm btn-outline">Apply</button>
+</form>
+
+{% if rows %}
+<table class="table" style="width:100%">
+  <thead><tr>
+    <th>Product</th><th>SKU</th><th>Category</th><th>Tier</th><th>Revenue (90d)</th><th>Volume (90d)</th><th>Avg Margin %</th>
+  </tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td><a href="/sales/catalog/{{ r.product.id }}">{{ r.product.name }}</a></td>
+      <td style="font-size:12px;color:var(--text-faint)">{{ r.product.sku_code }}</td>
+      <td>{{ r.product.category or '—' }}</td>
+      <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(r.product.product_tier, '#94a3b8') }}">{{ r.product.product_tier }}</span></td>
+      <td>{{ '₹%.0f'|format(r.basis.revenue_90d) if r.basis else '—' }}</td>
+      <td>{{ '%.1f'|format(r.basis.volume_90d) if r.basis else '—' }}</td>
+      <td>{{ '%.1f'|format(r.basis.avg_margin_pct) ~ '%' if r.basis and r.basis.avg_margin_pct is not none else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
+  <div style="font-size:40px;margin-bottom:12px">📦</div>
+  <div style="font-size:15px;font-weight:500">No products found</div>
+</div>
+{% endif %}
+{% endblock %}

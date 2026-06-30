@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Godown Dashboard{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Godown Dashboard</h2>
+    <div class="muted">Stock planning overview</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/inventory-v2/stock" class="btn btn-sm btn-outline">📦 Full Stock List</a>
+    <a href="/inventory-v2/purchase-orders" class="btn btn-sm btn-outline">📋 Purchase Orders</a>
+    <a href="/inventory-v2/stock-in/new" class="btn btn-sm btn-primary">+ Stock In</a>
+  </div>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+{% set badge_colors = {'red': '#ef4444', 'amber': '#f59e0b', 'green': '#22c55e'} %}
+
+<div class="card" style="padding:18px;margin-bottom:18px">
+  <h3 style="margin-top:0">Stock Status</h3>
+  {% if stock_rows %}
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
+        <th style="padding:6px 8px">Available</th><th style="padding:6px 8px">Reserved</th>
+        <th style="padding:6px 8px">In-Transit</th><th style="padding:6px 8px">Status</th>
+        <th style="padding:6px 8px">Last Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p, s, label, color in stock_rows %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 8px"><a href="/sales/catalog/{{ p.id }}">{{ p.name }}</a></td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ p.sku_code }}</td>
+        <td style="padding:6px 8px">{{ s.qty_available }}</td>
+        <td style="padding:6px 8px">{{ s.qty_reserved }}</td>
+        <td style="padding:6px 8px">{{ s.qty_in_transit }}</td>
+        <td style="padding:6px 8px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ badge_colors.get(color,'#94a3b8') }}">{{ label }}</span></td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ s.last_updated_at.strftime('%d %b %Y') if s.last_updated_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color:var(--text-faint);font-size:13px">No products in catalog yet.</div>
+  {% endif %}
+</div>
+
+<div class="card" style="padding:18px;margin-bottom:18px">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <h3 style="margin-top:0">Upcoming Dispatches</h3>
+    <a href="/inventory-v2/dispatch-queue" class="btn btn-xs btn-outline">Dispatch Queue</a>
+  </div>
+  {% if upcoming_dispatches %}
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">Order</th><th style="padding:6px 8px">Customer</th>
+        <th style="padding:6px 8px">Items</th><th style="padding:6px 8px">Expected Delivery</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in upcoming_dispatches %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 8px"><a href="/sales/orders/{{ o.id }}">{{ o.display_id or o.id[:8] }}</a></td>
+        <td style="padding:6px 8px">{{ o.customer.name if o.customer else '—' }}</td>
+        <td style="padding:6px 8px">{{ o.items|length }}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ o.expected_delivery_date.strftime('%d %b %Y') if o.expected_delivery_date else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color:var(--text-faint);font-size:13px">No confirmed orders awaiting dispatch.</div>
+  {% endif %}
+</div>
+
+<div class="card" style="padding:18px;margin-bottom:18px">
+  <h3 style="margin-top:0">7-Day Demand Projection</h3>
+  {% if demand_projection %}
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Needed</th>
+        <th style="padding:6px 8px">Available</th><th style="padding:6px 8px">In-Transit</th>
+        <th style="padding:6px 8px">Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in demand_projection %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 8px">{{ row.product.name }}</td>
+        <td style="padding:6px 8px">{{ row.qty_needed }}</td>
+        <td style="padding:6px 8px">{{ row.qty_available }}</td>
+        <td style="padding:6px 8px">{{ row.qty_in_transit }}</td>
+        <td style="padding:6px 8px;font-weight:700;color:{{ '#ef4444' if row.shortfall else '#22c55e' }}">{{ row.gap }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color:var(--text-faint);font-size:13px">No confirmed orders due in the next 7 days.</div>
+  {% endif %}
+</div>
+
+<div class="card" style="padding:18px">
+  <h3 style="margin-top:0">Open Purchase Orders</h3>
+  {% if open_pos %}
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">PO ID</th><th style="padding:6px 8px">Vendor</th>
+        <th style="padding:6px 8px">Expected Arrival</th><th style="padding:6px 8px">Items</th>
+        <th style="padding:6px 8px">Status</th><th style="padding:6px 8px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for po in open_pos %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 8px">{{ po.display_id }}</td>
+        <td style="padding:6px 8px">{{ po.vendor_name_snapshot or '—' }}</td>
+        <td style="padding:6px 8px">{{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</td>
+        <td style="padding:6px 8px">{{ po.items|length }}</td>
+        <td style="padding:6px 8px">{{ po.status }}</td>
+        <td style="padding:6px 8px"><a href="/inventory-v2/purchase-orders/{{ po.id }}" class="btn btn-xs btn-outline">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color:var(--text-faint);font-size:13px">No open purchase orders.</div>
+  {% endif %}
+</div>
+{% endblock %}

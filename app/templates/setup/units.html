@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Setup</h2>
+</div>
+
+<div class="setup-layout">
+  {% set active_section = 'units' %}
+  {% include "setup/nav.html" %}
+
+  <div class="setup-content">
+    {% if msg %}<div class="alert alert-green" style="margin-bottom:12px">{{ msg }}</div>{% endif %}
+    {% if err %}<div class="alert alert-red" style="margin-bottom:12px">{{ err }}</div>{% endif %}
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">Units of Measure</h2>
+      <button onclick="document.getElementById('add-uom-form').style.display='block'" class="btn btn-sm btn-primary">+ Add UOM</button>
+    </div>
+
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">
+      Define the units used across your catalog and inventory (e.g. kg, pcs, L). These appear as options when adding products.
+    </p>
+
+    <!-- Add UOM inline form -->
+    <div id="add-uom-form" style="display:none;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:8px;padding:14px 16px;margin-bottom:16px">
+      <form method="post" action="/setup/units/create" style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <div class="form-group" style="margin:0;flex:1;min-width:160px">
+          <label>Name</label>
+          <input name="name" placeholder="e.g. Kilogram" required>
+        </div>
+        <div class="form-group" style="margin:0;width:120px">
+          <label>Abbreviation</label>
+          <input name="abbreviation" placeholder="e.g. kg" required>
+        </div>
+        <div style="display:flex;gap:6px;padding-bottom:2px">
+          <button type="submit" class="btn btn-sm btn-primary">Add</button>
+          <button type="button" onclick="document.getElementById('add-uom-form').style.display='none'" class="btn btn-sm btn-gray">Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- UOM table -->
+    {% if uoms %}
+    <div class="card" style="padding:0;overflow:hidden">
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border-subtle)">
+            <th style="padding:10px 16px;text-align:left;font-size:12px;color:var(--text-muted)">Name</th>
+            <th style="padding:10px 16px;text-align:left;font-size:12px;color:var(--text-muted)">Abbreviation</th>
+            <th style="padding:10px 16px;text-align:left;font-size:12px;color:var(--text-muted)">Status</th>
+            <th style="padding:10px 16px;text-align:right;font-size:12px;color:var(--text-muted)">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for uom in uoms %}
+          <tr style="border-bottom:1px solid var(--border-subtle)" id="row-{{ uom.id }}">
+            <td style="padding:10px 16px;font-size:13px">
+              <span id="name-{{ uom.id }}">{{ uom.name }}</span>
+              <form id="edit-form-{{ uom.id }}" method="post" action="/setup/units/{{ uom.id }}/edit"
+                    style="display:none;margin-top:6px">
+                <div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap">
+                  <input name="name" value="{{ uom.name }}" required style="width:150px">
+                  <input name="abbreviation" value="{{ uom.abbreviation }}" required style="width:80px">
+                  <button type="submit" class="btn btn-xs btn-primary">Save</button>
+                  <button type="button" onclick="cancelEdit('{{ uom.id }}')" class="btn btn-xs btn-gray">Cancel</button>
+                </div>
+              </form>
+            </td>
+            <td style="padding:10px 16px;font-size:13px;color:var(--text-muted)" id="abbr-{{ uom.id }}">{{ uom.abbreviation }}</td>
+            <td style="padding:10px 16px">
+              {% if uom.is_active %}
+              <span style="font-size:11px;background:rgba(34,197,94,0.15);color:#4ade80;padding:2px 8px;border-radius:99px;font-weight:600">Active</span>
+              {% else %}
+              <span style="font-size:11px;background:rgba(148,163,184,0.15);color:var(--text-muted);padding:2px 8px;border-radius:99px;font-weight:600">Inactive</span>
+              {% endif %}
+            </td>
+            <td style="padding:10px 16px;text-align:right">
+              <div style="display:flex;gap:6px;justify-content:flex-end">
+                <button onclick="startEdit('{{ uom.id }}')" class="btn btn-xs btn-outline" id="edit-btn-{{ uom.id }}">Edit</button>
+                <form method="post" action="/setup/units/{{ uom.id }}/toggle" style="display:inline">
+                  <button type="submit" class="btn btn-xs {{ 'btn-gray' if uom.is_active else 'btn-outline' }}">
+                    {{ 'Deactivate' if uom.is_active else 'Activate' }}
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card" style="padding:32px;text-align:center;color:var(--text-muted)">
+      <div style="font-size:32px;margin-bottom:8px">📏</div>
+      <p style="margin:0">No units of measure defined yet. Add your first unit above.</p>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<script>
+function startEdit(id) {
+  document.getElementById('edit-form-' + id).style.display = 'block';
+  document.getElementById('edit-btn-' + id).style.display = 'none';
+  document.getElementById('name-' + id).style.display = 'none';
+  document.getElementById('abbr-' + id).style.display = 'none';
+}
+function cancelEdit(id) {
+  document.getElementById('edit-form-' + id).style.display = 'none';
+  document.getElementById('edit-btn-' + id).style.display = '';
+  document.getElementById('name-' + id).style.display = '';
+  document.getElementById('abbr-' + id).style.display = '';
+}
+</script>
+{% endblock %}

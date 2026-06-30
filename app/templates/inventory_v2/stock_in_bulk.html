@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Bulk Stock In{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+  <div>
+    <h2 class="page-title">Bulk Stock In</h2>
+    <div class="muted">Upload a CSV to record multiple stock-in entries</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/inventory-v2/stock-in/new" class="btn btn-sm btn-gray">← Single Entry</a>
+    <a href="/inventory-v2/stock-in/bulk-template" class="btn btn-sm btn-outline">📄 Download Template</a>
+  </div>
+</div>
+
+<div class="card" style="padding:20px;max-width:600px;margin-bottom:18px">
+  <input type="file" id="csv-file" accept=".csv" style="margin-bottom:12px">
+  <button type="button" class="btn btn-primary" onclick="validateFile()">Validate</button>
+  <div id="validate-result" style="margin-top:16px;font-size:13px"></div>
+  <button type="button" id="confirm-btn" class="btn btn-primary" style="display:none;margin-top:12px" onclick="confirmUpload()">Confirm &amp; Import</button>
+</div>
+
+<script>
+let parsedRows = [];
+
+async function validateFile() {
+  const fileInput = document.getElementById('csv-file');
+  if (!fileInput.files.length) { alert('Choose a CSV file first'); return; }
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  const res = await fetch('/inventory-v2/stock-in/bulk-upload', { method: 'POST', body: formData });
+  const data = await res.json();
+  parsedRows = data.rows;
+  let html = `<div>Total: ${data.total} | Valid: ${data.valid} | Errors: ${data.errors.length}</div>`;
+  if (data.errors.length) {
+    html += '<table style="width:100%;margin-top:8px;font-size:12px"><tr><th>Row</th><th>SKU</th><th>Errors</th></tr>';
+    data.errors.forEach(e => {
+      html += `<tr><td>${e.row}</td><td>${e.sku}</td><td style="color:#ef4444">${e.errors.join(', ')}</td></tr>`;
+    });
+    html += '</table>';
+  }
+  document.getElementById('validate-result').innerHTML = html;
+  document.getElementById('confirm-btn').style.display = data.valid > 0 ? 'inline-block' : 'none';
+}
+
+async function confirmUpload() {
+  const res = await fetch('/inventory-v2/stock-in/bulk-upload/confirm', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows: parsedRows }),
+  });
+  const data = await res.json();
+  alert(`Created: ${data.created}, Skipped: ${data.skipped}`);
+  window.location = '/inventory-v2/stock';
+}
+</script>
+{% endblock %}

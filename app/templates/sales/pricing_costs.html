@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Cost Entries{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Cost Entry Log</h2>
+    <div class="muted">Immutable buy-price & cost ledger</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% if is_admin %}
+    <a href="/sales/pricing/costs/bulk-template" class="btn btn-sm btn-outline">📄 Template</a>
+    <a href="/sales/pricing/costs/export" class="btn btn-sm btn-outline">⬇ Export</a>
+    {% endif %}
+    <a href="/sales/pricing" class="btn btn-sm btn-outline">← Pricing Overview</a>
+  </div>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+{% if is_admin %}
+<div class="card" style="padding:16px;margin-bottom:18px">
+  <h3 style="margin-top:0">Add Cost Entry</h3>
+  <form method="post" action="/sales/pricing/costs/add" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Product *</label><br>
+      <select name="product_id" required style="min-width:160px">
+        {% for p in products %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Cost Type *</label><br>
+      <select name="cost_type" required>
+        {% for c in cost_types %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Amount *</label><br>
+      <input name="amount" type="number" step="0.01" required style="width:110px">
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Effective Date *</label><br>
+      <input name="effective_date" type="date" required>
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Notes</label><br>
+      <input name="notes" style="min-width:160px">
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">Add</button>
+  </form>
+
+  <div style="margin-top:14px">
+    <a href="javascript:void(0)" onclick="document.getElementById('bulk-section').style.display='block'" class="muted" style="font-size:12px">Or bulk upload cost entries via CSV →</a>
+    <div id="bulk-section" style="display:none;margin-top:10px">
+      <input type="file" id="bulk-file" accept=".csv">
+      <button type="button" id="bulk-upload-btn" class="btn btn-sm btn-outline">Upload</button>
+      <div id="bulk-result" style="margin-top:10px"></div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if entries %}
+<table style="width:100%;font-size:13px;border-collapse:collapse">
+  <thead>
+    <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+      <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Type</th>
+      <th style="padding:6px 8px">Amount</th><th style="padding:6px 8px">Effective Date</th>
+      <th style="padding:6px 8px">Notes</th><th style="padding:6px 8px">Added By</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    <tr style="border-bottom:1px solid var(--border-subtle)">
+      <td style="padding:6px 8px">{{ e.product.name if e.product else '—' }}</td>
+      <td style="padding:6px 8px">{{ e.cost_type }}</td>
+      <td style="padding:6px 8px">₹{{ '%.2f'|format(e.amount) }}</td>
+      <td style="padding:6px 8px">{{ e.effective_date.strftime('%d %b %Y') }}</td>
+      <td style="padding:6px 8px">{{ e.notes or '—' }}</td>
+      <td style="padding:6px 8px">{{ e.actor.name if e.actor else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="muted">No cost entries yet.</div>
+{% endif %}
+
+<script>
+const btn = document.getElementById('bulk-upload-btn');
+if (btn) {
+  btn.addEventListener('click', async () => {
+    const fileInput = document.getElementById('bulk-file');
+    if (!fileInput.files.length) { alert('Choose a CSV file first'); return; }
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    const res = await fetch('/sales/pricing/costs/bulk-upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    const result = document.getElementById('bulk-result');
+    let html = `<div class="alert alert-green">Applied ${data.applied} entr${data.applied === 1 ? 'y' : 'ies'}.</div>`;
+    if (data.errors && data.errors.length) {
+      html += '<div class="alert alert-red"><strong>Errors:</strong><ul>';
+      data.errors.forEach(e => { html += `<li>Row ${e.row}: ${e.error}</li>`; });
+      html += '</ul></div>';
+    }
+    result.innerHTML = html;
+  });
+}
+</script>
+
+{% endblock %}

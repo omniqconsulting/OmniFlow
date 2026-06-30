@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Pricing & Margin{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:18px">
+  <h2 class="page-title">Pricing & Margin</h2>
+  <div class="muted">Price lists, customer overrides, cost tracking and margin reporting</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:18px">
+  <div class="card" style="padding:16px">
+    <div class="muted" style="font-size:12px">Price Lists</div>
+    <div style="font-size:24px;font-weight:700">{{ list_count }}</div>
+  </div>
+  <div class="card" style="padding:16px">
+    <div class="muted" style="font-size:12px">Products with No Price</div>
+    <div style="font-size:24px;font-weight:700;color:{{ '#ef4444' if no_price_count else 'inherit' }}">{{ no_price_count }}</div>
+  </div>
+  <div class="card" style="padding:16px">
+    <div class="muted" style="font-size:12px">Active Customer Overrides</div>
+    <div style="font-size:24px;font-weight:700">{{ override_count }}</div>
+  </div>
+</div>
+
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+  <a href="/sales/pricing/lists" class="btn btn-sm btn-outline">Manage Price Lists</a>
+  <a href="/sales/pricing/overrides" class="btn btn-sm btn-outline">Manage Overrides</a>
+  <a href="/sales/pricing/costs" class="btn btn-sm btn-outline">Cost Log</a>
+  <a href="/sales/pricing/margin-report" class="btn btn-sm btn-outline">Margin Report</a>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">
+  <div class="card" style="padding:16px">
+    <h3 style="margin-top:0">Top 5 Highest-Margin Products <span class="muted" style="font-size:11px;font-weight:400">(last 30 days)</span></h3>
+    {% if top_margin %}
+    <table style="width:100%;font-size:13px;border-collapse:collapse">
+      {% for m in top_margin %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 4px">{{ m.product.name if m.product else '—' }}</td>
+        <td style="padding:6px 4px;text-align:right;color:#22c55e;font-weight:600">{{ '%.1f'|format(m.margin) }}%</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<div class="muted">No data yet</div>{% endif %}
+  </div>
+  <div class="card" style="padding:16px">
+    <h3 style="margin-top:0">Top 5 Lowest-Margin Products <span class="muted" style="font-size:11px;font-weight:400">(watch these)</span></h3>
+    {% if bottom_margin %}
+    <table style="width:100%;font-size:13px;border-collapse:collapse">
+      {% for m in bottom_margin %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 4px">{{ m.product.name if m.product else '—' }}</td>
+        <td style="padding:6px 4px;text-align:right;color:#ef4444;font-weight:600">{{ '%.1f'|format(m.margin) }}%</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<div class="muted">No data yet</div>{% endif %}
+  </div>
+</div>
+
+{% endblock %}

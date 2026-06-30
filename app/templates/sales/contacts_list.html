@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Customers{% endblock %}
+{% block content %}
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">All Customers</h2>
+    <div class="muted">{{ total }} customer{{ '' if total == 1 else 's' }}</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/sales/contacts" class="btn btn-sm btn-outline">Queue</a>
+    <a href="/sales/contacts/export?agent_id={{ agent_id }}" class="btn btn-sm btn-outline">⬇ Export</a>
+    <a href="/sales/contacts/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
+    <a href="/sales/contacts/new" class="btn btn-sm btn-primary">+ New Customer</a>
+  </div>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+<form method="get" action="/sales/contacts/all" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">
+  <input name="search" value="{{ search }}" placeholder="Search name or phone…" style="flex:1;min-width:200px">
+  <select name="tier" style="min-width:130px">
+    <option value="">All tiers</option>
+    {% for t in tier_choices %}
+    <option value="{{ t }}" {{ 'selected' if t == tier else '' }}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  {% if user.role in ('ADMIN','MANAGER') and agents %}
+  <select name="agent_id" style="min-width:180px">
+    <option value="">All agents</option>
+    {% for a in agents %}
+    <option value="{{ a.id }}" {{ 'selected' if a.id == agent_id else '' }}>{{ a.name }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+  <select name="status" style="min-width:120px">
+    <option value="active" {{ 'selected' if status == 'active' else '' }}>Active</option>
+    <option value="inactive" {{ 'selected' if status == 'inactive' else '' }}>Inactive</option>
+    <option value="" {{ 'selected' if status == '' else '' }}>Any</option>
+  </select>
+  <button type="submit" class="btn btn-sm btn-outline">Filter</button>
+</form>
+
+{% if rows %}
+<table class="table" style="width:100%">
+  <thead><tr>
+    <th>Name</th><th>Phone</th><th>Tier</th><th>Assigned Agent</th>
+    <th>Last Contacted</th><th>Days Since</th><th>Total Orders</th><th>Actions</th>
+  </tr></thead>
+  <tbody>
+    {% for row in rows %}
+    {% set c = row.customer %}
+    <tr>
+      <td><a href="/sales/contacts/{{ c.id }}">{{ c.name }}</a></td>
+      <td>{{ c.phone or '—' }}</td>
+      <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(c.customer_tier, '#94a3b8') }}">{{ c.customer_tier }}</span></td>
+      <td>{{ c.assigned_agent.name if c.assigned_agent else '—' }}</td>
+      <td>{{ c.last_contacted_at.strftime('%d %b %Y') if c.last_contacted_at else 'Never' }}</td>
+      <td>{{ row.days_since_contact if row.days_since_contact is not none else '—' }}</td>
+      <td>0</td>
+      <td><a href="/sales/contacts/{{ c.id }}" class="btn btn-xs btn-outline">View</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total > page_size %}
+<div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:24px;font-size:12px;color:var(--text-muted)">
+  {% if page > 1 %}<a href="?page={{ page-1 }}&search={{ search }}&tier={{ tier }}&agent_id={{ agent_id }}&status={{ status }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
+  <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+  {% if page * page_size < total %}<a href="?page={{ page+1 }}&search={{ search }}&tier={{ tier }}&agent_id={{ agent_id }}&status={{ status }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
+  <div style="font-size:40px;margin-bottom:12px">👥</div>
+  <div style="font-size:15px;font-weight:500">No customers found</div>
+</div>
+{% endif %}
+{% endblock %}

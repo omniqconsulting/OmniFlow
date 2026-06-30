@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Attribute Schema{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+  <div>
+    <h2 class="page-title">Product Attribute Schema</h2>
+    <div class="muted">Define the custom attributes shown on every product form.</div>
+  </div>
+  <a href="/sales/catalog" class="btn btn-sm btn-gray">← Back to Catalog</a>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+<!-- Add field form -->
+<div class="card" style="padding:16px;margin-bottom:18px">
+  <h3 style="margin-top:0">Add Field</h3>
+  <form method="post" action="/sales/catalog/schema/add-field" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div class="form-group" style="margin:0;flex:1;min-width:160px">
+      <label>Label</label>
+      <input name="label" required>
+    </div>
+    <div class="form-group" style="margin:0;width:140px">
+      <label>Type</label>
+      <select name="field_type" onchange="toggleOptions(this, 'new-options')">
+        <option value="text">Text</option>
+        <option value="number">Number</option>
+        <option value="dropdown">Dropdown</option>
+        <option value="boolean">Boolean</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin:0;flex:1;min-width:200px" id="new-options" hidden>
+      <label>Options (comma-separated)</label>
+      <input name="options" placeholder="Option A, Option B">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" name="is_required" style="width:auto">Required</label>
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">Add Field</button>
+  </form>
+</div>
+
+<!-- Field list -->
+<div class="card" style="padding:0;overflow:hidden">
+  <table style="width:100%;border-collapse:collapse">
+    <thead>
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:10px 16px;text-align:left;font-size:12px;color:var(--text-muted)">Label</th>
+        <th style="padding:10px 16px;text-align:left;font-size:12px;color:var(--text-muted)">Type</th>
+        <th style="padding:10px 16px;text-align:left;font-size:12px;color:var(--text-muted)">Required</th>
+        <th style="padding:10px 16px;text-align:left;font-size:12px;color:var(--text-muted)">Status</th>
+        <th style="padding:10px 16px;text-align:right;font-size:12px;color:var(--text-muted)">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="field-rows">
+      {% for f in fields %}
+      <tr style="border-bottom:1px solid var(--border-subtle)" data-field-id="{{ f.id }}" id="row-{{ f.id }}">
+        <td style="padding:10px 16px;font-size:13px">
+          <span id="label-{{ f.id }}">{{ f.label }}</span>
+          <form id="edit-form-{{ f.id }}" method="post" action="/sales/catalog/schema/field/{{ f.id }}/edit" style="display:none;margin-top:8px">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">
+              <input name="label" value="{{ f.label }}" required style="width:140px">
+              <select name="field_type" onchange="toggleOptions(this, 'edit-options-{{ f.id }}')">
+                <option value="text" {{ 'selected' if f.field_type=='text' else '' }}>Text</option>
+                <option value="number" {{ 'selected' if f.field_type=='number' else '' }}>Number</option>
+                <option value="dropdown" {{ 'selected' if f.field_type=='dropdown' else '' }}>Dropdown</option>
+                <option value="boolean" {{ 'selected' if f.field_type=='boolean' else '' }}>Boolean</option>
+              </select>
+              <input id="edit-options-{{ f.id }}" name="options" value="{{ (f.options_json | from_json) | join(', ') }}" placeholder="Options" {{ '' if f.field_type=='dropdown' else 'hidden' }} style="width:160px">
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px"><input type="checkbox" name="is_required" {{ 'checked' if f.is_required else '' }} style="width:auto">Required</label>
+              <button type="submit" class="btn btn-xs btn-primary">Save</button>
+              <button type="button" onclick="cancelEdit('{{ f.id }}')" class="btn btn-xs btn-gray">Cancel</button>
+            </div>
+          </form>
+        </td>
+        <td style="padding:10px 16px;font-size:13px;color:var(--text-muted)" id="type-{{ f.id }}">{{ f.field_type }}</td>
+        <td style="padding:10px 16px;font-size:13px">{{ 'Yes' if f.is_required else 'No' }}</td>
+        <td style="padding:10px 16px">
+          {% if f.is_active %}
+          <span style="font-size:11px;background:rgba(34,197,94,0.15);color:#4ade80;padding:2px 8px;border-radius:99px;font-weight:600">Active</span>
+          {% else %}
+          <span style="font-size:11px;background:rgba(148,163,184,0.15);color:var(--text-muted);padding:2px 8px;border-radius:99px;font-weight:600">Inactive</span>
+          {% endif %}
+        </td>
+        <td style="padding:10px 16px;text-align:right">
+          <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button onclick="startEdit('{{ f.id }}')" class="btn btn-xs btn-outline" id="edit-btn-{{ f.id }}">Edit</button>
+            {% if f.is_active %}
+            <form method="post" action="/sales/catalog/schema/field/{{ f.id }}/delete" style="display:inline" onsubmit="return confirm('Deactivate this field? Existing products keep their values.')">
+              <button type="submit" class="btn btn-xs btn-gray">Deactivate</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p style="font-size:12px;color:var(--text-faint);margin-top:10px">Drag rows by their label to reorder — sort order is saved automatically.</p>
+
+<script>
+function toggleOptions(sel, targetId) {
+  document.getElementById(targetId).hidden = sel.value !== 'dropdown';
+}
+function startEdit(id) {
+  document.getElementById('edit-form-' + id).style.display = 'block';
+  document.getElementById('edit-btn-' + id).style.display = 'none';
+  document.getElementById('label-' + id).style.display = 'none';
+}
+function cancelEdit(id) {
+  document.getElementById('edit-form-' + id).style.display = 'none';
+  document.getElementById('edit-btn-' + id).style.display = '';
+  document.getElementById('label-' + id).style.display = '';
+}
+
+// Simple drag-to-reorder
+const tbody = document.getElementById('field-rows');
+let dragRow = null;
+tbody.querySelectorAll('tr').forEach(row => {
+  row.draggable = true;
+  row.addEventListener('dragstart', () => { dragRow = row; });
+  row.addEventListener('dragover', e => e.preventDefault());
+  row.addEventListener('drop', e => {
+    e.preventDefault();
+    if (dragRow && dragRow !== row) {
+      row.parentNode.insertBefore(dragRow, row.nextSibling);
+      saveOrder();
+    }
+  });
+});
+function saveOrder() {
+  const order = {};
+  Array.from(tbody.querySelectorAll('tr')).forEach((row, i) => { order[row.dataset.fieldId] = i; });
+  fetch('/sales/catalog/schema/reorder', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(order),
+  });
+}
+</script>
+{% endblock %}

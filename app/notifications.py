@@ -538,3 +538,117 @@ def notify_store_alert(tenant_id: str, alert_type: str, message: str,
         "alert_type": alert_type,
         "message":    message,
     })
+
+
+# ── Brief 5: Sales Orders ─────────────────────────────────────────────────────
+
+def _send_wa_order_placed(db, staff, order):
+    """omniflow_order_placed. Never raises — always logs an attempt row."""
+    from .database import WhatsAppMessageLog
+    from .services.msg91 import send_whatsapp_template
+    variables = [staff.name, order.display_id, order.customer.name, str(len(order.items))]
+    try:
+        if not staff.mobile_verified:
+            status, error = "SKIPPED_UNVERIFIED", None
+        else:
+            success, error = send_whatsapp_template(staff.phone, "omniflow_order_placed", variables)
+            status = "SENT" if success else "FAILED"
+        db.add(WhatsAppMessageLog(
+            tenant_id=order.tenant_id,
+            template_name="omniflow_order_placed",
+            recipient_user_id=staff.id,
+            recipient_phone=staff.phone,
+            variables_json=json.dumps(variables),
+            status=status,
+            error_message=error,
+            related_entity_type="sales_order",
+            related_entity_id=order.id,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("_send_wa_order_placed failed for order=%s", order.id)
+
+
+def notify_order_placed(db, order):
+    """Notify godown (INVENTORY module) staff and tenant Admins that an order was confirmed."""
+    from .database import User
+    from .auth import has_module
+    from .constants import WHATSAPP_TEMPLATES
+
+    godown_staff = [u for u in db.query(User).filter(
+        User.tenant_id == order.tenant_id,
+        User.is_active == True, User.is_deleted == False,
+    ).all() if has_module(u, "INVENTORY")]
+
+    for staff in godown_staff:
+        create_notification(
+            db=db, tenant_id=order.tenant_id, user_id=staff.id,
+            notif_type="ORDER_PLACED",
+            title=f"New order confirmed: {order.display_id}",
+            body=f"Customer: {order.customer.name} · {len(order.items)} item(s) · "
+                 f"₹{order.total_amount:,.0f}",
+            link="/inventory-v2/dispatch-queue",
+        )
+        if WHATSAPP_TEMPLATES["omniflow_order_placed"]["msg91_template_id"]:
+            _send_wa_order_placed(db, staff, order)
+
+    admins = db.query(User).filter(
+        User.tenant_id == order.tenant_id,
+        User.role == "ADMIN", User.is_deleted == False,
+    ).all()
+    for admin in admins:
+        create_notification(
+            db=db, tenant_id=order.tenant_id, user_id=admin.id,
+            notif_type="ORDER_PLACED",
+            title=f"Order placed: {order.display_id}",
+            body=f"{order.agent.name} → {order.customer.name} · ₹{order.total_amount:,.0f}",
+            link=f"/sales/orders/{order.id}",
+        )
+    db.commit()
+
+
+def _send_wa_order_dispatched(db, order, dispatched_by):
+    """omniflow_order_dispatched. Never raises — always logs an attempt row."""
+    from .database import WhatsAppMessageLog
+    from .services.msg91 import send_whatsapp_template
+    agent = order.agent
+    variables = [agent.name, order.display_id, order.customer.name,
+                 datetime.utcnow().strftime("%d %b %Y")]
+    try:
+        if not agent.mobile_verified:
+            status, error = "SKIPPED_UNVERIFIED", None
+        else:
+            success, error = send_whatsapp_template(agent.phone, "omniflow_order_dispatched", variables)
+            status = "SENT" if success else "FAILED"
+        db.add(WhatsAppMessageLog(
+            tenant_id=order.tenant_id,
+            template_name="omniflow_order_dispatched",
+            recipient_user_id=agent.id,
+            recipient_phone=agent.phone,
+            variables_json=json.dumps(variables),
+            status=status,
+            error_message=error,
+            related_entity_type="sales_order",
+            related_entity_id=order.id,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("_send_wa_order_dispatched failed for order=%s", order.id)
+
+
+def notify_order_dispatched(db, order, dispatched_by):
+    """Notify the sales agent that their order has been dispatched."""
+    from .constants import WHATSAPP_TEMPLATES
+
+    create_notification(
+        db=db, tenant_id=order.tenant_id, user_id=order.agent_id,
+        notif_type="ORDER_DISPATCHED",
+        title=f"Order dispatched: {order.display_id}",
+        body=f"Dispatched by {dispatched_by.name}. Customer: {order.customer.name}",
+        link=f"/sales/orders/{order.id}",
+    )
+    db.commit()
+    if WHATSAPP_TEMPLATES["omniflow_order_dispatched"]["msg91_template_id"]:
+        _send_wa_order_dispatched(db, order, dispatched_by)

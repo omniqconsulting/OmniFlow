@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}New Purchase Order{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+  <div>
+    <h2 class="page-title">New Purchase Order</h2>
+  </div>
+  <a href="/inventory-v2/purchase-orders" class="btn btn-sm btn-gray">← Purchase Orders</a>
+</div>
+
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+<div class="card" style="padding:20px;max-width:760px">
+  <form method="post" action="/inventory-v2/purchase-orders/create" id="po-form">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+      <div>
+        <label style="font-size:12px;color:var(--text-muted)">Vendor</label>
+        <select name="vendor_id" style="width:100%">
+          <option value="">Select vendor (or type name below)…</option>
+          {% for v in vendors %}
+          <option value="{{ v.id }}">{{ v.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--text-muted)">Vendor Name (if not in list)</label>
+        <input type="text" name="vendor_name" style="width:100%">
+      </div>
+    </div>
+
+    <label style="font-size:12px;color:var(--text-muted)">Expected Arrival Date</label>
+    <input type="date" name="expected_arrival_date" style="width:200px;margin-bottom:14px">
+
+    <h4>Line Items</h4>
+    <table style="width:100%;font-size:13px;margin-bottom:10px" id="items-table">
+      <thead>
+        <tr style="text-align:left;color:var(--text-muted)">
+          <th>Product</th><th>Qty Ordered</th><th>Unit Cost</th><th>Unit</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="items-body"></tbody>
+    </table>
+    <button type="button" class="btn btn-sm btn-outline" onclick="addRow()">+ Add Line Item</button>
+
+    <label style="font-size:12px;color:var(--text-muted);display:block;margin-top:16px">Notes</label>
+    <textarea name="notes" rows="2" style="width:100%;margin-bottom:16px"></textarea>
+
+    <button type="submit" class="btn btn-primary">Create PO</button>
+  </form>
+</div>
+
+<script>
+const products = [{% for p in products %}{id:"{{ p.id }}", name:"{{ p.name|e }} ({{ p.sku_code }})"},{% endfor %}];
+const units = [{% for u in units %}{id:"{{ u.id }}", abbr:"{{ u.abbreviation|e }}"},{% endfor %}];
+
+function addRow() {
+  const tbody = document.getElementById('items-body');
+  const tr = document.createElement('tr');
+  let productOpts = '<option value="">Select…</option>' + products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  let unitOpts = '<option value="">—</option>' + units.map(u => `<option value="${u.id}">${u.abbr}</option>`).join('');
+  tr.innerHTML = `
+    <td><select name="product_id[]" required style="width:100%">${productOpts}</select></td>
+    <td><input type="number" name="qty_ordered[]" step="any" min="0.01" required style="width:90px"></td>
+    <td><input type="number" name="unit_cost[]" step="any" min="0" style="width:90px"></td>
+    <td><select name="unit_id[]" style="width:90px">${unitOpts}</select></td>
+    <td><button type="button" class="btn btn-xs btn-gray" onclick="this.closest('tr').remove()">✕</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+addRow();
+</script>
+{% endblock %}

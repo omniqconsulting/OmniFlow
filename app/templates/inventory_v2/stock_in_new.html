@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Stock In{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+  <div>
+    <h2 class="page-title">Stock In</h2>
+    <div class="muted">Record goods received at the godown</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/inventory-v2" class="btn btn-sm btn-gray">← Dashboard</a>
+    <a href="/inventory-v2/stock-in/bulk" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
+  </div>
+</div>
+
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+<div class="card" style="padding:20px;max-width:520px">
+  <form method="post" action="/inventory-v2/stock-in/create" enctype="multipart/form-data">
+    <label style="font-size:12px;color:var(--text-muted)">Product</label>
+    <select name="product_id" required style="width:100%;margin-bottom:12px" list="product-list">
+      <option value="">Select a product…</option>
+      {% for p in products %}
+      <option value="{{ p.id }}">{{ p.name }} ({{ p.sku_code }})</option>
+      {% endfor %}
+    </select>
+
+    <label style="font-size:12px;color:var(--text-muted)">Quantity</label>
+    <input type="number" name="qty" step="any" min="0.01" required style="width:100%;margin-bottom:12px">
+
+    <label style="font-size:12px;color:var(--text-muted)">Unit Cost (optional)</label>
+    <input type="number" name="unit_cost" step="any" min="0" style="width:100%;margin-bottom:12px">
+
+    <label style="font-size:12px;color:var(--text-muted)">Vendor Name (optional)</label>
+    <input type="text" name="vendor_name" style="width:100%;margin-bottom:12px">
+
+    <label style="font-size:12px;color:var(--text-muted)">Notes (optional)</label>
+    <textarea name="notes" rows="2" style="width:100%;margin-bottom:12px"></textarea>
+
+    <label style="font-size:12px;color:var(--text-muted)">Bill Photo (optional)</label>
+    <input type="file" name="bill_photo" accept="image/jpeg,image/png,image/webp" style="width:100%;margin-bottom:16px">
+
+    <button type="submit" class="btn btn-primary" style="width:100%">Record Stock In</button>
+  </form>
+</div>
+{% endblock %}

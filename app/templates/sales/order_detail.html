@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}{{ order.display_id or 'Order' }}{% endblock %}
+{% block content %}
+{% set status_colors = {'DRAFT':'#94a3b8','CONFIRMED':'#3b82f6','DISPATCHED':'#f59e0b','DELIVERED':'#22c55e','CANCELLED':'#ef4444'} %}
+{% set stock_colors = {'AVAILABLE':'#22c55e','PARTIAL':'#f59e0b','UNAVAILABLE':'#ef4444'} %}
+{% set price_source_badges = {'CUSTOMER_OVERRIDE':'🔵 Custom','PRICE_LIST':'🟢 List','DEFAULT_LIST':'🟡 Default','MANUAL':'⚪ Manual'} %}
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">{{ order.display_id or order.id[:8] }}
+      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(order.status, '#94a3b8') }};vertical-align:middle">{{ order.status }}</span>
+    </h2>
+    <div class="muted">{{ order.customer.name if order.customer else '—' }}
+      {% if order.customer %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(order.customer.customer_tier, '#94a3b8') }};margin-left:4px">{{ order.customer.customer_tier }}</span>{% endif %}
+      · Agent: {{ order.agent.name if order.agent else '—' }}</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/sales/orders" class="btn btn-sm btn-outline">Back to Orders</a>
+  </div>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+<div class="card" style="padding:16px;margin-bottom:18px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;font-size:13px">
+    <div><div class="muted">Payment Terms</div><div>{{ order.payment_terms or '—' }}</div></div>
+    <div><div class="muted">Expected Delivery</div><div>{{ order.expected_delivery_date.strftime('%d %b %Y') if order.expected_delivery_date else '—' }}</div></div>
+    <div><div class="muted">Total Amount</div><div>₹{{ '%.0f'|format(order.total_amount or 0) }}</div></div>
+    <div><div class="muted">Gross Margin</div><div>{{ '%.1f'|format(order.gross_margin_pct) ~ '%' if order.gross_margin_pct is not none else '—' }}</div></div>
+  </div>
+  <div style="margin-top:12px"><div class="muted" style="font-size:12px">Delivery Address</div><div>{{ order.delivery_address or '—' }}</div></div>
+  {% if order.notes %}<div style="margin-top:8px"><div class="muted" style="font-size:12px">Notes</div><div>{{ order.notes }}</div></div>{% endif %}
+  {% if order.status == 'CANCELLED' and order.cancellation_reason %}
+  <div style="margin-top:8px"><div class="muted" style="font-size:12px">Cancellation Reason</div><div>{{ order.cancellation_reason }}</div></div>
+  {% endif %}
+</div>
+
+<div class="card" style="padding:16px;margin-bottom:18px">
+  <h3 style="margin-top:0">Line Items</h3>
+  {% if order.items %}
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Qty</th>
+        <th style="padding:6px 8px">Unit Price</th><th style="padding:6px 8px">Source</th>
+        <th style="padding:6px 8px">Line Total</th><th style="padding:6px 8px">Stock Status</th>
+        {% if can_edit %}<th style="padding:6px 8px"></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in order.items %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 8px">{{ item.product.name if item.product else '—' }}
+          {% if item.product %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(item.product.product_tier, '#94a3b8') }};margin-left:4px">{{ item.product.product_tier }}</span>{% endif %}
+        </td>
+        <td style="padding:6px 8px">{{ item.qty_ordered }}{% if item.qty_dispatched %} <span class="muted" style="font-size:11px">({{ item.qty_dispatched }} dispatched)</span>{% endif %}</td>
+        <td style="padding:6px 8px">₹{{ '%.2f'|format(item.unit_price) }}</td>
+        <td style="padding:6px 8px">
+          {{ price_source_badges.get(item.price_source, item.price_source or '—') }}
+          {% if item.approval_status == 'PENDING' %}<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px;color:#fff;background:#f59e0b;margin-left:4px">PENDING APPROVAL</span>{% endif %}
+        </td>
+        <td style="padding:6px 8px">₹{{ '%.2f'|format(item.line_total) }}</td>
+        <td style="padding:6px 8px">
+          {% if item.stock_status %}
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ stock_colors.get(item.stock_status, '#94a3b8') }}">{{ item.stock_status }}</span>
+          {% if item.stock_status == 'UNAVAILABLE' and item.in_transit_arrival %}
+          <div class="muted" style="font-size:11px">Expected {{ item.in_transit_arrival.strftime('%d %b %Y') }}</div>
+          {% endif %}
+          {% else %}—{% endif %}
+        </td>
+        {% if can_edit %}
+        <td style="padding:6px 8px">
+          <form method="post" action="/sales/orders/{{ order.id }}/remove-item/{{ item.id }}" style="display:inline">
+            <button type="submit" class="btn btn-xs btn-outline" onclick="return confirm('Remove this item?')">Remove</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted">No items added yet.</div>
+  {% endif %}
+
+  {% if can_edit %}
+  <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border-subtle)">
+    <h4 style="margin:0 0 10px 0;font-size:13px">Add Line Item</h4>
+    <form method="post" action="/sales/orders/{{ order.id }}/add-item" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);display:block">Product *</label>
+        <select name="product_id" id="product_select" required onchange="checkStock(this.value)" style="min-width:200px">
+          <option value="">— Select —</option>
+          {% for p in products %}
+          <option value="{{ p.id }}">{{ p.name }} ({{ p.sku_code }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);display:block">Qty *</label>
+        <input type="number" name="qty_ordered" step="0.01" required style="width:90px">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);display:block">Manual Price (₹)</label>
+        <input type="number" name="manual_override_price" step="0.01" style="width:110px">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);display:block">Override Reason</label>
+        <input name="override_reason" style="width:160px">
+      </div>
+      <button type="submit" class="btn btn-sm btn-primary">+ Add Item</button>
+    </form>
+    <div id="stock-check-result" style="margin-top:8px;font-size:12px"></div>
+    <div class="muted" style="font-size:11px;margin-top:6px">No price list is configured yet — enter a manual price for each item.</div>
+  </div>
+  {% endif %}
+</div>
+
+<div style="display:flex;gap:10px;flex-wrap:wrap">
+  {% if order.status == 'DRAFT' and can_edit %}
+  <form method="post" action="/sales/orders/{{ order.id }}/confirm">
+    <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Confirm this order? Stock will be reserved.')">Confirm Order</button>
+  </form>
+  <form method="post" action="/sales/orders/{{ order.id }}/cancel" style="display:flex;gap:6px">
+    <input type="hidden" name="cancellation_reason" value="Cancelled from draft">
+    <button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Cancel this order?')">Cancel</button>
+  </form>
+  {% endif %}
+
+  {% if order.status == 'CONFIRMED' %}
+  <form method="post" action="/sales/orders/{{ order.id }}/cancel" style="display:flex;gap:6px;align-items:center">
+    <input type="text" name="cancellation_reason" placeholder="Reason for cancellation" style="font-size:12px">
+    <button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Cancel this order? All reservations will be released.')">Cancel Order</button>
+  </form>
+  {% if can_dispatch %}
+  <form method="post" action="/sales/orders/{{ order.id }}/dispatch">
+    <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Dispatch this order?')">Dispatch Order</button>
+  </form>
+  {% endif %}
+  {% endif %}
+
+  {% if order.status == 'DISPATCHED' and can_edit %}
+  <form method="post" action="/sales/orders/{{ order.id }}/deliver">
+    <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Mark this order as delivered?')">Mark Delivered</button>
+  </form>
+  {% endif %}
+</div>
+
+<script>
+async function checkStock(productId) {
+  const out = document.getElementById('stock-check-result');
+  if (!productId) { out.innerHTML = ''; return; }
+  out.innerHTML = 'Checking stock…';
+  try {
+    const res = await fetch(`/sales/orders/api/check-stock/${productId}`);
+    const d = await res.json();
+    if (d.available > 0) {
+      out.innerHTML = `✅ ${d.available} unit(s) available`;
+    } else if (d.in_transit > 0) {
+      out.innerHTML = `⚠ Out of stock. ${d.in_transit} arriving${d.in_transit_date ? ' ' + d.in_transit_date : ''}.`;
+    } else {
+      out.innerHTML = `❌ Out of stock. No stock expected.`;
+    }
+  } catch (e) {
+    out.innerHTML = '';
+  }
+}
+</script>
+{% endblock %}

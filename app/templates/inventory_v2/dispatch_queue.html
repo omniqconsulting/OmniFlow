@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Dispatch Queue{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:18px">
+  <div>
+    <h2 class="page-title">Dispatch Queue</h2>
+    <div class="muted">Confirmed orders awaiting dispatch</div>
+  </div>
+  <a href="/inventory-v2" class="btn btn-sm btn-outline">← Godown Dashboard</a>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+{% if orders %}
+<table class="table" style="width:100%">
+  <thead><tr>
+    <th>Order</th><th>Customer</th><th>Items</th><th>Expected Delivery</th><th></th>
+  </tr></thead>
+  <tbody>
+    {% for o in orders %}
+    <tr>
+      <td>{{ o.display_id or o.id[:8] }}</td>
+      <td>{{ o.customer.name if o.customer else '—' }}</td>
+      <td>{{ o.items|length }}</td>
+      <td>{{ o.expected_delivery_date.strftime('%d %b %Y') if o.expected_delivery_date else '—' }}</td>
+      <td>
+        <a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline">View</a>
+        <form method="post" action="/sales/orders/{{ o.id }}/dispatch" style="display:inline">
+          <button type="submit" class="btn btn-xs btn-primary" onclick="return confirm('Dispatch order {{ o.display_id }}?')">Dispatch</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
+  <div style="font-size:40px;margin-bottom:12px">📦</div>
+  <div style="font-size:15px;font-weight:500">No orders pending dispatch</div>
+</div>
+{% endif %}
+{% endblock %}

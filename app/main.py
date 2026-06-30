@@ -7,7 +7,7 @@ from typing import List, Optional
 import asyncio, os, csv, io
 
 from .database import (
-    get_db, create_tables,
+    get_db, create_tables, seed_default_uoms,
     SuperAdmin, Tenant, User, Branch, Department,
     TenantFeatureOverride, TenantLabelConfig, PlanUpgradeRequest,
     Ticket, TicketComment, TicketEvent, TicketAssignee,
@@ -20,6 +20,7 @@ from .database import (
 from .auth import (
     hash_password, verify_password, create_token,
     get_current_user, require_admin, require_manager,
+    get_user_modules, has_module,
 )
 from .notifications import (
     notify_ticket_assigned, notify_ticket_reminder, notify_helper_added,
@@ -74,6 +75,20 @@ from .setup_routes import router as setup_router
 app.include_router(setup_router)
 from .linked_entities import router as linked_entities_router
 app.include_router(linked_entities_router)
+from .sales_uom import router as uom_router
+app.include_router(uom_router)
+from .sales_catalog import router as catalog_router
+app.include_router(catalog_router)
+from .sales_inventory import router as inventory_v2_router
+app.include_router(inventory_v2_router)
+from .sales_contacts import router as contacts_router
+app.include_router(contacts_router)
+from .sales_orders import router as orders_router
+app.include_router(orders_router)
+from .sales_pricing import router as pricing_router
+app.include_router(pricing_router)
+from .sales_analytics import router as analytics_router
+app.include_router(analytics_router)
 from .templates_env import templates, _OrmEncoder, _to_ist, _format_tat  # shared filters
 BASE_DIR = os.path.dirname(__file__)
 
@@ -267,22 +282,28 @@ def _limit_hit(tenant, limit_name: str, current_count: int) -> bool:
     return not within_limit(tenant, limit_name, current_count)
 
 def _nav_ctx(db, user, tenant=None) -> dict:
-    """Return the three nav feature flags for base.html — avoids repeating per-route."""
+    """Return nav feature flags for base.html — avoids repeating per-route."""
     if user is None:
-        return {"has_inventory": False, "has_fms": False, "has_checklists": False}
+        return {"has_inventory": False, "has_fms": False, "has_checklists": False, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
     try:
         t = tenant or db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+        modules = get_user_modules(user)
         return {
-            "has_inventory":       has_feature(t, "INVENTORY",       db) if t else False,
-            "has_fms":             has_feature(t, "FMS",             db) if t else False,
-            "has_knowledge_repo":  has_feature(t, "KNOWLEDGE_REPO",  db) if t else False,
-            # Checklists is a core feature always available on all paid plans
-            "has_checklists": True,
+            "has_inventory":         has_feature(t, "INVENTORY",       db) if t else False,
+            "has_fms":               has_feature(t, "FMS",             db) if t else False,
+            "has_knowledge_repo":    has_feature(t, "KNOWLEDGE_REPO",  db) if t else False,
+            "has_checklists":        True,
+            "has_sales":             "SALES"     in modules and (has_feature(t, "SALES_MODULE",     db) if t else False),
+            "has_inventory_module":  "INVENTORY" in modules and (has_feature(t, "INVENTORY_MODULE",  db) if t else False),
+            "has_sales_analytics":   (has_feature(t, "SALES_ANALYTICS", db) if t else False)
+                                      and (has_feature(t, "SALES_MODULE", db) if t else False)
+                                      and "SALES" in modules and user.role in ("ADMIN", "MANAGER"),
+            "user_modules":          modules,
         }
     except Exception as _e:
         import logging as _log
         _log.getLogger(__name__).warning("_nav_ctx failed: %s", _e)
-        return {"has_inventory": False, "has_fms": False, "has_knowledge_repo": False, "has_checklists": True}
+        return {"has_inventory": False, "has_fms": False, "has_knowledge_repo": False, "has_checklists": True, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
 
 def _has_inv(db, user) -> bool:
     return _nav_ctx(db, user)["has_inventory"]
@@ -615,6 +636,8 @@ def register(request: Request, factory_name: str = Form(...), slug: str = Form(.
     user = User(tenant_id=tenant.id, name=name, phone=phone,
                 password_hash=hash_password(password), role="ADMIN")
     db.add(user)
+    db.flush()
+    seed_default_uoms(db, tenant.id)
     db.commit()
     # Pipeline 5A — registration received WhatsApp to prospect
     _send_wa_registration_received(phone, name, factory_name)
@@ -3658,6 +3681,7 @@ def edit_employee(
     department_id: str = Form(""), manager_id: str = Form(""),
     joining_date: str = Form(""), address: str = Form(""),
     branch_id: str = Form(""),
+    module_sales: str = Form(""), module_inventory: str = Form(""),
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
     phone_err = _validate_phone(phone)
@@ -3685,6 +3709,11 @@ def edit_employee(
             emp.joining_date = _date.fromisoformat(joining_date)
         except ValueError:
             pass
+    import json as _json
+    modules = []
+    if module_sales:     modules.append("SALES")
+    if module_inventory: modules.append("INVENTORY")
+    emp.module_access_json = _json.dumps(modules)
     db.commit()
     return redirect(f"/employees?msg=Profile+updated+for+{emp.name}")
 

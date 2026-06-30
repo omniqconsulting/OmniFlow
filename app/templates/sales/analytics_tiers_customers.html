@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Customer Tiers{% endblock %}
+{% block content %}
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Customer Tiers</h2>
+    <div class="muted">RFM-based tiering of customers, refreshed weekly</div>
+  </div>
+  <a href="/sales/analytics" class="btn btn-sm btn-outline">← Insights</a>
+</div>
+
+<form method="get" action="/sales/analytics/tiers/customers" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">
+  <select name="tier">
+    <option value="">All Tiers</option>
+    {% for t in tier_choices %}
+    <option value="{{ t }}" {{ 'selected' if filter_tier == t else '' }}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  <select name="agent_id">
+    <option value="">All Agents</option>
+    {% for a in agents %}
+    <option value="{{ a.id }}" {{ 'selected' if filter_agent_id == a.id else '' }}>{{ a.name }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn btn-sm btn-outline">Apply</button>
+</form>
+
+{% if rows %}
+<table class="table" style="width:100%">
+  <thead><tr>
+    <th>Customer</th><th>Agent</th><th>Tier</th><th>RFM Score</th><th>Last Order</th><th>Orders (90d)</th><th>Revenue (90d)</th>
+  </tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td><a href="/sales/contacts/{{ r.customer.id }}">{{ r.customer.name }}</a></td>
+      <td>{{ r.customer.assigned_agent.name if r.customer.assigned_agent else '—' }}</td>
+      <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(r.customer.customer_tier, '#94a3b8') }}">{{ r.customer.customer_tier }}</span></td>
+      <td>
+        {% if r.basis %}
+        <span title="R: {{ r.basis.r_score }} (ordered {{ r.basis.recency_days }} days ago) | F: {{ r.basis.f_score }} ({{ r.basis.order_count }} orders) | M: {{ r.basis.m_score }} (₹{{ '%.0f'|format(r.basis.total_value) }})" style="cursor:help;border-bottom:1px dotted var(--text-faint)">{{ r.basis.rfm_total }}</span>
+        {% else %}—{% endif %}
+      </td>
+      <td style="font-size:12px">{{ r.basis.recency_days ~ ' days ago' if r.basis else '—' }}</td>
+      <td>{{ r.basis.order_count if r.basis else '—' }}</td>
+      <td>{{ '₹%.0f'|format(r.basis.total_value) if r.basis else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
+  <div style="font-size:40px;margin-bottom:12px">👥</div>
+  <div style="font-size:15px;font-weight:500">No customers found</div>
+</div>
+{% endif %}
+{% endblock %}

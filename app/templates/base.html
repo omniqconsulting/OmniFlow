@@ -156,6 +156,13 @@ a:hover{color:#93c5fd}
 .nav a.ai-pill.active{background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);box-shadow:0 0 22px rgba(99,102,241,0.65)}
 /* ── Nav icon buttons (theme toggle, mute) ── */
 .nav-icon-btn{background:none;border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-faint);font-size:14px;padding:4px 8px;cursor:pointer;transition:all .12s;line-height:1;display:flex;align-items:center}
+/* ── Nav dropdown (Sales) ── */
+.nav-group{position:relative;display:inline-flex;align-items:center}
+.nav-dropdown{display:none;position:absolute;top:100%;left:0;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;min-width:180px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.15);padding:4px 0}
+.nav-group:hover .nav-dropdown{display:block}
+.nav-dropdown a{display:block;padding:8px 14px;color:var(--text-muted);text-decoration:none;white-space:nowrap;font-size:13px;transition:background 0.1s}
+.nav-dropdown a:hover{background:var(--hover-bg);color:var(--text-primary)}
+.nav-caret{font-size:10px;margin-left:3px;opacity:0.6}
 .nav-icon-btn:hover{border-color:var(--border-strong);color:var(--text-primary);background:var(--hover-bg)}
 
 /* ── WS status dot ── */
@@ -327,6 +334,23 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
   {% endif %}
   {% if has_knowledge_repo %}
   <a href="/knowledge" {% if '/knowledge' in request.url.path %}class="active"{% endif %}>Training</a>
+  {% endif %}
+  {% if has_sales %}
+  <div class="nav-group" id="nav-sales">
+    <a href="/sales/contacts" class="{% if '/sales/' in request.url.path %}active{% endif %}">Sales <span class="nav-caret">▾</span></a>
+    <div class="nav-dropdown">
+      <a href="/sales/contacts">Contacts</a>
+      <a href="/sales/catalog">Catalog</a>
+      <a href="/sales/orders">Orders</a>
+      <a href="/sales/pricing">Pricing &amp; Margin</a>
+      {% if has_sales_analytics %}
+      <a href="/sales/analytics">Insights</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+  {% if has_inventory_module %}
+  <a href="/inventory-v2" {% if '/inventory-v2' in request.url.path %}class="active"{% endif %}>Inventory</a>
   {% endif %}
   {% if user.role in ('ADMIN','MANAGER') %}
   <a href="/employees" {% if '/employees' in request.url.path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>
