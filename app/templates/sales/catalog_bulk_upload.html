@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload Products{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:18px">
+  <h2 class="page-title">Bulk Upload Products</h2>
+  <a href="/sales/catalog" class="btn btn-sm btn-gray">← Back to Catalog</a>
+</div>
+
+<div class="card" style="padding:20px;max-width:760px">
+  <p style="font-size:13px;color:var(--text-muted)">
+    1. Download the <a href="/sales/catalog/bulk-template">CSV template</a> (columns include your active attribute fields).<br>
+    2. Fill it in and upload below.<br>
+    3. Review the validation results, then confirm to import the valid rows.
+  </p>
+
+  <div style="display:flex;gap:10px;align-items:center;margin:16px 0">
+    <input type="file" id="bulk-file" accept=".csv">
+    <button onclick="validateBulk()" class="btn btn-sm btn-primary">Validate</button>
+  </div>
+
+  <div id="bulk-result"></div>
+</div>
+
+<script>
+let _bulkRows = [];
+
+async function validateBulk() {
+  const fileInput = document.getElementById('bulk-file');
+  if (!fileInput.files.length) { alert('Choose a CSV file first'); return; }
+  const fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  const res = await fetch('/sales/catalog/bulk-upload', { method: 'POST', body: fd });
+  if (!res.ok) { alert('Upload failed'); return; }
+  const data = await res.json();
+  _bulkRows = data.rows;
+
+  let html = `<div style="font-size:14px;margin:14px 0"><b>${data.valid}</b> of <b>${data.total}</b> rows valid.</div>`;
+  if (data.errors.length) {
+    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:14px">';
+    html += '<thead><tr style="border-bottom:1px solid var(--border-subtle)"><th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Row</th><th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">SKU</th><th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Errors</th></tr></thead><tbody>';
+    data.errors.forEach(e => {
+      html += `<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:6px;font-size:12px">${e.row}</td><td style="padding:6px;font-size:12px">${e.sku || '—'}</td><td style="padding:6px;font-size:12px;color:#f87171">${e.errors.join(', ')}</td></tr>`;
+    });
+    html += '</tbody></table>';
+  }
+  if (data.valid > 0) {
+    html += `<button class="btn btn-sm btn-primary" onclick="confirmBulk()">Confirm Import (${data.valid} rows)</button>`;
+  }
+  document.getElementById('bulk-result').innerHTML = html;
+}
+
+async function confirmBulk() {
+  const res = await fetch('/sales/catalog/bulk-upload/confirm', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ rows: _bulkRows }),
+  });
+  const data = await res.json();
+  document.getElementById('bulk-result').innerHTML =
+    `<div class="alert alert-green">${data.created} products created. ${data.skipped} rows skipped.</div>`;
+}
+</script>
+{% endblock %}

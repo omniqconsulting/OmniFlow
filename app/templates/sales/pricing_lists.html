@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Price Lists{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Price Lists</h2>
+    <div class="muted">{{ lists|length }} list{{ '' if lists|length == 1 else 's' }}</div>
+  </div>
+  <a href="/sales/pricing" class="btn btn-sm btn-outline">← Pricing Overview</a>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+{% if is_admin %}
+<div class="card" style="padding:16px;margin-bottom:18px">
+  <h3 style="margin-top:0">New Price List</h3>
+  <form method="post" action="/sales/pricing/lists/create" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Name *</label><br>
+      <input name="name" required style="min-width:160px">
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Description</label><br>
+      <input name="description" style="min-width:200px">
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Valid From</label><br>
+      <input name="valid_from" type="date">
+    </div>
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Valid To</label><br>
+      <input name="valid_to" type="date">
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">Create</button>
+  </form>
+</div>
+{% endif %}
+
+{% if lists %}
+<table style="width:100%;font-size:13px;border-collapse:collapse">
+  <thead>
+    <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+      <th style="padding:6px 8px">Name</th><th style="padding:6px 8px">Description</th>
+      <th style="padding:6px 8px">Valid From</th><th style="padding:6px 8px">Valid To</th>
+      <th style="padding:6px 8px">Default</th><th style="padding:6px 8px">Status</th>
+      <th style="padding:6px 8px"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for pl in lists %}
+    <tr style="border-bottom:1px solid var(--border-subtle)">
+      <td style="padding:6px 8px"><a href="/sales/pricing/lists/{{ pl.id }}/items">{{ pl.name }}</a></td>
+      <td style="padding:6px 8px">{{ pl.description or '—' }}</td>
+      <td style="padding:6px 8px">{{ pl.valid_from.strftime('%d %b %Y') if pl.valid_from else '—' }}</td>
+      <td style="padding:6px 8px">{{ pl.valid_to.strftime('%d %b %Y') if pl.valid_to else '—' }}</td>
+      <td style="padding:6px 8px">
+        {% if pl.is_default %}<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#22c55e">DEFAULT</span>
+        {% elif is_admin %}<form method="post" action="/sales/pricing/lists/{{ pl.id }}/set-default" style="display:inline"><button type="submit" class="btn btn-sm btn-outline">Set Default</button></form>{% endif %}
+      </td>
+      <td style="padding:6px 8px">{{ 'Active' if pl.is_active else 'Inactive' }}</td>
+      <td style="padding:6px 8px">
+        {% if is_admin %}
+        <a href="/sales/pricing/lists/{{ pl.id }}/items" class="btn btn-sm btn-outline">Prices</a>
+        <form method="post" action="/sales/pricing/lists/{{ pl.id }}/delete" style="display:inline" onsubmit="return confirm('Delete this price list?')"><button type="submit" class="btn btn-sm btn-outline" style="color:#ef4444">Delete</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="muted">No price lists yet.</div>
+{% endif %}
+
+{% endblock %}

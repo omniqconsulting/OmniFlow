@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Bulk Price Upload — {{ price_list.name }}{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:18px">
+  <h2 class="page-title">Bulk Price Upload</h2>
+  <div class="muted">{{ price_list.name }}</div>
+</div>
+
+<div class="card" style="padding:16px;max-width:560px">
+  <p class="muted">CSV columns: <code>sku_code, unit_price</code></p>
+  <a href="/sales/pricing/lists/{{ price_list.id }}/bulk-template" class="btn btn-sm btn-outline" style="margin-bottom:14px;display:inline-block">📄 Download Template</a>
+
+  <form id="bulk-form">
+    <input type="file" name="file" id="file-input" accept=".csv" style="margin-bottom:10px">
+    <button type="button" id="upload-btn" class="btn btn-sm btn-primary">Upload</button>
+  </form>
+
+  <div id="result" style="margin-top:16px"></div>
+</div>
+
+<script>
+document.getElementById('upload-btn').addEventListener('click', async () => {
+  const fileInput = document.getElementById('file-input');
+  if (!fileInput.files.length) { alert('Choose a CSV file first'); return; }
+  const fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  const res = await fetch('/sales/pricing/lists/{{ price_list.id }}/bulk-upload', { method: 'POST', body: fd });
+  const data = await res.json();
+  const result = document.getElementById('result');
+  let html = `<div class="alert alert-green">Applied ${data.applied} price(s).</div>`;
+  if (data.errors && data.errors.length) {
+    html += '<div class="alert alert-red"><strong>Errors:</strong><ul>';
+    data.errors.forEach(e => { html += `<li>Row ${e.row}: ${e.error}</li>`; });
+    html += '</ul></div>';
+  }
+  result.innerHTML = html;
+});
+</script>
+
+{% endblock %}

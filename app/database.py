@@ -173,6 +173,9 @@ class User(Base):
     mobile_verified    = Column(Boolean, default=False, nullable=False)
     mobile_verified_at = Column(DateTime, nullable=True)
     mobile_verified_by = Column(String, ForeignKey("users.id"), nullable=True)
+    # Sales module access — JSON array of module tags e.g. '["SALES","INVENTORY"]'
+    # ADMIN and MANAGER roles always see all modules regardless of this field.
+    module_access_json = Column(Text, nullable=True, default='[]')
 
     tenant = relationship("Tenant", back_populates="users")
     department = relationship("Department", back_populates="users")
@@ -966,8 +969,43 @@ class Customer(Base):
     created_at     = Column(DateTime, default=datetime.utcnow)
     updated_at     = Column(DateTime, default=datetime.utcnow)
 
-    tenant     = relationship("Tenant")
-    created_by = relationship("User", foreign_keys=[created_by_id])
+    assigned_agent_id = Column(String, ForeignKey("users.id"), nullable=True)
+    customer_tier     = Column(String, default="UNRANKED")
+    last_contacted_at = Column(DateTime, nullable=True)
+    contact_freq_days = Column(Integer, default=30)
+    price_list_id     = Column(String, ForeignKey("price_lists.id"), nullable=True)
+    gstin             = Column(String, nullable=True)
+    credit_limit      = Column(Float,  nullable=True)
+    billing_address   = Column(Text,   nullable=True)
+    shipping_address  = Column(Text,   nullable=True)
+
+    tenant         = relationship("Tenant")
+    created_by     = relationship("User", foreign_keys=[created_by_id])
+    assigned_agent = relationship("User", foreign_keys=[assigned_agent_id])
+
+
+class CRMCallLog(Base):
+    """
+    Immutable log of every contact attempt with a customer.
+    Only follow_up_done is updated after creation.
+    outcome: CONNECTED / NO_ANSWER / CALLBACK / ORDER_PLACED / NOT_INTERESTED
+    """
+    __tablename__ = "crm_call_logs"
+    id             = Column(String,  primary_key=True, default=new_id)
+    tenant_id      = Column(String,  ForeignKey("tenants.id"),   nullable=False)
+    customer_id    = Column(String,  ForeignKey("customers.id"), nullable=False)
+    agent_id       = Column(String,  ForeignKey("users.id"),     nullable=False)
+    contacted_at   = Column(DateTime, default=datetime.utcnow)
+    outcome        = Column(String,  nullable=False)
+    follow_up_at   = Column(DateTime, nullable=True)
+    follow_up_done = Column(Boolean, default=False)
+    order_id       = Column(String,  nullable=True)  # FK to sales_orders added in Brief 05
+    notes          = Column(Text,    nullable=True)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
+    tenant   = relationship("Tenant")
+    customer = relationship("Customer", foreign_keys=[customer_id])
+    agent    = relationship("User",     foreign_keys=[agent_id])
 
 
 class EndProduct(Base):
@@ -1126,6 +1164,440 @@ class KnowledgeItem(Base):
     tenant      = relationship("Tenant")
     created_by  = relationship("User", foreign_keys=[created_by_id])
 
+_DEFAULT_UOMS = [
+    {"name": "Piece",    "abbreviation": "pcs"},
+    {"name": "Kilogram", "abbreviation": "kg"},
+    {"name": "Gram",     "abbreviation": "g"},
+    {"name": "Litre",    "abbreviation": "L"},
+    {"name": "Metre",    "abbreviation": "m"},
+    {"name": "Box",      "abbreviation": "box"},
+    {"name": "Dozen",    "abbreviation": "doz"},
+]
+
+
+class UnitOfMeasure(Base):
+    __tablename__ = "units_of_measure"
+    id           = Column(String,  primary_key=True, default=new_id)
+    tenant_id    = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name         = Column(String,  nullable=False)
+    abbreviation = Column(String,  nullable=False)
+    is_active    = Column(Boolean, default=True)
+    is_deleted   = Column(Boolean, default=False)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+    tenant = relationship("Tenant")
+
+
+class ProductSchemaField(Base):
+    """
+    Defines the custom attribute fields for this tenant's product catalog.
+    Tenants configure these in Setup. Products store actual values in attributes_json.
+    field_type options: text | number | dropdown | boolean
+    options_json: ["Option A", "Option B"] for dropdown type, else "[]"
+    """
+    __tablename__ = "product_schema_fields"
+    id           = Column(String,  primary_key=True, default=new_id)
+    tenant_id    = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    label        = Column(String,  nullable=False)
+    field_type   = Column(String,  default="text")
+    options_json = Column(Text,    default="[]")
+    sort_order   = Column(Integer, default=0)
+    is_required  = Column(Boolean, default=False)
+    is_active    = Column(Boolean, default=True)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+    tenant = relationship("Tenant")
+
+
+class Product(Base):
+    """
+    SKU-level product catalog entry per tenant.
+
+    attributes_json: dict of {label: value} matching ProductSchemaField labels.
+        e.g. {"GSM": "180", "Width": "44 inch", "Composition": "100% Cotton"}
+        Schema is flexible — adding new schema fields does not break existing products.
+
+    media_urls_json: ordered list of file paths relative to /static/
+        e.g. ["uploads/{tenant_id}/products/{product_id}/img1.jpg"]
+        Max 8 images per product.
+
+    product_tier: set by AI job (Brief 07). Default UNRANKED.
+    low_stock_threshold: godown dashboard uses this to flag low stock.
+    """
+    __tablename__ = "products"
+    id                  = Column(String,  primary_key=True, default=new_id)
+    tenant_id           = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    sku_code            = Column(String,  nullable=False)
+    name                = Column(String,  nullable=False)
+    description         = Column(Text,    nullable=True)
+    category            = Column(String,  nullable=True)
+    base_unit_id        = Column(String,  ForeignKey("units_of_measure.id"), nullable=True)
+    attributes_json     = Column(Text,    default="{}")
+    media_urls_json      = Column(Text,    default="[]")
+    product_tier        = Column(String,  default="UNRANKED")
+    low_stock_threshold = Column(Float,   nullable=True)
+    is_active           = Column(Boolean, default=True)
+    is_deleted          = Column(Boolean, default=False)
+    created_by_id       = Column(String,  ForeignKey("users.id"), nullable=True)
+    created_at          = Column(DateTime, default=datetime.utcnow)
+    updated_at          = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    base_unit  = relationship("UnitOfMeasure", foreign_keys=[base_unit_id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class ProductStock(Base):
+    """
+    Single row per product — the live stock snapshot.
+    Always kept consistent with stock_ledger aggregate.
+    Updated atomically in the same transaction as every ledger write.
+
+    qty_available  = physical stock minus active reservations
+    qty_reserved   = sum of ACTIVE stock_reservations (added in Brief 04)
+    qty_in_transit = sum of open PO items not yet received
+    avg_cost       = weighted average buy cost (updated on every STOCK_IN)
+    """
+    __tablename__ = "product_stock"
+    id              = Column(String,  primary_key=True, default=new_id)
+    product_id      = Column(String,  ForeignKey("products.id"), unique=True, nullable=False)
+    tenant_id       = Column(String,  ForeignKey("tenants.id"),  nullable=False)
+    qty_available   = Column(Float,   default=0.0)
+    qty_reserved    = Column(Float,   default=0.0)   # managed in Brief 04
+    qty_in_transit  = Column(Float,   default=0.0)
+    avg_cost        = Column(Float,   nullable=True)
+    last_updated_at = Column(DateTime, default=datetime.utcnow)
+
+    product = relationship("Product")
+    tenant  = relationship("Tenant")
+
+
+class StockLedgerEntry(Base):
+    """
+    Immutable append-only log of every stock movement.
+    Never update or delete rows in this table.
+
+    movement_type values:
+      STOCK_IN    — godown receives goods (from supplier)
+      STOCK_OUT   — order dispatched (added in Brief 04)
+      ADJUSTMENT  — manual correction by godown/admin
+      PO_RECEIPT  — purchase order partially/fully received
+      RESERVATION — qty held for order (added in Brief 04)
+      RELEASE     — reservation cancelled (added in Brief 04)
+      RETURN      — goods returned from customer
+    """
+    __tablename__ = "stock_ledger"
+    id              = Column(String,  primary_key=True, default=new_id)
+    tenant_id       = Column(String,  ForeignKey("tenants.id"),  nullable=False)
+    product_id      = Column(String,  ForeignKey("products.id"), nullable=False)
+    movement_type   = Column(String,  nullable=False)
+    qty             = Column(Float,   nullable=False)
+    unit_cost       = Column(Float,   nullable=True)
+    reference_type  = Column(String,  nullable=True)   # "PO" | "ORDER" | "MANUAL"
+    reference_id    = Column(String,  nullable=True)   # PO id or Order id
+    notes           = Column(Text,    nullable=True)
+    actor_id        = Column(String,  ForeignKey("users.id"), nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    tenant  = relationship("Tenant")
+    product = relationship("Product")
+    actor   = relationship("User", foreign_keys=[actor_id])
+
+
+class InventoryPurchaseOrder(Base):
+    """
+    Tracks incoming stock from vendors (in-transit).
+    status lifecycle: DRAFT → SUBMITTED → APPROVED → PARTIALLY_RECEIVED → RECEIVED → CANCELLED
+    expected_arrival_date: shown to sales agents when a product is out of stock.
+    """
+    __tablename__ = "inventory_purchase_orders"
+    id                    = Column(String,  primary_key=True, default=new_id)
+    tenant_id             = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    display_id            = Column(String,  nullable=True)         # PO-0001
+    vendor_id             = Column(String,  ForeignKey("vendors.id"), nullable=True)
+    vendor_name_snapshot  = Column(String,  nullable=True)
+    status                = Column(String,  default="DRAFT")
+    expected_arrival_date = Column(Date,    nullable=True)
+    notes                 = Column(Text,    nullable=True)
+    created_by_id         = Column(String,  ForeignKey("users.id"), nullable=True)
+    approved_by_id        = Column(String,  ForeignKey("users.id"), nullable=True)
+    is_deleted            = Column(Boolean, default=False)
+    created_at            = Column(DateTime, default=datetime.utcnow)
+    updated_at            = Column(DateTime, default=datetime.utcnow)
+
+    tenant      = relationship("Tenant")
+    vendor      = relationship("Vendor",  foreign_keys=[vendor_id])
+    created_by  = relationship("User",    foreign_keys=[created_by_id])
+    approved_by = relationship("User",    foreign_keys=[approved_by_id])
+    items       = relationship("InventoryPOItem", back_populates="po",
+                               cascade="all, delete-orphan")
+
+
+class InventoryPOItem(Base):
+    __tablename__ = "inventory_po_items"
+    id           = Column(String, primary_key=True, default=new_id)
+    po_id        = Column(String, ForeignKey("inventory_purchase_orders.id"), nullable=False)
+    product_id   = Column(String, ForeignKey("products.id"),    nullable=False)
+    qty_ordered  = Column(Float,  nullable=False)
+    qty_received = Column(Float,  default=0.0)
+    unit_cost    = Column(Float,  nullable=True)
+    unit_id      = Column(String, ForeignKey("units_of_measure.id"), nullable=True)
+
+    po      = relationship("InventoryPurchaseOrder", back_populates="items")
+    product = relationship("Product")
+    unit    = relationship("UnitOfMeasure", foreign_keys=[unit_id])
+
+
+class PriceList(Base):
+    """
+    Named price list (e.g. "Standard", "Wholesale", "Export") — Brief 06.
+    One list must be is_default=True per tenant.
+    Customers are assigned a price_list_id. Those without assignment fall back to default.
+    """
+    __tablename__ = "price_lists"
+    id          = Column(String,  primary_key=True, default=new_id)
+    tenant_id   = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name        = Column(String,  nullable=False)
+    description = Column(Text,    nullable=True)
+    is_default  = Column(Boolean, default=False)
+    valid_from  = Column(Date,    nullable=True)
+    valid_to    = Column(Date,    nullable=True)
+    is_active   = Column(Boolean, default=True)
+    is_deleted  = Column(Boolean, default=False)
+    created_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    updated_at  = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    items      = relationship("PriceListItem", back_populates="price_list",
+                              cascade="all, delete-orphan")
+
+
+class PriceListItem(Base):
+    """One product's sell price within a named price list — Brief 06."""
+    __tablename__ = "price_list_items"
+    id            = Column(String,  primary_key=True, default=new_id)
+    price_list_id = Column(String,  ForeignKey("price_lists.id"),  nullable=False)
+    product_id    = Column(String,  ForeignKey("products.id"),     nullable=False)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"),      nullable=False)
+    unit_price    = Column(Float,   nullable=False)
+    min_qty       = Column(Float,   default=0.0)
+    is_active     = Column(Boolean, default=True)
+    updated_at    = Column(DateTime, default=datetime.utcnow)
+
+    price_list = relationship("PriceList", back_populates="items")
+    product    = relationship("Product")
+    tenant     = relationship("Tenant")
+
+
+class PriceListItemHistory(Base):
+    """
+    Append-only log of every price change in any price list — Brief 06.
+    Written every time PriceListItem.unit_price is updated.
+    Powers price trend charts in Brief 07.
+    Never update or delete rows in this table.
+    """
+    __tablename__ = "price_list_item_history"
+    id            = Column(String,  primary_key=True, default=new_id)
+    price_list_id = Column(String,  ForeignKey("price_lists.id"),  nullable=False)
+    price_list_name_snapshot = Column(String, nullable=True)
+    product_id    = Column(String,  ForeignKey("products.id"),     nullable=False)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"),      nullable=False)
+    old_price     = Column(Float,   nullable=True)
+    new_price     = Column(Float,   nullable=False)
+    changed_by_id = Column(String,  ForeignKey("users.id"),        nullable=True)
+    changed_at    = Column(DateTime, default=datetime.utcnow)
+
+    price_list = relationship("PriceList")
+    product    = relationship("Product")
+    tenant     = relationship("Tenant")
+    changed_by = relationship("User", foreign_keys=[changed_by_id])
+
+
+class CustomerPriceOverride(Base):
+    """
+    Per-customer, per-product price override — Brief 06.
+    Takes priority over any price list entry during resolution.
+    valid_from / valid_to: NULL means always valid.
+    """
+    __tablename__ = "customer_price_overrides"
+    id           = Column(String, primary_key=True, default=new_id)
+    tenant_id    = Column(String, ForeignKey("tenants.id"),   nullable=False)
+    customer_id  = Column(String, ForeignKey("customers.id"), nullable=False)
+    product_id   = Column(String, ForeignKey("products.id"),  nullable=False)
+    unit_price   = Column(Float,  nullable=False)
+    valid_from   = Column(Date,   nullable=True)
+    valid_to     = Column(Date,   nullable=True)
+    reason       = Column(Text,   nullable=True)
+    created_by_id= Column(String, ForeignKey("users.id"), nullable=True)
+    is_active    = Column(Boolean, default=True)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    customer   = relationship("Customer", foreign_keys=[customer_id])
+    product    = relationship("Product")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class CostEntry(Base):
+    """
+    Immutable append-only log of buy-price and cost entries per product — Brief 06.
+    Never update or delete rows.
+
+    cost_type values:
+      BUY_PRICE — purchase price from supplier
+      FREIGHT   — inbound freight cost
+      HANDLING  — handling or storage cost
+      OTHER     — any other attributable cost
+
+    The most recent BUY_PRICE entry for a product is the current buy price.
+    All entries for a product on a given date aggregate to total landed cost.
+    Powers price trend analytics (Brief 07).
+    """
+    __tablename__ = "cost_entries"
+    id             = Column(String,  primary_key=True, default=new_id)
+    tenant_id      = Column(String,  ForeignKey("tenants.id"),  nullable=False)
+    product_id     = Column(String,  ForeignKey("products.id"), nullable=False)
+    cost_type      = Column(String,  nullable=False)
+    amount         = Column(Float,   nullable=False)
+    effective_date = Column(Date,    nullable=False)
+    notes          = Column(Text,    nullable=True)
+    actor_id       = Column(String,  ForeignKey("users.id"), nullable=True)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
+    tenant  = relationship("Tenant")
+    product = relationship("Product")
+    actor   = relationship("User", foreign_keys=[actor_id])
+
+
+class SalesOrder(Base):
+    """
+    Order header — Brief 05.
+    status lifecycle:
+      DRAFT       — agent is building the order. No stock reserved yet.
+      CONFIRMED   — agent finalised. Stock reservation triggered per line item.
+      DISPATCHED  — godown has shipped goods.
+      DELIVERED   — customer confirmed receipt.
+      CANCELLED   — order cancelled. All reservations released automatically.
+
+    price_list_id_snapshot: the resolved price list at confirmation (audit trail).
+    gross_margin_pct: computed at confirmation from line item margins.
+    """
+    __tablename__ = "sales_orders"
+    id                     = Column(String,  primary_key=True, default=new_id)
+    display_id             = Column(String,  nullable=True)        # SO-0001
+    tenant_id              = Column(String,  ForeignKey("tenants.id"),   nullable=False)
+    customer_id            = Column(String,  ForeignKey("customers.id"), nullable=False)
+    agent_id               = Column(String,  ForeignKey("users.id"),     nullable=False)
+    status                 = Column(String,  default="DRAFT")
+    payment_terms          = Column(String,  nullable=True)
+    delivery_address       = Column(Text,    nullable=True)
+    expected_delivery_date = Column(Date,    nullable=True)
+    notes                  = Column(Text,    nullable=True)
+    call_log_id            = Column(String,  nullable=True)
+    price_list_id_snapshot = Column(String,  nullable=True)
+    total_amount           = Column(Float,   default=0.0)
+    total_cost              = Column(Float,   default=0.0)
+    gross_margin_pct       = Column(Float,   nullable=True)
+    confirmed_at           = Column(DateTime, nullable=True)
+    dispatched_at          = Column(DateTime, nullable=True)
+    delivered_at           = Column(DateTime, nullable=True)
+    cancelled_at           = Column(DateTime, nullable=True)
+    cancellation_reason    = Column(Text,    nullable=True)
+    is_deleted              = Column(Boolean, default=False)
+    created_at             = Column(DateTime, default=datetime.utcnow)
+    updated_at             = Column(DateTime, default=datetime.utcnow)
+
+    tenant   = relationship("Tenant")
+    customer = relationship("Customer",  foreign_keys=[customer_id])
+    agent    = relationship("User",      foreign_keys=[agent_id])
+    items    = relationship("SalesOrderItem", back_populates="order",
+                            cascade="all, delete-orphan",
+                            order_by="SalesOrderItem.created_at")
+
+
+class SalesOrderItem(Base):
+    """
+    One line item in a sales order — Brief 05.
+
+    price_source values (populated at confirmation):
+      CUSTOMER_OVERRIDE — a customer-specific price was active
+      PRICE_LIST        — resolved from customer's assigned price list
+      DEFAULT_LIST      — resolved from the tenant's default price list
+      MANUAL            — agent entered a custom price
+      NONE              — no price found (order cannot confirm in this state)
+
+    approval_status: used when manual price is below SALES_MARGIN_FLOOR_PCT.
+      PENDING | APPROVED | REJECTED
+
+    cost_snapshot: buy price (avg_cost from product_stock) at confirmation time.
+      Used for margin calculation. Immutable after confirmation.
+
+    stock_status (set at confirmation):
+      AVAILABLE   — full qty reserved
+      PARTIAL     — partial qty reserved, rest is in-transit
+      UNAVAILABLE — no stock and no in-transit
+    """
+    __tablename__ = "sales_order_items"
+    id                    = Column(String,  primary_key=True, default=new_id)
+    order_id              = Column(String,  ForeignKey("sales_orders.id"),     nullable=False)
+    tenant_id             = Column(String,  ForeignKey("tenants.id"),          nullable=False)
+    product_id            = Column(String,  ForeignKey("products.id"),         nullable=False)
+    qty_ordered           = Column(Float,   nullable=False)
+    unit_id               = Column(String,  ForeignKey("units_of_measure.id"), nullable=True)
+    unit_price            = Column(Float,   nullable=False)
+    price_source          = Column(String,  nullable=True)
+    manual_override_price = Column(Float,   nullable=True)
+    override_reason       = Column(Text,    nullable=True)
+    approval_status       = Column(String,  nullable=True)
+    cost_snapshot         = Column(Float,   nullable=True)
+    qty_dispatched        = Column(Float,   default=0.0)
+    line_total            = Column(Float,   default=0.0)
+    stock_status          = Column(String,  nullable=True)
+    in_transit_arrival    = Column(Date,    nullable=True)
+    created_at            = Column(DateTime, default=datetime.utcnow)
+
+    order   = relationship("SalesOrder",    back_populates="items")
+    product = relationship("Product")
+    unit    = relationship("UnitOfMeasure", foreign_keys=[unit_id])
+    tenant  = relationship("Tenant")
+
+
+class StockReservation(Base):
+    """
+    Explicit reservation record — Brief 05. Drives the concurrency-safe booking.
+
+    status values:
+      ACTIVE    — stock is held for this order
+      FULFILLED — order dispatched; reservation converted to STOCK_OUT
+      RELEASED  — order cancelled or expired; stock returned to available
+
+    expires_at: scheduler auto-releases ACTIVE reservations past this time.
+                Prevents indefinitely locked stock on abandoned orders.
+    """
+    __tablename__ = "stock_reservations"
+    id             = Column(String,  primary_key=True, default=new_id)
+    tenant_id      = Column(String,  ForeignKey("tenants.id"),       nullable=False)
+    product_id     = Column(String,  ForeignKey("products.id"),      nullable=False)
+    order_id       = Column(String,  ForeignKey("sales_orders.id"),  nullable=False)
+    order_item_id  = Column(String,  ForeignKey("sales_order_items.id"), nullable=True)
+    qty_reserved   = Column(Float,   nullable=False)
+    status         = Column(String,  default="ACTIVE")
+    reserved_by_id = Column(String,  ForeignKey("users.id"), nullable=False)
+    reserved_at    = Column(DateTime, default=datetime.utcnow)
+    expires_at     = Column(DateTime, nullable=True)
+    fulfilled_at   = Column(DateTime, nullable=True)
+    released_at    = Column(DateTime, nullable=True)
+    release_reason = Column(Text,    nullable=True)
+
+    tenant      = relationship("Tenant")
+    product     = relationship("Product")
+    order       = relationship("SalesOrder",    foreign_keys=[order_id])
+    order_item  = relationship("SalesOrderItem", foreign_keys=[order_item_id])
+    reserved_by = relationship("User",          foreign_keys=[reserved_by_id])
+
+
 def create_tables():
     Base.metadata.create_all(bind=engine)
     # Run any pending Alembic migrations on startup
@@ -1172,6 +1644,18 @@ def _pg_add_columns():
         # E-14: custom checklist frequency
         "ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS frequency_type VARCHAR",
         "ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS frequency_config JSONB",
+        # Sales foundation — module access on users
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS module_access_json TEXT DEFAULT '[]'",
+        # Sales foundation — units of measure table
+        """CREATE TABLE IF NOT EXISTS units_of_measure (
+            id VARCHAR PRIMARY KEY,
+            tenant_id VARCHAR REFERENCES tenants(id),
+            name VARCHAR NOT NULL,
+            abbreviation VARCHAR NOT NULL,
+            is_active BOOLEAN DEFAULT TRUE,
+            is_deleted BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
         # Performance formula (new table — CREATE IF NOT EXISTS is safe to repeat)
         """CREATE TABLE IF NOT EXISTS performance_formulas (
             id VARCHAR PRIMARY KEY,
@@ -1182,6 +1666,33 @@ def _pg_add_columns():
             created_at TIMESTAMP DEFAULT NOW(),
             created_by_id VARCHAR REFERENCES users(id)
         )""",
+        # CRM contacts (Brief 04) — customer extensions
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS assigned_agent_id VARCHAR REFERENCES users(id)",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS customer_tier VARCHAR DEFAULT 'UNRANKED'",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_contacted_at TIMESTAMP",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS contact_freq_days INTEGER DEFAULT 30",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS price_list_id VARCHAR",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS gstin VARCHAR",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS credit_limit FLOAT",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS billing_address TEXT",
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS shipping_address TEXT",
+        # CRM call logs (Brief 04)
+        """CREATE TABLE IF NOT EXISTS crm_call_logs (
+            id VARCHAR PRIMARY KEY,
+            tenant_id VARCHAR NOT NULL REFERENCES tenants(id),
+            customer_id VARCHAR NOT NULL REFERENCES customers(id),
+            agent_id VARCHAR NOT NULL REFERENCES users(id),
+            contacted_at TIMESTAMP DEFAULT NOW(),
+            outcome VARCHAR NOT NULL,
+            follow_up_at TIMESTAMP,
+            follow_up_done BOOLEAN DEFAULT FALSE,
+            order_id VARCHAR,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
+        """CREATE INDEX IF NOT EXISTS idx_call_logs_agent_followup
+            ON crm_call_logs(agent_id, follow_up_at, follow_up_done)
+            WHERE follow_up_done = FALSE""",
     ]
     try:
         with engine.begin() as conn:
@@ -1192,6 +1703,21 @@ def _pg_add_columns():
                     _log.warning("Column migration skipped (%s): %s", stmt, col_err)
     except Exception as e:
         _log.warning("_pg_add_columns skipped: %s", e)
+
+
+def seed_default_uoms(db, tenant_id: str) -> None:
+    """Seed default units of measure for a new tenant if none exist yet."""
+    existing = db.query(UnitOfMeasure).filter(
+        UnitOfMeasure.tenant_id == tenant_id,
+        UnitOfMeasure.is_deleted == False,
+    ).count()
+    if existing:
+        return
+    for uom in _DEFAULT_UOMS:
+        db.add(UnitOfMeasure(
+            id=new_id(), tenant_id=tenant_id,
+            name=uom["name"], abbreviation=uom["abbreviation"],
+        ))
 
 
 # Fixed IDs so they survive re-seeds (never change these)
@@ -1261,3 +1787,58 @@ def _seed_builtin_submodules():
         db.rollback()
     finally:
         db.close()
+
+
+class TierSnapshot(Base):
+    """
+    Weekly computed tier for a customer or product — Brief 07.
+    entity_type: CUSTOMER | PRODUCT
+    tier: A | B | C | D | UNRANKED
+    period_label: ISO week string e.g. "W2026-26"
+    basis_json: the raw metrics used to compute the tier (for audit/display).
+    """
+    __tablename__ = "tier_snapshots"
+    id           = Column(String,  primary_key=True, default=new_id)
+    tenant_id    = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    entity_type  = Column(String,  nullable=False)
+    entity_id    = Column(String,  nullable=False)
+    tier         = Column(String,  nullable=False)
+    score        = Column(Float,   nullable=True)
+    basis_json   = Column(Text,    nullable=True)
+    period_label = Column(String,  nullable=False)
+    computed_at  = Column(DateTime, default=datetime.utcnow)
+
+    tenant = relationship("Tenant")
+
+
+class AnomalyAlert(Base):
+    """
+    AI-detected anomaly surfaced to Managers and Admins — Brief 07.
+
+    alert_type values:
+      PRICE_SPIKE         — buy price up >15% vs 30-day baseline
+      MARGIN_DROP         — gross margin down >10 pts vs 4-week average
+      CUSTOMER_DROPOUT    — tier-A or tier-B customer with no orders in 45 days
+      LOW_STOCK           — tier-A product below low_stock_threshold
+      AGENT_NEGLECT       — agent with zero call logs in 7 days
+      ORDER_CANCEL_SPIKE  — cancellations this week > 2x prior week
+
+    severity: LOW | MEDIUM | HIGH | CRITICAL
+    detail: plain-English description generated by Claude API.
+    metric_json: raw numbers used to detect the anomaly (for transparency).
+    """
+    __tablename__ = "anomaly_alerts"
+    id            = Column(String,  primary_key=True, default=new_id)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    alert_type    = Column(String,  nullable=False)
+    entity_type   = Column(String,  nullable=True)
+    entity_id     = Column(String,  nullable=True)
+    entity_label  = Column(String,  nullable=True)
+    severity      = Column(String,  default="MEDIUM")
+    detail        = Column(Text,    nullable=True)
+    metric_json   = Column(Text,    nullable=True)
+    is_read       = Column(Boolean, default=False)
+    is_dismissed  = Column(Boolean, default=False)
+    detected_at   = Column(DateTime, default=datetime.utcnow)
+
+    tenant = relationship("Tenant")

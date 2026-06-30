@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.name }}{% endblock %}
+{% block content %}
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+{% set outcome_colors = {'CONNECTED':'#22c55e','NO_ANSWER':'#94a3b8','CALLBACK':'#3b82f6','ORDER_PLACED':'#22c55e','NOT_INTERESTED':'#ef4444'} %}
+{% set order_status_colors = {'DRAFT':'#94a3b8','CONFIRMED':'#3b82f6','DISPATCHED':'#f59e0b','DELIVERED':'#22c55e','CANCELLED':'#ef4444'} %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">{{ customer.name }}
+      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(customer.customer_tier, '#94a3b8') }};vertical-align:middle">{{ customer.customer_tier }}</span>
+    </h2>
+    <div class="muted">Assigned to {{ customer.assigned_agent.name if customer.assigned_agent else 'Unassigned' }}</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/sales/contacts/all" class="btn btn-sm btn-outline">Back to list</a>
+    {% if can_edit %}<a href="/sales/contacts/{{ customer.id }}/edit" class="btn btn-sm btn-outline">Edit</a>{% endif %}
+    <button class="btn btn-sm btn-primary" onclick="document.getElementById('logCallOverlay').style.display='block'">Log Call</button>
+  </div>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+<div class="card" style="padding:16px;margin-bottom:18px">
+  <h3 style="margin-top:0">Customer Info</h3>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;font-size:13px">
+    <div><div class="muted">Phone</div><div>{{ customer.phone or '—' }}</div></div>
+    <div><div class="muted">Email</div><div>{{ customer.email or '—' }}</div></div>
+    <div><div class="muted">GSTIN</div><div>{{ customer.gstin or '—' }}</div></div>
+    <div><div class="muted">Credit Limit</div><div>{{ customer.credit_limit or '—' }}</div></div>
+    <div><div class="muted">Contact Frequency</div><div>{{ customer.contact_freq_days }} days</div></div>
+    <div><div class="muted">Last Contacted</div><div>{{ customer.last_contacted_at.strftime('%d %b %Y') if customer.last_contacted_at else 'Never' }}</div></div>
+  </div>
+  <div style="margin-top:12px"><div class="muted" style="font-size:12px">Billing Address</div><div>{{ customer.billing_address or '—' }}</div></div>
+  <div style="margin-top:8px"><div class="muted" style="font-size:12px">Shipping Address</div><div>{{ customer.shipping_address or '—' }}</div></div>
+</div>
+
+<div class="card" style="padding:16px;margin-bottom:18px">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <h3 style="margin-top:0">Orders</h3>
+    <a href="/sales/orders/new?customer_id={{ customer.id }}" class="btn btn-sm btn-outline">+ New Order</a>
+  </div>
+  {% if orders %}
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">Order</th><th style="padding:6px 8px">Date</th>
+        <th style="padding:6px 8px">Status</th><th style="padding:6px 8px">Total</th>
+        <th style="padding:6px 8px">Items</th><th style="padding:6px 8px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in orders %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 8px">{{ o.display_id or o.id[:8] }}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ o.created_at.strftime('%d %b %Y') if o.created_at else '—' }}</td>
+        <td style="padding:6px 8px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ order_status_colors.get(o.status, '#94a3b8') }}">{{ o.status }}</span></td>
+        <td style="padding:6px 8px">₹{{ '%.0f'|format(o.total_amount or 0) }}</td>
+        <td style="padding:6px 8px">{{ o.items|length }}</td>
+        <td style="padding:6px 8px"><a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted">No orders yet for this customer.</div>
+  {% endif %}
+</div>
+
+<div class="card" style="padding:16px">
+  <h3 style="margin-top:0">Call History</h3>
+  {% if call_logs %}
+  <table class="table" style="width:100%">
+    <thead><tr><th>Date</th><th>Outcome</th><th>Agent</th><th>Follow-up</th><th>Notes</th></tr></thead>
+    <tbody>
+      {% for log in call_logs %}
+      <tr>
+        <td>{{ log.contacted_at.strftime('%d %b %Y %H:%M') if log.contacted_at else '—' }}</td>
+        <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ outcome_colors.get(log.outcome, '#94a3b8') }}">{{ log.outcome.replace('_',' ').title() }}</span></td>
+        <td>{{ log.agent.name if log.agent else '—' }}</td>
+        <td>{{ log.follow_up_at.strftime('%d %b %Y') if log.follow_up_at else '—' }}{% if log.follow_up_at and log.follow_up_done %} ✓{% endif %}</td>
+        <td>{{ log.notes or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="muted">No calls logged yet.</div>
+  {% endif %}
+</div>
+
+<div id="logCallOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100" onclick="if(event.target.id==='logCallOverlay')this.style.display='none'">
+  <div style="position:absolute;top:0;right:0;height:100%;width:380px;max-width:90vw;background:var(--bg-card);padding:20px;overflow-y:auto" onclick="event.stopPropagation()">
+    <h3 style="margin-top:0">Log Call — {{ customer.name }}</h3>
+    <form method="post" action="/sales/contacts/{{ customer.id }}/log-call">
+      <label style="font-size:12px;color:var(--text-muted)">Contacted at</label>
+      <input type="datetime-local" name="contacted_at" id="dContactedAt" style="width:100%;margin-bottom:10px">
+
+      <label style="font-size:12px;color:var(--text-muted)">Outcome</label>
+      <select name="outcome" id="dOutcome" onchange="document.getElementById('dFollowUpField').style.display = this.value==='CALLBACK' ? 'block' : 'none'; document.getElementById('dFollowUp').required = this.value==='CALLBACK';" style="width:100%;margin-bottom:10px" required>
+        {% for o in outcome_choices %}<option value="{{ o }}">{{ o.replace('_',' ').title() }}</option>{% endfor %}
+      </select>
+
+      <div id="dFollowUpField" style="display:none;margin-bottom:10px">
+        <label style="font-size:12px;color:var(--text-muted)">Follow-up date <span style="color:#ef4444">*</span></label>
+        <input type="date" name="follow_up_at" id="dFollowUp" style="width:100%">
+      </div>
+
+      <label style="font-size:12px;color:var(--text-muted)">Notes</label>
+      <textarea name="notes" rows="3" style="width:100%;margin-bottom:14px"></textarea>
+
+      <button type="submit" class="btn btn-primary" style="width:100%">Save Call Log</button>
+    </form>
+  </div>
+</div>
+<script>document.getElementById('dContactedAt').value = new Date().toISOString().slice(0,16);</script>
+{% endblock %}

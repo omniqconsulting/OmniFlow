@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}New Customer{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:18px">
+  <h2 class="page-title">New Customer</h2>
+</div>
+
+<div class="card" style="padding:20px;max-width:600px">
+  <form method="post" action="/sales/contacts/create">
+    <label style="font-size:12px;color:var(--text-muted)">Name *</label>
+    <input name="name" required style="width:100%;margin-bottom:10px">
+
+    <label style="font-size:12px;color:var(--text-muted)">Contact Person</label>
+    <input name="contact_person" style="width:100%;margin-bottom:10px">
+
+    <label style="font-size:12px;color:var(--text-muted)">Phone</label>
+    <input name="phone" style="width:100%;margin-bottom:10px">
+
+    <label style="font-size:12px;color:var(--text-muted)">Email</label>
+    <input name="email" type="email" style="width:100%;margin-bottom:10px">
+
+    <label style="font-size:12px;color:var(--text-muted)">Tier</label>
+    <select name="customer_tier" style="width:100%;margin-bottom:10px">
+      {% for t in tier_choices %}<option value="{{ t }}" {{ 'selected' if t == 'UNRANKED' else '' }}>{{ t }}</option>{% endfor %}
+    </select>
+
+    <label style="font-size:12px;color:var(--text-muted)">Contact Frequency (days)</label>
+    <input name="contact_freq_days" type="number" value="30" style="width:100%;margin-bottom:10px">
+
+    <label style="font-size:12px;color:var(--text-muted)">GSTIN</label>
+    <input name="gstin" style="width:100%;margin-bottom:10px">
+
+    <label style="font-size:12px;color:var(--text-muted)">Credit Limit</label>
+    <input name="credit_limit" type="number" step="0.01" style="width:100%;margin-bottom:10px">
+
+    {% if agents %}
+    <label style="font-size:12px;color:var(--text-muted)">Assign to</label>
+    <select name="assigned_agent_id" style="width:100%;margin-bottom:10px">
+      <option value="">Myself</option>
+      {% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
+    </select>
+    {% endif %}
+
+    <label style="font-size:12px;color:var(--text-muted)">Billing Address</label>
+    <textarea name="billing_address" rows="2" style="width:100%;margin-bottom:10px"></textarea>
+
+    <label style="font-size:12px;color:var(--text-muted)">Shipping Address</label>
+    <textarea name="shipping_address" rows="2" style="width:100%;margin-bottom:10px"></textarea>
+
+    <label style="font-size:12px;color:var(--text-muted)">Notes</label>
+    <textarea name="notes" rows="3" style="width:100%;margin-bottom:14px"></textarea>
+
+    <div style="display:flex;gap:8px">
+      <button type="submit" class="btn btn-primary">Create Customer</button>
+      <a href="/sales/contacts/all" class="btn btn-outline">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

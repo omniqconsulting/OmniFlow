@@ -86,13 +86,18 @@ def _unread(db: Session, user: User) -> int:
 
 def _nav_ctx(db: Session, user: User) -> dict:
     from .constants import has_feature
+    from .auth import get_user_modules
     tenant = db.query(Tenant).get(user.tenant_id)
+    modules = get_user_modules(user)
     return {
-        "has_inventory":       has_feature(tenant, "INVENTORY",       db),
-        "has_fms":             has_feature(tenant, "FMS",             db),
-        "has_knowledge_repo":  has_feature(tenant, "KNOWLEDGE_REPO",  db),
-        "has_checklists":      has_feature(tenant, "CHECKLISTS",      db),
-        "has_ai":              has_feature(tenant, "ASK_AI",          db),
+        "has_inventory":         has_feature(tenant, "INVENTORY",       db),
+        "has_fms":               has_feature(tenant, "FMS",             db),
+        "has_knowledge_repo":    has_feature(tenant, "KNOWLEDGE_REPO",  db),
+        "has_checklists":        has_feature(tenant, "CHECKLISTS",      db),
+        "has_ai":                has_feature(tenant, "ASK_AI",          db),
+        "has_sales":             "SALES"     in modules,
+        "has_inventory_module":  "INVENTORY" in modules,
+        "user_modules":          modules,
     }
 
 

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Today's Queue{% endblock %}
+{% block content %}
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Today's Queue</h2>
+    <div class="muted">{{ queue.overdue_count }} follow-up(s)/overdue contact(s), {{ queue.total }} total assigned</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/sales/contacts/all" class="btn btn-sm btn-outline">All Customers</a>
+  </div>
+</div>
+
+{% if user.role in ('ADMIN','MANAGER') and agents %}
+<form method="get" action="/sales/contacts" style="margin-bottom:18px">
+  <select name="agent_id" onchange="this.form.submit()" style="min-width:220px">
+    {% for a in agents %}
+    <option value="{{ a.id }}" {{ 'selected' if a.id == selected_agent_id else '' }}>{{ a.name }}</option>
+    {% endfor %}
+  </select>
+</form>
+{% endif %}
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+{% macro cust_card(e) %}
+<div class="card" style="padding:12px 14px;margin-bottom:8px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+    <div>
+      <a href="/sales/contacts/{{ e.customer.id }}" style="font-weight:600;color:var(--text-strong);text-decoration:none">{{ e.customer.name }}</a>
+      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(e.customer.customer_tier, '#94a3b8') }};margin-left:6px">{{ e.customer.customer_tier }}</span>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px">
+        {{ e.customer.phone or '—' }} ·
+        Last contacted: {{ e.last_contacted.strftime('%d %b %Y') if e.last_contacted else 'Never' }}
+        ({{ e.days_since_contact if e.days_since_contact < 9999 else 'N/A' }} days)
+        {% if e.next_follow_up %} · Follow-up: {{ e.next_follow_up.strftime('%d %b %Y') }}{% endif %}
+      </div>
+    </div>
+    <button class="btn btn-xs btn-primary" onclick="openLogCall('{{ e.customer.id }}','{{ e.customer.name }}')">Log Call</button>
+  </div>
+</div>
+{% endmacro %}
+
+<details open style="margin-bottom:14px">
+  <summary style="cursor:pointer;font-weight:700;color:#ef4444;padding:8px 0">🔴 Follow-up due ({{ queue.p1|length }})</summary>
+  {% for e in queue.p1 %}{{ cust_card(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}
+</details>
+
+<details open style="margin-bottom:14px">
+  <summary style="cursor:pointer;font-weight:700;color:#f59e0b;padding:8px 0">🟠 Overdue contact ({{ queue.p2|length }})</summary>
+  {% for e in queue.p2 %}{{ cust_card(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}
+</details>
+
+<details style="margin-bottom:14px">
+  <summary style="cursor:pointer;font-weight:700;color:#eab308;padding:8px 0">🟡 Contact soon ({{ queue.p3|length }})</summary>
+  {% for e in queue.p3 %}{{ cust_card(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}
+</details>
+
+<details style="margin-bottom:14px">
+  <summary style="cursor:pointer;font-weight:700;color:#22c55e;padding:8px 0">🟢 On track ({{ queue.p4|length }})</summary>
+  {% for e in queue.p4 %}{{ cust_card(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}
+</details>
+
+{% if queue.total == 0 %}
+<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
+  <div style="font-size:40px;margin-bottom:12px">📭</div>
+  <div style="font-size:15px;font-weight:500">No customers assigned yet</div>
+</div>
+{% endif %}
+
+<!-- Log call slide-over -->
+<div id="logCallOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100" onclick="closeLogCall(event)">
+  <div style="position:absolute;top:0;right:0;height:100%;width:380px;max-width:90vw;background:var(--bg-card);padding:20px;overflow-y:auto" onclick="event.stopPropagation()">
+    <h3 style="margin-top:0">Log Call — <span id="logCallCustName"></span></h3>
+    <form method="post" id="logCallForm">
+      <label style="font-size:12px;color:var(--text-muted)">Contacted at</label>
+      <input type="datetime-local" name="contacted_at" id="logCallContactedAt" style="width:100%;margin-bottom:10px">
+
+      <label style="font-size:12px;color:var(--text-muted)">Outcome</label>
+      <select name="outcome" id="logCallOutcome" onchange="toggleFollowUp()" style="width:100%;margin-bottom:10px" required>
+        {% for o in outcome_choices %}
+        <option value="{{ o }}">{{ o.replace('_',' ').title() }}</option>
+        {% endfor %}
+      </select>
+
+      <div id="followUpField" style="display:none;margin-bottom:10px">
+        <label style="font-size:12px;color:var(--text-muted)">Follow-up date <span style="color:#ef4444">*</span></label>
+        <input type="date" name="follow_up_at" id="logCallFollowUp" style="width:100%">
+      </div>
+
+      <label style="font-size:12px;color:var(--text-muted)">Notes</label>
+      <textarea name="notes" rows="3" style="width:100%;margin-bottom:14px"></textarea>
+
+      <button type="submit" class="btn btn-primary" style="width:100%">Save Call Log</button>
+    </form>
+  </div>
+</div>
+
+<script>
+function openLogCall(customerId, customerName) {
+  document.getElementById('logCallCustName').textContent = customerName;
+  document.getElementById('logCallForm').action = '/sales/contacts/' + customerId + '/log-call';
+  document.getElementById('logCallContactedAt').value = new Date().toISOString().slice(0,16);
+  document.getElementById('logCallOverlay').style.display = 'block';
+}
+function closeLogCall(e) {
+  if (e.target.id === 'logCallOverlay') document.getElementById('logCallOverlay').style.display = 'none';
+}
+function toggleFollowUp() {
+  const isCallback = document.getElementById('logCallOutcome').value === 'CALLBACK';
+  const field = document.getElementById('followUpField');
+  field.style.display = isCallback ? 'block' : 'none';
+  document.getElementById('logCallFollowUp').required = isCallback;
+}
+</script>
+{% endblock %}

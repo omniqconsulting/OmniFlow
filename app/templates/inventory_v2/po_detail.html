@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ po.display_id }}{% endblock %}
+{% block content %}
+
+{% set status_colors = {'DRAFT':'#94a3b8','SUBMITTED':'#3b82f6','APPROVED':'#8b5cf6','PARTIALLY_RECEIVED':'#f59e0b','RECEIVED':'#22c55e','CANCELLED':'#ef4444'} %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+  <div>
+    <h2 class="page-title">{{ po.display_id or 'Purchase Order' }}
+      <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;color:#fff;background:{{ status_colors.get(po.status,'#94a3b8') }};margin-left:8px;vertical-align:middle">{{ po.status }}</span>
+    </h2>
+    <div class="muted">Vendor: {{ po.vendor_name_snapshot or '—' }}</div>
+  </div>
+  <a href="/inventory-v2/purchase-orders" class="btn btn-sm btn-gray">← Purchase Orders</a>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+<div class="card" style="padding:18px;margin-bottom:16px">
+  <table style="width:100%;font-size:13px">
+    <tr><td style="padding:5px 0;color:var(--text-muted);width:180px">Expected Arrival</td><td>{{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</td></tr>
+    <tr><td style="padding:5px 0;color:var(--text-muted)">Notes</td><td>{{ po.notes or '—' }}</td></tr>
+    <tr><td style="padding:5px 0;color:var(--text-muted)">Created By</td><td>{{ po.created_by.name if po.created_by else '—' }}</td></tr>
+    {% if po.approved_by %}
+    <tr><td style="padding:5px 0;color:var(--text-muted)">Approved By</td><td>{{ po.approved_by.name }}</td></tr>
+    {% endif %}
+  </table>
+
+  <div style="display:flex;gap:8px;margin-top:16px">
+    {% if po.status == 'DRAFT' %}
+    <form method="post" action="/inventory-v2/purchase-orders/{{ po.id }}/submit" onsubmit="return confirm('Submit this PO?')">
+      <button type="submit" class="btn btn-sm btn-primary">Submit</button>
+    </form>
+    {% endif %}
+    {% if po.status == 'SUBMITTED' and user.role in ('ADMIN','MANAGER') %}
+    <form method="post" action="/inventory-v2/purchase-orders/{{ po.id }}/approve" onsubmit="return confirm('Approve this PO?')">
+      <button type="submit" class="btn btn-sm btn-primary">Approve</button>
+    </form>
+    {% endif %}
+    {% if po.status not in ('RECEIVED','CANCELLED') and user.role in ('ADMIN','MANAGER') %}
+    <form method="post" action="/inventory-v2/purchase-orders/{{ po.id }}/cancel" onsubmit="return confirm('Cancel this PO? This cannot be undone.')">
+      <button type="submit" class="btn btn-sm btn-gray">Cancel PO</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="padding:18px">
+  <h3 style="margin-top:0">Line Items</h3>
+  {% if po.status in ('SUBMITTED','APPROVED','PARTIALLY_RECEIVED') %}
+  <form method="post" action="/inventory-v2/purchase-orders/{{ po.id }}/receive">
+  {% endif %}
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Ordered</th>
+        <th style="padding:6px 8px">Received</th><th style="padding:6px 8px">Unit Cost</th>
+        {% if po.status in ('SUBMITTED','APPROVED','PARTIALLY_RECEIVED') %}<th style="padding:6px 8px">Receive Now</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in po.items %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 8px">{{ item.product.name if item.product else '—' }}</td>
+        <td style="padding:6px 8px">{{ item.qty_ordered }} {{ item.unit.abbreviation if item.unit else '' }}</td>
+        <td style="padding:6px 8px">{{ item.qty_received }}</td>
+        <td style="padding:6px 8px">{{ item.unit_cost or '—' }}</td>
+        {% if po.status in ('SUBMITTED','APPROVED','PARTIALLY_RECEIVED') %}
+        <td style="padding:6px 8px">
+          {% if item.qty_received < item.qty_ordered %}
+          <input type="hidden" name="po_item_id[]" value="{{ item.id }}">
+          <input type="number" name="qty_received[]" step="any" min="0" max="{{ item.qty_ordered - item.qty_received }}" style="width:80px" placeholder="0">
+          <input type="number" name="unit_cost[]" step="any" min="0" style="width:80px" placeholder="cost" value="{{ item.unit_cost or '' }}">
+          {% else %}
+          <span style="color:var(--text-faint)">Fully received</span>
+          {% endif %}
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if po.status in ('SUBMITTED','APPROVED','PARTIALLY_RECEIVED') %}
+  <button type="submit" class="btn btn-sm btn-primary" style="margin-top:12px">Record Receipt</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

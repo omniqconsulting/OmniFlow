@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Sales Insights{% endblock %}
+{% block content %}
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+{% set sev_colors = {'LOW':'#94a3b8','MEDIUM':'#f59e0b','HIGH':'#ef4444','CRITICAL':'#b91c1c'} %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Sales Insights</h2>
+    <div class="muted">AI-powered tiering, anomaly detection, and trends</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/sales/analytics/anomalies" class="btn btn-sm btn-outline">Anomaly Feed{% if unread_alert_count %} ({{ unread_alert_count }}){% endif %}</a>
+    <a href="/sales/analytics/tiers/customers" class="btn btn-sm btn-outline">Customer Tiers</a>
+    <a href="/sales/analytics/tiers/products" class="btn btn-sm btn-outline">Product Tiers</a>
+    <a href="/sales/analytics/volume" class="btn btn-sm btn-outline">Volume Report</a>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:20px">
+  <div class="card" style="padding:16px">
+    <div class="muted" style="font-size:12px">Revenue (This Month)</div>
+    <div style="font-size:22px;font-weight:700;margin-top:4px">₹{{ '%.0f'|format(this_month_revenue) }}</div>
+    {% if revenue_change_pct is not none %}
+    <div style="font-size:12px;margin-top:4px;color:{{ '#22c55e' if revenue_change_pct >= 0 else '#ef4444' }}">
+      {{ '▲' if revenue_change_pct >= 0 else '▼' }} {{ '%.1f'|format(revenue_change_pct|abs) }}% vs last month
+    </div>
+    {% else %}
+    <div class="muted" style="font-size:12px;margin-top:4px">No data last month</div>
+    {% endif %}
+  </div>
+  <div class="card" style="padding:16px">
+    <div class="muted" style="font-size:12px">Gross Margin (This Month)</div>
+    <div style="font-size:22px;font-weight:700;margin-top:4px">{{ '%.1f'|format(gross_margin_pct) ~ '%' if gross_margin_pct is not none else '—' }}</div>
+  </div>
+  <div class="card" style="padding:16px">
+    <div class="muted" style="font-size:12px">Active Tier-A Customers</div>
+    <div style="font-size:22px;font-weight:700;margin-top:4px">{{ active_tier_a_customers }}</div>
+  </div>
+  <div class="card" style="padding:16px">
+    <div class="muted" style="font-size:12px">Unread Anomaly Alerts</div>
+    <a href="/sales/analytics/anomalies" style="font-size:22px;font-weight:700;margin-top:4px;display:block;color:{{ '#ef4444' if unread_alert_count else 'var(--text-strong)' }}">{{ unread_alert_count }}</a>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:14px;margin-bottom:20px" class="responsive-grid">
+  <div class="card" style="padding:16px">
+    <h3 style="margin-top:0;font-size:14px">Recent Anomaly Alerts</h3>
+    {% if recent_alerts %}
+    <div style="display:flex;flex-direction:column;gap:8px">
+      {% for a in recent_alerts %}
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--border-subtle);border-radius:8px;{{ '' if a.is_read else 'background:rgba(239,68,68,0.06)' }}">
+        <div>
+          <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ sev_colors.get(a.severity, '#94a3b8') }}">{{ a.severity }}</span>
+          <span style="font-size:12px;font-weight:600;margin-left:4px">{{ a.alert_type.replace('_',' ')|title }}</span>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">{{ a.detail }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="muted">No active anomalies.</div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding:16px">
+    <h3 style="margin-top:0;font-size:14px">Customers by Tier</h3>
+    {% for t, cnt in customer_tier_dist.items() %}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px">
+      <span style="width:64px;font-weight:700;color:{{ tier_colors.get(t,'#94a3b8') }}">{{ t }}</span>
+      <div style="flex:1;background:var(--border-subtle);border-radius:6px;height:8px;overflow:hidden">
+        <div style="height:8px;border-radius:6px;background:{{ tier_colors.get(t,'#94a3b8') }};width:{{ (cnt / (customer_tier_dist.values()|sum or 1) * 100)|round(1) }}%"></div>
+      </div>
+      <span style="width:30px;text-align:right">{{ cnt }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="card" style="padding:16px">
+    <h3 style="margin-top:0;font-size:14px">Products by Tier</h3>
+    {% for t, cnt in product_tier_dist.items() %}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px">
+      <span style="width:64px;font-weight:700;color:{{ tier_colors.get(t,'#94a3b8') }}">{{ t }}</span>
+      <div style="flex:1;background:var(--border-subtle);border-radius:6px;height:8px;overflow:hidden">
+        <div style="height:8px;border-radius:6px;background:{{ tier_colors.get(t,'#94a3b8') }};width:{{ (cnt / (product_tier_dist.values()|sum or 1) * 100)|round(1) }}%"></div>
+      </div>
+      <span style="width:30px;text-align:right">{{ cnt }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="responsive-grid">
+  <div class="card" style="padding:16px">
+    <h3 style="margin-top:0;font-size:14px">Top 5 Products (Last 30 Days)</h3>
+    {% if top_products %}
+    <table style="width:100%;font-size:12px;border-collapse:collapse">
+      <tbody>
+        {% for p in top_products %}
+        <tr style="border-bottom:1px solid var(--border-subtle)">
+          <td style="padding:5px 4px">{{ p.name }}</td>
+          <td style="padding:5px 4px;text-align:right;font-weight:600">₹{{ '%.0f'|format(p.revenue or 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="muted">No order data in the last 30 days.</div>{% endif %}
+  </div>
+  <div class="card" style="padding:16px">
+    <h3 style="margin-top:0;font-size:14px">Top 5 Customers (Last 30 Days)</h3>
+    {% if top_customers %}
+    <table style="width:100%;font-size:12px;border-collapse:collapse">
+      <tbody>
+        {% for c in top_customers %}
+        <tr style="border-bottom:1px solid var(--border-subtle)">
+          <td style="padding:5px 4px">{{ c.name }}</td>
+          <td style="padding:5px 4px;text-align:right;font-weight:600">₹{{ '%.0f'|format(c.value or 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="muted">No order data in the last 30 days.</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

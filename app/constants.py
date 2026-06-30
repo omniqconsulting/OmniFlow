@@ -63,6 +63,10 @@ FEATURE_CATALOG = {
     # ── Modules (domain-agnostic, SA opts-in per tenant) ──────────────────────
     "FMS":                  ("Flow Board / Pipeline",        "Modules",      PLAN_PROFESSIONAL),
     "KNOWLEDGE_REPO":       ("Knowledge Repository",         "Modules",      PLAN_PROFESSIONAL),
+    "SALES_MODULE":         ("Sales CRM & Orders",           "Modules",      PLAN_PROFESSIONAL),
+    "INVENTORY_MODULE":     ("Godown / Stock Management",    "Modules",      PLAN_PROFESSIONAL),
+    "SALES_ANALYTICS":      ("Sales Intelligence & AI",      "Modules",      PLAN_PROFESSIONAL),
+    "SALES_BULK_OPS":       ("Sales Bulk Import/Export",     "Modules",      PLAN_PROFESSIONAL),
 }
 
 # Back-compat: keep the flat FEATURES dict so existing has_feature() calls work
@@ -71,10 +75,10 @@ FEATURES = {k: v[2] for k, v in FEATURE_CATALOG.items()}
 # ── Quantitative limits per plan ───────────────────────────────────────────────
 # None = unlimited
 PLAN_LIMITS = {
-    PLAN_TRIAL:        {"max_users": 3,    "max_branches": 1,    "max_checklist_templates": 5,    "max_tickets_open": 10,   "max_fms_flows": 1,    "ai_daily_limit": 0},
-    PLAN_STARTER:      {"max_users": 15,   "max_branches": 2,    "max_checklist_templates": 20,   "max_tickets_open": None, "max_fms_flows": 3,    "ai_daily_limit": 0},
-    PLAN_PROFESSIONAL: {"max_users": 30,   "max_branches": 5,    "max_checklist_templates": None, "max_tickets_open": None, "max_fms_flows": 10,   "ai_daily_limit": 5},
-    PLAN_ENTERPRISE:   {"max_users": None, "max_branches": None, "max_checklist_templates": None, "max_tickets_open": None, "max_fms_flows": None, "ai_daily_limit": 10},
+    PLAN_TRIAL:        {"max_users": 3,    "max_branches": 1,    "max_checklist_templates": 5,    "max_tickets_open": 10,   "max_fms_flows": 1,    "ai_daily_limit": 0,  "max_products": 20,   "max_price_lists": 1},
+    PLAN_STARTER:      {"max_users": 15,   "max_branches": 2,    "max_checklist_templates": 20,   "max_tickets_open": None, "max_fms_flows": 3,    "ai_daily_limit": 0,  "max_products": 100,  "max_price_lists": 3},
+    PLAN_PROFESSIONAL: {"max_users": 30,   "max_branches": 5,    "max_checklist_templates": None, "max_tickets_open": None, "max_fms_flows": 10,   "ai_daily_limit": 5,  "max_products": -1,   "max_price_lists": -1},
+    PLAN_ENTERPRISE:   {"max_users": None, "max_branches": None, "max_checklist_templates": None, "max_tickets_open": None, "max_fms_flows": None, "ai_daily_limit": 10, "max_products": -1,   "max_price_lists": -1},
 }
 
 LIMIT_LABELS = {
@@ -202,7 +206,34 @@ WHATSAPP_TEMPLATES = {
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
         "variable_order": ["reason"],
     },
+    # Sales module WhatsApp templates
+    "omniflow_stock_updated": {
+        "msg91_template_id": None,
+        "variable_order": ["recipient_name", "product_name", "qty_added", "new_available"],
+    },
+    "omniflow_order_placed": {
+        "msg91_template_id": None,
+        "variable_order": ["recipient_name", "order_id", "customer_name", "item_count"],
+    },
+    "omniflow_stock_reserved": {
+        "msg91_template_id": None,
+        "variable_order": ["recipient_name", "order_id", "product_name", "qty_reserved"],
+    },
+    "omniflow_follow_up_reminder": {
+        "msg91_template_id": None,
+        "variable_order": ["agent_name", "overdue_count", "customer_names_csv"],
+    },
+    "omniflow_low_stock_alert": {
+        "msg91_template_id": None,
+        "variable_order": ["recipient_name", "product_name", "qty_available", "threshold"],
+    },
+    "omniflow_order_dispatched": {
+        "msg91_template_id": None,
+        "variable_order": ["agent_name", "order_id", "customer_name", "dispatch_date"],
+    },
 }
+
+SALES_MARGIN_FLOOR_PCT = float(os.environ.get("SALES_MARGIN_FLOOR_PCT", "10.0"))
 
 MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "")
 MSG91_WA_NUMBER = os.environ.get("MSG91_WA_NUMBER", "")

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Volume & Revenue{% endblock %}
+{% block content %}
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Volume &amp; Revenue Breakdown</h2>
+    <div class="muted">By product, last 90 days of confirmed/dispatched/delivered orders</div>
+  </div>
+  <a href="/sales/analytics" class="btn btn-sm btn-outline">← Insights</a>
+</div>
+
+{% if rows %}
+<table class="table" style="width:100%">
+  <thead><tr>
+    <th>Product</th><th>SKU</th><th>Tier</th><th>Revenue (90d)</th><th>Volume (90d)</th>
+  </tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td><a href="/sales/catalog/{{ r.id }}">{{ r.name }}</a></td>
+      <td style="font-size:12px;color:var(--text-faint)">{{ r.sku_code }}</td>
+      <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(r.product_tier, '#94a3b8') }}">{{ r.product_tier }}</span></td>
+      <td>₹{{ '%.0f'|format(r.revenue or 0) }}</td>
+      <td>{{ '%.1f'|format(r.volume or 0) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
+  <div style="font-size:40px;margin-bottom:12px">📊</div>
+  <div style="font-size:15px;font-weight:500">No order data in the last 90 days</div>
+</div>
+{% endif %}
+{% endblock %}

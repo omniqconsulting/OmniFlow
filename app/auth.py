@@ -1,3 +1,4 @@
+import json as _json
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
@@ -48,4 +49,17 @@ def require_manager(user: User = Depends(get_current_user)) -> User:
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(status_code=403, detail="Manager or Admin only")
     return user
+
+def get_user_modules(user) -> list:
+    """Return list of module tags accessible to this user.
+    Admin and Manager always get all modules."""
+    if user.role in ("ADMIN", "MANAGER"):
+        return ["SALES", "INVENTORY"]
+    try:
+        return _json.loads(user.module_access_json or "[]")
+    except Exception:
+        return []
+
+def has_module(user, module: str) -> bool:
+    return module in get_user_modules(user)
 

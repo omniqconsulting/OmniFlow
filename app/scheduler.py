@@ -1046,6 +1046,85 @@ def delegation_unacknowledged_monitor():
         db.close()
 
 
+def job_follow_up_reminders():
+    """Brief 4: CRM follow-up reminders, daily 5 PM IST (11:30 UTC)."""
+    from .database import SessionLocal
+    from .sales_contacts import send_follow_up_reminders
+    db = SessionLocal()
+    try:
+        send_follow_up_reminders(db)
+    except Exception as e:
+        logger.error("job_follow_up_reminders error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def job_tier_classification():
+    """Brief 7: weekly A/B/C/D tier classification for products and customers."""
+    from .database import SessionLocal, Tenant
+    from .constants import has_feature
+    from .sales_ai import run_tier_classification
+    db = SessionLocal()
+    try:
+        tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
+        for tenant in tenants:
+            if has_feature(tenant, "SALES_ANALYTICS", db):
+                run_tier_classification(db, tenant.id)
+    except Exception as e:
+        logger.error("job_tier_classification error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def job_anomaly_detection():
+    """Brief 7: daily AI-narrated anomaly detection for the Sales module."""
+    import anthropic
+    from .database import SessionLocal, Tenant
+    from .constants import has_feature
+    from .sales_ai import run_anomaly_detection
+    client = anthropic.Anthropic()
+    db = SessionLocal()
+    try:
+        tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
+        for tenant in tenants:
+            if has_feature(tenant, "SALES_ANALYTICS", db):
+                run_anomaly_detection(db, tenant.id, client)
+    except Exception as e:
+        logger.error("job_anomaly_detection error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def job_release_expired_reservations():
+    """Brief 5: every 2 hours — auto-release ACTIVE reservations past their expires_at."""
+    from .database import SessionLocal, SalesOrder, StockReservation
+    from .sales_inventory import release_all_reservations
+    db = SessionLocal()
+    try:
+        expired_order_ids = (
+            db.query(StockReservation.order_id.distinct())
+            .filter(StockReservation.status    == "ACTIVE",
+                    StockReservation.expires_at != None,
+                    StockReservation.expires_at <  datetime.utcnow())
+            .all()
+        )
+        for (order_id,) in expired_order_ids:
+            tenant_id = db.query(SalesOrder.tenant_id).filter(
+                SalesOrder.id == order_id
+            ).scalar()
+            if tenant_id:
+                release_all_reservations(db, order_id, tenant_id, reason="Auto-expired after 24h")
+        db.commit()
+    except Exception as e:
+        logger.error("job_release_expired_reservations error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
 # ── Start / stop ──────────────────────────────────────────────────────────────
 
 def start_scheduler():
@@ -1082,9 +1161,23 @@ def start_scheduler():
                       IntervalTrigger(minutes=30), id="deleg_tat",    replace_existing=True)
     scheduler.add_job(fms_stage_tat_monitor,
                       IntervalTrigger(minutes=30), id="fms_tat",      replace_existing=True)
+    # Brief 4 — CRM follow-up reminders, daily 5 PM IST
+    scheduler.add_job(job_follow_up_reminders,
+                      CronTrigger(hour=11, minute=30, timezone="UTC"), id="crm_followup", replace_existing=True)
+    # Brief 5 — auto-release expired stock reservations
+    scheduler.add_job(job_release_expired_reservations,
+                      IntervalTrigger(hours=2), id="release_expired_reservations", replace_existing=True)
+    # Brief 7 — tier classification: every Monday 2 AM IST (Sun 20:30 UTC)
+    scheduler.add_job(job_tier_classification,
+                      CronTrigger(day_of_week="sun", hour=20, minute=30, timezone="UTC"),
+                      id="sales_tier_classification", replace_existing=True)
+    # Brief 7 — anomaly detection: daily 6 AM IST (00:30 UTC)
+    scheduler.add_job(job_anomaly_detection,
+                      CronTrigger(hour=0, minute=30, timezone="UTC"),
+                      id="sales_anomaly_detection", replace_existing=True)
     if not scheduler.running:
         scheduler.start()
-    logger.info("Scheduler started (13 jobs)")
+    logger.info("Scheduler started (17 jobs)")
 
 
 def stop_scheduler():

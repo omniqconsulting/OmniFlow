@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload Orders{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:18px">
+  <h2 class="page-title">Bulk Upload Orders</h2>
+  <a href="/sales/orders" class="btn btn-sm btn-gray">← Back to Orders</a>
+</div>
+
+<div class="card" style="padding:20px;max-width:820px">
+  <p style="font-size:13px;color:var(--text-muted)">
+    1. Download the <a href="/sales/orders/bulk-template">CSV template</a>.<br>
+    2. One row = one line item. Rows with the same <code>customer_phone</code> are grouped into one order.<br>
+    3. Orders are created as <b>DRAFT</b> — an agent must manually confirm each one to trigger stock reservation.
+  </p>
+
+  <div style="display:flex;gap:10px;align-items:center;margin:16px 0">
+    <input type="file" id="bulk-file" accept=".csv">
+    <button onclick="validateBulk()" class="btn btn-sm btn-primary">Validate</button>
+  </div>
+
+  <div id="bulk-result"></div>
+</div>
+
+<script>
+let _bulkOrders = [];
+
+async function validateBulk() {
+  const fileInput = document.getElementById('bulk-file');
+  if (!fileInput.files.length) { alert('Choose a CSV file first'); return; }
+  const fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  const res = await fetch('/sales/orders/bulk-upload', { method: 'POST', body: fd });
+  if (!res.ok) { alert('Upload failed'); return; }
+  const data = await res.json();
+  _bulkOrders = data.orders;
+
+  let html = `<div style="font-size:14px;margin:14px 0"><b>${data.order_count}</b> order(s) to be created. <b>${data.unavailable_count}</b> item(s) flagged as unavailable.</div>`;
+
+  if (data.errors.length) {
+    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:14px">';
+    html += '<thead><tr style="border-bottom:1px solid var(--border-subtle)"><th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Row</th><th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Error</th></tr></thead><tbody>';
+    data.errors.forEach(e => {
+      html += `<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:6px;font-size:12px">${e.row}</td><td style="padding:6px;font-size:12px;color:#f87171">${e.error}</td></tr>`;
+    });
+    html += '</tbody></table>';
+  }
+
+  data.orders.forEach(o => {
+    html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;padding:10px;margin-bottom:10px">`;
+    html += `<div style="font-weight:600;font-size:13px">${o.customer_name} (${o.customer_phone})</div>`;
+    html += '<table style="width:100%;font-size:12px;margin-top:6px">';
+    o.items.forEach(it => {
+      const flag = it.unavailable ? `<span style="color:#f87171">⚠ only ${it.available} available</span>` : '✅';
+      html += `<tr><td>${it.product_name}</td><td>qty ${it.qty}</td><td>${it.manual_price !== null ? '₹' + it.manual_price : 'no price'}</td><td>${flag}</td></tr>`;
+    });
+    html += '</table></div>';
+  });
+
+  if (data.order_count > 0) {
+    html += `<button class="btn btn-sm btn-primary" onclick="confirmBulk()">Create ${data.order_count} Draft Order(s)</button>`;
+  }
+  document.getElementById('bulk-result').innerHTML = html;
+}
+
+async function confirmBulk() {
+  const res = await fetch('/sales/orders/bulk-upload/confirm', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ orders: _bulkOrders }),
+  });
+  const data = await res.json();
+  document.getElementById('bulk-result').innerHTML =
+    `<div class="alert alert-green">${data.created} draft order(s) created. <a href="/sales/orders">View orders</a></div>`;
+}
+</script>
+{% endblock %}

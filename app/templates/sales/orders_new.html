@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}New Order{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:18px">
+  <h2 class="page-title">New Order</h2>
+  <a href="/sales/orders" class="btn btn-sm btn-gray">← Back to Orders</a>
+</div>
+
+{% if request.query_params.get('err') %}<div class="alert alert-red" style="margin-bottom:14px">{{ request.query_params.get('err') }}</div>{% endif %}
+
+<div class="card" style="padding:20px;max-width:600px">
+  <p style="font-size:13px;color:var(--text-muted);margin-top:0">
+    Select the customer to start building the order. You'll add line items and confirm on the next page.
+  </p>
+  <form method="post" action="/sales/orders/create">
+    <input type="hidden" name="call_log_id" value="{{ call_log_id }}">
+
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--text-muted)">Customer *</label>
+      <select name="customer_id" required style="width:100%">
+        <option value="">— Select customer —</option>
+        {% for c in customers %}
+        <option value="{{ c.id }}" {{ 'selected' if customer and c.id == customer.id else '' }}>{{ c.name }} ({{ c.phone or 'no phone' }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--text-muted)">Payment Terms</label>
+      <input name="payment_terms" placeholder="e.g. Net 30">
+    </div>
+
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--text-muted)">Delivery Address</label>
+      <textarea name="delivery_address" rows="2" placeholder="Defaults to customer's shipping address"></textarea>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--text-muted)">Expected Delivery Date</label>
+      <input type="date" name="expected_delivery_date">
+    </div>
+
+    <div style="margin-bottom:16px">
+      <label style="font-size:12px;color:var(--text-muted)">Notes</label>
+      <textarea name="notes" rows="2"></textarea>
+    </div>
+
+    <button type="submit" class="btn btn-sm btn-primary">Create Draft Order</button>
+  </form>
+</div>
+{% endblock %}

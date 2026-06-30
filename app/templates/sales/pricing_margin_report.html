@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Margin Report{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Margin Report</h2>
+    <div class="muted">Gross margin across confirmed orders</div>
+  </div>
+  <a href="/sales/pricing" class="btn btn-sm btn-outline">← Pricing Overview</a>
+</div>
+
+<form method="get" action="/sales/pricing/margin-report" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">
+  <select name="group_by">
+    <option value="product" {{ 'selected' if group_by == 'product' else '' }}>Group by Product</option>
+    <option value="customer" {{ 'selected' if group_by == 'customer' else '' }}>Group by Customer</option>
+    <option value="agent" {{ 'selected' if group_by == 'agent' else '' }}>Group by Agent</option>
+  </select>
+  <select name="period">
+    <option value="7d" {{ 'selected' if period == '7d' else '' }}>Last 7 days</option>
+    <option value="30d" {{ 'selected' if period == '30d' else '' }}>Last 30 days</option>
+    <option value="90d" {{ 'selected' if period == '90d' else '' }}>Last 90 days</option>
+    <option value="all" {{ 'selected' if period == 'all' else '' }}>All time</option>
+  </select>
+  <button type="submit" class="btn btn-sm btn-outline">Apply</button>
+</form>
+
+{% if results %}
+<table style="width:100%;font-size:13px;border-collapse:collapse">
+  <thead>
+    <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+      <th style="padding:6px 8px">{{ group_by|capitalize }}</th>
+      <th style="padding:6px 8px">Revenue</th><th style="padding:6px 8px">Cost</th>
+      <th style="padding:6px 8px">Gross Margin</th><th style="padding:6px 8px">Orders</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in results %}
+    <tr style="border-bottom:1px solid var(--border-subtle)">
+      <td style="padding:6px 8px">{{ r.entity_name }}</td>
+      <td style="padding:6px 8px">₹{{ '%.2f'|format(r.total_revenue) }}</td>
+      <td style="padding:6px 8px">₹{{ '%.2f'|format(r.total_cost) }}</td>
+      <td style="padding:6px 8px">
+        {% if r.gross_margin is not none %}
+        <span style="color:{{ '#22c55e' if r.gross_margin >= 20 else ('#f59e0b' if r.gross_margin >= 0 else '#ef4444') }};font-weight:600">{{ '%.1f'|format(r.gross_margin) }}%</span>
+        {% else %}—{% endif %}
+      </td>
+      <td style="padding:6px 8px">{{ r.order_count }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="muted">No confirmed orders in this period.</div>
+{% endif %}
+
+{% endblock %}

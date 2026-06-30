@@ -10,7 +10,7 @@ import json as _json, os
 from markupsafe import Markup as _Markup
 
 from .database import (
-    get_db, new_id,
+    get_db, new_id, seed_default_uoms,
     SuperAdmin, Tenant, User, WhatsAppMessageLog,
     Ticket, ChecklistTemplate, ChecklistAssignment,
     TenantFeatureOverride, TenantLabelConfig, PlanUpgradeRequest,
@@ -306,6 +306,7 @@ def sa_new_tenant(request: Request,
             tenant_id=tenant.id, feature=feature, enabled=enabled,
             note="Set at tenant creation by SA",
         ))
+    seed_default_uoms(db, tenant.id)
     db.commit()
     return _redirect(f"/superadmin/tenants/{tenant.id}?msg=created")
 
