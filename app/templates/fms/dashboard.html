@@ -546,7 +546,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
       <tbody>
       {% for row in stage_tickets %}{% set t = row.ticket %}
       {% set can_act = user.role in ('ADMIN','MANAGER') or t.current_assignee_id == user.id %}
-      <tr>
+      <tr data-ticket-id="{{ t.id }}" data-cf='{{ row.cf_all | tojson | replace("'", "&#39;") }}'>
         {% if next_stage_for_bulk and user.role in ('ADMIN','MANAGER') %}
         <td style="text-align:center;padding:8px 4px" onclick="event.stopPropagation()">
           <input type="checkbox" class="bulk-ticket-cb"
@@ -1948,6 +1948,14 @@ const REF_LISTS = {{ ref_lists_json | safe }};
 
 // ── Stage data store: {ticketId: {fieldId: value, ...}} ──────────────────
 var stageDataStore = {};
+// Pre-populate from server-rendered data so formula columns compute correctly on first open
+document.querySelectorAll('tr[data-ticket-id][data-cf]').forEach(function(tr) {
+  var tid = tr.dataset.ticketId;
+  try {
+    var cf = JSON.parse(tr.dataset.cf || '{}');
+    if (tid && Object.keys(cf).length) stageDataStore[tid] = cf;
+  } catch(e) {}
+});
 var _sdCurrentTicketId = null;
 var _sdCurrentStageId  = null;
 
