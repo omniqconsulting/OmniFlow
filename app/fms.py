@@ -190,6 +190,42 @@ def _planned_dates(ticket, stages) -> dict:
     return result
 
 
+def _cross_stage_cf(db: Session, ticket_id: str, stages: list, exclude_history_id: str = None) -> dict:
+    """Aggregate custom field values from every stage this ticket has already
+    passed through, keyed by both field id (UUID) and field label, so that
+    formula columns and 'already captured' field dedup can look up values
+    captured in earlier stages — not just the current stage's own fields."""
+    import json as _json
+    cf_all: dict = {}
+    hist = (
+        db.query(FMSStageHistory)
+        .filter(FMSStageHistory.ticket_id == ticket_id)
+        .order_by(FMSStageHistory.entered_at)
+        .all()
+    )
+    for h in hist:
+        if exclude_history_id and h.id == exclude_history_id:
+            continue
+        if not h.custom_fields_data_json:
+            continue
+        try:
+            cf_data = _json.loads(h.custom_fields_data_json)
+        except Exception:
+            continue
+        cf_all.update(cf_data)  # id-keyed
+        src_stage = next((s for s in stages if s.id == h.stage_id), None)
+        if src_stage and src_stage.custom_fields_json:
+            try:
+                for fdef in _json.loads(src_stage.custom_fields_json):
+                    fid = fdef.get("id", "")
+                    lbl = fdef.get("label", "")
+                    if fid and lbl and fid in cf_data:
+                        cf_all[lbl] = cf_data[fid]  # label-keyed
+            except Exception:
+                pass
+    return cf_all
+
+
 def _tat_pct(history_row: FMSStageHistory, stage: FMSStage = None) -> Optional[int]:
     """Return 0-100+ percentage of TaT used.
     Prefers ticket-specific planned_end/planned_start from history row;
@@ -1085,6 +1121,10 @@ def _fms_dashboard_inner(
                                     cf_all[lbl] = cf_data[fid]  # label-keyed
                         except Exception:
                             pass
+                planned_end = None
+                pd = _planned_dates(t, stage_table_stages)
+                if active_stage.id in pd:
+                    planned_end = pd[active_stage.id][1]
                 stage_tickets.append({
                     "ticket": t,
                     "tat_pct": pct,
@@ -1093,6 +1133,7 @@ def _fms_dashboard_inner(
                     "sub": sub_cols,
                     "entered_at": h.entered_at if h else None,
                     "cf_all": cf_all,
+                    "planned_end": planned_end,
                 })
 
     # Next/prev stage maps (used by Mark Done and Move Backward modals)
@@ -2193,11 +2234,21 @@ async def fms_bulk_transition(
                 )
                 continue
 
-            # Second pass — evaluate formula columns
+            # Second pass — evaluate formula columns. Merge in values captured
+            # at earlier stages so cross-stage formula references resolve.
+            all_flow_stages = db.query(FMSStage).filter(
+                FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False
+            ).all()
+            _bulk_open_h = _open_history(db, t_id)
+            formula_lookup = {
+                **_cross_stage_cf(db, t_id, all_flow_stages, exclude_history_id=_bulk_open_h.id if _bulk_open_h else None),
+                **custom_fields_data,
+            }
+
             def _eval_formula_bulk(steps: list) -> str | None:
                 result = None
                 for i, step in enumerate(steps):
-                    raw = custom_fields_data.get(step.get("col_id", ""), "")
+                    raw = formula_lookup.get(step.get("col_id", ""), "")
                     try:
                         val = float(raw)
                     except (ValueError, TypeError):
@@ -2578,12 +2629,23 @@ async def fms_transition(
         if missing_required:
             raise HTTPException(400, f"Required column(s) not filled: {', '.join(missing_required)}")
 
-        # Second pass — evaluate formula columns server-side
+        # Second pass — evaluate formula columns server-side.
+        # Formulas may reference columns captured in earlier stages (the
+        # formula builder UI allows this), so merge in cross-stage values —
+        # current-stage values take precedence on id collisions.
+        all_flow_stages = db.query(FMSStage).filter(
+            FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False
+        ).all()
+        formula_lookup = {
+            **_cross_stage_cf(db, ticket_id, all_flow_stages, exclude_history_id=open_h.id if open_h else None),
+            **custom_fields_data,
+        }
+
         def _eval_formula(steps: list) -> str | None:
             result = None
             for i, step in enumerate(steps):
                 col_id = step.get("col_id", "")
-                raw = custom_fields_data.get(col_id, "")
+                raw = formula_lookup.get(col_id, "")
                 try:
                     val = float(raw)
                 except (ValueError, TypeError):
