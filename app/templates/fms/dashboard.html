@@ -580,6 +580,8 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         <td>
           {% if t.due_at %}
           <span style="color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-muted){% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
+          {% elif row.planned_end %}
+          <span title="Planned end (no overall due date set)" style="color:{% if row.planned_end < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-faint){% endif %}">{{ row.planned_end.strftime('%d %b') }}</span>
           {% else %}—{% endif %}
         </td>
         {# sub-module data columns #}
@@ -2472,8 +2474,28 @@ function openBulkTransitionModal() {
       section.appendChild(ng);
     }
 
-    // Custom field inputs
+    // Custom field inputs — skip re-asking for values already captured at an
+    // earlier stage (matched by label, same key the dashboard uses to merge
+    // cross-stage values into row.cf_all / stageDataStore).
+    var cfAll = stageDataStore[cb.value] || {};
     nonFormulaDefs.forEach(function(f) {
+      var existingVal = cfAll[f.label];
+      if (existingVal === undefined) existingVal = cfAll[f.id];
+      if (existingVal !== undefined && existingVal !== null && String(existingVal).trim() !== '') {
+        var carried = document.createElement('div');
+        carried.style.marginBottom = '8px';
+        carried.innerHTML = '<label style="display:block;font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">' +
+          _besc(f.label) + '</label>' +
+          '<div style="' + INP + ';color:var(--text-muted);background:rgba(255,255,255,.03)" title="Already captured at an earlier stage">' + _besc(String(existingVal)) + '</div>';
+        var hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'bulk_cf__' + f.id + '__' + cb.value;
+        hidden.value = existingVal;
+        carried.appendChild(hidden);
+        section.appendChild(carried);
+        return;
+      }
+
       var fg = document.createElement('div');
       fg.style.marginBottom = '8px';
       var lbl = document.createElement('label');
