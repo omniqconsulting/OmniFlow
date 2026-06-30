@@ -145,15 +145,34 @@
     <div class="ms-label">Upcoming (days)</div>
     <select name="next_days"
             style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+      <option value="0" {% if next_days == 0 %}selected{% endif %}>Today</option>
       {% for n in [3, 7, 14, 30] %}
       <option value="{{ n }}" {% if n == next_days %}selected{% endif %}>Next {{ n }} days</option>
       {% endfor %}
     </select>
   </div>
 
+  <div>
+    <div class="ms-label">Frequency</div>
+    <select name="frequency"
+            style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+      <option value="" {% if not frequency %}selected{% endif %}>All frequencies</option>
+      <option value="DAILY"          {% if frequency == 'DAILY' %}selected{% endif %}>Daily</option>
+      <option value="WEEKLY"         {% if frequency == 'WEEKLY' %}selected{% endif %}>Weekly</option>
+      <option value="WEEKLY_CUSTOM"  {% if frequency == 'WEEKLY_CUSTOM' %}selected{% endif %}>Weekly (custom days)</option>
+      <option value="TWICE_A_MONTH"  {% if frequency == 'TWICE_A_MONTH' %}selected{% endif %}>Twice a month</option>
+      <option value="MONTHLY"        {% if frequency == 'MONTHLY' %}selected{% endif %}>Monthly</option>
+      <option value="MONTHLY_DATE"   {% if frequency == 'MONTHLY_DATE' %}selected{% endif %}>Monthly (specific date)</option>
+      <option value="QUARTERLY"      {% if frequency == 'QUARTERLY' %}selected{% endif %}>Quarterly</option>
+      <option value="YEARLY"         {% if frequency == 'YEARLY' %}selected{% endif %}>Yearly</option>
+      <option value="YEARLY_DATE"    {% if frequency == 'YEARLY_DATE' %}selected{% endif %}>Yearly (specific date)</option>
+      <option value="PER_SHIFT"      {% if frequency == 'PER_SHIFT' %}selected{% endif %}>Per shift</option>
+    </select>
+  </div>
+
   <div style="align-self:flex-end;display:flex;gap:6px">
     <button type="submit" class="btn btn-primary btn-sm">Apply</button>
-    {% if dept_id or manager_id or employee_id or branch_id or next_days != 7 %}
+    {% if dept_id or manager_id or employee_id or branch_id or next_days != 0 or frequency %}
     <a href="/checklists" class="btn btn-gray btn-sm">Clear</a>
     {% endif %}
   </div>
@@ -336,7 +355,7 @@
     <div class="cl-pane-header">
       <span class="cl-pane-icon">📅</span>
       <div>
-        <div class="cl-pane-title">Upcoming — Next {{ next_days }} Days</div>
+        <div class="cl-pane-title">Upcoming — {% if next_days == 0 %}Today{% else %}Next {{ next_days }} Days{% endif %}</div>
         <div class="cl-pane-subtitle">One entry per checklist · next immediate occurrence shown</div>
       </div>
       {% if upcoming %}<span class="badge badge-blue" style="margin-left:auto">{{ upcoming|length }}</span>{% endif %}
@@ -376,7 +395,7 @@
         {% endfor %}
       </div>
       {% else %}
-      <div style="color:var(--text-faint);font-size:13px;padding:8px 0">No upcoming checklists in the next {{ next_days }} days.</div>
+      <div style="color:var(--text-faint);font-size:13px;padding:8px 0">No upcoming checklists {% if next_days == 0 %}due today{% else %}in the next {{ next_days }} days{% endif %}.</div>
       {% endif %}
     </div>
   </div><!-- end cl-pane-upcoming -->

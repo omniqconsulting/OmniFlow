@@ -623,6 +623,7 @@ class FMSFlow(Base):
     is_deleted               = Column(Boolean, default=False)
     library_flow_id          = Column(String)                        # source library template (if any)
     library_version_at_deploy= Column(Integer)                       # version at time of deploy (2-B-5)
+    ticket_form_fields_json  = Column(Text,    default="[]")          # JSON array of custom field defs for ticket creation form
     created_by_id            = Column(String,  ForeignKey("users.id"))
     created_at               = Column(DateTime, default=datetime.utcnow)
     updated_at               = Column(DateTime, default=datetime.utcnow)
@@ -703,6 +704,7 @@ class FMSTicket(Base):
     is_deleted          = Column(Boolean, default=False)
     stage_assignees_json  = Column(Text, nullable=True)  # {"stage_id": "user_id", ...}
     stage_schedule_json   = Column(Text, nullable=True)  # {"stage_id": {"planned_start": ISO, "planned_end": ISO}}
+    ticket_custom_fields_json = Column(Text, nullable=True)  # {"field_id": value, ...} from flow's ticket_form_fields_json
     created_by_id        = Column(String,  ForeignKey("users.id"), nullable=False)
     created_at          = Column(DateTime, default=datetime.utcnow)
     updated_at          = Column(DateTime, default=datetime.utcnow)

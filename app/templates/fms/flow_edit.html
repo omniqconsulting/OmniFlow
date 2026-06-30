@@ -1,6 +1,26 @@
 {% extends "base.html" %}
-{% block title %}{{ flow.name if flow else 'Flow' }} – View Flow{% endblock %}
+{% block title %}{{ flow.name if flow else 'Flow' }} – Flow Setup{% endblock %}
 {% block content %}
+<style>
+.fb-field-row{display:flex;align-items:center;gap:10px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.fb-field-row input,.fb-field-row select{background:var(--bg-card);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit}
+.fb-field-row input:focus,.fb-field-row select:focus{border-color:#3b82f6}
+.fb-field-row .fb-label{flex:1;min-width:140px}
+.fb-field-row .fb-type{width:130px}
+.fb-field-row .fb-opts{flex:1;min-width:120px}
+.fb-drag{cursor:grab;color:var(--text-xfaint);font-size:16px;user-select:none;padding:0 4px}
+.fb-del{background:none;border:none;color:var(--text-xfaint);font-size:18px;cursor:pointer;padding:0 4px;line-height:1}
+.fb-del:hover{color:#f87171}
+.fb-add-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;border:1.5px dashed rgba(255,255,255,.2);background:transparent;font-size:13px;color:var(--text-faint);cursor:pointer;font-family:inherit;transition:all .12s;margin-top:8px}
+.fb-add-btn:hover{border-color:#3b82f6;color:#60a5fa}
+.fb-save-btn{padding:8px 20px;border-radius:8px;background:#3b82f6;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.fb-save-btn:hover{background:#2563eb}
+.fb-save-btn:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
+.fb-empty{text-align:center;padding:20px;color:var(--text-xfaint);font-size:13px;font-style:italic}
+.fb-opts-wrap{display:none}
+.fb-opts-wrap.visible{display:flex;flex:1;min-width:120px}
+</style>
+
 <div class="page-header mb-4">
   <nav aria-label="breadcrumb">
     <ol class="breadcrumb mb-1">
@@ -23,79 +43,250 @@
 {% if request.query_params.get('err') %}
 <div class="alert alert-red">{{ request.query_params.get('err').replace('+',' ') }}</div>
 {% endif %}
+{% if request.query_params.get('saved') %}
+<div class="alert alert-green">Ticket creation form saved successfully.</div>
+{% endif %}
 
 <div style="background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.2);border-radius:9px;padding:12px 16px;margin-bottom:18px;font-size:12px;color:#7dd3fc;display:flex;align-items:center;gap:8px">
   <span>🔒</span>
-  <div>This flow definition is managed by your OmniFlow account manager and cannot be edited here. You can create tickets and manage their progress on the board.</div>
+  <div>The flow stages and structure are managed by your OmniFlow account manager. You can configure the <strong>ticket creation form</strong> below.</div>
 </div>
 
 {% if flow %}
 <div style="display:grid;grid-template-columns:300px 1fr;gap:16px">
   <!-- Flow settings - read only -->
-  <div class="card">
-    <h2>Flow Settings</h2>
-    <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
-      <div>
-        <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Name</div>
-        <div style="color:var(--text-strong);font-weight:600">{{ flow.name }}</div>
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card">
+      <h2>Flow Settings</h2>
+      <div style="display:flex;flex-direction:column;gap:10px;font-size:12px">
+        <div>
+          <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Name</div>
+          <div style="color:var(--text-strong);font-weight:600">{{ flow.name }}</div>
+        </div>
+        {% if flow.description %}
+        <div>
+          <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Description</div>
+          <div style="color:var(--text-muted)">{{ flow.description }}</div>
+        </div>
+        {% endif %}
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:24px;height:24px;border-radius:6px;background:{{ flow.color }}"></div>
+          <div style="color:var(--text-muted);font-size:11px">Flow colour</div>
+        </div>
+        <div>
+          <span class="badge {% if flow.is_active %}badge-green{% else %}badge-gray{% endif %}">
+            {{ 'Active' if flow.is_active else 'Inactive' }}
+          </span>
+        </div>
       </div>
-      {% if flow.description %}
-      <div>
-        <div style="color:var(--text-faint);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Description</div>
-        <div style="color:var(--text-muted)">{{ flow.description }}</div>
-      </div>
-      {% endif %}
-      <div style="display:flex;align-items:center;gap:8px">
-        <div style="width:24px;height:24px;border-radius:6px;background:{{ flow.color }}"></div>
-        <div style="color:var(--text-muted);font-size:11px">Flow colour</div>
-      </div>
-      <div>
-        <span class="badge {% if flow.is_active %}badge-green{% else %}badge-gray{% endif %}">
-          {{ 'Active' if flow.is_active else 'Inactive' }}
-        </span>
+    </div>
+
+    <!-- Stages - read only -->
+    <div class="card">
+      <h2>Stages ({{ flow.stages|selectattr('is_deleted','equalto',False)|list|length }})</h2>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        {% set active_stages = flow.stages|selectattr('is_deleted','equalto',False)|list|sort(attribute='order') %}
+        {% for stage in active_stages %}
+        <div style="background:var(--bg-input);border-radius:8px;padding:10px 12px;border-left:3px solid {{ stage.color }}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <div style="display:flex;align-items:center;gap:7px">
+              <span style="background:{{ stage.color }}33;color:var(--text-primary);border-radius:99px;padding:1px 7px;font-size:10px;font-weight:700">{{ loop.index }}</span>
+              <span style="font-size:12px;font-weight:600;color:var(--text-strong)">{{ stage.name }}</span>
+            </div>
+            <div style="display:flex;gap:4px">
+              {% if stage.is_terminal %}<span class="badge badge-green" style="font-size:9px">Terminal</span>{% endif %}
+              {% if stage.evidence_required %}<span class="badge badge-amber" style="font-size:9px">📎 Evidence</span>{% endif %}
+            </div>
+          </div>
+          {% if stage.target_tat_hours %}
+          <div style="font-size:10px;color:var(--text-faint)">⏱ {{ stage.target_tat_hours | format_tat }} TaT</div>
+          {% endif %}
+        </div>
+        {% if not loop.last %}<div style="text-align:center;color:#374151;font-size:11px">↓</div>{% endif %}
+        {% else %}
+        <div style="text-align:center;padding:16px;color:#374151;font-size:12px">No stages configured.</div>
+        {% endfor %}
       </div>
     </div>
   </div>
 
-  <!-- Stages - read only -->
+  <!-- Ticket Creation Form Builder -->
   <div class="card">
-    <h2>Stages ({{ flow.stages|selectattr('is_deleted','equalto',False)|list|length }})</h2>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      {% set active_stages = flow.stages|selectattr('is_deleted','equalto',False)|list|sort(attribute='order') %}
-      {% for stage in active_stages %}
-      <div style="background:var(--bg-input);border-radius:8px;padding:12px 14px;border-left:3px solid {{ stage.color }}">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="background:{{ stage.color }}33;color:var(--text-primary);border-radius:99px;padding:2px 8px;font-size:11px;font-weight:700">{{ loop.index }}</span>
-            <span style="font-size:13px;font-weight:600;color:var(--text-strong)">{{ stage.name }}</span>
-          </div>
-          <div style="display:flex;gap:5px">
-            {% if stage.is_terminal %}<span class="badge badge-green" style="font-size:9px">Terminal</span>{% endif %}
-            {% if stage.is_mandatory %}<span class="badge badge-blue" style="font-size:9px">Mandatory</span>{% endif %}
-            {% if stage.completion_note_required %}<span class="badge badge-gray" style="font-size:9px">Note req'd</span>{% endif %}
-            {% if stage.evidence_required %}<span class="badge badge-amber" style="font-size:9px">📎 Evidence req'd</span>{% endif %}
-          </div>
-        </div>
-        {% if stage.description %}
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;line-height:1.5">{{ stage.description }}</div>
-        {% endif %}
-        <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--text-faint)">
-          {% if stage.target_tat_hours %}
-          <span>⏱ {{ stage.target_tat_hours | format_tat }} TaT target</span>
-          {% endif %}
-        </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div>
+        <h2 style="margin:0 0 4px">Ticket Creation Form</h2>
+        <div style="font-size:12px;color:var(--text-faint)">Define extra fields shown when creating tickets for this flow. These appear as columns in the bulk-create table.</div>
       </div>
-      {% if not loop.last %}
-      <div style="text-align:center;color:#374151;font-size:12px">↓</div>
-      {% endif %}
-      {% else %}
-      <div style="text-align:center;padding:20px;color:#374151;font-size:12px">
-        No stages configured for this flow yet.
-      </div>
-      {% endfor %}
+      <button class="fb-save-btn" id="fbSaveBtn" onclick="saveForm()">Save Form</button>
     </div>
+
+    <div style="margin-bottom:10px">
+      <!-- Column headers -->
+      <div style="display:flex;align-items:center;gap:10px;padding:0 12px;margin-bottom:6px">
+        <div style="width:24px"></div>
+        <div style="flex:1;min-width:140px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint)">Field Label *</div>
+        <div style="width:130px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint)">Type</div>
+        <div style="flex:1;min-width:120px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint)">Options (for Select)</div>
+        <div style="width:80px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint)">Required</div>
+        <div style="width:32px"></div>
+      </div>
+
+      <div id="fbFieldList">
+        <!-- fields injected by JS -->
+      </div>
+
+      <button type="button" class="fb-add-btn" onclick="addField()">+ Add Field</button>
+    </div>
+
+    <div id="fbStatus" style="font-size:12px;margin-top:10px;display:none"></div>
   </div>
 </div>
+
+<script>
+var FLOW_ID = {{ flow.id | tojson }};
+var fields = {{ (flow.ticket_form_fields_json or '[]') | safe }};
+
+function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderFields() {
+  var list = document.getElementById('fbFieldList');
+  if (fields.length === 0) {
+    list.innerHTML = '<div class="fb-empty">No custom fields yet. Click "+ Add Field" to add the first one.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  fields.forEach(function(f, idx) {
+    var isSelect = f.field_type === 'select';
+    var optsVal = (f.options || []).join(', ');
+    var row = document.createElement('div');
+    row.className = 'fb-field-row';
+    row.dataset.idx = idx;
+    row.innerHTML =
+      '<span class="fb-drag" draggable="true" title="Drag to reorder">⠿</span>' +
+      '<input class="fb-label" type="text" placeholder="e.g. Customer Name" value="' + _esc(f.label) + '" onchange="updateField(' + idx + ',\'label\',this.value)">' +
+      '<select class="fb-type" onchange="updateField(' + idx + ',\'field_type\',this.value);toggleOpts(this,' + idx + ')">' +
+        ['text','number','date','longtext','select'].map(function(t){
+          return '<option value="'+t+'"'+(f.field_type===t?' selected':'')+'>'+t.charAt(0).toUpperCase()+t.slice(1)+'</option>';
+        }).join('') +
+      '</select>' +
+      '<div class="fb-opts-wrap' + (isSelect ? ' visible' : '') + '" id="opts_'+idx+'">' +
+        '<input type="text" style="width:100%" placeholder="Option A, Option B, Option C" value="' + _esc(optsVal) + '" onchange="updateField(' + idx + ',\'options\',this.value)">' +
+      '</div>' +
+      '<div style="width:80px;display:flex;align-items:center;gap:6px;padding:0 8px">' +
+        '<input type="checkbox" id="req_'+idx+'" '+(f.required?'checked':'')+' onchange="updateField(' + idx + ',\'required\',this.checked)" style="width:auto">' +
+        '<label for="req_'+idx+'" style="font-size:12px;color:var(--text-faint);cursor:pointer">Yes</label>' +
+      '</div>' +
+      '<button class="fb-del" onclick="removeField(' + idx + ')" title="Remove">×</button>';
+    setupDrag(row, idx);
+    list.appendChild(row);
+  });
+}
+
+function toggleOpts(sel, idx) {
+  var wrap = document.getElementById('opts_' + idx);
+  if (sel.value === 'select') wrap.classList.add('visible');
+  else wrap.classList.remove('visible');
+}
+
+function updateField(idx, key, val) {
+  if (key === 'options') {
+    fields[idx][key] = val.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  } else if (key === 'required') {
+    fields[idx][key] = val;
+  } else {
+    fields[idx][key] = val;
+  }
+}
+
+function addField() {
+  fields.push({ id: crypto.randomUUID(), label: '', field_type: 'text', required: false, order: fields.length });
+  renderFields();
+  // Focus the new label input
+  var rows = document.querySelectorAll('.fb-field-row');
+  if (rows.length) rows[rows.length-1].querySelector('.fb-label').focus();
+}
+
+function removeField(idx) {
+  fields.splice(idx, 1);
+  fields.forEach(function(f, i){ f.order = i; });
+  renderFields();
+}
+
+// Drag-and-drop reorder
+var dragSrcIdx = null;
+function setupDrag(row, idx) {
+  var handle = row.querySelector('.fb-drag');
+  handle.addEventListener('dragstart', function(e) {
+    dragSrcIdx = idx;
+    e.dataTransfer.effectAllowed = 'move';
+    row.style.opacity = '0.5';
+  });
+  handle.addEventListener('dragend', function() { row.style.opacity = '1'; });
+  row.addEventListener('dragover', function(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+  row.addEventListener('drop', function(e) {
+    e.preventDefault();
+    if (dragSrcIdx === null || dragSrcIdx === idx) return;
+    var moved = fields.splice(dragSrcIdx, 1)[0];
+    fields.splice(idx, 0, moved);
+    fields.forEach(function(f, i){ f.order = i; });
+    dragSrcIdx = null;
+    renderFields();
+  });
+}
+
+function saveForm() {
+  // Sync any unsaved input values
+  document.querySelectorAll('.fb-field-row').forEach(function(row, idx) {
+    var lbl = row.querySelector('.fb-label');
+    var typ = row.querySelector('.fb-type');
+    var req = row.querySelector('input[type=checkbox]');
+    var optsInp = row.querySelector('.fb-opts-wrap input');
+    if (lbl) fields[idx].label = lbl.value.trim();
+    if (typ) fields[idx].field_type = typ.value;
+    if (req) fields[idx].required = req.checked;
+    if (optsInp && fields[idx].field_type === 'select') {
+      fields[idx].options = optsInp.value.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    }
+  });
+
+  // Basic validation
+  var bad = fields.filter(function(f){ return !f.label; });
+  if (bad.length) { showStatus('error', 'All fields must have a label.'); return; }
+
+  var btn = document.getElementById('fbSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  fetch('/fms/flows/' + FLOW_ID + '/ticket-form', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({fields: fields})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data) {
+    btn.disabled = false; btn.textContent = 'Save Form';
+    if (data.ok) {
+      showStatus('success', 'Form saved — ' + data.field_count + ' field' + (data.field_count !== 1 ? 's' : '') + ' configured.');
+    } else {
+      showStatus('error', 'Save failed. Please try again.');
+    }
+  })
+  .catch(function() {
+    btn.disabled = false; btn.textContent = 'Save Form';
+    showStatus('error', 'Network error. Please try again.');
+  });
+}
+
+function showStatus(type, msg) {
+  var el = document.getElementById('fbStatus');
+  el.style.display = 'block';
+  el.style.color = type === 'success' ? '#34d399' : '#f87171';
+  el.textContent = msg;
+  setTimeout(function(){ el.style.display = 'none'; }, 4000);
+}
+
+document.addEventListener('DOMContentLoaded', renderFields);
+</script>
+
 {% else %}
 <div class="card" style="text-align:center;padding:40px;color:#374151">Flow not found.</div>
 {% endif %}

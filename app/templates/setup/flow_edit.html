@@ -103,6 +103,226 @@
   </div>
 </form>
 
+{% if flow %}
+<!-- ── Ticket Creation Form Builder ────────────────────────────────────────── -->
+<style>
+.tfb-row{display:flex;align-items:center;gap:10px;background:var(--bg-input);border:1px solid var(--border-med);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.tfb-row input,.tfb-row select{background:var(--bg-card);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit}
+.tfb-row input:focus,.tfb-row select:focus{border-color:#3b82f6}
+.tfb-label-in{flex:1;min-width:140px}
+.tfb-type-in{width:130px}
+.tfb-opts-wrap{display:none;flex:1;min-width:120px}
+.tfb-opts-wrap.tfb-visible{display:flex}
+.tfb-drag{cursor:grab;color:var(--text-xfaint);font-size:16px;user-select:none;padding:0 4px}
+.tfb-del{background:none;border:none;color:var(--text-xfaint);font-size:18px;cursor:pointer;padding:0 4px;line-height:1}
+.tfb-del:hover{color:#f87171}
+.tfb-add{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;border:1.5px dashed rgba(255,255,255,.2);background:transparent;font-size:13px;color:var(--text-faint);cursor:pointer;font-family:inherit;transition:all .12s;margin-top:8px}
+.tfb-add:hover{border-color:#8b5cf6;color:#a78bfa}
+.tfb-save{padding:8px 20px;border-radius:8px;background:#8b5cf6;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.tfb-save:hover{background:#7c3aed}
+.tfb-save:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
+</style>
+
+<div class="fe-card" style="margin-top:16px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+    <div>
+      <h3 style="font-size:14px;font-weight:600;color:var(--text-strong);margin:0 0 4px">Ticket Creation Form</h3>
+      <div style="font-size:12px;color:var(--text-faint)">Extra fields shown when someone creates a ticket for this flow. These appear as additional columns in the bulk-create table (shown in purple).</div>
+    </div>
+    <button type="button" class="tfb-save" id="tfbSaveBtn" onclick="tfbSave()">Save Form</button>
+  </div>
+
+  <div style="margin-top:16px">
+    <div style="display:flex;gap:10px;padding:0 12px;margin-bottom:6px">
+      <div style="width:24px"></div>
+      <div style="flex:1;min-width:140px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint)">Field Label *</div>
+      <div style="width:130px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint)">Type</div>
+      <div style="flex:1;min-width:150px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint)">Options / List</div>
+      <div style="width:80px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint)">Required</div>
+      <div style="width:32px"></div>
+    </div>
+    <div id="tfbList"></div>
+    <button type="button" class="tfb-add" onclick="tfbAddField()">+ Add Field</button>
+  </div>
+  <div id="tfbStatus" style="font-size:12px;margin-top:10px;display:none"></div>
+</div>
+
+<script>
+var TFB_FLOW_ID = {{ flow.id | tojson }};
+var tfbFields = {{ ticket_form_fields_json | safe }};
+var TFB_REF_LISTS = {{ ref_lists_json | safe }};
+
+function _tfbEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+var TFB_TYPES = [
+  {v:'text',          l:'Text'},
+  {v:'number',        l:'Number'},
+  {v:'date',          l:'Date'},
+  {v:'longtext',      l:'Long Text'},
+  {v:'select',        l:'Select (custom)'},
+  {v:'ref_list',      l:'Reference List'},
+  {v:'__priority__',  l:'Priority  ★ built-in'},
+  {v:'__due_date__',  l:'Due Date  ★ built-in'},
+];
+
+function tfbRender() {
+  var list = document.getElementById('tfbList');
+  if (!tfbFields.length) {
+    list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-xfaint);font-size:13px;font-style:italic">No fields yet — click "+ Add Field" to start.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  tfbFields.forEach(function(f, idx) {
+    var isSelect  = f.field_type === 'select';
+    var isRefList = f.field_type === 'ref_list';
+    var optsVal   = (f.options || []).join(', ');
+
+    // Build type options
+    var typeOpts = TFB_TYPES.map(function(t){
+      return '<option value="'+t.v+'"'+(f.field_type===t.v?' selected':'')+'>'+t.l+'</option>';
+    }).join('');
+
+    // Build ref_list picker options
+    var refOpts = '<option value="">— choose list —</option>';
+    TFB_REF_LISTS.forEach(function(rl){
+      refOpts += '<option value="'+_tfbEsc(rl.id)+'"'+(f.ref_list_id===rl.id?' selected':'')+'>'+_tfbEsc(rl.name)+'</option>';
+    });
+
+    var row = document.createElement('div');
+    row.className = 'tfb-row';
+    row.dataset.idx = idx;
+    row.innerHTML =
+      '<span class="tfb-drag" draggable="true" title="Drag to reorder">⠿</span>' +
+      '<input class="tfb-label-in" type="text" placeholder="e.g. Customer Name" value="' + _tfbEsc(f.label) + '" onchange="tfbUpdate('+idx+',\'label\',this.value)">' +
+      '<select class="tfb-type-in" onchange="tfbUpdate('+idx+',\'field_type\',this.value);tfbToggleOpts(this,'+idx+')">' + typeOpts + '</select>' +
+      // select options input
+      '<div class="tfb-opts-wrap'+(isSelect?' tfb-visible':'')+'" id="tfbOpts_'+idx+'">' +
+        '<input type="text" style="width:100%" placeholder="Option A, Option B, …" value="'+_tfbEsc(optsVal)+'" onchange="tfbUpdate('+idx+',\'options\',this.value)">' +
+      '</div>' +
+      // ref_list picker
+      '<div class="tfb-opts-wrap'+(isRefList?' tfb-visible':'')+'" id="tfbRef_'+idx+'" style="min-width:150px">' +
+        '<select style="width:100%" onchange="tfbPickList('+idx+',this.value)">'+refOpts+'</select>' +
+      '</div>' +
+      '<div style="width:80px;display:flex;align-items:center;gap:6px;padding:0 8px">' +
+        '<input type="checkbox" id="tfbReq_'+idx+'" '+(f.required?'checked':'')+' onchange="tfbUpdate('+idx+',\'required\',this.checked)" style="width:auto;accent-color:#8b5cf6">' +
+        '<label for="tfbReq_'+idx+'" style="font-size:12px;color:var(--text-faint);cursor:pointer">Yes</label>' +
+      '</div>' +
+      '<button class="tfb-del" onclick="tfbRemove('+idx+')" title="Remove">×</button>';
+    tfbSetupDrag(row, idx);
+    list.appendChild(row);
+  });
+}
+
+function tfbToggleOpts(sel, idx) {
+  var opts = document.getElementById('tfbOpts_' + idx);
+  var ref  = document.getElementById('tfbRef_'  + idx);
+  var isBuiltIn = sel.value === '__priority__' || sel.value === '__due_date__';
+  if (opts) opts.classList.toggle('tfb-visible', sel.value === 'select');
+  if (ref)  ref.classList.toggle('tfb-visible',  sel.value === 'ref_list');
+  // clear stale data when switching types
+  if (sel.value !== 'select')   { tfbFields[idx].options = []; }
+  if (sel.value !== 'ref_list') { delete tfbFields[idx].ref_list_id; delete tfbFields[idx].ref_list_name; }
+  // built-in types use a fixed reserved id so the backend can identify them
+  if (isBuiltIn) { tfbFields[idx].id = sel.value; }
+}
+
+function tfbPickList(idx, listId) {
+  var rl = TFB_REF_LISTS.find(function(l){ return l.id === listId; });
+  tfbFields[idx].ref_list_id   = listId;
+  tfbFields[idx].ref_list_name = rl ? rl.name : '';
+}
+
+function tfbUpdate(idx, key, val) {
+  if (key === 'options') tfbFields[idx][key] = val.split(',').map(function(s){return s.trim();}).filter(Boolean);
+  else if (key === 'required') tfbFields[idx][key] = val;
+  else tfbFields[idx][key] = val;
+}
+
+function tfbAddField() {
+  tfbFields.push({ id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)), label: '', field_type: 'text', required: false, order: tfbFields.length });
+  tfbRender();
+  var rows = document.querySelectorAll('.tfb-row');
+  if (rows.length) rows[rows.length-1].querySelector('.tfb-label-in').focus();
+}
+
+function tfbRemove(idx) {
+  tfbFields.splice(idx, 1);
+  tfbFields.forEach(function(f,i){f.order=i;});
+  tfbRender();
+}
+
+var tfbDragSrc = null;
+function tfbSetupDrag(row, idx) {
+  var handle = row.querySelector('.tfb-drag');
+  handle.addEventListener('dragstart', function(e){ tfbDragSrc=idx; e.dataTransfer.effectAllowed='move'; row.style.opacity='0.5'; });
+  handle.addEventListener('dragend',   function(){ row.style.opacity='1'; });
+  row.addEventListener('dragover', function(e){ e.preventDefault(); e.dataTransfer.dropEffect='move'; });
+  row.addEventListener('drop', function(e){
+    e.preventDefault();
+    if (tfbDragSrc===null||tfbDragSrc===idx) return;
+    var moved=tfbFields.splice(tfbDragSrc,1)[0]; tfbFields.splice(idx,0,moved);
+    tfbFields.forEach(function(f,i){f.order=i;}); tfbDragSrc=null; tfbRender();
+  });
+}
+
+function tfbSave() {
+  // Sync values from DOM
+  document.querySelectorAll('.tfb-row').forEach(function(row, idx) {
+    var lbl = row.querySelector('.tfb-label-in');
+    var typ = row.querySelector('.tfb-type-in');
+    var req = row.querySelector('input[type=checkbox]');
+    var optsInp = row.querySelector('.tfb-opts-wrap input');
+    if (lbl) tfbFields[idx].label = lbl.value.trim();
+    if (typ) tfbFields[idx].field_type = typ.value;
+    if (req) tfbFields[idx].required = req.checked;
+    var isBuiltIn = tfbFields[idx].field_type === '__priority__' || tfbFields[idx].field_type === '__due_date__';
+    if (isBuiltIn) {
+      tfbFields[idx].id = tfbFields[idx].field_type; // reserved id for backend mapping
+    } else {
+      var optsWrap = row.querySelector('#tfbOpts_' + idx + ' input');
+      if (optsWrap && tfbFields[idx].field_type === 'select') {
+        tfbFields[idx].options = optsWrap.value.split(',').map(function(s){return s.trim();}).filter(Boolean);
+      }
+      var refSel = row.querySelector('#tfbRef_' + idx + ' select');
+      if (refSel && tfbFields[idx].field_type === 'ref_list') {
+        tfbFields[idx].ref_list_id = refSel.value;
+        var rl = TFB_REF_LISTS.find(function(l){return l.id === refSel.value;});
+        tfbFields[idx].ref_list_name = rl ? rl.name : '';
+      }
+    }
+  });
+  var bad = tfbFields.filter(function(f){
+    if (!f.label) return true;
+    if (f.field_type === 'ref_list' && !f.ref_list_id) return true;
+    return false;
+  });
+  if (bad.length) { tfbStatus('error', bad.some(function(f){return f.field_type==='ref_list'&&!f.ref_list_id;}) ? 'Please select a reference list for all Reference List fields.' : 'All fields must have a label.'); return; }
+  var btn = document.getElementById('tfbSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  fetch('/setup/flows/' + TFB_FLOW_ID + '/ticket-form', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({fields: tfbFields})
+  })
+  .then(function(r){return r.json();})
+  .then(function(d){
+    btn.disabled=false; btn.textContent='Save Form';
+    if (d.ok) tfbStatus('success','Ticket form saved — '+d.field_count+' field'+(d.field_count!==1?'s':'')+' configured.');
+    else tfbStatus('error','Save failed. Please try again.');
+  })
+  .catch(function(){ btn.disabled=false; btn.textContent='Save Form'; tfbStatus('error','Network error.'); });
+}
+
+function tfbStatus(type, msg) {
+  var el = document.getElementById('tfbStatus');
+  el.style.display='block'; el.style.color = type==='success'?'#34d399':'#f87171'; el.textContent=msg;
+  setTimeout(function(){el.style.display='none';}, 4000);
+}
+
+document.addEventListener('DOMContentLoaded', tfbRender);
+</script>
+{% endif %}
+
 <!-- ── Unified Add Column Modal ─────────────────────────────────────────── -->
 <div id="colModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:400;align-items:center;justify-content:center;padding:16px">
   <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:12px;padding:22px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto">
