@@ -31,7 +31,9 @@ def _unread(db: Session, user: User) -> int:
         Notification.user_id == user.id, Notification.is_read == False).count()
 
 def _ctx(request, user, db, **kw):
+    from .auth import get_user_modules
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user else None
+    modules = get_user_modules(user) if user else []
     return {
         "request": request, "user": user,
         "L": _L(db, user), "unread": _unread(db, user),
@@ -39,6 +41,12 @@ def _ctx(request, user, db, **kw):
         "has_fms":             has_feature(tenant, "FMS",             db) if tenant else False,
         "has_knowledge_repo":  has_feature(tenant, "KNOWLEDGE_REPO",  db) if tenant else False,
         "has_checklists": True,
+        "has_sales":            "SALES"     in modules and (has_feature(tenant, "SALES_MODULE",     db) if tenant else False),
+        "has_inventory_module": "INVENTORY" in modules and (has_feature(tenant, "INVENTORY_MODULE",  db) if tenant else False),
+        "has_sales_analytics":  (has_feature(tenant, "SALES_ANALYTICS", db) if tenant else False)
+                                 and (has_feature(tenant, "SALES_MODULE", db) if tenant else False)
+                                 and "SALES" in modules and user.role in ("ADMIN", "MANAGER") if user else False,
+        "user_modules":         modules,
         **kw,
     }
 
