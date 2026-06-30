@@ -1081,6 +1081,7 @@ def setup_flow_edit_get(
 
     employees = _get_active_employees(db, user.tenant_id)
     ref_lists_json = _build_ref_lists_json(user.tenant_id, db)
+    ticket_form_fields = _jf.loads(flow.ticket_form_fields_json or "[]")
     return templates.TemplateResponse(request, "setup/flow_edit.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -1090,6 +1091,8 @@ def setup_flow_edit_get(
         "active_section": "flows",
         "ref_lists": _json.loads(ref_lists_json),
         "ref_lists_json": ref_lists_json,
+        "ticket_form_fields": ticket_form_fields,
+        "ticket_form_fields_json": _jf.dumps(ticket_form_fields),
     })
 
 
@@ -1253,6 +1256,58 @@ async def setup_flow_update(
 
     db.commit()
     return _redir("/setup/flows?msg=Flow+updated")
+
+
+@router.post("/setup/flows/{flow_id}/ticket-form")
+async def setup_flow_save_ticket_form(
+    flow_id: str,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Save custom ticket-creation form fields for a flow."""
+    from fastapi.responses import JSONResponse
+    from .database import new_id
+    flow = db.query(FMSFlow).filter(
+        FMSFlow.id == flow_id,
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == False,
+    ).first()
+    if not flow:
+        return JSONResponse({"ok": False, "error": "Flow not found"}, status_code=404)
+
+    body = await request.json()
+    fields = body.get("fields", [])
+    valid_types = {"text", "number", "date", "longtext", "select", "ref_list", "__priority__", "__due_date__"}
+    clean = []
+    for f in fields:
+        ftype = (f.get("field_type") or "text").strip().lower()
+        label = (f.get("label") or "").strip()
+        if not label or ftype not in valid_types:
+            continue
+        # Built-in types use their type string as a reserved ID so the POST handler can map them
+        builtin_types = {"__priority__", "__due_date__"}
+        field_id = ftype if ftype in builtin_types else (f.get("id") or new_id())
+        entry = {
+            "id": field_id,
+            "label": label,
+            "field_type": ftype,
+            "required": bool(f.get("required", False)),
+            "order": int(f.get("order", len(clean))),
+        }
+        if ftype == "select":
+            raw_opts = f.get("options", [])
+            entry["options"] = [o.strip() for o in raw_opts if str(o).strip()]
+        elif ftype == "ref_list":
+            entry["ref_list_id"]   = (f.get("ref_list_id") or "").strip()
+            entry["ref_list_name"] = (f.get("ref_list_name") or "").strip()
+        clean.append(entry)
+
+    flow.ticket_form_fields_json = _json.dumps(clean)
+    from datetime import datetime as _dt
+    flow.updated_at = _dt.utcnow()
+    db.commit()
+    return JSONResponse({"ok": True, "field_count": len(clean)})
 
 
 @router.post("/setup/flows/{flow_id}/delete")

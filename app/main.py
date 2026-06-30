@@ -2254,7 +2254,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
                db: Session = Depends(get_db),
                dept_id: List[str] = Query([]), manager_id: List[str] = Query([]),
                employee_id: List[str] = Query([]), branch_id: List[str] = Query([]),
-               next_days: int = 7):
+               next_days: int = 0, frequency: str = Query(default="")):
     tid = user.tenant_id
     now = datetime.utcnow()
 
@@ -2290,12 +2290,20 @@ def checklists(request: Request, user: User = Depends(get_current_user),
     my_assignments = my_overdue + my_upcoming
 
     # ── Auto-repair: silently schedule missing next-occurrences for recurring checklists ──
-    if user.role in ("ADMIN", "MANAGER"):
-        _all_t = db.query(ChecklistTemplate).filter(
+    if True:  # runs for all roles — employees need their own upcoming assignments
+        _repair_q = db.query(ChecklistTemplate).filter(
             ChecklistTemplate.tenant_id == tid,
             ChecklistTemplate.is_deleted == False,
             ChecklistTemplate.is_active == True,
-        ).all()
+        )
+        if user.role == "EMPLOYEE":
+            _repair_q = _repair_q.filter(ChecklistTemplate.assigned_to_user_id == user.id)
+        elif user.role == "MANAGER":
+            _mgr_team = [u.id for u in db.query(User).filter(
+                User.manager_id == user.id, User.is_deleted == False).all()]
+            _mgr_team.append(user.id)
+            _repair_q = _repair_q.filter(ChecklistTemplate.assigned_to_user_id.in_(_mgr_team))
+        _all_t = _repair_q.all()
         _repaired = False
         for _t in _all_t:
             if not (getattr(_t, 'is_recurring', True) and _t.assigned_to_user_id):
@@ -2303,20 +2311,24 @@ def checklists(request: Request, user: User = Depends(get_current_user),
             # Skip custom frequency types — the scheduler handles those on their specific days
             if getattr(_t, 'frequency_type', None) in ('WEEKLY_CUSTOM', 'MONTHLY_DATE', 'YEARLY_DATE'):
                 continue
-            _has = db.query(ChecklistAssignment).filter(
+            # Skip only if there is already a FUTURE (upcoming) assignment — overdue ones
+            # don't count, so recurring checklists always have a next occurrence visible
+            _has_future = db.query(ChecklistAssignment).filter(
                 ChecklistAssignment.template_id == _t.id,
                 ChecklistAssignment.user_id == _t.assigned_to_user_id,
                 ChecklistAssignment.is_deleted == False,
-                ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+                ChecklistAssignment.due_at >= now,
+                ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
             ).first()
-            if _has:
+            if _has_future:
                 continue
-            _last = db.query(ChecklistAssignment).filter(
+            # Base the next due date on the most recent overdue or last completed
+            _last_active = db.query(ChecklistAssignment).filter(
                 ChecklistAssignment.template_id == _t.id,
                 ChecklistAssignment.user_id == _t.assigned_to_user_id,
-                ChecklistAssignment.status == "DONE",
+                ChecklistAssignment.is_deleted == False,
             ).order_by(ChecklistAssignment.due_at.desc()).first()
-            _base = (_last.due_at if (_last and _last.due_at) else now)
+            _base = (_last_active.due_at if (_last_active and _last_active.due_at) else now)
             _nxt = _next_due_from(_t.frequency, _base)
             db.add(ChecklistAssignment(
                 template_id=_t.id, tenant_id=tid,
@@ -2327,8 +2339,17 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         if _repaired:
             db.commit()
 
-    # Upcoming + overdue assignments for admin/manager across team
-    next_days = max(1, min(next_days, 90))
+    # Upcoming + overdue assignments — for all roles
+    # next_days=0 means "today only"; use today_start as lower bound so earlier-today
+    # assignments are still visible even if their time has already passed
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if next_days == 0:
+        upcoming_lower = today_start
+        upcoming_upper = today_start + timedelta(days=1)
+    else:
+        next_days = max(1, min(next_days, 90))
+        upcoming_lower = now
+        upcoming_upper = now + timedelta(days=next_days)
     upcoming = []
     overdue_team = []
     failed_team = []
@@ -2346,9 +2367,9 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         ).scalar_subquery()
         upcoming_q = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.tenant_id == tid,
-            ChecklistAssignment.due_at >= now,
-            ChecklistAssignment.due_at <= now + timedelta(days=next_days),
-            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+            ChecklistAssignment.due_at >= upcoming_lower,
+            ChecklistAssignment.due_at < upcoming_upper,
+            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
             ChecklistAssignment.is_deleted == False,
             ChecklistAssignment.template_id.in_(_active_tmpl_ids),
         )
@@ -2400,11 +2421,20 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         failed_team = list(_seen_f.values())
 
     templates_list = []
+    q = db.query(ChecklistTemplate).filter(
+        ChecklistTemplate.tenant_id == tid,
+        ChecklistTemplate.is_deleted == False,
+    )
+    # Role-based scoping
+    if user.role == "EMPLOYEE":
+        q = q.filter(ChecklistTemplate.assigned_to_user_id == user.id)
+    elif user.role == "MANAGER":
+        _mgr_vis_ids = [u.id for u in db.query(User).filter(
+            User.manager_id == user.id, User.is_deleted == False).all()]
+        _mgr_vis_ids.append(user.id)
+        q = q.filter(ChecklistTemplate.assigned_to_user_id.in_(_mgr_vis_ids))
+    # Admin/manager extra filters
     if user.role in ("ADMIN", "MANAGER"):
-        q = db.query(ChecklistTemplate).filter(
-            ChecklistTemplate.tenant_id == tid,
-            ChecklistTemplate.is_deleted == False,
-        )
         if dept_id:
             q = q.filter(ChecklistTemplate.assigned_to_dept_id.in_(dept_id))
         if manager_id:
@@ -2423,9 +2453,16 @@ def checklists(request: Request, user: User = Depends(get_current_user),
                 User.is_deleted == False).all()]
             if branch_user_ids:
                 q = q.filter(ChecklistTemplate.assigned_to_user_id.in_(branch_user_ids))
-        templates_list = q.order_by(ChecklistTemplate.created_at.desc()).all()
-        for tmpl in templates_list:
-            tmpl._stats = _checklist_stats(db, tmpl)
+    # Frequency filter (applies to all roles)
+    if frequency:
+        if frequency in ("WEEKLY_CUSTOM", "MONTHLY_DATE", "YEARLY_DATE"):
+            q = q.filter(ChecklistTemplate.frequency_type == frequency)
+        else:
+            q = q.filter(ChecklistTemplate.frequency == frequency,
+                         ChecklistTemplate.frequency_type.is_(None))
+    templates_list = q.order_by(ChecklistTemplate.created_at.desc()).all()
+    for tmpl in templates_list:
+        tmpl._stats = _checklist_stats(db, tmpl)
 
     # Weekly completion chart — last 8 weeks
     chart_weeks = []
@@ -2480,7 +2517,8 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         "chart_weeks": chart_weeks,
         "dept_id": dept_id, "manager_id": manager_id,
         "employee_id": employee_id, "branch_id": branch_id,
-        "next_days": next_days,
+        "next_days": next_days, "frequency": frequency,
+        "today_start": today_start,
         "entity_options": entity_options,
         "now": now,
         "checklist_notif_hours": getattr(user.tenant, "checklist_notif_hours", None) or "8,13,18",
@@ -3022,28 +3060,18 @@ def _sync_pending_assignments(db: Session, tmpl, tid: str) -> None:
 
     existing_by_user = {a.user_id: a for a in existing}
 
-    # Also collect users who have an active OVERDUE assignment (past due_at, not yet resolved)
-    # so we don't create a duplicate pending on top of it
-    overdue_user_ids = {
-        a.user_id for a in db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.template_id == tmpl.id,
-            ChecklistAssignment.tenant_id == tid,
-            ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
-            ChecklistAssignment.is_deleted == False,
-            ChecklistAssignment.due_at < now,
-        ).all()
-    }
-
     # Soft-delete future assignments for users who are no longer targets
     for uid, a in existing_by_user.items():
         if uid not in new_target_ids:
             a.is_deleted = True
 
-    # Create assignments for target users who have no future pending AND no active overdue.
+    # Create assignments for target users who have no future pending.
+    # Overdue assignments do NOT block creation — recurring checklists need a next occurrence
+    # even while an overdue one is still open.
     # Custom frequency types are handled by the scheduler on their specific days — skip here.
     if not _custom_freq:
         for uid in new_target_ids:
-            if uid not in existing_by_user and uid not in overdue_user_ids:
+            if uid not in existing_by_user:
                 last_done = db.query(ChecklistAssignment).filter(
                     ChecklistAssignment.template_id == tmpl.id,
                     ChecklistAssignment.user_id == uid,

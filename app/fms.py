@@ -304,6 +304,50 @@ def fms_flow_update(
     return _redirect(f"/fms/flows/{flow_id}?err=Flow+definitions+are+managed+by+your+OmniFlow+account+manager.")
 
 
+@router.post("/flows/{flow_id}/ticket-form")
+async def fms_flow_save_ticket_form(
+    flow_id: str,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Save the custom ticket-creation form fields for a flow. Accessible to all admins."""
+    from fastapi.responses import JSONResponse
+    flow = _get_flow(db, flow_id, user.tenant_id)
+    body = await request.json()
+    fields = body.get("fields", [])
+
+    # Validate and normalise each field definition
+    valid_types = {"text", "number", "date", "longtext", "select", "ref_list", "__priority__", "__due_date__"}
+    clean = []
+    for f in fields:
+        ftype = (f.get("field_type") or "text").strip().lower()
+        label = (f.get("label") or "").strip()
+        if not label or ftype not in valid_types:
+            continue
+        builtin_types = {"__priority__", "__due_date__"}
+        field_id = ftype if ftype in builtin_types else (f.get("id") or new_id())
+        entry = {
+            "id": field_id,
+            "label": label,
+            "field_type": ftype,
+            "required": bool(f.get("required", False)),
+            "order": int(f.get("order", len(clean))),
+        }
+        if ftype == "select":
+            raw_opts = f.get("options", [])
+            entry["options"] = [o.strip() for o in raw_opts if str(o).strip()]
+        elif ftype == "ref_list":
+            entry["ref_list_id"]   = (f.get("ref_list_id") or "").strip()
+            entry["ref_list_name"] = (f.get("ref_list_name") or "").strip()
+        clean.append(entry)
+
+    flow.ticket_form_fields_json = _json.dumps(clean)
+    flow.updated_at = datetime.utcnow()
+    db.commit()
+    return JSONResponse({"ok": True, "field_count": len(clean)})
+
+
 @router.post("/flows/{flow_id}/delete")
 def fms_flow_delete(flow_id: str, user: User = Depends(require_admin),
                     db: Session = Depends(get_db)):
@@ -550,7 +594,8 @@ def _fms_dashboard_inner(
         FMSFlow.is_deleted == False,
     ).order_by(FMSFlow.created_at).all()
 
-    # Employees only see flows they are involved in (current, historical, or pre-assigned)
+    # Role-based flow visibility: Admin sees all; Manager sees team-involved flows;
+    # Employee sees only flows they were ever part of.
     if user.role == "EMPLOYEE":
         emp_ticket_flow_ids: set = set()
         for t in db.query(FMSTicket.flow_id).filter(
@@ -566,6 +611,31 @@ def _fms_dashboard_inner(
         ).distinct():
             emp_ticket_flow_ids.add(t.flow_id)
         flows = [f for f in all_flows if f.id in emp_ticket_flow_ids]
+    elif user.role == "MANAGER":
+        mgr_team_ids = [u.id for u in db.query(User).filter(
+            User.manager_id == user.id, User.is_deleted == False).all()]
+        mgr_team_ids.append(user.id)
+        mgr_flow_ids: set = set()
+        # Flows created by the manager
+        for f in db.query(FMSFlow.id).filter(FMSFlow.created_by_id == user.id):
+            mgr_flow_ids.add(f.id)
+        # Flows where team members are/were assigned to any ticket
+        for t in db.query(FMSTicket.flow_id).filter(
+            FMSTicket.tenant_id == tid,
+            FMSTicket.is_deleted == False,
+        ).filter(
+            (FMSTicket.current_assignee_id.in_(mgr_team_ids)) |
+            FMSTicket.id.in_(
+                db.query(FMSStageHistory.ticket_id).filter(
+                    FMSStageHistory.assignee_id.in_(mgr_team_ids))
+            ) |
+            FMSTicket.id.in_(
+                db.query(FMSTicketHelper.ticket_id).filter(
+                    FMSTicketHelper.user_id.in_(mgr_team_ids))
+            )
+        ).distinct():
+            mgr_flow_ids.add(t.flow_id)
+        flows = [f for f in all_flows if f.id in mgr_flow_ids]
     else:
         flows = all_flows
 
@@ -1793,22 +1863,64 @@ def fms_api_flow_defaults(
         User.is_active == True,
     ).order_by(User.name).all()
     emp_list = [{"id": e.id, "name": e.name} for e in employees]
-    return JSONResponse({"stages": result, "employees": emp_list})
+    ticket_form_fields = _json.loads(flow.ticket_form_fields_json or "[]")
+    # Resolve ref_list options so the bulk-create table can render a dropdown
+    for f in ticket_form_fields:
+        if f.get("field_type") == "ref_list" and f.get("ref_list_id") and not f.get("options"):
+            from .database import CustomReferenceList, CustomReferenceItem, Customer, Vendor, RawMaterial
+            rid = f["ref_list_id"]
+            if rid.startswith("__system_"):
+                _sys_map = {
+                    "__system_customer__": (Customer, "name"),
+                    "__system_vendor__": (Vendor, "name"),
+                    "__system_rawmaterial__": (RawMaterial, "name"),
+                }
+                model, col = _sys_map.get(rid, (None, None))
+                if model:
+                    rows = db.query(model).filter(model.tenant_id == user.tenant_id, model.is_deleted == False).all()
+                    f["options"] = [getattr(r, col) for r in rows if getattr(r, col, None)]
+            else:
+                lst = db.query(CustomReferenceList).filter(
+                    CustomReferenceList.id == rid,
+                    CustomReferenceList.tenant_id == user.tenant_id,
+                ).first()
+                if lst:
+                    f["options"] = [i.value for i in lst.items if i.is_active and not i.is_deleted]
+    return JSONResponse({"stages": result, "employees": emp_list, "ticket_form_fields": ticket_form_fields})
 
 
 @router.get("/tickets/bulk-create", response_class=HTMLResponse)
 def fms_bulk_create_get(
     request: Request,
+    flow_id: Optional[str] = Query(default=None),
     user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
     """A3-1: Bulk ticket creation form."""
-    flows = db.query(FMSFlow).filter(
+    # Role-filtered flows (same logic as dashboard dropdown)
+    all_flows = db.query(FMSFlow).filter(
         FMSFlow.tenant_id == user.tenant_id, FMSFlow.is_active == True,
         FMSFlow.is_deleted == False,
     ).order_by(FMSFlow.name).all()
+    if user.role == "EMPLOYEE":
+        emp_flow_ids: set = set()
+        for t in db.query(FMSTicket.flow_id).filter(
+            FMSTicket.tenant_id == user.tenant_id,
+            FMSTicket.is_deleted == False,
+        ).filter(
+            (FMSTicket.current_assignee_id == user.id) |
+            FMSTicket.id.in_(db.query(FMSStageHistory.ticket_id).filter(FMSStageHistory.assignee_id == user.id)) |
+            FMSTicket.stage_assignees_json.like(f'%"{user.id}"%')
+        ).distinct():
+            emp_flow_ids.add(t.flow_id)
+        flows = [f for f in all_flows if f.id in emp_flow_ids]
+    else:
+        flows = all_flows
+    # Pre-select flow passed from dashboard
+    preselect_flow_id = flow_id if flow_id and any(f.id == flow_id for f in flows) else None
     return templates.TemplateResponse(request, "fms/bulk_create.html", _ctx(
         request, user, db, flows=flows, priorities=PRIORITIES,
+        preselect_flow_id=preselect_flow_id,
     ))
 
 
@@ -1842,6 +1954,7 @@ async def fms_bulk_create_post(
         return _reraise("Selected flow has no stages configured.")
 
     first_stage = stages[0]
+    ticket_form_fields = _json.loads(flow.ticket_form_fields_json or "[]")
 
     try:
         row_count = int(form.get("row_count") or "0")
@@ -1861,33 +1974,44 @@ async def fms_bulk_create_post(
     tat_mult = 24.0 if tat_unit == "days" else 1.0
 
     for i in range(row_count):
-        title = (form.get(f"row_title_{i}") or "").strip()
-        priority = (form.get(f"row_priority_{i}") or "MEDIUM").strip().upper()
-        due_date_str = (form.get(f"row_due_date_{i}") or "").strip()
         wo_number = (form.get(f"row_wo_number_{i}") or "").strip()
         target_qty_str = (form.get(f"row_target_qty_{i}") or "").strip()
         qty_unit = (form.get(f"row_qty_unit_{i}") or "").strip()
 
         row_errs = []
         due_date = None
-        if not title:
-            row_errs.append("Title is required")
-        elif len(title) > 200:
-            row_errs.append("Title must be at most 200 characters")
-        if priority not in PRIORITIES:
-            row_errs.append(f"Invalid priority '{priority}'")
-        if not due_date_str:
-            row_errs.append("Due date is required")
-        else:
-            try:
-                due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
-                if due_date.date() <= today:
-                    row_errs.append("Due date must be a future date")
-            except ValueError:
-                row_errs.append("Invalid due date format")
+        priority = "MEDIUM"
+
+        # Validate custom ticket form fields (__priority__ and __due_date__ are built-in special types)
+        custom_field_values: dict = {}
+        for cf in ticket_form_fields:
+            val = (form.get(f"row_cf_{cf['id']}_{i}") or "").strip()
+            ftype = cf.get("field_type", "")
+            if ftype == "__priority__":
+                if val and val.upper() in PRIORITIES:
+                    priority = val.upper()
+                continue  # not stored in custom_fields, mapped to ticket.priority
+            if ftype == "__due_date__":
+                if val:
+                    try:
+                        due_date = datetime.strptime(val, "%Y-%m-%d")
+                        if due_date.date() <= today:
+                            row_errs.append("Due date must be a future date")
+                    except ValueError:
+                        row_errs.append("Invalid due date format")
+                elif cf.get("required"):
+                    row_errs.append(f"'{cf['label']}' is required")
+                continue  # not stored in custom_fields, mapped to ticket.due_at
+            if cf.get("required") and not val:
+                row_errs.append(f"'{cf['label']}' is required")
+            if val:
+                custom_field_values[cf["id"]] = val
+
+        # Title is always auto-generated from the sequence — display_id is the human identifier
+        title = f"Ticket-{i + 1}"
 
         if row_errs:
-            errors.append({"row": i + 1, "title": title or f"Row {i + 1}", "errors": row_errs})
+            errors.append({"row": i + 1, "title": f"Row {i + 1}", "errors": row_errs})
         else:
             # Collect per-stage assignee and TaT
             stage_assignees: dict = {}
@@ -1915,6 +2039,7 @@ async def fms_bulk_create_post(
                 "qty_unit": qty_unit or None,
                 "stage_assignees": stage_assignees,
                 "stage_schedule": stage_schedule,
+                "custom_fields": custom_field_values,
             })
 
     if errors:
@@ -1938,6 +2063,7 @@ async def fms_bulk_create_post(
             created_by_id=user.id, status="ACTIVE",
             stage_assignees_json=_json.dumps(td["stage_assignees"]) if td["stage_assignees"] else None,
             stage_schedule_json=_json.dumps(td["stage_schedule"]) if td["stage_schedule"] else None,
+            ticket_custom_fields_json=_json.dumps(td["custom_fields"]) if td.get("custom_fields") else None,
         )
         db.add(ticket); db.flush()
         ticket.display_id = _next_fms_display_id(db, tenant)
@@ -2947,6 +3073,59 @@ def _save_stages(db: Session, flow_id: str, tenant_id: str, stages_json: str):
             completion_note_required=bool(s.get("completion_note_required", False)),
             is_terminal=bool(s.get("is_terminal", False)),
         ))
+
+@router.post("/tickets/{ticket_id}/stage-data")
+async def fms_save_stage_data(
+    ticket_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Save custom stage column data to the current open stage history row."""
+    from fastapi.responses import JSONResponse
+    ticket = db.query(FMSTicket).filter(
+        FMSTicket.id == ticket_id,
+        FMSTicket.tenant_id == user.tenant_id,
+        FMSTicket.is_deleted == False,
+    ).first()
+    if not ticket:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+    history = (
+        db.query(FMSStageHistory)
+        .filter(
+            FMSStageHistory.ticket_id == ticket_id,
+            FMSStageHistory.stage_id == ticket.current_stage_id,
+            FMSStageHistory.exited_at == None,
+        )
+        .order_by(FMSStageHistory.entered_at.desc())
+        .first()
+    )
+    if not history:
+        # Fallback: find any open history row for this ticket
+        history = (
+            db.query(FMSStageHistory)
+            .filter(
+                FMSStageHistory.ticket_id == ticket_id,
+                FMSStageHistory.exited_at == None,
+            )
+            .order_by(FMSStageHistory.entered_at.desc())
+            .first()
+        )
+    if not history:
+        # Create one if truly missing (edge case for legacy tickets)
+        history = FMSStageHistory(
+            id=new_id(), ticket_id=ticket_id, tenant_id=ticket.tenant_id,
+            stage_id=ticket.current_stage_id, entered_at=datetime.utcnow(),
+        )
+        db.add(history)
+    body = await request.json()
+    incoming = body.get("data", {})
+    existing = json.loads(history.custom_fields_data_json or "{}") if history.custom_fields_data_json else {}
+    existing.update(incoming)
+    history.custom_fields_data_json = json.dumps(existing)
+    db.commit()
+    return JSONResponse({"ok": True})
+
 
 @router.get("/tickets/{ticket_id}/cf-carry-forward")
 def fms_cf_carry_forward(

@@ -125,7 +125,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     {% if user.role in ('ADMIN','MANAGER') %}
     <a href="/fms/tickets/bulk-template?flow_id={{ active_flow.id if active_flow else '' }}" class="btn btn-outline btn-sm">⬇ Template</a>
     <button onclick="show('fms-bulk-modal')" class="btn btn-outline btn-sm">⬆ Bulk Upload</button>
-    <a href="/fms/tickets/bulk-create" class="btn btn-primary btn-sm">+ New Ticket Create</a>
+    <a href="/fms/tickets/bulk-create?flow_id={{ active_flow.id if active_flow else '' }}" class="btn btn-primary btn-sm">+ New Ticket Create</a>
     {% endif %}
     <a href="/fms/tickets/export?{{ request.query_string.decode() }}" class="btn btn-outline btn-sm" title="Export filtered data as CSV">⬇ Export CSV</a>
     {% if view == 'stage' %}
@@ -615,7 +615,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         {# A4: custom stage column values — aggregated from all stage visits #}
         {% if stage_cf_defs %}
         {% for fdef in stage_cf_defs[:3] %}
-        <td style="font-size:12px;color:var(--text-muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        <td data-cf-cell="{{ t.id }}_{{ fdef.id }}" style="font-size:12px;color:var(--text-muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
           {{ row.cf_all.get(fdef.id, row.cf_all.get(fdef.label, '—')) }}
         </td>
         {% endfor %}
@@ -634,6 +634,15 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
             ↩ Reverse
           </button>
           {% endif %}
+          {% endif %}
+
+          {# Enter Data button — shown when stage has custom fields and user can act #}
+          {% set stage_cfs = active_stage.custom_fields_json | from_json if active_stage.custom_fields_json else [] %}
+          {% if can_act and stage_cfs and t.status not in ('COMPLETED','CLOSED') %}
+          <button onclick="event.stopPropagation();openStageDataModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ active_stage.id }}')"
+                  class="btn btn-sm" style="font-size:11px;border-color:rgba(167,139,250,0.5);color:#a78bfa" title="Fill stage data fields">
+            ✏ Enter Data
+          </button>
           {% endif %}
 
           {# Three-dot menu — visible to all roles, options depend on role/assignee #}
@@ -1298,6 +1307,25 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
 {% endif %}
 
 
+<!-- ── Enter Stage Data modal ────────────────────────────────────────────── -->
+<div id="stageDataModal" class="fms-modal-overlay" onclick="if(event.target===this)closeSDModal()">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;width:460px;max-width:95vw;padding:24px;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)" id="sdModalTitle">Enter Stage Data</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="sdModalSubtitle"></div>
+      </div>
+      <button class="fms-modal-close" onclick="closeSDModal()">✕</button>
+    </div>
+    <div id="sdCustomFields"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
+      <button type="button" onclick="closeSDModal()" class="btn btn-sm">Cancel</button>
+      <button type="button" onclick="saveStageData()" class="btn btn-sm" style="background:#7c3aed;border-color:#7c3aed;color:#fff">Save Data</button>
+    </div>
+    <div id="sdStatus" style="font-size:12px;margin-top:10px;display:none"></div>
+  </div>
+</div>
+
 <!-- ── P7-05: Mark Stage Complete modal ──────────────────────────────────── -->
 <div id="stageCompleteModal" class="fms-modal-overlay" onclick="if(event.target===this)closeSCModal()">
   <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;width:420px;max-width:95vw;padding:24px">
@@ -1918,6 +1946,178 @@ const STAGE_CF_DEFS = {
 };
 const REF_LISTS = {{ ref_lists_json | safe }};
 
+// ── Stage data store: {ticketId: {fieldId: value, ...}} ──────────────────
+var stageDataStore = {};
+var _sdCurrentTicketId = null;
+var _sdCurrentStageId  = null;
+
+function openStageDataModal(ticketId, displayId, stageName, stageId) {
+  _sdCurrentTicketId = ticketId;
+  _sdCurrentStageId  = stageId;
+  document.getElementById('sdModalTitle').textContent   = 'Enter Data: ' + stageName;
+  document.getElementById('sdModalSubtitle').textContent = displayId;
+
+  var container = document.getElementById('sdCustomFields');
+  container.innerHTML = '';
+  var cfDefs = (STAGE_CF_DEFS && stageId) ? (STAGE_CF_DEFS[stageId] || []) : [];
+  var saved  = stageDataStore[ticketId] || {};
+
+  var INP_STYLE = 'width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box';
+
+  cfDefs.forEach(function(f) {
+    var grp = document.createElement('div');
+    grp.className = 'fm-group';
+
+    if (f.field_type === 'formula') {
+      var lbl = document.createElement('label');
+      lbl.innerHTML = f.label + ' <span style="font-size:10px;color:#a78bfa;font-weight:400">(auto-calculated)</span>';
+      grp.appendChild(lbl);
+      var display = document.createElement('div');
+      display.id = 'sd_formula_' + f.id;
+      display.style.cssText = 'background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.25);border-radius:7px;padding:8px 11px;font-size:13px;color:#a78bfa;font-weight:600;min-height:36px';
+      display.textContent = saved[f.id] || '—';
+      grp.appendChild(display);
+      var hidden = document.createElement('input');
+      hidden.type='hidden'; hidden.name='sd_cf__'+f.id; hidden.id='sd_fhidden_'+f.id; hidden.value = saved[f.id] || '';
+      grp.appendChild(hidden);
+      container.appendChild(grp);
+      return;
+    }
+
+    var lbl = document.createElement('label');
+    lbl.innerHTML = f.label + (f.required ? ' <span style="color:#f87171">*</span>' : '');
+    grp.appendChild(lbl);
+
+    var inp;
+    if (f.field_type === 'dropdown') {
+      inp = document.createElement('select'); inp.style.cssText = INP_STYLE;
+      var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
+      (f.options || []).forEach(function(o){ var op=document.createElement('option'); op.value=o; op.textContent=o; inp.appendChild(op); });
+    } else if (f.field_type === 'ref_list') {
+      inp = document.createElement('select'); inp.style.cssText = INP_STYLE;
+      var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
+      var rl = (REF_LISTS||[]).find(function(l){ return l.id===f.ref_list_id; });
+      ((rl&&rl.items)||[]).forEach(function(o){ var op=document.createElement('option'); op.value=o; op.textContent=o; inp.appendChild(op); });
+    } else if (f.field_type === 'yesno') {
+      var wrap = document.createElement('div'); wrap.style.cssText='display:flex;gap:16px;margin-top:6px';
+      ['Yes','No'].forEach(function(v){
+        var rl=document.createElement('label'); rl.style.cssText='display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer';
+        var rb=document.createElement('input'); rb.type='radio'; rb.name='sd_cf__'+f.id; rb.value=v; rb.id='sd_yn_'+f.id+'_'+v;
+        if (saved[f.id]===v) rb.checked=true;
+        if (f.required) rb.required=true;
+        rl.appendChild(rb); rl.appendChild(document.createTextNode(v)); wrap.appendChild(rl);
+      });
+      grp.appendChild(wrap); container.appendChild(grp); return;
+    } else {
+      inp = document.createElement('input');
+      inp.type = f.field_type==='number'?'number':f.field_type==='date'?'date':'text';
+      inp.style.cssText = INP_STYLE;
+    }
+    inp.name = 'sd_cf__' + f.id;
+    inp.id   = 'sd_inp_' + f.id;
+    if (f.required) inp.required = true;
+    if (saved[f.id] !== undefined) inp.value = saved[f.id];
+    grp.appendChild(inp);
+    container.appendChild(grp);
+  });
+
+  // Formula recalculation
+  function _sdRecalc() {
+    cfDefs.forEach(function(f) {
+      if (f.field_type !== 'formula' || !f.formula_steps || !f.formula_steps.length) return;
+      var result = null; var valid = true;
+      f.formula_steps.forEach(function(step, idx) {
+        var el = container.querySelector('[name="sd_cf__'+step.col_id+'"]');
+        var val = el ? parseFloat(el.value) : NaN;
+        if (isNaN(val)) { valid=false; return; }
+        if (idx===0) { result=val; return; }
+        var op=step.op||'+';
+        if (op==='+') result+=val; else if (op==='-') result-=val;
+        else if (op==='*') result*=val; else if (op==='/') result=val!==0?result/val:NaN;
+      });
+      var display=document.getElementById('sd_formula_'+f.id);
+      var hidden=document.getElementById('sd_fhidden_'+f.id);
+      var computed=(valid&&result!==null&&!isNaN(result))?parseFloat(result.toFixed(4)).toString():'';
+      if (display) display.textContent=computed||'—';
+      if (hidden)  hidden.value=computed;
+    });
+  }
+  container.addEventListener('input', function(e){ if(e.target&&e.target.type==='number')_sdRecalc(); });
+  _sdRecalc();
+
+  // Carry-forward
+  var carryIds = cfDefs.filter(function(f){ return f.carry_forward && f.field_type!=='formula'; }).map(function(f){return f.id;});
+  if (carryIds.length && !Object.keys(saved).length) {
+    fetch('/fms/tickets/'+ticketId+'/cf-carry-forward?stage_id='+encodeURIComponent(stageId))
+      .then(function(r){return r.json();})
+      .then(function(data){
+        var vals=data.values||{};
+        cfDefs.forEach(function(f){
+          if(!f.carry_forward||!vals[f.id]) return;
+          var el=container.querySelector('[name="sd_cf__'+f.id+'"]');
+          if(el) el.value=vals[f.id];
+        });
+        _sdRecalc();
+      }).catch(function(){});
+  }
+
+  document.getElementById('sdStatus').style.display='none';
+  document.getElementById('stageDataModal').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+
+function saveStageData() {
+  var container = document.getElementById('sdCustomFields');
+  var cfDefs = (STAGE_CF_DEFS && _sdCurrentStageId) ? (STAGE_CF_DEFS[_sdCurrentStageId] || []) : [];
+  var data = {};
+  var ok = true;
+
+  cfDefs.forEach(function(f) {
+    if (f.field_type === 'yesno') {
+      var rb = container.querySelector('[name="sd_cf__'+f.id+'"]:checked');
+      var val = rb ? rb.value : '';
+      if (f.required && !val) { ok=false; return; }
+      if (val) data[f.id] = val;
+    } else {
+      var el = document.getElementById('sd_fhidden_'+f.id) || document.getElementById('sd_inp_'+f.id);
+      var val = el ? el.value.trim() : '';
+      if (f.required && f.field_type!=='formula' && !val) { ok=false; return; }
+      if (val) data[f.id] = val;
+    }
+  });
+
+  if (!ok) {
+    var st=document.getElementById('sdStatus'); st.style.display='block'; st.style.color='#f87171';
+    st.textContent='Please fill all required fields.';
+    return;
+  }
+
+  stageDataStore[_sdCurrentTicketId] = data;
+
+  // Update visible table cells immediately (optimistic — don't wait for server)
+  Object.keys(data).forEach(function(fieldId) {
+    var cell = document.querySelector('[data-cf-cell="' + _sdCurrentTicketId + '_' + fieldId + '"]');
+    if (cell) { cell.textContent = data[fieldId]; cell.style.color = 'var(--text-primary)'; }
+  });
+
+  // Persist to DB in the background
+  fetch('/fms/tickets/' + _sdCurrentTicketId + '/stage-data', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({data: data})
+  }).catch(function(){});
+
+  var st=document.getElementById('sdStatus'); st.style.display='block'; st.style.color='#34d399';
+  st.textContent='Data saved.';
+  setTimeout(function(){ closeSDModal(); }, 900);
+}
+
+function closeSDModal() {
+  document.getElementById('stageDataModal').classList.remove('open');
+  document.body.style.overflow='';
+}
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && document.getElementById('stageDataModal').classList.contains('open')) closeSDModal(); });
+
 function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired, noteRequired, stageId) {
   var modal = document.getElementById('stageCompleteModal');
   var form  = document.getElementById('scForm');
@@ -1986,129 +2186,22 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
     evFile.required = false;
   }
 
-  // A4 + Phase B: render custom columns (including formula columns)
+  // Show saved-data status in place of inline form fields
   var cfContainer = document.getElementById('scCustomFields');
   cfContainer.innerHTML = '';
   var cfDefs = (STAGE_CF_DEFS && activeStageId) ? (STAGE_CF_DEFS[activeStageId] || []) : [];
   if (cfDefs.length) {
-    var INP_STYLE = 'width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box';
-
-    cfDefs.forEach(function(f) {
-      var grp = document.createElement('div');
-      grp.className = 'fm-group';
-
-      // ── Formula column — read-only calculated display ──────────────────
-      if (f.field_type === 'formula') {
-        var lbl = document.createElement('label');
-        lbl.innerHTML = f.label + ' <span style="font-size:10px;color:#a78bfa;font-weight:400">(auto-calculated)</span>';
-        grp.appendChild(lbl);
-        var display = document.createElement('div');
-        display.id = 'sc_formula_' + f.id;
-        display.style.cssText = 'background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.25);border-radius:7px;padding:8px 11px;font-size:13px;color:#a78bfa;font-weight:600;min-height:36px';
-        display.textContent = '—';
-        grp.appendChild(display);
-        // hidden input carries the computed value in the POST
-        var hidden = document.createElement('input');
-        hidden.type = 'hidden'; hidden.name = 'cf__' + f.id; hidden.id = 'sc_fhidden_' + f.id;
-        grp.appendChild(hidden);
-        cfContainer.appendChild(grp);
-        return;
-      }
-
-      var lbl = document.createElement('label');
-      lbl.innerHTML = f.label + (f.required ? ' <span style="color:#f87171">*</span>' : '');
-      grp.appendChild(lbl);
-
-      var inp;
-      if (f.field_type === 'dropdown') {
-        inp = document.createElement('select');
-        inp.style.cssText = INP_STYLE;
-        var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
-        (f.options || []).forEach(function(o) {
-          var op = document.createElement('option'); op.value=o; op.textContent=o; inp.appendChild(op);
-        });
-      } else if (f.field_type === 'ref_list') {
-        inp = document.createElement('select');
-        inp.style.cssText = INP_STYLE;
-        var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
-        var rl = (REF_LISTS || []).find(function(l){ return l.id === f.ref_list_id; });
-        ((rl && rl.items) || []).forEach(function(o) {
-          var op = document.createElement('option'); op.value=o; op.textContent=o; inp.appendChild(op);
-        });
-      } else if (f.field_type === 'yesno') {
-        var wrap = document.createElement('div');
-        wrap.style.cssText = 'display:flex;gap:16px;margin-top:6px';
-        ['Yes','No'].forEach(function(v) {
-          var rl = document.createElement('label');
-          rl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer';
-          var rb = document.createElement('input');
-          rb.type='radio'; rb.name='cf__'+f.id; rb.value=v;
-          if (f.required) rb.required=true;
-          rl.appendChild(rb); rl.appendChild(document.createTextNode(v)); wrap.appendChild(rl);
-        });
-        grp.appendChild(wrap);
-        cfContainer.appendChild(grp);
-        return;
-      } else {
-        inp = document.createElement('input');
-        inp.type = f.field_type==='number' ? 'number' : f.field_type==='date' ? 'date' : 'text';
-        inp.style.cssText = INP_STYLE;
-      }
-      inp.name = 'cf__' + f.id;
-      if (f.required) inp.required = true;
-      grp.appendChild(inp);
-      cfContainer.appendChild(grp);
-    });
-
-    // ── Formula recalculation — runs whenever any number input changes ──
-    function _recalcFormulas() {
-      cfDefs.forEach(function(f) {
-        if (f.field_type !== 'formula' || !f.formula_steps || !f.formula_steps.length) return;
-        var result = null;
-        var valid = true;
-        f.formula_steps.forEach(function(step, idx) {
-          var el = cfContainer.querySelector('[name="cf__' + step.col_id + '"]');
-          var val = el ? parseFloat(el.value) : NaN;
-          if (isNaN(val)) { valid = false; return; }
-          if (idx === 0) { result = val; return; }
-          var op = step.op || '+';
-          if (op === '+') result += val;
-          else if (op === '-') result -= val;
-          else if (op === '*') result *= val;
-          else if (op === '/') result = val !== 0 ? result / val : NaN;
-        });
-        var display = document.getElementById('sc_formula_' + f.id);
-        var hidden  = document.getElementById('sc_fhidden_' + f.id);
-        var computed = (valid && result !== null && !isNaN(result))
-          ? parseFloat(result.toFixed(4)).toString()
-          : '';
-        if (display) display.textContent = computed || '—';
-        if (hidden)  hidden.value = computed;
-      });
-    }
-
-    // attach listeners to all number inputs
-    cfContainer.addEventListener('input', function(e) {
-      if (e.target && e.target.type === 'number') _recalcFormulas();
-    });
-    _recalcFormulas();
-
-    // ── Carry-forward pre-fill ─────────────────────────────────────────
-    var carryIds = cfDefs.filter(function(f){ return f.carry_forward && f.field_type !== 'formula'; }).map(function(f){return f.id;});
-    if (carryIds.length) {
-      fetch('/fms/tickets/' + ticketId + '/cf-carry-forward?stage_id=' + encodeURIComponent(activeStageId))
-        .then(function(r){return r.json();})
-        .then(function(data){
-          var vals = data.values || {};
-          cfDefs.forEach(function(f) {
-            if (!f.carry_forward || !vals[f.id]) return;
-            var el = cfContainer.querySelector('[name="cf__' + f.id + '"]');
-            if (el) { el.value = vals[f.id]; }
-          });
-          _recalcFormulas(); // recalc after carry-forward fills number inputs
-        })
-        .catch(function(){});
-    }
+    var saved = stageDataStore[ticketId] || {};
+    var hasSaved = Object.keys(saved).length > 0;
+    var pill = document.createElement('div');
+    pill.style.cssText = 'margin-bottom:14px;padding:10px 14px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:8px;' +
+      (hasSaved
+        ? 'background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.3);color:#34d399'
+        : 'background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);color:#fbbf24');
+    pill.innerHTML = hasSaved
+      ? '✓ Stage data entered (' + Object.keys(saved).length + ' field' + (Object.keys(saved).length!==1?'s':'') + '). Click Complete Stage to proceed.'
+      : '⚠ No stage data entered yet. Use the <strong>✏ Enter Data</strong> button on the ticket row first.';
+    cfContainer.appendChild(pill);
   }
 
   modal.classList.add('open');
@@ -2120,6 +2213,23 @@ function closeSCModal() {
   document.body.style.overflow = '';
 }
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeSCModal(); });
+
+// Inject saved stage data as hidden cf__ inputs before the transition form submits
+document.getElementById('scForm').addEventListener('submit', function() {
+  // Remove any previously injected cf__ hiddens to avoid duplicates
+  this.querySelectorAll('.sc-cf-inject').forEach(function(el){ el.remove(); });
+  // Find the ticket id from the form action: /fms/tickets/<id>/transition
+  var match = this.action.match(/\/tickets\/([^\/]+)\/transition/);
+  if (!match) return;
+  var ticketId = match[1];
+  var saved = stageDataStore[ticketId] || {};
+  Object.keys(saved).forEach(function(fieldId) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'cf__' + fieldId; inp.value = saved[fieldId];
+    inp.className = 'sc-cf-inject';
+    document.getElementById('scForm').appendChild(inp);
+  });
+});
 </script>
 
 <script>
@@ -2276,7 +2386,9 @@ function onBulkCbChange() {
     document.getElementById('bulkSelCountBtn').textContent = n;
   }
   if (stickyBar) {
-    stickyBar.style.display = n > 0 ? 'flex' : 'none';
+    // Only show sticky bar when the regular bar has scrolled out of view
+    var barVisible = bar && bar.getBoundingClientRect().top >= 0;
+    stickyBar.style.display = (n > 0 && !barVisible) ? 'flex' : 'none';
     document.getElementById('stickyBulkCount').textContent = n + ' selected';
     document.getElementById('stickyBulkCountBtn').textContent = n;
   }
@@ -2294,6 +2406,16 @@ function onBulkCbChange() {
     onBulkCbChange();
   }
 }
+
+// Update sticky bar on scroll — show only when regular bar is out of view
+window.addEventListener('scroll', function() {
+  var stickyBar = document.getElementById('stickyBulkBar');
+  var bar = document.getElementById('bulkTransitionBar');
+  if (!stickyBar || !bar) return;
+  var n = document.querySelectorAll('.bulk-ticket-cb:checked').length;
+  var barVisible = bar.getBoundingClientRect().top >= 0;
+  stickyBar.style.display = (n > 0 && !barVisible) ? 'flex' : 'none';
+}, { passive: true });
 
 function openBulkTransitionModal() {
   var checked = document.querySelectorAll('.bulk-ticket-cb:checked');
@@ -2393,6 +2515,19 @@ function openBulkTransitionModal() {
     body.appendChild(section);
   });
   document.getElementById('bulkTransitionModal').style.display = 'flex';
+
+  // Show scroll-to-bottom button when body is taller than its visible area
+  setTimeout(function() {
+    var bd = document.getElementById('bulkTransitionBody');
+    var btn = document.getElementById('btScrollBtn');
+    if (!btn) return;
+    var isScrollable = bd.scrollHeight > bd.clientHeight + 10;
+    btn.style.display = isScrollable ? 'flex' : 'none';
+    bd.addEventListener('scroll', function() {
+      var nearBottom = bd.scrollHeight - bd.scrollTop - bd.clientHeight < 60;
+      btn.style.display = (isScrollable && !nearBottom) ? 'flex' : 'none';
+    }, { passive: true });
+  }, 50);
 }
 
 function closeBulkTransitionModal() {
@@ -2413,18 +2548,21 @@ function _besc(s) {
       </h3>
       <button onclick="closeBulkTransitionModal()" style="background:none;border:none;color:var(--text-faint);font-size:20px;cursor:pointer;padding:0;line-height:1">×</button>
     </div>
-    <form id="bulkTransitionForm" method="post" action="/fms/tickets/bulk-transition">
+    <form id="bulkTransitionForm" method="post" action="/fms/tickets/bulk-transition" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0">
       <input type="hidden" name="flow_id" value="{{ active_flow.id if active_flow else '' }}">
       <input type="hidden" name="current_stage_id" value="{{ active_stage.id if active_stage else '' }}">
       {% if active_stage and next_stage_map.get(active_stage.id) %}
       <input type="hidden" name="next_stage_id" value="{{ next_stage_map[active_stage.id].id }}">
       {% endif %}
-      <div id="bulkTransitionBody" style="padding:16px 20px;overflow-y:auto;flex:1">
+      <div id="bulkTransitionBody" style="padding:16px 20px;overflow-y:auto;flex:1;position:relative">
         <!-- ticket sections injected by JS -->
       </div>
+      <!-- Sticky scroll-to-submit button, shown when body is scrollable -->
+      <div id="btScrollBtn" onclick="document.getElementById('bulkTransitionBody').scrollTo({top:9999,behavior:'smooth'})"
+           style="display:none;position:absolute;bottom:64px;right:28px;z-index:10;background:#1d4ed8;color:#fff;border:none;border-radius:50%;width:36px;height:36px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.5)">↓</div>
       <div style="padding:14px 20px;border-top:1px solid rgba(255,255,255,.07);display:flex;justify-content:flex-end;gap:10px;flex-shrink:0;background:var(--bg-input);border-radius:0 0 14px 14px">
         <button type="button" onclick="closeBulkTransitionModal()" class="btn btn-gray btn-sm">Cancel</button>
-        <button type="submit" class="btn btn-primary btn-sm">Move All</button>
+        <button type="submit" id="btSubmitBtn" class="btn btn-primary btn-sm">Move All</button>
       </div>
     </form>
   </div>
