@@ -411,7 +411,7 @@ async def fms_flow_import(
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
     """2-B-6: Bulk import flow definitions via CSV."""
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader  = csv.DictReader(io.StringIO(content))
     flows_created = 0
     for row in reader:
@@ -1459,6 +1459,27 @@ async def fms_ticket_create(
 
     # Collect per-stage pre-assignments: stage_assignee_<stage_id>
     form_data = dict(await request.form())
+
+    # Collect ticket creation form fields (defined in flow's ticket_form_fields_json)
+    ticket_form_fields = _json.loads(flow.ticket_form_fields_json or "[]")
+    ticket_custom_fields: dict = {}
+    for cf in ticket_form_fields:
+        fid   = cf.get("id", "")
+        ftype = cf.get("field_type", "")
+        val   = str(form_data.get(f"cf__{fid}", "") or "").strip()
+        if ftype == "__priority__":
+            if val and val.upper() in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
+                priority = val.upper()
+            continue
+        if ftype == "__due_date__":
+            if val:
+                try:
+                    due_at = val  # passed through to ticket creation below
+                except Exception:
+                    pass
+            continue
+        if val:
+            ticket_custom_fields[fid] = val
     stage_assignees = {
         k[len("stage_assignee_"):]: v
         for k, v in form_data.items()
@@ -1511,6 +1532,7 @@ async def fms_ticket_create(
         created_by_id=user.id, status="ACTIVE",
         stage_assignees_json=stage_assignees_json,
         stage_schedule_json=stage_schedule_json,
+        ticket_custom_fields_json=_json.dumps(ticket_custom_fields) if ticket_custom_fields else None,
     )
     db.add(ticket)
     db.flush()
@@ -1796,7 +1818,7 @@ async def fms_bulk_upload(
         target_qty_str = cell(4)
         qty_unit = cell(5)
         tat_unit_str = cell(tat_unit_col).lower() if tat_unit_col is not None else "hours"
-        tat_mult = 24.0 if "day" in tat_unit_str else 1.0
+        tat_mult = 24.0 if "day" in tat_unit_str else (1 / 60.0 if "min" in tat_unit_str else 1.0)
 
         if not title:
             warnings.append(f"Row {row_num}: Title required — skipped")
@@ -2020,7 +2042,7 @@ async def fms_bulk_create_post(
     tickets_data = []
 
     tat_unit = (form.get("tat_unit") or "hours").strip().lower()
-    tat_mult = 24.0 if tat_unit == "days" else 1.0
+    tat_mult = 24.0 if tat_unit == "days" else (1 / 60.0 if tat_unit == "minutes" else 1.0)
 
     for i in range(row_count):
         wo_number = (form.get(f"row_wo_number_{i}") or "").strip()
@@ -2240,7 +2262,14 @@ async def fms_bulk_transition(
                 FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False
             ).all()
             _bulk_open_h = _open_history(db, t_id)
+            _bulk_tff = {}
+            if ticket.ticket_custom_fields_json:
+                try:
+                    _bulk_tff = _json.loads(ticket.ticket_custom_fields_json)
+                except Exception:
+                    pass
             formula_lookup = {
+                **_bulk_tff,
                 **_cross_stage_cf(db, t_id, all_flow_stages, exclude_history_id=_bulk_open_h.id if _bulk_open_h else None),
                 **custom_fields_data,
             }
@@ -2636,7 +2665,14 @@ async def fms_transition(
         all_flow_stages = db.query(FMSStage).filter(
             FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False
         ).all()
+        _ticket_tff = {}
+        if ticket.ticket_custom_fields_json:
+            try:
+                _ticket_tff = _json.loads(ticket.ticket_custom_fields_json)
+            except Exception:
+                pass
         formula_lookup = {
+            **_ticket_tff,
             **_cross_stage_cf(db, ticket_id, all_flow_stages, exclude_history_id=open_h.id if open_h else None),
             **custom_fields_data,
         }
@@ -3188,13 +3224,64 @@ async def fms_save_stage_data(
             stage_id=ticket.current_stage_id, entered_at=datetime.utcnow(),
         )
         db.add(history)
+    import json as _json
     body = await request.json()
     incoming = body.get("data", {})
-    existing = json.loads(history.custom_fields_data_json or "{}") if history.custom_fields_data_json else {}
+    existing = _json.loads(history.custom_fields_data_json or "{}") if history.custom_fields_data_json else {}
     existing.update(incoming)
-    history.custom_fields_data_json = json.dumps(existing)
+
+    # Evaluate formula columns using cross-stage values so references to prior
+    # stage columns resolve (the client can only see current-stage inputs).
+    cur_stage = ticket.current_stage
+    if cur_stage and cur_stage.custom_fields_json:
+        try:
+            field_defs = _json.loads(cur_stage.custom_fields_json)
+        except Exception:
+            field_defs = []
+        all_flow_stages = db.query(FMSStage).filter(
+            FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False
+        ).all()
+        _tff = {}
+        if ticket.ticket_custom_fields_json:
+            try:
+                _tff = _json.loads(ticket.ticket_custom_fields_json)
+            except Exception:
+                pass
+        formula_lookup = {
+            **_tff,
+            **_cross_stage_cf(db, ticket.id, all_flow_stages, exclude_history_id=history.id),
+            **existing,
+        }
+
+        def _eval_sd_formula(steps):
+            result = None
+            for i, step in enumerate(steps):
+                raw = formula_lookup.get(step.get("col_id", ""), "")
+                try:
+                    val = float(raw)
+                except (ValueError, TypeError):
+                    return None
+                if i == 0:
+                    result = val; continue
+                op = step.get("op", "+")
+                if op == "+":   result += val
+                elif op == "-": result -= val
+                elif op == "*": result *= val
+                elif op == "/":
+                    if val == 0: return None
+                    result /= val
+            if result is None: return None
+            return str(int(result)) if result == int(result) else f"{result:.4f}".rstrip("0")
+
+        for fdef in field_defs:
+            if fdef.get("field_type") != "formula": continue
+            computed = _eval_sd_formula(fdef.get("formula_steps") or [])
+            if computed is not None:
+                existing[fdef.get("id", "")] = computed
+
+    history.custom_fields_data_json = _json.dumps(existing)
     db.commit()
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "computed": {k: v for k, v in existing.items()}})
 
 
 @router.get("/tickets/{ticket_id}/cf-carry-forward")
@@ -3244,6 +3331,18 @@ def fms_cf_carry_forward(
         for cid in list(remaining):
             if cid in data:
                 values[cid] = data[cid]
+                remaining.discard(cid)
+
+    # Fall back to values captured on the ticket creation form (e.g. columns
+    # reused from the Ticket Creation Form have no stage history to draw from).
+    if remaining and ticket.ticket_custom_fields_json:
+        try:
+            tff = _json.loads(ticket.ticket_custom_fields_json)
+        except Exception:
+            tff = {}
+        for cid in list(remaining):
+            if cid in tff:
+                values[cid] = tff[cid]
                 remaining.discard(cid)
 
     return {"values": values}

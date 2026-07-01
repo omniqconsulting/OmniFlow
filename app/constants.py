@@ -117,6 +117,25 @@ def has_feature(tenant, feature_name: str, db=None) -> bool:
     return PLAN_ORDER.get(current, 0) >= PLAN_ORDER.get(required, 0)
 
 
+# ── Per-employee nav tab access ────────────────────────────────────────────────
+# (tab_key, label, gating feature in FEATURE_CATALOG)
+TAB_CATALOG = [
+    ("TICKETS",    "Tickets",     "TICKETS"),
+    ("CHECKLISTS", "Checklists",  "CHECKLISTS"),
+    ("FMS",        "Flow Board",  "FMS"),
+    ("KNOWLEDGE",  "Training",    "KNOWLEDGE_REPO"),
+    ("SALES",      "Sales",       "SALES_MODULE"),
+    ("INVENTORY",  "Inventory",   "INVENTORY_MODULE"),
+]
+
+
+def get_tenant_enabled_tabs(tenant, db=None) -> list:
+    """Tab keys the tenant currently has access to, per plan/override."""
+    if tenant is None:
+        return []
+    return [key for key, _label, feat in TAB_CATALOG if has_feature(tenant, feat, db)]
+
+
 def get_limit(tenant, limit_name: str) -> "int | None":
     """Return the quantitative limit for the tenant's plan. None = unlimited."""
     plan   = getattr(tenant, "plan", PLAN_STARTER) or PLAN_STARTER

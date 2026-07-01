@@ -176,6 +176,10 @@ class User(Base):
     # Sales module access — JSON array of module tags e.g. '["SALES","INVENTORY"]'
     # ADMIN and MANAGER roles always see all modules regardless of this field.
     module_access_json = Column(Text, nullable=True, default='[]')
+    # Per-employee nav tab visibility — JSON array of tab keys e.g. '["TICKETS","SALES"]'
+    # NULL means "no restriction set" — falls back to all tenant-enabled tabs.
+    # ADMIN and MANAGER roles always see all tenant-enabled tabs regardless of this field.
+    tab_access_json = Column(Text, nullable=True)
 
     tenant = relationship("Tenant", back_populates="users")
     department = relationship("Department", back_populates="users")
@@ -183,6 +187,51 @@ class User(Base):
     mobile_verified_by_user = relationship("User", remote_side="User.id", foreign_keys="[User.mobile_verified_by]")
     created_tickets = relationship("Ticket", foreign_keys="Ticket.created_by_id", back_populates="created_by")
     assigned_tickets = relationship("Ticket", foreign_keys="Ticket.current_assignee_id", back_populates="current_assignee")
+
+
+class EmployeeDocument(Base):
+    """KYC-style documents (identity proof, address proof, etc.) attached to an employee record."""
+    __tablename__ = "employee_documents"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    doc_type = Column(String, nullable=False)      # IDENTITY_PROOF / ADDRESS_PROOF / OTHER
+    label = Column(String, nullable=True)          # optional custom label e.g. "Aadhaar Card"
+    file_name = Column(String, nullable=False)
+    file_path = Column(String, nullable=False)
+    file_type = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    uploaded_by = Column(String, ForeignKey("users.id"), nullable=True)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class EmployeeGadget(Base):
+    """A client-provided gadget (laptop, SIM, etc.) issued to an employee, tracked for records."""
+    __tablename__ = "employee_gadgets"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    gadget_name = Column(String, nullable=False)   # e.g. "Laptop", "SIM Card"
+    serial_number = Column(String, nullable=True)
+    provided_by = Column(String, nullable=True)    # e.g. client / company name
+    notes = Column(Text, nullable=True)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, ForeignKey("users.id"), nullable=True)
+
+
+class EmployeeGadgetDocument(Base):
+    """Proof/receipt documents attached to a specific EmployeeGadget."""
+    __tablename__ = "employee_gadget_documents"
+    id = Column(String, primary_key=True, default=new_id)
+    gadget_id = Column(String, ForeignKey("employee_gadgets.id"), nullable=False)
+    file_name = Column(String, nullable=False)
+    file_path = Column(String, nullable=False)
+    file_type = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class Ticket(Base):
     __tablename__ = "tickets"
@@ -654,7 +703,8 @@ class FMSStage(Base):
     description             = Column(Text,    nullable=True)
     order                   = Column(Integer, default=0)
     color                   = Column(String,  default="#3b82f6")
-    target_tat_hours        = Column(Integer, nullable=True)         # None = no TaT target
+    target_tat_hours        = Column(Float,   nullable=True)         # None = no TaT target; always stored in hours
+    target_tat_unit         = Column(String,  default="hours")       # minutes|hours|days — display unit only
     default_assignee_id     = Column(String,  ForeignKey("users.id"), nullable=True)
     sub_module_tag          = Column(String,  nullable=True)         # PMS|DISPATCH|INVOICE|CUSTOM
     deployed_submodule_id   = Column(String,  ForeignKey("library_submodule_definitions.id"), nullable=True)

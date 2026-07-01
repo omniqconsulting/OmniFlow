@@ -138,6 +138,7 @@
             <div class="emp-dropdown" style="display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:150px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.18);z-index:200;overflow:hidden;font-family:inherit">
               <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));toggleRow('pw-{{ emp.id }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:var(--text-primary);background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">🔑 Reset Password</button>
               <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));toggleRow('edit-{{ emp.id }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:var(--text-primary);background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">✏ Edit</button>
+              <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));toggleRow('docs-{{ emp.id }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:var(--text-primary);background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">📁 Documents & Gadgets</button>
               {% if emp.status != 'TERMINATED' and emp.id != user.id %}
               <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));openTerminate('{{ emp.id }}','{{ emp.name | e }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:#f87171;background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">⛔ Terminate</button>
               {% endif %}
@@ -243,24 +244,26 @@
             </div>
           </div>
           <div class="form-section" style="margin-bottom:12px">
-            <label>Module Access</label>
+            <label>Visible Tabs</label>
             <p class="help-text" style="font-size:11px;color:var(--text-faint);margin:2px 0 6px">
               Admin and Manager roles automatically see all modules.
-              For Employee role, select which modules this user can access.
+              For Employee role, select which tabs this user can access.
+              Only tabs your organization currently has enabled are shown below.
             </p>
             {% if emp.role == "EMPLOYEE" %}
-            <div class="checkbox-group" style="display:flex;gap:16px">
+            {% if tab_catalog %}
+            <div class="checkbox-group" style="display:flex;gap:16px;flex-wrap:wrap">
+              {% for tkey, tlabel in tab_catalog %}
               <label style="font-size:12px;display:flex;align-items:center;gap:5px">
-                <input type="checkbox" name="module_sales"
-                       {% if '"SALES"' in (emp.module_access_json or '') %}checked{% endif %}>
-                Sales (Contacts, Catalog, Orders, Pricing)
+                <input type="checkbox" name="tabs" value="{{ tkey }}"
+                       {% if tkey in emp.effective_tabs %}checked{% endif %}>
+                {{ tlabel }}
               </label>
-              <label style="font-size:12px;display:flex;align-items:center;gap:5px">
-                <input type="checkbox" name="module_inventory"
-                       {% if '"INVENTORY"' in (emp.module_access_json or '') %}checked{% endif %}>
-                Inventory / Godown (Stock management, Purchase orders)
-              </label>
+              {% endfor %}
             </div>
+            {% else %}
+            <p class="muted" style="font-size:12px;color:var(--text-faint)">No optional tabs are currently enabled for your organization.</p>
+            {% endif %}
             {% else %}
             <p class="muted" style="font-size:12px;color:var(--text-faint)">All modules visible (Admin / Manager role).</p>
             {% endif %}
@@ -270,6 +273,117 @@
             <button type="button" onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
           </div>
         </form>
+      </td>
+    </tr>
+
+    <!-- Documents & Gadgets inline row -->
+    <tr id="docs-{{ emp.id }}" style="display:none;background:rgba(59,130,246,0.04)">
+      <td colspan="7" style="padding:14px 16px">
+        <div style="font-size:12px;font-weight:600;color:#7dd3fc;margin-bottom:12px">Documents & Gadgets — {{ emp.name }}</div>
+
+        <!-- Documents -->
+        <div style="margin-bottom:18px">
+          <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Identity / Address Proof</div>
+          <form method="post" action="/employees/{{ emp.id }}/documents" enctype="multipart/form-data">
+            <div id="doc-rows-{{ emp.id }}">
+              <div class="doc-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+                <select name="doc_type" required style="width:auto;min-width:140px">
+                  {% for dkey, dlabel in doc_type_labels.items() %}
+                  <option value="{{ dkey }}">{{ dlabel }}</option>
+                  {% endfor %}
+                </select>
+                <input type="text" name="label" placeholder="Label (optional, e.g. Aadhaar Card)" style="width:auto;min-width:180px">
+                <input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf" required style="width:auto">
+                <button type="button" class="doc-row-remove" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:14px" title="Remove row">✕</button>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+              <button type="button" onclick="addDocRow('{{ emp.id }}')" class="btn btn-sm btn-outline">+ Add another document</button>
+              <button type="submit" class="btn btn-sm btn-primary">Upload All</button>
+              <span style="font-size:10px;color:var(--text-xfaint)">JPG, PNG or PDF · max 5 MB each</span>
+            </div>
+          </form>
+          {% if emp.doc_list %}
+          <div style="display:flex;flex-direction:column;gap:4px">
+            {% for doc in emp.doc_list %}
+            <div style="display:flex;align-items:center;gap:10px;font-size:12px;padding:5px 8px;background:var(--bg-input);border-radius:6px">
+              <span style="color:#7dd3fc;font-weight:600;min-width:110px">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
+              <a href="{{ doc.file_path }}" target="_blank" style="color:var(--text-primary)">{{ doc.label or doc.file_name }}</a>
+              <span style="color:var(--text-xfaint);margin-left:auto">{{ doc.created_at.strftime('%d %b %Y') if doc.created_at else '' }}</span>
+              <form method="post" action="/employees/{{ emp.id }}/documents/{{ doc.id }}/delete" style="display:inline"
+                    onsubmit="return confirm('Remove this document?')">
+                <button type="submit" class="btn btn-sm" style="padding:2px 8px;color:#f87171;background:none;border:none;cursor:pointer">🗑</button>
+              </form>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="muted" style="font-size:12px;color:var(--text-faint)">No documents uploaded yet.</p>
+          {% endif %}
+        </div>
+
+        <!-- Gadgets -->
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Client-Provided Gadgets</div>
+          <form method="post" action="/employees/{{ emp.id }}/gadgets" enctype="multipart/form-data">
+            <div id="gadget-rows-{{ emp.id }}" data-next-idx="1">
+              <div class="gadget-row" data-idx="0" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+                <input type="text" name="gadget_name_0" placeholder="Gadget (e.g. Laptop, SIM Card)" style="width:auto;min-width:150px">
+                <input type="text" name="serial_number_0" placeholder="Serial / IMEI (optional)" style="width:auto;min-width:150px">
+                <input type="text" name="provided_by_0" placeholder="Provided by (optional)" style="width:auto;min-width:140px">
+                <input type="text" name="notes_0" placeholder="Notes (optional)" style="width:auto;min-width:140px">
+                <input type="file" name="files_0" accept=".jpg,.jpeg,.png,.pdf" multiple style="width:auto">
+                <button type="button" class="gadget-row-remove" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:14px" title="Remove row">✕</button>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+              <button type="button" onclick="addGadgetRow('{{ emp.id }}')" class="btn btn-sm btn-outline">+ Add another gadget</button>
+              <button type="submit" class="btn btn-sm btn-primary">Save Gadgets</button>
+            </div>
+          </form>
+          {% if emp.gadget_list %}
+          <div style="display:flex;flex-direction:column;gap:8px">
+            {% for g in emp.gadget_list %}
+            <div style="padding:8px 10px;background:var(--bg-input);border-radius:6px">
+              <div style="display:flex;align-items:center;gap:10px;font-size:12px;flex-wrap:wrap">
+                <span style="font-weight:600;color:var(--text-strong)">{{ g.gadget_name }}</span>
+                {% if g.serial_number %}<span style="color:var(--text-faint)">SN: {{ g.serial_number }}</span>{% endif %}
+                {% if g.provided_by %}<span style="color:var(--text-faint)">· {{ g.provided_by }}</span>{% endif %}
+                {% if g.notes %}<span style="color:var(--text-xfaint)">· {{ g.notes }}</span>{% endif %}
+                <form method="post" action="/employees/{{ emp.id }}/gadgets/{{ g.id }}/delete" style="display:inline;margin-left:auto"
+                      onsubmit="return confirm('Remove this gadget record?')">
+                  <button type="submit" class="btn btn-sm" style="padding:2px 8px;color:#f87171;background:none;border:none;cursor:pointer">🗑 Remove</button>
+                </form>
+              </div>
+              {% if g.doc_list %}
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
+                {% for gd in g.doc_list %}
+                <span style="font-size:11px;display:inline-flex;align-items:center;gap:4px;background:var(--bg-card);border-radius:5px;padding:3px 7px">
+                  <a href="{{ gd.file_path }}" target="_blank">{{ gd.file_name }}</a>
+                  <form method="post" action="/employees/{{ emp.id }}/gadgets/{{ g.id }}/documents/{{ gd.id }}/delete" style="display:inline"
+                        onsubmit="return confirm('Remove this document?')">
+                    <button type="submit" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:11px">✕</button>
+                  </form>
+                </span>
+                {% endfor %}
+              </div>
+              {% endif %}
+              <form method="post" action="/employees/{{ emp.id }}/gadgets/{{ g.id }}/documents" enctype="multipart/form-data"
+                    style="display:flex;gap:6px;align-items:center;margin-top:6px">
+                <input type="file" name="files" accept=".jpg,.jpeg,.png,.pdf" multiple style="width:auto;font-size:11px">
+                <button type="submit" class="btn btn-sm btn-outline" style="font-size:11px;padding:2px 8px">+ Add Document</button>
+              </form>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="muted" style="font-size:12px;color:var(--text-faint)">No gadgets on record.</p>
+          {% endif %}
+        </div>
+
+        <div style="margin-top:14px">
+          <button type="button" onclick="toggleRow('docs-{{ emp.id }}')" class="btn btn-sm btn-gray">Close</button>
+        </div>
       </td>
     </tr>
 
@@ -338,7 +452,10 @@
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input type="password" name="password" required minlength="6">
+        <div class="pw-field">
+          <input type="password" name="password" required minlength="6">
+          <button type="button" class="pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
         <div class="form-group">
@@ -533,6 +650,51 @@ function toggleRow(id){
   var el = document.getElementById(id);
   el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'table-row' : 'none';
 }
+
+// ── Documents & Gadgets: keep the panel open across uploads/deletes ─────────
+// Every action in that panel redirects back here with ?open_docs=<empId> so
+// the row doesn't collapse and force a re-open for each item.
+(function(){
+  var openId = new URLSearchParams(window.location.search).get('open_docs');
+  if (openId) {
+    var row = document.getElementById('docs-' + openId);
+    if (row) { row.style.display = 'table-row'; row.scrollIntoView({block: 'center'}); }
+  }
+})();
+
+// ── Documents: add/remove rows for batch upload (mixed doc types) ──────────
+function addDocRow(empId){
+  var container = document.getElementById('doc-rows-' + empId);
+  var row = container.firstElementChild.cloneNode(true);
+  row.querySelectorAll('input').forEach(function(el){ el.value = ''; });
+  row.querySelectorAll('select').forEach(function(el){ el.selectedIndex = 0; });
+  container.appendChild(row);
+}
+
+// ── Gadgets: add/remove rows for batch create (each row keeps its own files) ─
+function addGadgetRow(empId){
+  var container = document.getElementById('gadget-rows-' + empId);
+  var idx = parseInt(container.dataset.nextIdx, 10);
+  var row = container.querySelector('.gadget-row').cloneNode(true);
+  row.dataset.idx = idx;
+  row.querySelectorAll('[name]').forEach(function(el){
+    el.name = el.name.replace(/_\d+$/, '_' + idx);
+    el.value = '';
+  });
+  container.appendChild(row);
+  container.dataset.nextIdx = idx + 1;
+}
+
+document.addEventListener('click', function(e){
+  if (e.target.classList.contains('doc-row-remove')) {
+    var c = e.target.closest('[id^="doc-rows-"]');
+    if (c.children.length > 1) e.target.closest('.doc-row').remove();
+  }
+  if (e.target.classList.contains('gadget-row-remove')) {
+    var c = e.target.closest('[id^="gadget-rows-"]');
+    if (c.children.length > 1) e.target.closest('.gadget-row').remove();
+  }
+});
 
 // ── View toggle ────────────────────────────────────────────────────────────
 function switchView(v) {

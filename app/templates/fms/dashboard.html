@@ -414,8 +414,10 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
       {% elif si.visited %}—{% else %}<span style="opacity:.3">—</span>{% endif %}
     </td>
     {% for fdef in jt_cf_defs %}
-    <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
-      {{ si.cf.get(fdef.id, si.cf.get(fdef.label, '—')) if (si.visited or si.is_current) else '' }}
+    {% set cfval = si.cf.get(fdef.id, si.cf.get(fdef.label, '—')) if (si.visited or si.is_current) else '' %}
+    {% set cfstyle = fdef | cond_format(cfval) %}
+    <td class="jt-cell {{ state_cls }}" {% if cfstyle %}style="{{ cfstyle }}"{% elif si.is_current %}style="background:{{ hex }}12"{% endif %}>
+      {{ cfval }}
     </td>
     {% endfor %}
     {% endfor %}
@@ -617,8 +619,10 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         {# A4: custom stage column values — aggregated from all stage visits #}
         {% if stage_cf_defs %}
         {% for fdef in stage_cf_defs[:3] %}
-        <td data-cf-cell="{{ t.id }}_{{ fdef.id }}" style="font-size:12px;color:var(--text-muted);max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-          {{ row.cf_all.get(fdef.id, row.cf_all.get(fdef.label, '—')) }}
+        {% set cfval = row.cf_all.get(fdef.id, row.cf_all.get(fdef.label, '—')) %}
+        {% set cfstyle = fdef | cond_format(cfval) %}
+        <td data-cf-cell="{{ t.id }}_{{ fdef.id }}" style="font-size:12px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;{{ cfstyle if cfstyle else 'color:var(--text-muted)' }}">
+          {{ cfval }}
         </td>
         {% endfor %}
         {% if stage_cf_defs | length > 3 %}
@@ -1186,8 +1190,9 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
               <span style="font-size:9px;color:var(--text-xfaint);text-transform:uppercase;letter-spacing:.06em">TaT unit</span>
               <select id="tatUnit" onchange="onTatUnitChange()"
                       style="background:var(--bg-card);border:1px solid rgba(255,255,255,.15);border-radius:5px;padding:3px 7px;font-size:11px;color:var(--text-primary);outline:none;cursor:pointer">
-                <option value="days" selected>Days</option>
+                <option value="minutes">Minutes</option>
                 <option value="hours">Hours</option>
+                <option value="days" selected>Days</option>
               </select>
             </div>
           </div>
@@ -1290,6 +1295,13 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
           </div>
           {% endif %}{% endfor %}
           {% endif %}
+
+          <!-- Custom ticket form fields (from flow's Ticket Creation Form) -->
+          <div id="ticketCustomFields" style="display:none">
+            <div style="height:14px"></div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint);margin-bottom:8px">📋 Order Details</div>
+            <div id="ticketCustomFieldsInner"></div>
+          </div>
 
           <!-- Stage hint -->
           <div id="stageHint" style="display:none;margin-top:10px;padding:8px 12px;background:var(--bg-input);border:1px solid rgba(255,255,255,.08);border-radius:7px;font-size:11px;color:var(--text-faint);line-height:1.6"></div>
@@ -1631,6 +1643,7 @@ const FLOWS_DATA = {
     name: {{ f.name | tojson }},
     color: "{{ f.color or '#3b82f6' }}",
     description: {{ (f.description or '') | tojson }},
+    ticket_form_fields: {{ (f.ticket_form_fields_json or '[]') | safe }},
     stages: [
       {% set active_stages = f.stages | selectattr('is_deleted','equalto',False) | list | sort(attribute='order') %}
       {% for s in active_stages %}
@@ -1677,7 +1690,15 @@ const _pad = n => String(n).padStart(2, '0');
 const _toISO = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}T${_pad(d.getHours())}:${_pad(d.getMinutes())}`;
 
 function _tatToHours(val, unit) {
-  return unit === 'hours' ? val : val * 24;
+  if (unit === 'minutes') return val / 60;
+  if (unit === 'days') return val * 24;
+  return val;
+}
+
+function _hoursToTat(hours, unit) {
+  if (unit === 'minutes') return hours * 60;
+  if (unit === 'days') return hours / 24;
+  return hours;
 }
 
 // Read a stage's TaT input value in hours (returns 0 if blank/invalid)
@@ -1723,24 +1744,22 @@ function recalcSchedule() {
 // When unit selector changes: convert existing values then recalculate
 function onTatUnitChange() {
   if (!currentFlowId || !FLOWS_DATA[currentFlowId]) return;
-  const unit    = document.getElementById('tatUnit').value;
-  const factor  = unit === 'hours' ? 24 : 1/24;   // old→new conversion
-  // We don't know the old unit, but inputs are currently in the OLD unit
-  // So: if switching to hours, multiply by 24; if switching to days, divide by 24
+  const sel     = document.getElementById('tatUnit');
+  const unit    = sel.value;
+  const oldUnit = sel.dataset.prevUnit || 'days';
+  sel.dataset.prevUnit = unit;
   FLOWS_DATA[currentFlowId].stages.forEach(st => {
     const inp = document.getElementById('_stat_' + st.id);
     if (!inp) return;
     const cur = parseFloat(inp.value);
     if (cur > 0) {
-      const converted = parseFloat((cur * factor).toFixed(2));
+      const converted = parseFloat(_hoursToTat(_tatToHours(cur, oldUnit), unit).toFixed(2));
       inp.value = converted;
     } else {
       // Pre-fill default from flow if blank
       const defH = st.target_tat_hours || 0;
       if (defH > 0) {
-        inp.value = unit === 'hours'
-          ? defH
-          : parseFloat((defH / 24).toFixed(2));
+        inp.value = parseFloat(_hoursToTat(defH, unit).toFixed(2));
       }
     }
   });
@@ -1772,7 +1791,11 @@ function closeTicketModal() {
   document.getElementById('submitBtn').disabled = true;
   // Clear derived due date and all schedule hidden inputs
   document.getElementById('modalDueAt').value = '';
+  document.getElementById('modalDueAt').readOnly = true;
   _clearScheduleInputs();
+  // Clear custom ticket form fields
+  document.getElementById('ticketCustomFieldsInner').innerHTML = '';
+  document.getElementById('ticketCustomFields').style.display = 'none';
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTicketModal(); });
 
@@ -1833,9 +1856,7 @@ function selectFlow(fid) {
       // TaT input — pre-fill from flow's target_tat_hours converted to selected unit
       const unit   = document.getElementById('tatUnit').value;
       const defTat = s.target_tat_hours || 0;
-      const defVal = defTat > 0
-        ? (unit === 'hours' ? defTat : parseFloat((defTat / 24).toFixed(2)))
-        : '';
+      const defVal = defTat > 0 ? parseFloat(_hoursToTat(defTat, unit).toFixed(2)) : '';
       selRow.innerHTML = `
         <div style="display:flex;align-items:center;gap:5px">
           <span style="font-size:10px;color:var(--text-xfaint);white-space:nowrap">TaT</span>
@@ -1870,6 +1891,61 @@ function selectFlow(fid) {
   document.getElementById('stageBtnList').style.cssText = 'overflow-y:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;padding-right:4px;scrollbar-width:thin;margin-top:6px';
   document.getElementById('ticketFields').style.display = '';
   document.getElementById('noFlowMsg').style.display = 'none';
+
+  // Render ticket creation form fields (if any defined for this flow)
+  var tcfWrap  = document.getElementById('ticketCustomFields');
+  var tcfInner = document.getElementById('ticketCustomFieldsInner');
+  tcfInner.innerHTML = '';
+  var tcfDefs = (f.ticket_form_fields || []).filter(function(fd) {
+    return fd.field_type !== '__priority__' && fd.field_type !== '__due_date__';
+  });
+  var INP_TCF = 'width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box;font-family:inherit';
+  tcfDefs.forEach(function(fd) {
+    var grp = document.createElement('div');
+    grp.className = 'fm-group';
+    grp.style.marginBottom = '10px';
+    var lbl = document.createElement('label');
+    lbl.innerHTML = fd.label + (fd.required ? ' <span style="color:#f87171">*</span>' : '');
+    grp.appendChild(lbl);
+    var inp;
+    var fname = 'cf__' + fd.id;
+    if (fd.field_type === 'select') {
+      inp = document.createElement('select');
+      inp.style.cssText = INP_TCF;
+      var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
+      (fd.options || []).forEach(function(o){ var op=document.createElement('option');op.value=o;op.textContent=o;inp.appendChild(op); });
+    } else if (fd.field_type === 'ref_list') {
+      inp = document.createElement('select');
+      inp.style.cssText = INP_TCF;
+      var blank = document.createElement('option'); blank.value=''; blank.textContent='— select —'; inp.appendChild(blank);
+      (fd.options || []).forEach(function(o){ var op=document.createElement('option');op.value=o;op.textContent=o;inp.appendChild(op); });
+    } else if (fd.field_type === 'longtext') {
+      inp = document.createElement('textarea');
+      inp.rows = 2; inp.style.cssText = INP_TCF + ';resize:vertical';
+    } else {
+      inp = document.createElement('input');
+      inp.type = fd.field_type === 'number' ? 'number' : fd.field_type === 'date' ? 'date' : 'text';
+      inp.style.cssText = INP_TCF;
+      inp.placeholder = fd.label;
+    }
+    inp.name = fname;
+    if (fd.required) inp.required = true;
+    grp.appendChild(inp);
+    tcfInner.appendChild(grp);
+  });
+  tcfWrap.style.display = tcfDefs.length ? '' : 'none';
+
+  // Handle __priority__ and __due_date__ built-in types from ticket form
+  (f.ticket_form_fields || []).forEach(function(fd) {
+    if (fd.field_type === '__priority__') {
+      var ps = document.querySelector('[name="priority"]');
+      if (ps) { ps.closest('.fm-group').querySelector('label').textContent = fd.label + (fd.required ? ' *' : ''); }
+    }
+    if (fd.field_type === '__due_date__') {
+      var ds = document.getElementById('modalDueAt');
+      if (ds) ds.readOnly = false;  // allow manual override if flow uses __due_date__ field
+    }
+  });
 
   // Auto-select first stage
   if (f.stages.length > 0) selectStage(f.stages[0].id, f.stages[0].color);
@@ -2031,14 +2107,18 @@ function openStageDataModal(ticketId, displayId, stageName, stageId) {
     container.appendChild(grp);
   });
 
-  // Formula recalculation
+  // Formula recalculation — looks up col_id in the current modal inputs first,
+  // then falls back to stageDataStore (cross-stage values) so formulas that
+  // reference prior-stage columns resolve correctly.
+  var _crossStageVals = Object.assign({}, stageDataStore[ticketId] || {});
   function _sdRecalc() {
     cfDefs.forEach(function(f) {
       if (f.field_type !== 'formula' || !f.formula_steps || !f.formula_steps.length) return;
       var result = null; var valid = true;
       f.formula_steps.forEach(function(step, idx) {
         var el = container.querySelector('[name="sd_cf__'+step.col_id+'"]');
-        var val = el ? parseFloat(el.value) : NaN;
+        var rawVal = el ? el.value : (_crossStageVals[step.col_id] !== undefined ? String(_crossStageVals[step.col_id]) : '');
+        var val = parseFloat(rawVal);
         if (isNaN(val)) { valid=false; return; }
         if (idx===0) { result=val; return; }
         var op=step.op||'+';
@@ -2102,7 +2182,9 @@ function saveStageData() {
     return;
   }
 
-  stageDataStore[_sdCurrentTicketId] = data;
+  // Merge into existing store (not replace) so cross-stage values are preserved
+  // for the bulk-transition dedup check that reads stageDataStore.
+  stageDataStore[_sdCurrentTicketId] = Object.assign({}, stageDataStore[_sdCurrentTicketId] || {}, data);
 
   // Update visible table cells immediately (optimistic — don't wait for server)
   Object.keys(data).forEach(function(fieldId) {
@@ -2110,11 +2192,19 @@ function saveStageData() {
     if (cell) { cell.textContent = data[fieldId]; cell.style.color = 'var(--text-primary)'; }
   });
 
-  // Persist to DB in the background
+  // Persist to DB; response includes server-computed formula values
   fetch('/fms/tickets/' + _sdCurrentTicketId + '/stage-data', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({data: data})
+  }).then(function(r){ return r.json(); }).then(function(resp) {
+    if (!resp || !resp.computed) return;
+    // Merge server-computed formula values back into store and table cells
+    stageDataStore[_sdCurrentTicketId] = Object.assign(stageDataStore[_sdCurrentTicketId] || {}, resp.computed);
+    Object.keys(resp.computed).forEach(function(fieldId) {
+      var cell = document.querySelector('[data-cf-cell="' + _sdCurrentTicketId + '_' + fieldId + '"]');
+      if (cell) { cell.textContent = resp.computed[fieldId]; cell.style.color = 'var(--text-primary)'; }
+    });
   }).catch(function(){});
 
   var st=document.getElementById('sdStatus'); st.style.display='block'; st.style.color='#34d399';

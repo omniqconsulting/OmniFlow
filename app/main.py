@@ -16,11 +16,12 @@ from .database import (
     FMSFlow, FMSTicket, FMSStageHistory, FMSTicketHelper, FMSEvent,
     TicketStatus, Priority, ChecklistStatus, new_id,
     LoginEvent, PerformanceFormula,
+    EmployeeDocument, EmployeeGadget, EmployeeGadgetDocument,
 )
 from .auth import (
     hash_password, verify_password, create_token,
     get_current_user, require_admin, require_manager,
-    get_user_modules, has_module,
+    get_user_modules, has_module, get_user_tabs,
 )
 from .notifications import (
     notify_ticket_assigned, notify_ticket_reminder, notify_helper_added,
@@ -51,6 +52,7 @@ from .constants import (
     has_feature, get_limit, within_limit,
     FEATURE_CATALOG, PLAN_LIMITS, PLAN_LABELS, PLAN_ORDER,
     LIMIT_LABELS, feature_label, next_plan, get_plan_features,
+    TAB_CATALOG, get_tenant_enabled_tabs,
 )
 from .labels import get_labels, DEFAULT_L, INDUSTRY_NAMES, INDUSTRY_PRESETS
 
@@ -89,6 +91,8 @@ from .sales_pricing import router as pricing_router
 app.include_router(pricing_router)
 from .sales_analytics import router as analytics_router
 app.include_router(analytics_router)
+from .employee_extras import router as employee_extras_router, DOC_TYPE_LABELS
+app.include_router(employee_extras_router)
 from .templates_env import templates, _OrmEncoder, _to_ist, _format_tat  # shared filters
 BASE_DIR = os.path.dirname(__file__)
 
@@ -284,17 +288,20 @@ def _limit_hit(tenant, limit_name: str, current_count: int) -> bool:
 def _nav_ctx(db, user, tenant=None) -> dict:
     """Return nav feature flags for base.html — avoids repeating per-route."""
     if user is None:
-        return {"has_inventory": False, "has_fms": False, "has_checklists": False, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
+        return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_checklists": False, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
     try:
         t = tenant or db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
         modules = get_user_modules(user)
+        # Per-employee tab access — falls back to every tenant-enabled tab when unset (P8-xx)
+        user_tabs = get_user_tabs(user, t, db) if t else []
         return {
             "has_inventory":         has_feature(t, "INVENTORY",       db) if t else False,
-            "has_fms":               has_feature(t, "FMS",             db) if t else False,
-            "has_knowledge_repo":    has_feature(t, "KNOWLEDGE_REPO",  db) if t else False,
-            "has_checklists":        True,
-            "has_sales":             "SALES"     in modules and (has_feature(t, "SALES_MODULE",     db) if t else False),
-            "has_inventory_module":  "INVENTORY" in modules and (has_feature(t, "INVENTORY_MODULE",  db) if t else False),
+            "has_tickets":           "TICKETS"    in user_tabs,
+            "has_fms":               "FMS"        in user_tabs,
+            "has_knowledge_repo":    "KNOWLEDGE"  in user_tabs,
+            "has_checklists":        "CHECKLISTS" in user_tabs,
+            "has_sales":             "SALES"     in modules and "SALES"     in user_tabs,
+            "has_inventory_module":  "INVENTORY" in modules and "INVENTORY" in user_tabs,
             "has_sales_analytics":   (has_feature(t, "SALES_ANALYTICS", db) if t else False)
                                       and (has_feature(t, "SALES_MODULE", db) if t else False)
                                       and "SALES" in modules and user.role in ("ADMIN", "MANAGER"),
@@ -303,7 +310,7 @@ def _nav_ctx(db, user, tenant=None) -> dict:
     except Exception as _e:
         import logging as _log
         _log.getLogger(__name__).warning("_nav_ctx failed: %s", _e)
-        return {"has_inventory": False, "has_fms": False, "has_knowledge_repo": False, "has_checklists": True, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
+        return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_knowledge_repo": False, "has_checklists": True, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
 
 def _has_inv(db, user) -> bool:
     return _nav_ctx(db, user)["has_inventory"]
@@ -1681,6 +1688,22 @@ def move_ticket(ticket_id: str, new_status: str = Form(...),
     })
     return redirect(f"/tickets?view=kanban")
 
+
+# Must be registered before /tickets/{ticket_id} — otherwise "bulk-template"
+# is matched as a ticket_id and 404s instead of hitting this handler.
+@app.get("/tickets/bulk-template")
+def tickets_bulk_template(user: User = Depends(require_manager)):
+    """P5-07: CSV template download."""
+    import io as _io
+    buf = _io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["title","description","priority","ticket_category","assignee_phone","due_at","evidence_required"])
+    w.writerow(["Mandatory. Short title, max 200 chars.","Mandatory. Full task description.","LOW / MEDIUM / HIGH / CRITICAL","NORMAL or HELP (default NORMAL)","Mandatory. 10-digit phone of assignee.","Mandatory. YYYY-MM-DD HH:MM","TRUE or FALSE (default FALSE)"])
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=tickets_template.csv"})
+
+
 @app.get("/tickets/{ticket_id}", response_class=HTMLResponse)
 def ticket_detail(ticket_id: str, request: Request,
                   user: User = Depends(get_current_user),
@@ -1893,26 +1916,13 @@ def ticket_delete(ticket_id: str, user: User = Depends(require_admin),
     return redirect("/tickets")
 
 
-@app.get("/tickets/bulk-template")
-def tickets_bulk_template(user: User = Depends(require_manager)):
-    """P5-07: CSV template download."""
-    import io as _io
-    buf = _io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(["title","description","priority","ticket_category","assignee_phone","due_at","evidence_required"])
-    w.writerow(["Mandatory. Short title, max 200 chars.","Mandatory. Full task description.","LOW / MEDIUM / HIGH / CRITICAL","NORMAL or HELP (default NORMAL)","Mandatory. 10-digit phone of assignee.","Mandatory. YYYY-MM-DD HH:MM","TRUE or FALSE (default FALSE)"])
-    buf.seek(0)
-    return StreamingResponse(iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=tickets_template.csv"})
-
-
 @app.post("/tickets/bulk-upload")
 async def tickets_bulk_upload(file: UploadFile = File(...),
                                user: User = Depends(require_manager),
                                db: Session = Depends(get_db)):
     """P5-07: Bulk upload tickets from CSV."""
     tid = user.tenant_id
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     errors = []
     created = 0
@@ -3270,6 +3280,7 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
         content = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         content = raw.decode("cp1252", errors="replace")
+    content = content.lstrip(chr(65279))  # strip any leftover BOM (files re-saved by multiple tools can stack extra BOMs)
     # Normalise frequency aliases so common variants are accepted
     _FREQ_ALIASES = {
         "TWICE A MONTH": "TWICE_A_MONTH",
@@ -3422,6 +3433,39 @@ def employees_page(request: Request, user: User = Depends(require_manager),
     kpi_active     = sum(1 for u in all_for_kpi if getattr(u, "status", "ACTIVE") == "ACTIVE")
     kpi_terminated = sum(1 for u in all_for_kpi if getattr(u, "status", "ACTIVE") == "TERMINATED")
     kpi_departments = len(departments_unique)
+
+    # Tab access — only offer tabs the tenant currently has enabled
+    tenant_tabs = get_tenant_enabled_tabs(tenant, db)
+    tab_catalog = [(key, label) for key, label, _feat in TAB_CATALOG if key in tenant_tabs]
+
+    # Documents & gadgets, grouped by employee for the inline management row
+    emp_ids = [e.id for e in all_users]
+    docs_by_user, gadgets_by_user = {}, {}
+    if emp_ids:
+        doc_rows = db.query(EmployeeDocument).filter(
+            EmployeeDocument.user_id.in_(emp_ids), EmployeeDocument.is_deleted == False,
+        ).order_by(EmployeeDocument.created_at.desc()).all()
+        for d in doc_rows:
+            docs_by_user.setdefault(d.user_id, []).append(d)
+        gadget_rows = db.query(EmployeeGadget).filter(
+            EmployeeGadget.user_id.in_(emp_ids), EmployeeGadget.is_deleted == False,
+        ).order_by(EmployeeGadget.created_at.desc()).all()
+        gadget_ids = [g.id for g in gadget_rows]
+        gadget_docs_by_gadget = {}
+        if gadget_ids:
+            gd_rows = db.query(EmployeeGadgetDocument).filter(
+                EmployeeGadgetDocument.gadget_id.in_(gadget_ids),
+            ).order_by(EmployeeGadgetDocument.created_at.desc()).all()
+            for gd in gd_rows:
+                gadget_docs_by_gadget.setdefault(gd.gadget_id, []).append(gd)
+        for g in gadget_rows:
+            g.doc_list = gadget_docs_by_gadget.get(g.id, [])
+            gadgets_by_user.setdefault(g.user_id, []).append(g)
+    for e in all_users:
+        e.doc_list = docs_by_user.get(e.id, [])
+        e.gadget_list = gadgets_by_user.get(e.id, [])
+        e.effective_tabs = get_user_tabs(e, tenant, db)
+
     return templates.TemplateResponse(request, "employees.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -3430,6 +3474,7 @@ def employees_page(request: Request, user: User = Depends(require_manager),
         "can_bulk": can_bulk,
         "kpi_total": kpi_total, "kpi_active": kpi_active,
         "kpi_terminated": kpi_terminated, "kpi_departments": kpi_departments,
+        "tab_catalog": tab_catalog, "doc_type_labels": DOC_TYPE_LABELS,
     })
 
 @app.post("/employees/create")
@@ -3523,7 +3568,7 @@ async def bulk_import_employees(file: UploadFile = File(...),
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
 
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
 
     from datetime import date as _date
@@ -3681,7 +3726,7 @@ def edit_employee(
     department_id: str = Form(""), manager_id: str = Form(""),
     joining_date: str = Form(""), address: str = Form(""),
     branch_id: str = Form(""),
-    module_sales: str = Form(""), module_inventory: str = Form(""),
+    tabs: list[str] = Form(default=[]),
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
     phone_err = _validate_phone(phone)
@@ -3710,10 +3755,11 @@ def edit_employee(
         except ValueError:
             pass
     import json as _json
-    modules = []
-    if module_sales:     modules.append("SALES")
-    if module_inventory: modules.append("INVENTORY")
-    emp.module_access_json = _json.dumps(modules)
+    tenant = db.query(Tenant).get(user.tenant_id)
+    tenant_tabs = set(get_tenant_enabled_tabs(tenant, db))
+    selected_tabs = [t for t in tabs if t in tenant_tabs]
+    emp.tab_access_json = _json.dumps(selected_tabs)
+    emp.module_access_json = _json.dumps([t for t in selected_tabs if t in ("SALES", "INVENTORY")])
     db.commit()
     return redirect(f"/employees?msg=Profile+updated+for+{emp.name}")
 
@@ -4075,7 +4121,7 @@ async def bulk_import_departments(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     count = 0
     # Build branch name → id lookup for this tenant
@@ -4109,7 +4155,7 @@ async def bulk_import_branches(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     count = 0
     for row in reader:
