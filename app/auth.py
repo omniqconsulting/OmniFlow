@@ -64,6 +64,21 @@ def has_module(user, module: str) -> bool:
     return module in get_user_modules(user)
 
 
+def get_user_tabs(user, tenant, db: Session = None) -> list:
+    """Effective nav tabs visible to this user, constrained by tenant-enabled tabs.
+    ADMIN/MANAGER and users with no tab_access_json set (None) get every
+    tenant-enabled tab — restriction is opt-in per employee."""
+    from .constants import get_tenant_enabled_tabs
+    tenant_tabs = get_tenant_enabled_tabs(tenant, db)
+    if user.role in ("ADMIN", "MANAGER") or not user.tab_access_json:
+        return tenant_tabs
+    try:
+        selected = set(_json.loads(user.tab_access_json))
+    except Exception:
+        return tenant_tabs
+    return [t for t in tenant_tabs if t in selected]
+
+
 def require_module(module: str, feature: str):
     """Dependency factory: gates a route on both the tenant-level feature flag
     (SA toggle) and the user's own module access. Use per-blueprint, e.g.

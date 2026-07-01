@@ -237,8 +237,14 @@ html.light input[type="datetime-local"]{color-scheme:light}
 /* ── Password visibility toggle ── */
 .pw-field{position:relative}
 .pw-field input{padding-right:36px !important}
-.pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;opacity:.6;color:var(--text-muted)}
+.pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;opacity:.6;color:var(--text-muted);z-index:2}
 .pw-toggle:hover{opacity:1}
+/* Suppress native browser password-reveal/credential icons so they don't sit on top of
+   our custom toggle and swallow the click (Edge/IE reveal+clear, Safari/Chrome credentials button). */
+.pw-field input[type="password"]::-ms-reveal,
+.pw-field input[type="password"]::-ms-clear{display:none}
+.pw-field input[type="password"]::-webkit-textfield-decoration-container{display:none}
+.pw-field input[type="password"]::-webkit-credentials-auto-fill-button{visibility:hidden;display:none !important;pointer-events:none;position:absolute;right:0}
 
 /* ── TABLES ── */
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -331,7 +337,9 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
 <nav class="nav">
   <span class="logo">OmniFlow</span>
   <a href="/dashboard" {% if request.url.path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
+  {% if has_tickets is not defined or has_tickets %}
   <a href="/tickets" {% if '/tickets' in request.url.path %}class="active"{% endif %}>{{ L.Tickets if L is defined else 'Tickets' }}</a>
+  {% endif %}
   {% if has_checklists %}
   <a href="/checklists" {% if '/checklists' in request.url.path %}class="active"{% endif %}>{{ L.Checklists if L is defined else 'Checklists' }}</a>
   {% endif %}
