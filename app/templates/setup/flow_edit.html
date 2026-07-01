@@ -55,6 +55,7 @@
 <form id="flowForm" method="post"
       action="{{ '/setup/flows/' + flow.id + '/edit' if flow else '/setup/flows/new' }}">
   <input type="hidden" name="stages_json" id="stagesJsonInput">
+  <input type="hidden" name="ticket_form_fields_json" id="ticketFormFieldsJsonInput">
 
   <!-- Flow settings -->
   <div class="fe-card">
@@ -103,7 +104,6 @@
   </div>
 </form>
 
-{% if flow %}
 <!-- ── Ticket Creation Form Builder ────────────────────────────────────────── -->
 <style>
 .tfb-row{display:flex;align-items:center;gap:10px;background:var(--bg-input);border:1px solid var(--border-med);border-radius:8px;padding:10px 12px;margin-bottom:8px}
@@ -127,9 +127,13 @@
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
     <div>
       <h3 style="font-size:14px;font-weight:600;color:var(--text-strong);margin:0 0 4px">Ticket Creation Form</h3>
-      <div style="font-size:12px;color:var(--text-faint)">Extra fields shown when someone creates a ticket for this flow. These appear as additional columns in the bulk-create table (shown in purple).</div>
+      <div style="font-size:12px;color:var(--text-faint)">Extra fields shown when someone creates a ticket for this flow. These appear as additional columns in the bulk-create table (shown in purple). Number fields defined here can be referenced in stage formula columns below.</div>
     </div>
+    {% if flow %}
     <button type="button" class="tfb-save" id="tfbSaveBtn" onclick="tfbSave()">Save Form</button>
+    {% else %}
+    <div style="font-size:11px;color:var(--text-faint);white-space:nowrap;padding-left:10px">Saved with the flow below ↓</div>
+    {% endif %}
   </div>
 
   <div style="margin-top:16px">
@@ -148,7 +152,7 @@
 </div>
 
 <script>
-var TFB_FLOW_ID = {{ flow.id | tojson }};
+var TFB_FLOW_ID = {{ (flow.id if flow else None) | tojson }};
 var tfbFields = {{ ticket_form_fields_json | safe }};
 var TFB_REF_LISTS = {{ ref_lists_json | safe }};
 
@@ -265,13 +269,11 @@ function tfbSetupDrag(row, idx) {
   });
 }
 
-function tfbSave() {
-  // Sync values from DOM
+function _tfbSyncFromDom() {
   document.querySelectorAll('.tfb-row').forEach(function(row, idx) {
     var lbl = row.querySelector('.tfb-label-in');
     var typ = row.querySelector('.tfb-type-in');
     var req = row.querySelector('input[type=checkbox]');
-    var optsInp = row.querySelector('.tfb-opts-wrap input');
     if (lbl) tfbFields[idx].label = lbl.value.trim();
     if (typ) tfbFields[idx].field_type = typ.value;
     if (req) tfbFields[idx].required = req.checked;
@@ -291,11 +293,19 @@ function tfbSave() {
       }
     }
   });
-  var bad = tfbFields.filter(function(f){
+}
+
+function _tfbValidate() {
+  return tfbFields.filter(function(f){
     if (!f.label) return true;
     if (f.field_type === 'ref_list' && !f.ref_list_id) return true;
     return false;
   });
+}
+
+function tfbSave() {
+  _tfbSyncFromDom();
+  var bad = _tfbValidate();
   if (bad.length) { tfbStatus('error', bad.some(function(f){return f.field_type==='ref_list'&&!f.ref_list_id;}) ? 'Please select a reference list for all Reference List fields.' : 'All fields must have a label.'); return; }
   var btn = document.getElementById('tfbSaveBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
@@ -321,7 +331,6 @@ function tfbStatus(type, msg) {
 
 document.addEventListener('DOMContentLoaded', tfbRender);
 </script>
-{% endif %}
 
 <!-- ── Unified Add Column Modal ─────────────────────────────────────────── -->
 <div id="colModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:400;align-items:center;justify-content:center;padding:16px">
@@ -444,6 +453,16 @@ document.addEventListener('DOMContentLoaded', tfbRender);
           <label for="colCarryForward" style="font-size:13px;color:var(--text-muted)">Carry forward — pre-fill from previous stage</label>
         </div>
       </div>
+
+      <!-- conditional formatting -->
+      <div id="condFormatGroup" class="fe-group">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <label class="fe-label" style="margin-bottom:0">Conditional Formatting</label>
+          <button type="button" onclick="addCondFormatRule()" class="btn btn-sm" style="font-size:11px;padding:3px 10px">+ Add Rule</button>
+        </div>
+        <div id="condFormatRules"></div>
+        <div style="font-size:10px;color:var(--text-faint);margin-top:4px">Highlight this column's cell in the ticket list when a rule matches. Rules are checked in order — first match wins.</div>
+      </div>
     </div>
 
     <input type="hidden" id="colEditId">
@@ -468,6 +487,91 @@ var _pickingForStageIdx = null;
 var _colMode = 'new';           // 'new' | 'reuse'
 var _formulaSteps = [];         // [{col_id, op}]
 var _availNumericCols = [];     // for formula builder: all numeric cols visible to this stage
+var _condFormatRules = [];      // [{op, value, color}]
+
+var CF_OPS = [
+  {v:'eq',        l:'= equals'},
+  {v:'neq',       l:'≠ not equals'},
+  {v:'gt',        l:'> greater than'},
+  {v:'gte',       l:'≥ greater or equal'},
+  {v:'lt',        l:'< less than'},
+  {v:'lte',       l:'≤ less or equal'},
+  {v:'contains',  l:'contains'},
+  {v:'empty',     l:'is empty'},
+  {v:'not_empty', l:'is not empty'},
+];
+var CF_COLORS = [
+  {v:'red',    l:'Red',    hex:'#f87171'},
+  {v:'orange', l:'Orange', hex:'#fb923c'},
+  {v:'yellow', l:'Yellow', hex:'#eab308'},
+  {v:'green',  l:'Green',  hex:'#34d399'},
+  {v:'blue',   l:'Blue',   hex:'#60a5fa'},
+  {v:'gray',   l:'Gray',   hex:'#94a3b8'},
+];
+
+function addCondFormatRule() {
+  _condFormatRules.push({ op: 'gt', value: '', color: 'red' });
+  _renderCondFormatRules();
+}
+function removeCondFormatRule(idx) {
+  _condFormatRules.splice(idx, 1);
+  _renderCondFormatRules();
+}
+function _renderCondFormatRules() {
+  var container = document.getElementById('condFormatRules');
+  if (!container) return;
+  container.innerHTML = '';
+  _condFormatRules.forEach(function(rule, idx) {
+    var row = document.createElement('div');
+    row.className = 'formula-step';
+
+    var opSel = document.createElement('select');
+    opSel.style.cssText = 'flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 9px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit';
+    CF_OPS.forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o.v; opt.textContent = o.l;
+      if (rule.op === o.v) opt.selected = true;
+      opSel.appendChild(opt);
+    });
+    (function(i){ opSel.onchange = function(){ _condFormatRules[i].op = this.value; _renderCondFormatRules(); }; })(idx);
+    row.appendChild(opSel);
+
+    var needsValue = rule.op !== 'empty' && rule.op !== 'not_empty';
+    if (needsValue) {
+      var valInp = document.createElement('input');
+      valInp.type = 'text';
+      valInp.value = rule.value || '';
+      valInp.placeholder = 'value';
+      valInp.style.cssText = 'width:90px;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 9px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit';
+      (function(i){ valInp.oninput = function(){ _condFormatRules[i].value = this.value; }; })(idx);
+      row.appendChild(valInp);
+    }
+
+    var colorSel = document.createElement('select');
+    colorSel.className = 'op-sel';
+    colorSel.style.width = '90px';
+    CF_COLORS.forEach(function(c) {
+      var opt = document.createElement('option');
+      opt.value = c.v; opt.textContent = c.l;
+      if (rule.color === c.v) opt.selected = true;
+      colorSel.appendChild(opt);
+    });
+    (function(i){ colorSel.onchange = function(){ _condFormatRules[i].color = this.value; }; })(idx);
+    row.appendChild(colorSel);
+
+    var rm = document.createElement('button');
+    rm.type = 'button';
+    rm.textContent = '✕';
+    rm.style.cssText = 'background:none;border:none;cursor:pointer;color:#f87171;font-size:14px;padding:0 2px';
+    (function(i){ rm.onclick = function(){ removeCondFormatRule(i); }; })(idx);
+    row.appendChild(rm);
+
+    container.appendChild(row);
+  });
+  if (!_condFormatRules.length) {
+    container.innerHTML = '<div style="font-size:11px;color:var(--text-xfaint);font-style:italic;padding:4px 0">No rules — cell uses default styling.</div>';
+  }
+}
 
 function uuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -502,10 +606,12 @@ function buildStageEl(s, i) {
              e.name + ' · ' + e.role + '</option>';
     }).join('');
 
-  var tatVal = '', tatUnit = 'hours';
+  var tatUnit = s.target_tat_unit || 'hours';
+  var tatVal = '';
   if (s.target_tat_hours) {
-    if (s.target_tat_hours % 8 === 0) { tatVal = s.target_tat_hours / 8; tatUnit = 'days'; }
-    else { tatVal = s.target_tat_hours; tatUnit = 'hours'; }
+    if (tatUnit === 'minutes') tatVal = Math.round(s.target_tat_hours * 60 * 100) / 100;
+    else if (tatUnit === 'days') tatVal = Math.round((s.target_tat_hours / 8) * 100) / 100;
+    else tatVal = Math.round(s.target_tat_hours * 100) / 100;
   }
 
   var colCount = (s.custom_fields || []).length;
@@ -522,6 +628,7 @@ function buildStageEl(s, i) {
       (c.carry_forward ? '<span style="font-size:10px;color:#7dd3fc">↺ fwd</span>' : '') +
       (c.source_stage_id ? '<span style="font-size:10px;color:#a78bfa">↗ reused</span>' : '') +
       (c.field_type === 'formula' ? '<span style="font-size:10px;color:#a78bfa" title="' + _formulaDesc(c) + '">∑</span>' : '') +
+      ((c.conditional_format && c.conditional_format.length) ? '<span style="font-size:10px" title="' + c.conditional_format.length + ' formatting rule(s)">🎨</span>' : '') +
       '<button type="button" onclick="editColumn(' + i + ',\'' + c.id + '\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-faint);padding:0 4px">✏️</button>' +
       '<button type="button" onclick="removeColumn(' + i + ',\'' + c.id + '\')" style="background:none;border:none;cursor:pointer;font-size:12px;color:#f87171;padding:0 4px">✕</button>' +
       '</div>';
@@ -565,10 +672,11 @@ function buildStageEl(s, i) {
         '<div class="fe-group">' +
           '<label class="fe-label">Target TaT</label>' +
           '<div style="display:flex;gap:6px">' +
-            '<input class="fe-input" type="number" min="1" value="' + (tatVal || '') + '" placeholder="—" style="width:80px" oninput="onTaT(' + i + ',this.value,this.parentNode.querySelector(\'select\').value)">' +
-            '<select class="fe-input" style="width:90px" onchange="onTaT(' + i + ',this.parentNode.querySelector(\'input\').value,this.value)">' +
-              '<option value="hours"' + (tatUnit === 'hours' ? ' selected' : '') + '>Hours</option>' +
-              '<option value="days"'  + (tatUnit === 'days'  ? ' selected' : '') + '>Days</option>' +
+            '<input class="fe-input" type="number" min="0" step="any" value="' + (tatVal || '') + '" placeholder="—" style="width:80px" oninput="onTaT(' + i + ',this.value,this.parentNode.querySelector(\'select\').value)">' +
+            '<select class="fe-input" style="width:95px" onchange="onTaT(' + i + ',this.parentNode.querySelector(\'input\').value,this.value)">' +
+              '<option value="minutes"' + (tatUnit === 'minutes' ? ' selected' : '') + '>Minutes</option>' +
+              '<option value="hours"'   + (tatUnit === 'hours'   ? ' selected' : '') + '>Hours</option>' +
+              '<option value="days"'    + (tatUnit === 'days'    ? ' selected' : '') + '>Days</option>' +
             '</select>' +
           '</div>' +
         '</div>' +
@@ -606,6 +714,8 @@ function _formulaDesc(col) {
 }
 
 function _colLabelById(id) {
+  var tf = (tfbFields || []).find(function(c){ return c.id === id; });
+  if (tf) return tf.label;
   for (var si = 0; si < stages.length; si++) {
     var c = (stages[si].custom_fields || []).find(function(c){ return c.id === id; });
     if (c) return c.label;
@@ -618,7 +728,8 @@ function toggleStage(i) { stages[i]._open = !stages[i]._open; renderStages(); }
 function onStageName(i, val) { stages[i].name = val; }
 function onTaT(i, val, unit) {
   var n = parseFloat(val);
-  stages[i].target_tat_hours = (!val || isNaN(n)) ? null : (unit === 'days' ? n * 8 : n);
+  stages[i].target_tat_unit = unit;
+  stages[i].target_tat_hours = (!val || isNaN(n)) ? null : (unit === 'minutes' ? n / 60 : unit === 'days' ? n * 8 : n);
 }
 var PALETTE_COLORS = [
   '#3b82f6','#60a5fa','#2563eb','#1d4ed8',
@@ -656,7 +767,7 @@ function setStageColor(idx, color, swatchEl, customInput) {
 
 function addStage() {
   stages.push({ id: uuid(), name: '', order: stages.length, color: '#3b82f6',
-    default_assignee_id: '', target_tat_hours: null,
+    default_assignee_id: '', target_tat_hours: null, target_tat_unit: 'hours',
     completion_note_required: false, is_terminal: false,
     custom_fields: [], _open: true });
   renderStages();
@@ -700,9 +811,9 @@ function openAddColumn(stageIdx) {
   document.getElementById('colEditStageIdx').value = stageIdx;
   document.getElementById('colModeTabs').style.display = 'flex';
 
-  // Check if prior stages have any columns (enables Reuse tab)
-  var hasPrior = false;
-  for (var si = 0; si < stageIdx; si++) {
+  // Check if prior stages (or the Ticket Creation Form) have any columns (enables Reuse tab)
+  var hasPrior = (tfbFields || []).some(function(f){ return f.label && f.field_type !== '__priority__' && f.field_type !== '__due_date__'; });
+  for (var si = 0; si < stageIdx && !hasPrior; si++) {
     if ((stages[si].custom_fields || []).length) { hasPrior = true; break; }
   }
   document.getElementById('tabReuse').disabled = !hasPrior;
@@ -750,6 +861,8 @@ function editColumn(stageIdx, colId) {
     } else {
       _formulaSteps = [];
     }
+    _condFormatRules = JSON.parse(JSON.stringify(col.conditional_format || []));
+    _renderCondFormatRules();
     onColTypeChange();
   }
   document.getElementById('colModal').style.display = 'flex';
@@ -773,6 +886,8 @@ function _resetNewPanel() {
   document.getElementById('colRequired').checked = false;
   document.getElementById('colCarryForward').checked = false;
   _formulaSteps = [];
+  _condFormatRules = [];
+  _renderCondFormatRules();
   onColTypeChange();
 }
 
@@ -781,6 +896,15 @@ function _populateReuseDropdown(stageIdx) {
   var sel = document.getElementById('reuseColSel');
   sel.innerHTML = '<option value="">— select a column —</option>';
   var current = (stages[stageIdx].custom_fields || []).map(function(c){return c.id;});
+  (tfbFields || []).forEach(function(c) {
+    var isBuiltIn = c.field_type === '__priority__' || c.field_type === '__due_date__';
+    if (!c.label || isBuiltIn || current.indexOf(c.id) >= 0) return;
+    var opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = 'Order Details → ' + c.label + ' (' + c.field_type + ')';
+    opt.dataset.colJson = JSON.stringify({ stageIdx: -1, col: c });
+    sel.appendChild(opt);
+  });
   for (var si = 0; si < stageIdx; si++) {
     (stages[si].custom_fields || []).forEach(function(c) {
       if (current.indexOf(c.id) >= 0) return; // already added
@@ -841,6 +965,10 @@ function onRefListChange() {
 // ── Formula builder ────────────────────────────────────────────────────────
 function _numericColsUpTo(stageIdx) {
   var cols = [];
+  // Ticket creation form fields are always available (captured before any stage)
+  (tfbFields || []).forEach(function(c) {
+    if (c.field_type === 'number') cols.push({ col: c, stageName: 'Order Details' });
+  });
   for (var si = 0; si <= stageIdx; si++) {
     (stages[si].custom_fields || []).forEach(function(c) {
       if (c.field_type === 'number') cols.push({ col: c, stageName: stages[si].name });
@@ -957,7 +1085,10 @@ function saveColumn() {
         carry_forward: true,
         options: origCol.options || [],
         formula_steps: origCol.formula_steps || [],
-        source_stage_id: stages[origStageIdx].id,
+        ref_list_id: origCol.ref_list_id || '',
+        ref_list_name: origCol.ref_list_name || '',
+        conditional_format: origCol.conditional_format || [],
+        source_stage_id: origStageIdx === -1 ? '__ticket_form__' : stages[origStageIdx].id,
       });
     }
 
@@ -986,6 +1117,10 @@ function saveColumn() {
       if (_availNumericCols.length === 0) { alert('No number columns available for formula.'); return; }
     }
 
+    var condFormat = _condFormatRules.filter(function(r){
+      return r.op === 'empty' || r.op === 'not_empty' || (r.value !== undefined && String(r.value).trim() !== '');
+    });
+
     var col = {
       id: editId || uuid(),
       label: label,
@@ -996,6 +1131,7 @@ function saveColumn() {
       ref_list_id: refListId,
       ref_list_name: refListName,
       formula_steps: formulaSteps,
+      conditional_format: condFormat,
       source_stage_id: null,
     };
 
@@ -1028,8 +1164,15 @@ document.getElementById('flowForm').addEventListener('submit', function(e) {
   if (!stages.filter(function(s){return (s.name||'').trim();}).length) {
     e.preventDefault(); alert('Please add at least one stage with a name.'); return;
   }
+  _tfbSyncFromDom();
+  var badTfb = tfbFields.filter(function(f){ return f.label && f.field_type === 'ref_list' && !f.ref_list_id; });
+  if (badTfb.length) {
+    e.preventDefault(); alert('Please select a reference list for all Reference List fields in the Ticket Creation Form.'); return;
+  }
+  tfbFields = tfbFields.filter(function(f){ return (f.label||'').trim(); });
   var clean = stages.map(function(s){ var o=Object.assign({},s); delete o._open; return o; });
   document.getElementById('stagesJsonInput').value = JSON.stringify(clean);
+  document.getElementById('ticketFormFieldsJsonInput').value = JSON.stringify(tfbFields);
 });
 
 renderStages();

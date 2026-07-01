@@ -40,11 +40,17 @@
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input type="password" name="password" placeholder="Strong password (min 6 chars)" required minlength="6">
+        <div class="pw-field">
+          <input type="password" name="password" placeholder="Strong password (min 6 chars)" required minlength="6">
+          <button type="button" class="pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
       </div>
       <div class="form-group">
         <label>Confirm Password</label>
-        <input type="password" name="confirm" placeholder="Repeat password" required minlength="6">
+        <div class="pw-field">
+          <input type="password" name="confirm" placeholder="Repeat password" required minlength="6">
+          <button type="button" class="pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
       </div>
       <button type="submit" class="btn btn-purple"
               style="width:100%;justify-content:center;padding:10px;margin-top:4px">

@@ -99,7 +99,10 @@
 
       <div class="form-group">
         <label>Admin Password *</label>
-        <input type="password" name="admin_password" placeholder="Min. 6 characters" required minlength="6">
+        <div class="pw-field">
+          <input type="password" name="admin_password" placeholder="Min. 6 characters" required minlength="6">
+          <button type="button" class="pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
       </div>
       <div style="margin-top:24px">
         <button type="button" onclick="submitTenantForm()" class="btn btn-purple"

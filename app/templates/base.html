@@ -234,6 +234,12 @@ html.light input[type="datetime-local"]{color-scheme:light}
 /* P10-04: validation state */
 .form-group input:invalid:not(:placeholder-shown){border-color:#ef4444}
 
+/* ── Password visibility toggle ── */
+.pw-field{position:relative}
+.pw-field input{padding-right:36px !important}
+.pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;opacity:.6;color:var(--text-muted)}
+.pw-toggle:hover{opacity:1}
+
 /* ── TABLES ── */
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:11px 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)}
@@ -781,6 +787,12 @@ document.addEventListener('keydown', function(e){
     });
   });
 })();
+
+function togglePwVisibility(btn) {
+  var inp = btn.previousElementSibling;
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; btn.setAttribute('aria-label', 'Hide password'); }
+  else { inp.type = 'password'; btn.textContent = '👁'; btn.setAttribute('aria-label', 'Show password'); }
+}
 </script>
 </body>
 </html>

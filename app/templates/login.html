@@ -71,6 +71,10 @@ html.light .error{color:#dc2626}
 .footer a:hover{text-decoration:underline}
 .footer-sep{margin:0 8px;color:var(--text-faint)}
 .divider{border:none;border-top:1px solid var(--border-subtle);margin:20px 0}
+.pw-field{position:relative}
+.pw-field input{padding-right:36px !important}
+.pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;opacity:.6;color:var(--text-muted)}
+.pw-toggle:hover{opacity:1}
 
 /* ── Modal base ── */
 .modal-overlay{display:none;position:fixed;inset:0;background:var(--overlay-bg);align-items:center;justify-content:center;z-index:100}
@@ -121,7 +125,10 @@ html.light .error{color:#dc2626}
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input type="password" name="password" required autocomplete="current-password">
+        <div class="pw-field">
+          <input type="password" name="password" required autocomplete="current-password">
+          <button type="button" class="pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
       </div>
       <button class="btn" type="submit">Sign in →</button>
     </form>
@@ -215,6 +222,12 @@ function toggleTheme(){
   var isLight = document.documentElement.classList.toggle('light');
   localStorage.setItem('omniflow-theme', isLight ? 'light' : 'dark');
   document.getElementById('themeBtn').textContent = isLight ? '🌙' : '☀️';
+}
+
+function togglePwVisibility(btn) {
+  var inp = btn.previousElementSibling;
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; btn.setAttribute('aria-label', 'Hide password'); }
+  else { inp.type = 'password'; btn.textContent = '👁'; btn.setAttribute('aria-label', 'Show password'); }
 }
 
 function openModal(id){ document.getElementById(id).classList.add('open'); }

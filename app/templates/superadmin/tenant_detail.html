@@ -658,7 +658,10 @@ document.addEventListener('DOMContentLoaded', function() {
       <input type="hidden" name="user_id" id="resetUserId">
       <div class="form-group">
         <label>New Password</label>
-        <input type="password" name="new_password" placeholder="New password (min 6 chars)" minlength="6" required>
+        <div class="pw-field">
+          <input type="password" name="new_password" placeholder="New password (min 6 chars)" minlength="6" required>
+          <button type="button" class="pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
       </div>
       <div style="display:flex;gap:10px;margin-top:8px">
         <button type="button" class="btn btn-gray" onclick="document.getElementById('resetModal').style.display='none'">Cancel</button>

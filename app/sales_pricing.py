@@ -371,7 +371,7 @@ async def pricing_list_bulk_upload(
     db: Session = Depends(get_db),
 ):
     get_price_list_or_404(db, list_id, user.tenant_id)
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
 
     applied = 0
@@ -568,7 +568,7 @@ async def pricing_costs_bulk_upload(
     user: User = Depends(_require_pricing_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
 
     applied = 0

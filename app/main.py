@@ -1912,7 +1912,7 @@ async def tickets_bulk_upload(file: UploadFile = File(...),
                                db: Session = Depends(get_db)):
     """P5-07: Bulk upload tickets from CSV."""
     tid = user.tenant_id
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
     errors = []
     created = 0
@@ -3523,7 +3523,7 @@ async def bulk_import_employees(file: UploadFile = File(...),
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
 
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
 
     from datetime import date as _date
@@ -4075,7 +4075,7 @@ async def bulk_import_departments(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
     count = 0
     # Build branch name → id lookup for this tenant
@@ -4109,7 +4109,7 @@ async def bulk_import_branches(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
     count = 0
     for row in reader:

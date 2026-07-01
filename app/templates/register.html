@@ -53,6 +53,10 @@ input::placeholder{color:var(--text-faint)}
 select{cursor:pointer}
 select option{background:var(--bg-card)}
 .hint{font-size:11px;color:var(--text-faint);margin-top:4px}
+.pw-field{position:relative}
+.pw-field input{padding-right:36px !important}
+.pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;opacity:.6;color:var(--text-muted)}
+.pw-toggle:hover{opacity:1}
 .btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;font-family:inherit;transition:background 0.12s}
 .btn:hover{filter:brightness(1.08)}
 .error{background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:16px}
@@ -126,7 +130,10 @@ html.light .error{color:#dc2626}
       </div>
       <div class="form-group">
         <label>Password</label>
-        <input type="password" name="password" id="pwField" minlength="6" required placeholder="Min. 6 characters">
+        <div class="pw-field">
+          <input type="password" name="password" id="pwField" minlength="6" required placeholder="Min. 6 characters">
+          <button type="button" class="pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
         <div class="hint">Minimum 6 characters</div>
       </div>
       <button class="btn" type="button" onclick="submitReg()">Create Organization Account →</button>
@@ -243,6 +250,11 @@ function submitReg() {
   const form = document.getElementById('regForm');
   if (!form.checkValidity()) { form.reportValidity(); return; }
   form.submit();
+}
+function togglePwVisibility(btn) {
+  var inp = btn.previousElementSibling;
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; btn.setAttribute('aria-label', 'Hide password'); }
+  else { inp.type = 'password'; btn.textContent = '👁'; btn.setAttribute('aria-label', 'Show password'); }
 }
 </script>
 </body>

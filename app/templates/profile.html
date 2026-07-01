@@ -72,15 +72,24 @@
     <form method="post" action="/profile/change-password" id="pwForm">
       <div class="form-group">
         <label>Current Password *</label>
-        <input type="password" name="current_password" required placeholder="••••••••">
+        <div class="pw-field">
+          <input type="password" name="current_password" required placeholder="••••••••">
+          <button type="button" class="pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
       </div>
       <div class="form-group">
         <label>New Password *</label>
-        <input type="password" name="new_password" id="newPw" required placeholder="Min. 6 characters" minlength="6">
+        <div class="pw-field">
+          <input type="password" name="new_password" id="newPw" required placeholder="Min. 6 characters" minlength="6">
+          <button type="button" class="pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
       </div>
       <div class="form-group">
         <label>Confirm New Password *</label>
-        <input type="password" name="confirm_password" id="confirmPw" required placeholder="Repeat new password">
+        <div class="pw-field">
+          <input type="password" name="confirm_password" id="confirmPw" required placeholder="Repeat new password">
+          <button type="button" class="pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
         <div id="pwMatch" style="font-size:11px;margin-top:4px;display:none"></div>
       </div>
       <button type="submit" class="btn btn-green" style="width:100%;justify-content:center;padding:10px;margin-top:4px">

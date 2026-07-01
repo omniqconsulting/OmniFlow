@@ -291,7 +291,7 @@ async def import_customers(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
@@ -444,7 +444,7 @@ async def import_end_products(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
@@ -611,7 +611,7 @@ async def import_list_items(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
@@ -772,7 +772,7 @@ async def import_vendors(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
@@ -872,7 +872,7 @@ async def import_raw_materials(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
@@ -973,6 +973,37 @@ def _get_active_employees(db: Session, tenant_id: str):
     ).order_by(User.name).all()
 
 
+def _clean_ticket_form_fields(fields: list) -> list:
+    """Validate/normalize ticket-creation-form field defs submitted from the
+    flow builder (shared by flow create/update and the dedicated ticket-form
+    save endpoint so both paths persist identically-shaped data)."""
+    from .database import new_id
+    valid_types = {"text", "number", "date", "longtext", "select", "ref_list", "__priority__", "__due_date__"}
+    builtin_types = {"__priority__", "__due_date__"}
+    clean = []
+    for f in fields:
+        ftype = (f.get("field_type") or "text").strip().lower()
+        label = (f.get("label") or "").strip()
+        if not label or ftype not in valid_types:
+            continue
+        field_id = ftype if ftype in builtin_types else (f.get("id") or new_id())
+        entry = {
+            "id": field_id,
+            "label": label,
+            "field_type": ftype,
+            "required": bool(f.get("required", False)),
+            "order": int(f.get("order", len(clean))),
+        }
+        if ftype == "select":
+            raw_opts = f.get("options", [])
+            entry["options"] = [o.strip() for o in raw_opts if str(o).strip()]
+        elif ftype == "ref_list":
+            entry["ref_list_id"]   = (f.get("ref_list_id") or "").strip()
+            entry["ref_list_name"] = (f.get("ref_list_name") or "").strip()
+        clean.append(entry)
+    return clean
+
+
 @router.get("/setup/flows", response_class=HTMLResponse)
 def setup_flows_list(
     request: Request,
@@ -1049,6 +1080,7 @@ def setup_flow_new(
         "active_section": "flows",
         "ref_lists": _json.loads(ref_lists_json),
         "ref_lists_json": ref_lists_json,
+        "ticket_form_fields_json": "[]",
     })
 
 
@@ -1082,6 +1114,7 @@ def setup_flow_edit_get(
             "color": s.color or "#3b82f6",
             "default_assignee_id": s.default_assignee_id or "",
             "target_tat_hours": s.target_tat_hours,
+            "target_tat_unit": s.target_tat_unit or "hours",
             "completion_note_required": s.completion_note_required,
             "is_terminal": s.is_terminal,
             "custom_fields": cf,
@@ -1122,6 +1155,7 @@ async def setup_flow_create(
     color = (form.get("color") or "#3b82f6").strip()
     is_active = form.get("is_active") == "1"
     stages_json_raw = (form.get("stages_json") or "[]").strip()
+    ticket_form_fields_json_raw = (form.get("ticket_form_fields_json") or "[]").strip()
 
     if not name:
         return _redir("/setup/flows/new?err=Flow+name+is+required")
@@ -1140,6 +1174,11 @@ async def setup_flow_create(
     except Exception:
         stages_data = []
 
+    try:
+        ticket_form_fields_data = _jf.loads(ticket_form_fields_json_raw)
+    except Exception:
+        ticket_form_fields_data = []
+
     flow = FMSFlow(
         id=new_id(),
         tenant_id=user.tenant_id,
@@ -1148,6 +1187,7 @@ async def setup_flow_create(
         color=color,
         is_active=is_active,
         created_by_id=user.id,
+        ticket_form_fields_json=_jf.dumps(_clean_ticket_form_fields(ticket_form_fields_data)),
     )
     db.add(flow)
     db.flush()
@@ -1159,9 +1199,12 @@ async def setup_flow_create(
         tat = s.get("target_tat_hours")
         if tat is not None:
             try:
-                tat = int(tat)
+                tat = float(tat)
             except Exception:
                 tat = None
+        tat_unit = (s.get("target_tat_unit") or "hours").strip().lower()
+        if tat_unit not in ("minutes", "hours", "days"):
+            tat_unit = "hours"
         cf = s.get("custom_fields", [])
         db.add(FMSStage(
             id=s.get("id") or new_id(),
@@ -1172,6 +1215,7 @@ async def setup_flow_create(
             color=(s.get("color") or "#3b82f6").strip(),
             default_assignee_id=s.get("default_assignee_id") or None,
             target_tat_hours=tat,
+            target_tat_unit=tat_unit,
             completion_note_required=bool(s.get("completion_note_required")),
             is_terminal=bool(s.get("is_terminal")),
             custom_fields_json=_jf.dumps(cf),
@@ -1203,6 +1247,7 @@ async def setup_flow_update(
     color = (form.get("color") or "#3b82f6").strip()
     is_active = form.get("is_active") == "1"
     stages_json_raw = (form.get("stages_json") or "[]").strip()
+    ticket_form_fields_json_raw = form.get("ticket_form_fields_json")
 
     if not name:
         return _redir(f"/setup/flows/{flow_id}/edit?err=Flow+name+is+required")
@@ -1218,6 +1263,13 @@ async def setup_flow_update(
     flow.is_active = is_active
     flow.updated_at = datetime.utcnow()
 
+    if ticket_form_fields_json_raw is not None:
+        try:
+            ticket_form_fields_data = _jf.loads(ticket_form_fields_json_raw)
+            flow.ticket_form_fields_json = _jf.dumps(_clean_ticket_form_fields(ticket_form_fields_data))
+        except Exception:
+            pass
+
     submitted_ids = {s.get("id") for s in stages_data if s.get("id")}
     existing = {s.id: s for s in flow.stages if not s.is_deleted}
 
@@ -1232,9 +1284,12 @@ async def setup_flow_update(
         tat = s.get("target_tat_hours")
         if tat is not None:
             try:
-                tat = int(tat)
+                tat = float(tat)
             except Exception:
                 tat = None
+        tat_unit = (s.get("target_tat_unit") or "hours").strip().lower()
+        if tat_unit not in ("minutes", "hours", "days"):
+            tat_unit = "hours"
         cf = s.get("custom_fields", [])
         sid = s.get("id")
         if sid and sid in existing:
@@ -1243,6 +1298,7 @@ async def setup_flow_update(
             stage.order = i
             stage.default_assignee_id = s.get("default_assignee_id") or None
             stage.target_tat_hours = tat
+            stage.target_tat_unit = tat_unit
             stage.completion_note_required = bool(s.get("completion_note_required"))
             stage.color = (s.get("color") or "#3b82f6").strip()
             stage.is_terminal = bool(s.get("is_terminal"))
@@ -1257,6 +1313,7 @@ async def setup_flow_update(
                 color=(s.get("color") or "#3b82f6").strip(),
                 default_assignee_id=s.get("default_assignee_id") or None,
                 target_tat_hours=tat,
+                target_tat_unit=tat_unit,
                 completion_note_required=bool(s.get("completion_note_required")),
                 is_terminal=bool(s.get("is_terminal")),
                 custom_fields_json=_jf.dumps(cf),
@@ -1286,30 +1343,7 @@ async def setup_flow_save_ticket_form(
 
     body = await request.json()
     fields = body.get("fields", [])
-    valid_types = {"text", "number", "date", "longtext", "select", "ref_list", "__priority__", "__due_date__"}
-    clean = []
-    for f in fields:
-        ftype = (f.get("field_type") or "text").strip().lower()
-        label = (f.get("label") or "").strip()
-        if not label or ftype not in valid_types:
-            continue
-        # Built-in types use their type string as a reserved ID so the POST handler can map them
-        builtin_types = {"__priority__", "__due_date__"}
-        field_id = ftype if ftype in builtin_types else (f.get("id") or new_id())
-        entry = {
-            "id": field_id,
-            "label": label,
-            "field_type": ftype,
-            "required": bool(f.get("required", False)),
-            "order": int(f.get("order", len(clean))),
-        }
-        if ftype == "select":
-            raw_opts = f.get("options", [])
-            entry["options"] = [o.strip() for o in raw_opts if str(o).strip()]
-        elif ftype == "ref_list":
-            entry["ref_list_id"]   = (f.get("ref_list_id") or "").strip()
-            entry["ref_list_name"] = (f.get("ref_list_name") or "").strip()
-        clean.append(entry)
+    clean = _clean_ticket_form_fields(fields)
 
     flow.ticket_form_fields_json = _json.dumps(clean)
     from datetime import datetime as _dt

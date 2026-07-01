@@ -654,7 +654,8 @@ class FMSStage(Base):
     description             = Column(Text,    nullable=True)
     order                   = Column(Integer, default=0)
     color                   = Column(String,  default="#3b82f6")
-    target_tat_hours        = Column(Integer, nullable=True)         # None = no TaT target
+    target_tat_hours        = Column(Float,   nullable=True)         # None = no TaT target; always stored in hours
+    target_tat_unit         = Column(String,  default="hours")       # minutes|hours|days — display unit only
     default_assignee_id     = Column(String,  ForeignKey("users.id"), nullable=True)
     sub_module_tag          = Column(String,  nullable=True)         # PMS|DISPATCH|INVOICE|CUSTOM
     deployed_submodule_id   = Column(String,  ForeignKey("library_submodule_definitions.id"), nullable=True)

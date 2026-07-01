@@ -430,7 +430,7 @@ async def bulk_upload(
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(content))
     seen_phones = set()
     valid_rows, errors = [], []
