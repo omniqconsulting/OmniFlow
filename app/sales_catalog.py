@@ -482,7 +482,7 @@ async def bulk_upload(
     user: User = Depends(_require_sales_editor),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig")
+    content = (await file.read()).decode("utf-8-sig").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     rows = list(reader)
     schema_fields = _active_schema_fields(db, user.tenant_id)

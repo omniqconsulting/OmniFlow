@@ -284,17 +284,24 @@
         <!-- Documents -->
         <div style="margin-bottom:18px">
           <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Identity / Address Proof</div>
-          <form method="post" action="/employees/{{ emp.id }}/documents" enctype="multipart/form-data"
-                style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-            <select name="doc_type" required style="width:auto;min-width:140px">
-              {% for dkey, dlabel in doc_type_labels.items() %}
-              <option value="{{ dkey }}">{{ dlabel }}</option>
-              {% endfor %}
-            </select>
-            <input type="text" name="label" placeholder="Label (optional, e.g. Aadhaar Card)" style="width:auto;min-width:180px">
-            <input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf" required style="width:auto">
-            <button type="submit" class="btn btn-sm btn-primary">Upload</button>
-            <span style="font-size:10px;color:var(--text-xfaint)">JPG, PNG or PDF · max 5 MB</span>
+          <form method="post" action="/employees/{{ emp.id }}/documents" enctype="multipart/form-data">
+            <div id="doc-rows-{{ emp.id }}">
+              <div class="doc-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+                <select name="doc_type" required style="width:auto;min-width:140px">
+                  {% for dkey, dlabel in doc_type_labels.items() %}
+                  <option value="{{ dkey }}">{{ dlabel }}</option>
+                  {% endfor %}
+                </select>
+                <input type="text" name="label" placeholder="Label (optional, e.g. Aadhaar Card)" style="width:auto;min-width:180px">
+                <input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf" required style="width:auto">
+                <button type="button" class="doc-row-remove" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:14px" title="Remove row">✕</button>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+              <button type="button" onclick="addDocRow('{{ emp.id }}')" class="btn btn-sm btn-outline">+ Add another document</button>
+              <button type="submit" class="btn btn-sm btn-primary">Upload All</button>
+              <span style="font-size:10px;color:var(--text-xfaint)">JPG, PNG or PDF · max 5 MB each</span>
+            </div>
           </form>
           {% if emp.doc_list %}
           <div style="display:flex;flex-direction:column;gap:4px">
@@ -318,14 +325,21 @@
         <!-- Gadgets -->
         <div>
           <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Client-Provided Gadgets</div>
-          <form method="post" action="/employees/{{ emp.id }}/gadgets" enctype="multipart/form-data"
-                style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-            <input type="text" name="gadget_name" placeholder="Gadget (e.g. Laptop, SIM Card)" required style="width:auto;min-width:150px">
-            <input type="text" name="serial_number" placeholder="Serial / IMEI (optional)" style="width:auto;min-width:150px">
-            <input type="text" name="provided_by" placeholder="Provided by (optional)" style="width:auto;min-width:140px">
-            <input type="text" name="notes" placeholder="Notes (optional)" style="width:auto;min-width:140px">
-            <input type="file" name="files" accept=".jpg,.jpeg,.png,.pdf" multiple style="width:auto">
-            <button type="submit" class="btn btn-sm btn-primary">Add Gadget</button>
+          <form method="post" action="/employees/{{ emp.id }}/gadgets" enctype="multipart/form-data">
+            <div id="gadget-rows-{{ emp.id }}" data-next-idx="1">
+              <div class="gadget-row" data-idx="0" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+                <input type="text" name="gadget_name_0" placeholder="Gadget (e.g. Laptop, SIM Card)" style="width:auto;min-width:150px">
+                <input type="text" name="serial_number_0" placeholder="Serial / IMEI (optional)" style="width:auto;min-width:150px">
+                <input type="text" name="provided_by_0" placeholder="Provided by (optional)" style="width:auto;min-width:140px">
+                <input type="text" name="notes_0" placeholder="Notes (optional)" style="width:auto;min-width:140px">
+                <input type="file" name="files_0" accept=".jpg,.jpeg,.png,.pdf" multiple style="width:auto">
+                <button type="button" class="gadget-row-remove" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:14px" title="Remove row">✕</button>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+              <button type="button" onclick="addGadgetRow('{{ emp.id }}')" class="btn btn-sm btn-outline">+ Add another gadget</button>
+              <button type="submit" class="btn btn-sm btn-primary">Save Gadgets</button>
+            </div>
           </form>
           {% if emp.gadget_list %}
           <div style="display:flex;flex-direction:column;gap:8px">
@@ -636,6 +650,51 @@ function toggleRow(id){
   var el = document.getElementById(id);
   el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'table-row' : 'none';
 }
+
+// ── Documents & Gadgets: keep the panel open across uploads/deletes ─────────
+// Every action in that panel redirects back here with ?open_docs=<empId> so
+// the row doesn't collapse and force a re-open for each item.
+(function(){
+  var openId = new URLSearchParams(window.location.search).get('open_docs');
+  if (openId) {
+    var row = document.getElementById('docs-' + openId);
+    if (row) { row.style.display = 'table-row'; row.scrollIntoView({block: 'center'}); }
+  }
+})();
+
+// ── Documents: add/remove rows for batch upload (mixed doc types) ──────────
+function addDocRow(empId){
+  var container = document.getElementById('doc-rows-' + empId);
+  var row = container.firstElementChild.cloneNode(true);
+  row.querySelectorAll('input').forEach(function(el){ el.value = ''; });
+  row.querySelectorAll('select').forEach(function(el){ el.selectedIndex = 0; });
+  container.appendChild(row);
+}
+
+// ── Gadgets: add/remove rows for batch create (each row keeps its own files) ─
+function addGadgetRow(empId){
+  var container = document.getElementById('gadget-rows-' + empId);
+  var idx = parseInt(container.dataset.nextIdx, 10);
+  var row = container.querySelector('.gadget-row').cloneNode(true);
+  row.dataset.idx = idx;
+  row.querySelectorAll('[name]').forEach(function(el){
+    el.name = el.name.replace(/_\d+$/, '_' + idx);
+    el.value = '';
+  });
+  container.appendChild(row);
+  container.dataset.nextIdx = idx + 1;
+}
+
+document.addEventListener('click', function(e){
+  if (e.target.classList.contains('doc-row-remove')) {
+    var c = e.target.closest('[id^="doc-rows-"]');
+    if (c.children.length > 1) e.target.closest('.doc-row').remove();
+  }
+  if (e.target.classList.contains('gadget-row-remove')) {
+    var c = e.target.closest('[id^="gadget-rows-"]');
+    if (c.children.length > 1) e.target.closest('.gadget-row').remove();
+  }
+});
 
 // ── View toggle ────────────────────────────────────────────────────────────
 function switchView(v) {

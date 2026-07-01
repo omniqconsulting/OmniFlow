@@ -1688,6 +1688,22 @@ def move_ticket(ticket_id: str, new_status: str = Form(...),
     })
     return redirect(f"/tickets?view=kanban")
 
+
+# Must be registered before /tickets/{ticket_id} — otherwise "bulk-template"
+# is matched as a ticket_id and 404s instead of hitting this handler.
+@app.get("/tickets/bulk-template")
+def tickets_bulk_template(user: User = Depends(require_manager)):
+    """P5-07: CSV template download."""
+    import io as _io
+    buf = _io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["title","description","priority","ticket_category","assignee_phone","due_at","evidence_required"])
+    w.writerow(["Mandatory. Short title, max 200 chars.","Mandatory. Full task description.","LOW / MEDIUM / HIGH / CRITICAL","NORMAL or HELP (default NORMAL)","Mandatory. 10-digit phone of assignee.","Mandatory. YYYY-MM-DD HH:MM","TRUE or FALSE (default FALSE)"])
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=tickets_template.csv"})
+
+
 @app.get("/tickets/{ticket_id}", response_class=HTMLResponse)
 def ticket_detail(ticket_id: str, request: Request,
                   user: User = Depends(get_current_user),
@@ -1900,26 +1916,13 @@ def ticket_delete(ticket_id: str, user: User = Depends(require_admin),
     return redirect("/tickets")
 
 
-@app.get("/tickets/bulk-template")
-def tickets_bulk_template(user: User = Depends(require_manager)):
-    """P5-07: CSV template download."""
-    import io as _io
-    buf = _io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(["title","description","priority","ticket_category","assignee_phone","due_at","evidence_required"])
-    w.writerow(["Mandatory. Short title, max 200 chars.","Mandatory. Full task description.","LOW / MEDIUM / HIGH / CRITICAL","NORMAL or HELP (default NORMAL)","Mandatory. 10-digit phone of assignee.","Mandatory. YYYY-MM-DD HH:MM","TRUE or FALSE (default FALSE)"])
-    buf.seek(0)
-    return StreamingResponse(iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=tickets_template.csv"})
-
-
 @app.post("/tickets/bulk-upload")
 async def tickets_bulk_upload(file: UploadFile = File(...),
                                user: User = Depends(require_manager),
                                db: Session = Depends(get_db)):
     """P5-07: Bulk upload tickets from CSV."""
     tid = user.tenant_id
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     errors = []
     created = 0
@@ -3277,6 +3280,7 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
         content = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         content = raw.decode("cp1252", errors="replace")
+    content = content.lstrip(chr(65279))  # strip any leftover BOM (files re-saved by multiple tools can stack extra BOMs)
     # Normalise frequency aliases so common variants are accepted
     _FREQ_ALIASES = {
         "TWICE A MONTH": "TWICE_A_MONTH",
@@ -3564,7 +3568,7 @@ async def bulk_import_employees(file: UploadFile = File(...),
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
 
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
 
     from datetime import date as _date
@@ -4117,7 +4121,7 @@ async def bulk_import_departments(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     count = 0
     # Build branch name → id lookup for this tenant
@@ -4151,7 +4155,7 @@ async def bulk_import_branches(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     count = 0
     for row in reader:

@@ -411,7 +411,7 @@ async def fms_flow_import(
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
     """2-B-6: Bulk import flow definitions via CSV."""
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader  = csv.DictReader(io.StringIO(content))
     flows_created = 0
     for row in reader:

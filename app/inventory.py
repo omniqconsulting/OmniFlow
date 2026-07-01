@@ -258,7 +258,7 @@ async def materials_bulk_import(
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan or above")
 
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(_io.StringIO(content))
 
     errors, imported = [], 0

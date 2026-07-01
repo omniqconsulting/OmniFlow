@@ -291,7 +291,7 @@ async def import_customers(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
@@ -444,7 +444,7 @@ async def import_end_products(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
@@ -611,7 +611,7 @@ async def import_list_items(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
@@ -772,7 +772,7 @@ async def import_vendors(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
@@ -872,7 +872,7 @@ async def import_raw_materials(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace")
+    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     reader = csv.DictReader(io.StringIO(content))
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
