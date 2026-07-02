@@ -676,6 +676,7 @@ class FMSFlow(Base):
     library_flow_id          = Column(String)                        # source library template (if any)
     library_version_at_deploy= Column(Integer)                       # version at time of deploy (2-B-5)
     ticket_form_fields_json  = Column(Text,    default="[]")          # JSON array of custom field defs for ticket creation form
+    closing_rule_json        = Column(Text)                           # {col_id, op, value} — must hold true before a ticket on this flow can close
     created_by_id            = Column(String,  ForeignKey("users.id"))
     created_at               = Column(DateTime, default=datetime.utcnow)
     updated_at               = Column(DateTime, default=datetime.utcnow)

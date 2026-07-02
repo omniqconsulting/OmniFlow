@@ -4,6 +4,9 @@ Centralised feature catalog, plan limits, and gate helpers.
 """
 import os
 
+# ── Bulk import ──────────────────────────────────────────────────────────────────
+BULK_IMPORT_MAX_ROWS = int(os.environ.get("BULK_IMPORT_MAX_ROWS", "5000"))
+
 # ── Plans ──────────────────────────────────────────────────────────────────────
 PLAN_TRIAL        = "TRIAL"
 PLAN_STARTER      = "STARTER"

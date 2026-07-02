@@ -22,6 +22,7 @@ from .database import (
 from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
+from .constants import BULK_IMPORT_MAX_ROWS
 
 router = APIRouter()
 
@@ -371,8 +372,18 @@ async def pricing_list_bulk_upload(
     db: Session = Depends(get_db),
 ):
     get_price_list_or_404(db, list_id, user.tenant_id)
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    if (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    try:
+        reader = list(csv.DictReader(io.StringIO(content)))
+    except csv.Error:
+        raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    if len(reader) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(reader)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
 
     applied = 0
     errors = []
@@ -568,8 +579,18 @@ async def pricing_costs_bulk_upload(
     user: User = Depends(_require_pricing_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    if (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    try:
+        reader = list(csv.DictReader(io.StringIO(content)))
+    except csv.Error:
+        raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    if len(reader) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(reader)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
 
     applied = 0
     errors = []
@@ -612,7 +633,11 @@ async def pricing_costs_bulk_upload(
         ))
         applied += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no cost entries were created. {e}")
     return JSONResponse({"applied": applied, "errors": errors})
 
 

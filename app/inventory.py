@@ -26,7 +26,7 @@ from .database import (
 )
 from .auth import get_current_user, require_store_manager, require_inventory_admin
 from .labels import get_labels, DEFAULT_L
-from .constants import has_feature
+from .constants import has_feature, BULK_IMPORT_MAX_ROWS
 from .ws_manager import broadcast_sync, STORE_ALERT
 
 import os
@@ -258,8 +258,18 @@ async def materials_bulk_import(
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan or above")
 
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(_io.StringIO(content))
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    if (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    try:
+        reader = list(csv.DictReader(_io.StringIO(content)))
+    except csv.Error:
+        raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    if len(reader) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(reader)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
 
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
@@ -311,7 +321,11 @@ async def materials_bulk_import(
 
         imported += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no materials were created. {e}")
 
     if errors:
         error_csv = "row,error,name\n" + "\n".join(

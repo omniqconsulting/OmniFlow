@@ -25,7 +25,7 @@ from .database import (
 )
 from .auth import get_current_user, require_admin, require_manager
 from .labels import get_labels, DEFAULT_L
-from .constants import has_feature, PLAN_LIMITS
+from .constants import has_feature, PLAN_LIMITS, BULK_IMPORT_MAX_ROWS
 from .notifications import (
     create_notification,
     notify_fms_stage_transition,
@@ -224,6 +224,55 @@ def _cross_stage_cf(db: Session, ticket_id: str, stages: list, exclude_history_i
             except Exception:
                 pass
     return cf_all
+
+
+def _live_eval_formulas(cf_all: dict, stages: list) -> None:
+    """Live-evaluate formula-type custom columns for display, using already-
+    captured cross-stage values. Mutates cf_all in place.
+    Formula columns are normally only computed and persisted when the stage
+    that defines them is transitioned out (see the transition handler below).
+    That leaves a display gap: a later stage's formula column that references
+    an earlier stage's value shows blank until the later stage itself closes,
+    even though the referenced value is already known. Recomputing here from
+    the same aggregated cf_all closes that gap for table/stage-view display."""
+    for s in stages:
+        if not s.custom_fields_json:
+            continue
+        try:
+            fdefs = _json.loads(s.custom_fields_json)
+        except Exception:
+            continue
+        for fdef in fdefs:
+            fid = fdef.get("id", "")
+            if fdef.get("field_type") != "formula" or not fid or fid in cf_all:
+                continue
+            steps = fdef.get("formula_steps") or []
+            result = None
+            for i, step in enumerate(steps):
+                raw = cf_all.get(step.get("col_id", ""), "")
+                try:
+                    val = float(raw)
+                except (ValueError, TypeError):
+                    result = None
+                    break
+                if i == 0:
+                    result = val
+                    continue
+                op = step.get("op", "+")
+                if op == "+":   result += val
+                elif op == "-": result -= val
+                elif op == "*": result *= val
+                elif op == "/":
+                    if val == 0:
+                        result = None
+                        break
+                    result /= val
+            if result is not None:
+                computed = str(int(result)) if result == int(result) else f"{result:.4f}".rstrip("0")
+                cf_all[fid] = computed
+                lbl = fdef.get("label", "")
+                if lbl:
+                    cf_all[lbl] = computed
 
 
 def _tat_pct(history_row: FMSStageHistory, stage: FMSStage = None) -> Optional[int]:
@@ -1095,6 +1144,11 @@ def _fms_dashboard_inner(
                 # lazy-load uncertainty). Also index by UUID so reused-column refs work.
                 import json as _json
                 cf_all: dict = {}
+                if t.ticket_custom_fields_json:
+                    try:
+                        cf_all.update(_json.loads(t.ticket_custom_fields_json))
+                    except Exception:
+                        pass
                 all_hist = (
                     db.query(FMSStageHistory)
                     .filter(FMSStageHistory.ticket_id == t.id)
@@ -1121,6 +1175,7 @@ def _fms_dashboard_inner(
                                     cf_all[lbl] = cf_data[fid]  # label-keyed
                         except Exception:
                             pass
+                _live_eval_formulas(cf_all, stage_table_stages)
                 planned_end = None
                 pd = _planned_dates(t, stage_table_stages)
                 if active_stage.id in pd:
@@ -1186,6 +1241,11 @@ def _fms_dashboard_inner(
 
             # Build cumulative cf_all across all history entries (UUID + label keyed)
             cf_cumulative: dict = {}
+            if t.ticket_custom_fields_json:
+                try:
+                    cf_cumulative.update(_json.loads(t.ticket_custom_fields_json))
+                except Exception:
+                    pass
             for h in all_hist:
                 if not h.custom_fields_data_json:
                     continue
@@ -1206,6 +1266,7 @@ def _fms_dashboard_inner(
                                 cf_cumulative[lbl] = cf_data[fid]
                     except Exception:
                         pass
+            _live_eval_formulas(cf_cumulative, stage_table_stages)
 
             stages_info = []
             for s in stage_table_stages:
@@ -1355,11 +1416,22 @@ def _fms_dashboard_inner(
             if last_back and (now - last_back.entered_at).total_seconds() < 7200:
                 override_eligible.add(t.id)
 
+    ticket_form_fields = []
+    if active_flow and active_flow.ticket_form_fields_json:
+        try:
+            ticket_form_fields = [
+                f for f in _json.loads(active_flow.ticket_form_fields_json)
+                if f.get("field_type") not in ("__priority__", "__due_date__")
+            ]
+        except Exception:
+            ticket_form_fields = []
+
     return templates.TemplateResponse(request, "fms/dashboard.html", _ctx(
         request, user, db,
         flows=flows, active_flow=active_flow,
         flow_counts=flow_counts,
         view=view,
+        ticket_form_fields=ticket_form_fields,
         # Stage view (formerly stage_table)
         stage_table_stages=stage_table_stages,
         active_stage=active_stage,
@@ -1793,6 +1865,8 @@ async def fms_bulk_upload(
     all_rows = list(ws.iter_rows(values_only=True))
     if len(all_rows) < 3:
         return _redirect("/fms/dashboard?err=File+too+short")
+    if len(all_rows) - 2 > BULK_IMPORT_MAX_ROWS:
+        return _redirect(f"/fms/dashboard?err=File+has+too+many+rows+-+maximum+{BULK_IMPORT_MAX_ROWS}")
 
     headers = [str(h).strip() if h is not None else "" for h in all_rows[0]]
 
@@ -1895,7 +1969,11 @@ async def fms_bulk_upload(
         _log(db, ticket.id, user.id, "CREATED", f"History import: {title}")
         created_count += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return _redirect(f"/fms/dashboard?err=Import+failed+-+no+tickets+were+created:+{e}")
 
     from urllib.parse import quote as _q
     base_msg = f"{created_count} ticket(s) imported from '{flow.name}'"
@@ -2299,6 +2377,32 @@ async def fms_bulk_transition(
                 computed = _eval_formula_bulk(fdef.get("formula_steps") or [])
                 if computed is not None:
                     custom_fields_data[fdef.get("id", "")] = computed
+
+        # Enforce the flow's closing rule before letting a ticket land on the terminal stage
+        if next_stage.is_terminal and ticket.flow and ticket.flow.closing_rule_json:
+            try:
+                rule = _json.loads(ticket.flow.closing_rule_json)
+            except Exception:
+                rule = None
+            if rule and rule.get("col_id"):
+                bulk_lookup = {**(formula_lookup if cur_stage and cur_stage.custom_fields_json else {}), **custom_fields_data}
+                raw = bulk_lookup.get(rule["col_id"], "")
+                try:
+                    actual = float(raw)
+                    op = rule.get("op", "=="); target = rule.get("value", 0)
+                    ok = (
+                        actual == target if op == "==" else
+                        actual != target if op == "!=" else
+                        actual <  target if op == "<"  else
+                        actual <= target if op == "<=" else
+                        actual >  target if op == ">"  else
+                        actual >= target if op == ">=" else True
+                    )
+                except (ValueError, TypeError):
+                    ok = False
+                if not ok:
+                    skipped.append(f"{ticket.display_id or t_id[:8]}: closing rule not met")
+                    continue
 
         open_h = _open_history(db, t_id)
         if open_h:
@@ -2726,6 +2830,35 @@ async def fms_transition(
     ticket.updated_at = datetime.utcnow()
 
     if terminal_complete:
+        # Enforce the flow's closing rule (e.g. "excess quantity = 0") before
+        # allowing the ticket to close, using the same cross-stage + ticket-form
+        # value lookup used for formula columns above.
+        flow_for_rule = ticket.flow
+        if flow_for_rule and flow_for_rule.closing_rule_json:
+            try:
+                rule = _json.loads(flow_for_rule.closing_rule_json)
+            except Exception:
+                rule = None
+            if rule and rule.get("col_id"):
+                final_lookup = {**formula_lookup, **custom_fields_data} if cur_stage else custom_fields_data
+                raw = final_lookup.get(rule["col_id"], "")
+                try:
+                    actual = float(raw)
+                except (ValueError, TypeError):
+                    raise HTTPException(400, "Cannot close ticket: the closing rule's column has no value yet.")
+                op = rule.get("op", "==")
+                target = rule.get("value", 0)
+                ok = (
+                    actual == target if op == "==" else
+                    actual != target if op == "!=" else
+                    actual <  target if op == "<"  else
+                    actual <= target if op == "<=" else
+                    actual >  target if op == ">"  else
+                    actual >= target if op == ">=" else True
+                )
+                if not ok:
+                    raise HTTPException(400, f"Cannot close ticket: closing rule not met ({actual} {op} {target} is false).")
+
         # Completing the current terminal stage — no new history row needed
         ticket.status       = "COMPLETED"
         ticket.completed_at = datetime.utcnow()
@@ -2771,6 +2904,31 @@ async def fms_transition(
     ticket.current_assignee_id = new_assignee_id
 
     if next_stage.is_terminal:
+        flow_for_rule = ticket.flow
+        if flow_for_rule and flow_for_rule.closing_rule_json:
+            try:
+                rule = _json.loads(flow_for_rule.closing_rule_json)
+            except Exception:
+                rule = None
+            if rule and rule.get("col_id"):
+                final_lookup = {**formula_lookup, **custom_fields_data} if cur_stage else custom_fields_data
+                raw = final_lookup.get(rule["col_id"], "")
+                try:
+                    actual = float(raw)
+                except (ValueError, TypeError):
+                    raise HTTPException(400, "Cannot close ticket: the closing rule's column has no value yet.")
+                op = rule.get("op", "==")
+                target = rule.get("value", 0)
+                ok = (
+                    actual == target if op == "==" else
+                    actual != target if op == "!=" else
+                    actual <  target if op == "<"  else
+                    actual <= target if op == "<=" else
+                    actual >  target if op == ">"  else
+                    actual >= target if op == ">=" else True
+                )
+                if not ok:
+                    raise HTTPException(400, f"Cannot close ticket: closing rule not met ({actual} {op} {target} is false).")
         ticket.status       = "COMPLETED"
         ticket.completed_at = datetime.utcnow()
         _log(db, ticket_id, user.id, "COMPLETED",
