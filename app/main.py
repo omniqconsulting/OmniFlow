@@ -3679,24 +3679,37 @@ async def bulk_import_employees(file: UploadFile = File(...),
 
         jdate = _parse_date(row.get("joining_date") or "")
 
-        db.add(User(
-            tenant_id=user.tenant_id, name=name, phone=phone,
-            email=(row.get("email") or "").strip() or None,
-            password_hash=hash_password(password), role=role,
-            department_id=dept_id,
-            branch_id=branch_id,
-            manager_id=mgr_id,
-            address=(row.get("address") or "").strip() or None,
-            joining_date=jdate,
-            status="ACTIVE",
-            employee_id=_next_employee_id(db, user.tenant_id),
-        ))
-        imported += 1
+        # Each row gets its own savepoint: a DB-level failure on one row
+        # (e.g. a constraint violation) must not corrupt the shared session
+        # and abort every row already staged in this request.
+        try:
+            with db.begin_nested():
+                db.add(User(
+                    tenant_id=user.tenant_id, name=name, phone=phone,
+                    email=(row.get("email") or "").strip() or None,
+                    password_hash=hash_password(password), role=role,
+                    department_id=dept_id,
+                    branch_id=branch_id,
+                    manager_id=mgr_id,
+                    address=(row.get("address") or "").strip() or None,
+                    joining_date=jdate,
+                    status="ACTIVE",
+                    employee_id=_next_employee_id(db, user.tenant_id),
+                ))
+                db.flush()
+            imported += 1
+        except Exception as row_err:
+            import logging as _logging
+            _logging.getLogger(__name__).exception("Employee import row %s failed", i)
+            errors.append({"row": i, "error": f"could not create employee: {row_err}", "data": dict(row)})
+            continue
 
     try:
         db.commit()
     except Exception as e:
         db.rollback()
+        import logging as _logging
+        _logging.getLogger(__name__).exception("Employee import commit failed")
         raise HTTPException(400, f"Import failed — no employees were created. {e}")
 
     if errors:
