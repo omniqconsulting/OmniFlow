@@ -19,6 +19,7 @@ from .database import get_db, new_id, Product, ProductSchemaField, UnitOfMeasure
 from .auth import get_current_user, require_admin, require_manager, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
+from .constants import BULK_IMPORT_MAX_ROWS
 
 router = APIRouter()
 
@@ -482,9 +483,18 @@ async def bulk_upload(
     user: User = Depends(_require_sales_editor),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
-    rows = list(reader)
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    if (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    try:
+        rows = list(csv.DictReader(io.StringIO(content)))
+    except csv.Error:
+        raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    if len(rows) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
     schema_fields = _active_schema_fields(db, user.tenant_id)
     existing_skus = {
         r[0] for r in db.query(Product.sku_code).filter(
@@ -563,7 +573,11 @@ async def bulk_upload_confirm(request: Request, user: User = Depends(_require_sa
             qty_in_transit=0.0,
         ))
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no products were created. {e}")
     return JSONResponse({"created": created, "skipped": skipped})
 
 

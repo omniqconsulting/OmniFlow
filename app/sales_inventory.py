@@ -21,6 +21,7 @@ from .database import (
 from .auth import get_current_user, require_manager, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
+from .constants import BULK_IMPORT_MAX_ROWS
 
 router = APIRouter()
 
@@ -541,9 +542,18 @@ async def stock_in_bulk_upload(
     user: User = Depends(_require_inventory),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
-    rows = list(reader)
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    if (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    try:
+        rows = list(csv.DictReader(io.StringIO(content)))
+    except csv.Error:
+        raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    if len(rows) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
 
     results = []
     valid_count = 0

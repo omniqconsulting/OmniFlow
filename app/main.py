@@ -53,6 +53,7 @@ from .constants import (
     FEATURE_CATALOG, PLAN_LIMITS, PLAN_LABELS, PLAN_ORDER,
     LIMIT_LABELS, feature_label, next_plan, get_plan_features,
     TAB_CATALOG, get_tenant_enabled_tabs,
+    BULK_IMPORT_MAX_ROWS,
 )
 from .labels import get_labels, DEFAULT_L, INDUSTRY_NAMES, INDUSTRY_PRESETS
 
@@ -113,6 +114,22 @@ def _validate_email(email: str) -> str | None:
     if not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         return "Invalid email address format"
     return None
+
+
+def _read_csv_rows(raw: bytes, filename: str) -> list:
+    """Decode + parse an uploaded CSV into a list of row dicts, with shared validation."""
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    if (filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    try:
+        rows = list(csv.DictReader(io.StringIO(content)))
+    except csv.Error:
+        raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    if len(rows) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return rows
 
 
 def _next_employee_id(db, tenant_id: str) -> str:
@@ -1922,8 +1939,7 @@ async def tickets_bulk_upload(file: UploadFile = File(...),
                                db: Session = Depends(get_db)):
     """P5-07: Bulk upload tickets from CSV."""
     tid = user.tenant_id
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    reader = _read_csv_rows(await file.read(), file.filename)
     errors = []
     created = 0
     tenant = db.query(Tenant).get(tid)
@@ -1977,7 +1993,11 @@ async def tickets_bulk_upload(file: UploadFile = File(...),
         notify_ticket_assigned(db, ticket, assignee)
         created += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no tickets were created. {e}")
     if errors:
         import io as _io
         buf = _io.StringIO()
@@ -3293,7 +3313,9 @@ async def checklist_bulk_upload(file: UploadFile = File(...),
         "ANNUALLY":      "YEARLY",
     }
     _VALID_FREQS = {"DAILY","WEEKLY","TWICE_A_MONTH","MONTHLY","QUARTERLY","YEARLY","PER_SHIFT"}
-    reader = csv.DictReader(io.StringIO(content))
+    reader = list(csv.DictReader(io.StringIO(content)))
+    if len(reader) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(reader)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
     errors = []
     created = 0
     for i, row in enumerate(reader, start=1):
@@ -3568,8 +3590,7 @@ async def bulk_import_employees(file: UploadFile = File(...),
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
 
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    reader = _read_csv_rows(await file.read(), file.filename)
 
     from datetime import date as _date
 
@@ -3672,7 +3693,11 @@ async def bulk_import_employees(file: UploadFile = File(...),
         ))
         imported += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no employees were created. {e}")
 
     if errors:
         # Return downloadable exception report
@@ -4121,8 +4146,7 @@ async def bulk_import_departments(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    reader = _read_csv_rows(await file.read(), file.filename)
     count = 0
     # Build branch name → id lookup for this tenant
     _branch_lookup = {b.name.strip().lower(): b.id for b in db.query(Branch).filter(
@@ -4144,7 +4168,11 @@ async def bulk_import_departments(file: UploadFile = File(...),
             continue
         db.add(Department(tenant_id=user.tenant_id, name=name, branch_id=branch_id))
         count += 1
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no departments were created. {e}")
     return redirect(f"/setup?imported_depts={count}")
 
 @app.post("/branches/import")
@@ -4155,8 +4183,7 @@ async def bulk_import_branches(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    reader = _read_csv_rows(await file.read(), file.filename)
     count = 0
     for row in reader:
         name = (row.get("name") or "").strip()
@@ -4165,7 +4192,11 @@ async def bulk_import_branches(file: UploadFile = File(...),
         db.add(Branch(tenant_id=user.tenant_id, name=name,
                       address=(row.get("address") or "").strip()))
         count += 1
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no branches were created. {e}")
     return redirect(f"/setup?imported_branches={count}")
 
 

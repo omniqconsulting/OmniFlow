@@ -334,7 +334,6 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
   <!-- Row 1: fixed cols + stage name spans -->
   <tr>
     <th rowspan="2" class="jt-s0" style="text-align:left;min-width:72px;max-width:72px;left:0">ID</th>
-    <th rowspan="2" style="text-align:left;min-width:200px;max-width:200px">Title</th>
     <th rowspan="2" style="text-align:left;min-width:120px">Current Assignee</th>
     <th rowspan="2" style="text-align:center;min-width:80px">Priority</th>
     <th rowspan="2" style="text-align:center;min-width:90px">Status</th>
@@ -342,7 +341,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     {% for s in stage_table_stages %}
     {% set hex = s.color or '#3b82f6' %}
     {% set jt_cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
-    <th class="jt-stage-th" colspan="{{ 6 + (jt_cf_defs | length) }}" style="background:{{ hex }}">{{ s.name }}</th>
+    <th class="jt-stage-th" colspan="{{ 6 + (ticket_form_fields | length) + (jt_cf_defs | length) }}" style="background:{{ hex }}">{{ s.name }}</th>
     {% endfor %}
   </tr>
   <!-- Row 2: sub-headers per stage -->
@@ -356,6 +355,9 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Actual entry time">Act. Start</th>
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Actual completion">Act. End</th>
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Act. End − Plan End">Delay</th>
+    {% for fdef in ticket_form_fields %}
+    <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="From Ticket Creation Form">{{ fdef.label }}</th>
+    {% endfor %}
     {% for fdef in jt_cf_defs %}
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}">{{ fdef.label }}</th>
     {% endfor %}
@@ -366,11 +368,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
 {% if table_tickets %}
   {% for row in table_tickets %}{% set t = row.ticket %}
   <tr>
-    <td class="jt-s0" style="left:0"><span style="font-family:monospace;font-size:12px;color:#60a5fa;font-weight:600">{{ t.display_id or t.id[:8] }}</span></td>
-    <td style="font-weight:600;color:var(--text-primary)">
-      {{ t.title[:45] }}{% if t.title|length > 45 %}…{% endif %}
-      {% if t.is_flagged %} 🚩{% endif %}
-    </td>
+    <td class="jt-s0" style="left:0"><span style="font-family:monospace;font-size:12px;color:#60a5fa;font-weight:600">{{ t.display_id or t.id[:8] }}</span>{% if t.is_flagged %} 🚩{% endif %}</td>
     <td style="font-size:12px;color:var(--text-muted)">{{ row.assignee_name }}</td>
     <td class="jt-cell"><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
     <td class="jt-cell"><span class="st-badge st-{{ t.status }}">{{ t.status.replace('_',' ') }}</span></td>
@@ -413,6 +411,12 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         </span>
       {% elif si.visited %}—{% else %}<span style="opacity:.3">—</span>{% endif %}
     </td>
+    {% for fdef in ticket_form_fields %}
+    {% set cfval = si.cf.get(fdef.id, '—') if (si.visited or si.is_current) else '' %}
+    <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
+      {{ cfval }}
+    </td>
+    {% endfor %}
     {% for fdef in jt_cf_defs %}
     {% set cfval = si.cf.get(fdef.id, si.cf.get(fdef.label, '—')) if (si.visited or si.is_current) else '' %}
     {% set cfstyle = fdef | cond_format(cfval) %}
@@ -521,7 +525,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
                    style="cursor:pointer;width:15px;height:15px">
           </th>
           {% endif %}
-          <th>ID</th><th>Title</th><th>Assignee</th><th>Priority</th>
+          <th>ID</th><th>Assignee</th><th>Priority</th>
           <th title="TaT % = time elapsed in this stage ÷ stage's target Turn-Around-Time × 100. Green &lt;50%, Amber &lt;90%, Red ≥90%.">
             TaT % *
           </th>
@@ -534,6 +538,10 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           {% elif active_stage.sub_module_tag == 'INVOICE' %}
           <th>Total Inv.</th><th>Received</th><th>Outstanding</th><th>Oldest Due</th>
           {% endif %}
+          {# Ticket Creation Form columns — visible in every stage #}
+          {% for fdef in ticket_form_fields %}
+          <th style="font-size:11px;color:var(--text-faint);white-space:nowrap" title="From Ticket Creation Form">{{ fdef.label }}</th>
+          {% endfor %}
           {# A4: custom stage columns — show up to 3, rest in tooltip #}
           {% set stage_cf_defs = active_stage.custom_fields_json | from_json if active_stage.custom_fields_json else [] %}
           {% for fdef in stage_cf_defs[:3] %}
@@ -563,12 +571,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           <span style="font-family:monospace;font-size:12px;color:#60a5fa;font-weight:600">
             {{ t.display_id or t.id[:8] }}
           </span>
-        </td>
-        <td>
-          <div style="font-weight:600;color:var(--text-primary)">
-            {{ t.title[:40] }}{% if t.title|length > 40 %}…{% endif %}
-            {% if t.is_flagged %} 🚩{% endif %}
-          </div>
+          {% if t.is_flagged %} 🚩{% endif %}
         </td>
         <td>{{ row.assignee_name }}</td>
         <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
@@ -616,6 +619,12 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         <td style="font-size:12px;color:{% if (sub.outstanding or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.outstanding|round(0)|int if sub.outstanding else 0 }}</td>
         <td style="font-size:11px;color:{% if sub.oldest_due and sub.oldest_due < now.date() %}#f87171{% else %}var(--text-faint){% endif %}">{{ sub.oldest_due.strftime('%d %b') if sub.oldest_due else '—' }}</td>
         {% endif %}
+        {# Ticket Creation Form column values — visible in every stage #}
+        {% for fdef in ticket_form_fields %}
+        <td style="font-size:12px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted)">
+          {{ row.cf_all.get(fdef.id, '—') }}
+        </td>
+        {% endfor %}
         {# A4: custom stage column values — aggregated from all stage visits #}
         {% if stage_cf_defs %}
         {% for fdef in stage_cf_defs[:3] %}

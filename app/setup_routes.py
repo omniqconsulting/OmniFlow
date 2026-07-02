@@ -9,7 +9,7 @@ import csv, io, json, re
 _PHONE_RE = re.compile(r'^[0-9+\-\s()]{7,20}$')
 from datetime import datetime, date as _date
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from markupsafe import Markup
 from sqlalchemy.orm import Session
@@ -24,6 +24,7 @@ from .database import (
 )
 from .auth import require_admin
 from .labels import get_labels
+from .constants import BULK_IMPORT_MAX_ROWS
 
 router = APIRouter()
 
@@ -144,6 +145,22 @@ _RAW_MATERIAL_COLS = [
     ("major_supplier", "Optional. Primary supplier name for this material."),
     ("notes",          "Optional. Any additional notes. Free text."),
 ]
+
+
+def _read_csv_rows(raw: bytes, filename: str) -> list:
+    """Decode + parse an uploaded CSV into a list of row dicts, with shared validation."""
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    if (filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    try:
+        rows = list(csv.DictReader(io.StringIO(content)))
+    except csv.Error:
+        raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    if len(rows) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return rows
 
 
 def _csv_template(rows: list[tuple[str, str]], filename: str) -> StreamingResponse:
@@ -291,8 +308,7 @@ async def import_customers(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    reader = _read_csv_rows(await file.read(), file.filename)
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
         # Skip description row
@@ -317,7 +333,11 @@ async def import_customers(
         ))
         imported += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no customers were created. {e}")
     if errors:
         r = _exception_report(errors, "customers_exceptions.csv")
         r.headers["X-Imported"] = str(imported)
@@ -444,8 +464,7 @@ async def import_end_products(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    reader = _read_csv_rows(await file.read(), file.filename)
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
         name = (row.get("name") or "").strip()
@@ -469,7 +488,11 @@ async def import_end_products(
             created_by_id=user.id,
         ))
         imported += 1
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no products were created. {e}")
     if errors:
         r = _exception_report(errors, "end_products_exceptions.csv")
         r.headers["X-Imported"] = str(imported)
@@ -611,8 +634,7 @@ async def import_list_items(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    reader = _read_csv_rows(await file.read(), file.filename)
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
         list_name = (row.get("list_name") or "").strip()
@@ -654,7 +676,11 @@ async def import_list_items(
         ))
         imported += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no items were created. {e}")
     if errors:
         r = _exception_report(errors, "custom_items_exceptions.csv")
         r.headers["X-Imported"] = str(imported)
@@ -772,8 +798,7 @@ async def import_vendors(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    reader = _read_csv_rows(await file.read(), file.filename)
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
         name = (row.get("name") or "").strip()
@@ -800,7 +825,11 @@ async def import_vendors(
             created_by_id=user.id,
         ))
         imported += 1
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no vendors were created. {e}")
     if errors:
         r = _exception_report(errors, "vendors_exceptions.csv")
         r.headers["X-Imported"] = str(imported)
@@ -872,8 +901,7 @@ async def import_raw_materials(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    reader = _read_csv_rows(await file.read(), file.filename)
     errors, imported = [], 0
     for i, row in enumerate(reader, start=2):
         name = (row.get("name") or "").strip()
@@ -894,7 +922,11 @@ async def import_raw_materials(
             created_by_id=user.id,
         ))
         imported += 1
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no raw materials were created. {e}")
     if errors:
         r = _exception_report(errors, "raw_materials_exceptions.csv")
         r.headers["X-Imported"] = str(imported)
@@ -1004,6 +1036,33 @@ def _clean_ticket_form_fields(fields: list) -> list:
     return clean
 
 
+_CLOSING_RULE_OPS = {"==", "!=", "<", "<=", ">", ">="}
+
+
+def _parse_closing_rule(raw: str | None) -> dict | None:
+    """Validate the closing-rule payload from the flow builder.
+    Rule shape: {col_id, op, value} — col_id references a ticket-form field
+    or a stage custom column by id; value must be numeric."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    col_id = (data.get("col_id") or "").strip()
+    op = (data.get("op") or "").strip()
+    value = data.get("value")
+    if not col_id or op not in _CLOSING_RULE_OPS:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return {"col_id": col_id, "op": op, "value": value}
+
+
 @router.get("/setup/flows", response_class=HTMLResponse)
 def setup_flows_list(
     request: Request,
@@ -1081,6 +1140,7 @@ def setup_flow_new(
         "ref_lists": _json.loads(ref_lists_json),
         "ref_lists_json": ref_lists_json,
         "ticket_form_fields_json": "[]",
+        "closing_rule_json": "null",
     })
 
 
@@ -1134,6 +1194,7 @@ def setup_flow_edit_get(
         "ref_lists_json": ref_lists_json,
         "ticket_form_fields": ticket_form_fields,
         "ticket_form_fields_json": _jf.dumps(ticket_form_fields),
+        "closing_rule_json": flow.closing_rule_json or "null",
     })
 
 
@@ -1179,6 +1240,8 @@ async def setup_flow_create(
     except Exception:
         ticket_form_fields_data = []
 
+    closing_rule = _parse_closing_rule(form.get("closing_rule_json"))
+
     flow = FMSFlow(
         id=new_id(),
         tenant_id=user.tenant_id,
@@ -1188,6 +1251,7 @@ async def setup_flow_create(
         is_active=is_active,
         created_by_id=user.id,
         ticket_form_fields_json=_jf.dumps(_clean_ticket_form_fields(ticket_form_fields_data)),
+        closing_rule_json=_jf.dumps(closing_rule) if closing_rule else None,
     )
     db.add(flow)
     db.flush()
@@ -1262,6 +1326,8 @@ async def setup_flow_update(
     flow.color = color
     flow.is_active = is_active
     flow.updated_at = datetime.utcnow()
+    closing_rule = _parse_closing_rule(form.get("closing_rule_json"))
+    flow.closing_rule_json = _jf.dumps(closing_rule) if closing_rule else None
 
     if ticket_form_fields_json_raw is not None:
         try:

@@ -56,6 +56,7 @@
       action="{{ '/setup/flows/' + flow.id + '/edit' if flow else '/setup/flows/new' }}">
   <input type="hidden" name="stages_json" id="stagesJsonInput">
   <input type="hidden" name="ticket_form_fields_json" id="ticketFormFieldsJsonInput">
+  <input type="hidden" name="closing_rule_json" id="closingRuleJsonInput">
 
   <!-- Flow settings -->
   <div class="fe-card">
@@ -149,6 +150,30 @@
     <button type="button" class="tfb-add" onclick="tfbAddField()">+ Add Field</button>
   </div>
   <div id="tfbStatus" style="font-size:12px;margin-top:10px;display:none"></div>
+</div>
+
+<!-- ── Closing Rule ─────────────────────────────────────────────────────────── -->
+<div class="fe-card" style="margin-top:16px">
+  <h3 style="font-size:14px;font-weight:600;color:var(--text-strong);margin:0 0 4px">Closing Rule</h3>
+  <div style="font-size:12px;color:var(--text-faint);margin-bottom:14px">
+    Optional. If set, a ticket on this flow cannot be closed (its final stage completed) unless this condition holds true.
+    E.g. <em>Excess Quantity = 0</em>.
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <select id="crColSel" class="fe-input" style="width:220px">
+      <option value="">— No rule —</option>
+    </select>
+    <select id="crOpSel" class="fe-input" style="width:90px">
+      <option value="==">=</option>
+      <option value="!=">≠</option>
+      <option value="<">&lt;</option>
+      <option value="<=">&le;</option>
+      <option value=">">&gt;</option>
+      <option value=">=">&ge;</option>
+    </select>
+    <input type="number" step="any" id="crValueInp" class="fe-input" style="width:120px" placeholder="Value">
+  </div>
+  <div id="crStatus" style="font-size:12px;color:var(--text-faint);margin-top:10px"></div>
 </div>
 
 <script>
@@ -585,6 +610,7 @@ function renderStages() {
   var list = document.getElementById('stageList');
   list.innerHTML = '';
   var hint = document.getElementById('noStagesHint');
+  if (typeof _crRenderColOptions === 'function') _crRenderColOptions();
   if (!stages.length) { hint.style.display = ''; return; }
   hint.style.display = 'none';
   stages.forEach(function(s, i) { list.appendChild(buildStageEl(s, i)); });
@@ -1173,8 +1199,45 @@ document.getElementById('flowForm').addEventListener('submit', function(e) {
   var clean = stages.map(function(s){ var o=Object.assign({},s); delete o._open; return o; });
   document.getElementById('stagesJsonInput').value = JSON.stringify(clean);
   document.getElementById('ticketFormFieldsJsonInput').value = JSON.stringify(tfbFields);
+  document.getElementById('closingRuleJsonInput').value = JSON.stringify(_crBuildRule());
 });
 
+// ── Closing rule ─────────────────────────────────────────────────────────────
+var CR_SAVED_RULE = {{ closing_rule_json | safe }};
+
+function _crRenderColOptions() {
+  var sel = document.getElementById('crColSel');
+  var prevVal = sel.value;
+  var cols = _numericColsUpTo(stages.length - 1);
+  sel.innerHTML = '<option value="">— No rule —</option>';
+  cols.forEach(function(item) {
+    var opt = document.createElement('option');
+    opt.value = item.col.id;
+    opt.textContent = item.stageName + ' — ' + item.col.label;
+    sel.appendChild(opt);
+  });
+  if (prevVal && cols.some(function(it){ return it.col.id === prevVal; })) sel.value = prevVal;
+}
+
+function _crBuildRule() {
+  var colId = document.getElementById('crColSel').value;
+  var val = document.getElementById('crValueInp').value;
+  if (!colId || val === '') return null;
+  var num = parseFloat(val);
+  if (isNaN(num)) return null;
+  return { col_id: colId, op: document.getElementById('crOpSel').value, value: num };
+}
+
+function _crInit() {
+  _crRenderColOptions();
+  if (CR_SAVED_RULE && CR_SAVED_RULE.col_id) {
+    document.getElementById('crColSel').value = CR_SAVED_RULE.col_id;
+    document.getElementById('crOpSel').value = CR_SAVED_RULE.op;
+    document.getElementById('crValueInp').value = CR_SAVED_RULE.value;
+  }
+}
+
 renderStages();
+_crInit();
 </script>
 {% endblock %}

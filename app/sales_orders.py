@@ -23,7 +23,7 @@ from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 from .sales_inventory import reserve_stock_for_item, release_all_reservations, fulfill_reservation
-from .constants import SALES_MARGIN_FLOOR_PCT
+from .constants import SALES_MARGIN_FLOOR_PCT, BULK_IMPORT_MAX_ROWS
 
 router = APIRouter()
 
@@ -719,8 +719,18 @@ async def bulk_upload(
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
-    content = (await file.read()).decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    reader = csv.DictReader(io.StringIO(content))
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    if (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    try:
+        reader = list(csv.DictReader(io.StringIO(content)))
+    except csv.Error:
+        raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    if len(reader) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(reader)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
 
     rows_by_phone: dict = {}
     errors = []
@@ -880,5 +890,9 @@ def bulk_upload_confirm(
             ))
         created += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no orders were created. {e}")
     return JSONResponse({"created": created})
