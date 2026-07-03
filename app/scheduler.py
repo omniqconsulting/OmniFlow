@@ -920,8 +920,14 @@ def delegation_tat_monitor():
 
 
 def fms_stage_tat_monitor():
-    """E-15: Every 30 min — notify manager+admin+employee when FMS stage TaT exceeds fms_notif_tat_pct."""
-    from .database import SessionLocal, Tenant, FMSTicket, FMSStage, FMSStageHistory, User, Notification
+    """E-15: Every 30 min — notify manager+admin+employee when FMS stage TaT
+    exceeds fms_notif_tat_pct.
+
+    Phase 0 (split flows): iterates active FMSTicketSplit rows rather than
+    FMSTicket directly — two splits of the same ticket can breach TAT
+    independently, at different stages, at different times, so a per-ticket
+    check would only ever catch one of them."""
+    from .database import SessionLocal, Tenant, FMSTicket, FMSTicketSplit, FMSStage, FMSStageHistory, User, Notification
     from .notifications import business_hours_elapsed
     db = SessionLocal()
     try:
@@ -931,33 +937,42 @@ def fms_stage_tat_monitor():
             tat_pct = getattr(tenant, 'fms_notif_tat_pct', 80) or 0
             if tat_pct == 0:
                 continue
-            active = db.query(FMSTicket).filter(
-                FMSTicket.tenant_id == tenant.id,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            active_splits = db.query(FMSTicketSplit).join(
+                FMSTicket, FMSTicketSplit.ticket_id == FMSTicket.id
+            ).filter(
+                FMSTicketSplit.tenant_id == tenant.id,
+                FMSTicketSplit.is_deleted == False,
+                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
                 FMSTicket.is_deleted == False,
-                FMSTicket.current_stage_id != None,
+                FMSTicket.status != "CLOSED",
             ).all()
-            for ticket in active:
-                stage = db.query(FMSStage).filter(FMSStage.id == ticket.current_stage_id).first()
-                if not stage or not getattr(stage, 'tat_hours', None):
+            for split in active_splits:
+                stage = db.query(FMSStage).filter(FMSStage.id == split.current_stage_id).first()
+                if not stage or not getattr(stage, 'target_tat_hours', None):
                     continue
-                # Find when ticket entered current stage
+                # Find when this split entered its current stage
                 entry = db.query(FMSStageHistory).filter(
-                    FMSStageHistory.ticket_id == ticket.id,
-                    FMSStageHistory.stage_id == ticket.current_stage_id,
-                ).order_by(FMSStageHistory.created_at.desc()).first()
+                    FMSStageHistory.split_id == split.id,
+                    FMSStageHistory.stage_id == split.current_stage_id,
+                ).order_by(FMSStageHistory.entered_at.desc()).first()
                 if not entry:
                     continue
-                elapsed = business_hours_elapsed(tenant, entry.created_at, now)
-                pct_used = (elapsed / stage.tat_hours) * 100
+                elapsed = business_hours_elapsed(tenant, entry.entered_at, now)
+                pct_used = (elapsed / stage.target_tat_hours) * 100
                 if pct_used < tat_pct:
                     continue
-                # Dedup — one alert per stage entry
+                ticket = split.ticket
+                is_multi = db.query(FMSTicketSplit).filter(
+                    FMSTicketSplit.ticket_id == split.ticket_id,
+                    FMSTicketSplit.is_deleted == False,
+                ).count() > 1
+                label_suffix = f" [{split.split_label}]" if is_multi else ""
+                # Dedup — one alert per split's stage entry
                 already = db.query(Notification).filter(
                     Notification.notif_type == "TICKET_REMINDER",
                     Notification.link == f"/fms/tickets/{ticket.id}",
-                    Notification.body.like(f"%stage TaT%"),
-                    Notification.created_at > (entry.created_at),
+                    Notification.body.like(f"%stage TaT%{split.id}%"),
+                    Notification.created_at > entry.entered_at,
                 ).first()
                 if already:
                     continue
@@ -966,20 +981,52 @@ def fms_stage_tat_monitor():
                     User.tenant_id == tenant.id, User.role == "ADMIN",
                     User.is_deleted == False, User.is_active == True,
                 ).all()
-                assignee = db.query(User).filter(User.id == ticket.current_assignee_id).first() if ticket.current_assignee_id else None
+                assignee = db.query(User).filter(User.id == split.current_assignee_id).first() if split.current_assignee_id else None
                 manager = db.query(User).filter(User.id == assignee.manager_id).first() if assignee and assignee.manager_id else None
                 audience = list({u.id for u in admins} | ({manager.id} if manager else set()) | ({assignee.id} if assignee else set()))
                 for uid in audience:
                     db.add(Notification(
                         tenant_id=tenant.id, user_id=uid,
                         notif_type="TICKET_REMINDER",
-                        title=f"⏱ Stage TaT alert: {ticket.title}",
-                        body=f"{pct_used:.0f}% of stage TaT used at '{stage.name}' stage.",
+                        title=f"⏱ Stage TaT alert: {ticket.title}{label_suffix}",
+                        body=f"{pct_used:.0f}% of stage TaT used at '{stage.name}' stage. [ref:{split.id}]",
                         link=f"/fms/tickets/{ticket.id}",
                     ))
             db.commit()
     except Exception as e:
         logger.error("fms_stage_tat_monitor error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def fms_qty_discrepancy_monitor():
+    """Phase 0 (split flows brief §5): periodic re-check of every multi-split
+    ticket's active-split qty sum against target_qty, catching drift that
+    wasn't introduced by the split action itself (e.g. a manual qty edit
+    elsewhere). Same cadence/registration pattern as fms_stage_tat_monitor."""
+    from sqlalchemy import func
+    from .database import SessionLocal, FMSTicket, FMSTicketSplit
+    from .fms import _check_qty_discrepancy
+    db = SessionLocal()
+    try:
+        multi_ticket_ids = [
+            row[0] for row in db.query(FMSTicketSplit.ticket_id).filter(
+                FMSTicketSplit.is_deleted == False
+            ).group_by(FMSTicketSplit.ticket_id).having(func.count(FMSTicketSplit.id) > 1)
+        ]
+        if not multi_ticket_ids:
+            return
+        tickets = db.query(FMSTicket).filter(
+            FMSTicket.id.in_(multi_ticket_ids),
+            FMSTicket.is_deleted == False,
+            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+        ).all()
+        for ticket in tickets:
+            _check_qty_discrepancy(db, ticket)
+        db.commit()
+    except Exception as e:
+        logger.error("fms_qty_discrepancy_monitor error: %s", e)
         db.rollback()
     finally:
         db.close()
@@ -1161,6 +1208,9 @@ def start_scheduler():
                       IntervalTrigger(minutes=30), id="deleg_tat",    replace_existing=True)
     scheduler.add_job(fms_stage_tat_monitor,
                       IntervalTrigger(minutes=30), id="fms_tat",      replace_existing=True)
+    # Phase 0 (split flows) — periodic qty discrepancy re-check, same cadence
+    scheduler.add_job(fms_qty_discrepancy_monitor,
+                      IntervalTrigger(minutes=30), id="fms_qty_discrepancy", replace_existing=True)
     # Brief 4 — CRM follow-up reminders, daily 5 PM IST
     scheduler.add_job(job_follow_up_reminders,
                       CronTrigger(hour=11, minute=30, timezone="UTC"), id="crm_followup", replace_existing=True)

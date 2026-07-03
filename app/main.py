@@ -258,6 +258,35 @@ async def startup():
     except Exception as _ce:
         import logging as _logging
         _logging.getLogger(__name__).warning("Auto-column guard failed (non-fatal): %s", _ce)
+    # ── Phase 0 (FMS Split Flows): backfill splits ──────────────────────────────
+    # Every FMSTicket must have exactly one FMSTicketSplit at all times (see
+    # app/fms.py _ensure_ticket_has_split). Tickets created before this feature
+    # shipped have none yet — walk them once at startup so dashboards/analytics/
+    # TAT monitor see correct split data immediately after deploy, rather than
+    # waiting for each ticket's first lazy touch. Idempotent and non-fatal.
+    try:
+        import logging as _logging
+        from .database import SessionLocal as _SessionLocal, FMSTicket as _FMSTicket, FMSTicketSplit as _FMSTicketSplit
+        from .fms import _ensure_ticket_has_split as _ensure_split
+
+        _log = _logging.getLogger(__name__)
+        _db = _SessionLocal()
+        try:
+            _split_ticket_ids = [row[0] for row in _db.query(_FMSTicketSplit.ticket_id).distinct()]
+            _q = _db.query(_FMSTicket).filter(_FMSTicket.is_deleted == False)
+            if _split_ticket_ids:
+                _q = _q.filter(~_FMSTicket.id.in_(_split_ticket_ids))
+            _unsplit = _q.all()
+            for _t in _unsplit:
+                _ensure_split(_db, _t)
+            if _unsplit:
+                _db.commit()
+                _log.info("Split-flow backfill: created initial splits for %d ticket(s)", len(_unsplit))
+        finally:
+            _db.close()
+    except Exception as _se:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("Split-flow backfill failed (non-fatal): %s", _se)
     # Phase 1-2/3: capture the running event loop for sync→async WS broadcasts
     set_main_loop(asyncio.get_event_loop())
     # Seed Phase 0-K library data (idempotent)

@@ -753,6 +753,7 @@ class FMSTicket(Base):
     due_at              = Column(DateTime, nullable=True)
     is_flagged          = Column(Boolean, default=False)
     flagged_reason      = Column(String)
+    has_qty_discrepancy = Column(Boolean, default=False)  # Phase 0: system-detected — active splits' qty no longer sums to target_qty
     completed_at        = Column(DateTime)
     closed_at           = Column(DateTime)
     is_deleted          = Column(Boolean, default=False)
@@ -771,6 +772,10 @@ class FMSTicket(Base):
     stage_history    = relationship("FMSStageHistory", back_populates="ticket",
                                     order_by="FMSStageHistory.entered_at",
                                     cascade="all, delete-orphan")
+    splits           = relationship("FMSTicketSplit", foreign_keys="FMSTicketSplit.ticket_id",
+                                    order_by="FMSTicketSplit.created_at",
+                                    back_populates="ticket",
+                                    cascade="all, delete-orphan")
     events           = relationship("FMSEvent", back_populates="ticket",
                                     order_by="FMSEvent.created_at",
                                     cascade="all, delete-orphan")
@@ -788,6 +793,7 @@ class FMSStageHistory(Base):
     __tablename__ = "fms_stage_history"
     id               = Column(String,  primary_key=True, default=new_id)
     ticket_id        = Column(String,  ForeignKey("fms_tickets.id"), nullable=False)
+    split_id         = Column(String,  ForeignKey("fms_ticket_splits.id"), nullable=True)  # Phase 0: which split this history row belongs to
     stage_id         = Column(String,  ForeignKey("fms_stages.id"), nullable=False)
     stage_name       = Column(String)           # name snapshot at time of entry
     assignee_id      = Column(String,  ForeignKey("users.id"), nullable=True)
@@ -807,8 +813,42 @@ class FMSStageHistory(Base):
     custom_fields_data_json = Column(Text, nullable=True)    # JSON dict {field_label: value}
 
     ticket   = relationship("FMSTicket", back_populates="stage_history")
+    split    = relationship("FMSTicketSplit", foreign_keys=[split_id])
     stage    = relationship("FMSStage",  foreign_keys=[stage_id])
     assignee = relationship("User",      foreign_keys=[assignee_id])
+
+
+class FMSTicketSplit(Base):
+    """
+    Phase 0: a portion of an FMSTicket's quantity progressing independently
+    through stages. Every ticket gets exactly one split at creation — splits
+    are always the unit of stage-progress, even for tickets nobody has ever
+    manually split (see brief §3). The UI hides the concept unless a ticket
+    has more than one active split.
+
+    status vocabulary matches FMSTicket.status. is_deleted=True marks a
+    split that was fully carved into a child split (qty hit 0) — its story
+    ends there, so it's excluded from "active splits" queries.
+    """
+    __tablename__ = "fms_ticket_splits"
+    id                  = Column(String,  primary_key=True, default=new_id)
+    tenant_id           = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    ticket_id           = Column(String,  ForeignKey("fms_tickets.id"), nullable=False)
+    parent_split_id     = Column(String,  ForeignKey("fms_ticket_splits.id"), nullable=True)
+    split_label         = Column(String,  nullable=False)  # e.g. "S1", "S2" — auto-numbered per ticket
+    qty                 = Column(Integer, nullable=True)
+    current_stage_id    = Column(String,  ForeignKey("fms_stages.id"), nullable=True)
+    current_assignee_id = Column(String,  ForeignKey("users.id"), nullable=True)
+    status              = Column(String,  default="ACTIVE")
+    is_deleted          = Column(Boolean, default=False)
+    created_at          = Column(DateTime, default=datetime.utcnow)
+    updated_at          = Column(DateTime, default=datetime.utcnow)
+
+    tenant           = relationship("Tenant")
+    ticket           = relationship("FMSTicket", foreign_keys=[ticket_id], back_populates="splits")
+    parent_split     = relationship("FMSTicketSplit", remote_side=[id])
+    current_stage    = relationship("FMSStage", foreign_keys=[current_stage_id])
+    current_assignee = relationship("User",     foreign_keys=[current_assignee_id])
 
 
 class FMSEvent(Base):
