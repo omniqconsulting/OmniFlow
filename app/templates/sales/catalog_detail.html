@@ -1,16 +1,20 @@
 {% extends "base.html" %}
 {% block title %}{{ product.name }}{% endblock %}
 {% block content %}
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
 
-<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
   <div>
-    <h2 class="page-title">{{ product.name }}</h2>
-    <div class="muted">{{ product.sku_code }}</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <h2 class="page-title" style="margin:0">{{ product.name }}</h2>
+      <span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:99px;{{ 'background:#22c55e33;color:#22c55e' if product.is_active else 'background:#94a3b833;color:#94a3b8' }}">{{ 'ACTIVE' if product.is_active else 'INACTIVE' }}</span>
+    </div>
+    <div class="muted">{{ product.sub_category.category.name if product.sub_category else '—' }} / {{ product.sub_category.name if product.sub_category else '—' }}</div>
   </div>
   <div style="display:flex;gap:8px">
     <a href="/sales/catalog" class="btn btn-sm btn-gray">← Catalog</a>
     {% if user.role in ('ADMIN','MANAGER') %}
-    <a href="/sales/catalog/{{ product.id }}/edit" class="btn btn-sm btn-primary">Edit</a>
+    <a href="/sales/catalog/{{ product.id }}/edit" class="btn btn-sm btn-primary">Edit Product</a>
     {% endif %}
   </div>
 </div>
@@ -18,89 +22,95 @@
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-<div style="display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start">
-  <!-- Photo gallery -->
-  <div class="card" style="padding:16px">
-    {% if media_urls %}
-    <img id="gallery-main" src="/static/{{ media_urls[0] }}" style="width:100%;border-radius:8px;object-fit:cover;height:260px;margin-bottom:10px">
-    <div style="display:flex;gap:6px;flex-wrap:wrap">
-      {% for m in media_urls %}
-      <div style="position:relative">
-        <img src="/static/{{ m }}" onclick="document.getElementById('gallery-main').src=this.src" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border-subtle)">
+<div class="card" style="padding:18px;margin-bottom:16px">
+  <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CORE DETAILS</h3>
+  <table style="width:100%;font-size:13px">
+    <tr><td style="padding:5px 0;color:var(--text-muted);width:160px">Default Unit</td><td>{{ product.base_unit.name + ' (' + product.base_unit.abbreviation + ')' if product.base_unit else '—' }}</td></tr>
+  </table>
+  {% if product.description %}
+  <div style="margin-top:10px;font-size:13px;color:var(--text-muted)">{{ product.description }}</div>
+  {% endif %}
+  {% if attributes %}
+  <table style="width:100%;font-size:13px;margin-top:10px">
+    {% for label, value in attributes.items() %}
+    <tr><td style="padding:5px 0;color:var(--text-muted);width:160px">{{ label }}</td><td>{{ value }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+<div class="card" style="padding:18px;margin-bottom:16px">
+  <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">VARIANTS</h3>
+  {% if variants %}
+  <div style="display:flex;flex-direction:column;gap:8px">
+    {% for v in variants %}
+    {% set stock = stock_by_variant.get(v.id) %}
+    {% set qty = stock.qty_available if stock else none %}
+    {% set threshold = v.low_stock_threshold %}
+    {% if qty is none %}{% set stock_state = ('—', '#94a3b8') %}
+    {% elif qty <= 0 %}{% set stock_state = ('OUT OF STOCK', '#ef4444') %}
+    {% elif threshold is not none and qty <= threshold %}{% set stock_state = ('LOW STOCK', '#f59e0b') %}
+    {% else %}{% set stock_state = ('IN STOCK', '#22c55e') %}
+    {% endif %}
+    <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:8px;flex-wrap:wrap">
+      <div style="min-width:110px;font-weight:600;font-size:13px">{{ v.sku_code }}</div>
+      <div style="flex:1;min-width:100px;font-size:13px;color:var(--text-muted)">{{ v.variant_label or '—' }}</div>
+      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(v.product_tier, '#94a3b8') }}">{{ v.product_tier }}</span>
+      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ stock_state[1] }}">{{ stock_state[0] }}</span>
+      <div style="font-size:12px;color:var(--text-faint);min-width:90px">Avail: {{ qty if qty is not none else '—' }}</div>
+      <span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:99px;{{ 'background:#22c55e33;color:#22c55e' if v.is_active else 'background:#94a3b833;color:#94a3b8' }}">{{ 'ACTIVE' if v.is_active else 'INACTIVE' }}</span>
+      <div style="display:flex;gap:6px">
+        <a href="/sales/catalog/variant/{{ v.id }}/edit" class="btn btn-xs btn-outline">Edit</a>
         {% if user.role in ('ADMIN','MANAGER') %}
-        <form method="post" action="/sales/catalog/{{ product.id }}/delete-media" style="position:absolute;top:-6px;right:-6px" onsubmit="return confirm('Remove this photo?')">
-          <input type="hidden" name="index" value="{{ loop.index0 }}">
-          <button type="submit" style="width:18px;height:18px;border-radius:50%;background:#ef4444;color:#fff;border:none;font-size:10px;line-height:1;cursor:pointer">✕</button>
+        <form method="post" action="/sales/catalog/variant/{{ v.id }}/delete" onsubmit="return confirm('Remove this variant?')">
+          <button type="submit" class="btn btn-xs btn-gray">Delete</button>
         </form>
         {% endif %}
       </div>
-      {% endfor %}
     </div>
-    {% else %}
-    <div style="height:260px;background:var(--bg-input);border-radius:8px;display:flex;align-items:center;justify-content:center">
-      <span style="font-size:40px;opacity:0.4">📦</span>
-    </div>
-    {% endif %}
-
-    {% if user.role in ('ADMIN','MANAGER') and media_urls|length < 8 %}
-    <form method="post" action="/sales/catalog/{{ product.id }}/upload-media" enctype="multipart/form-data" style="margin-top:12px">
-      <input type="file" name="files" accept="image/jpeg,image/png,image/webp" multiple required>
-      <button type="submit" class="btn btn-sm btn-outline" style="margin-top:8px;width:100%">Upload Photos</button>
-    </form>
-    {% endif %}
+    {% endfor %}
   </div>
-
-  <!-- Details -->
-  <div>
-    <div class="card" style="padding:18px;margin-bottom:16px">
-      <h3 style="margin-top:0">Core Details</h3>
-      <table style="width:100%;font-size:13px">
-        <tr><td style="padding:5px 0;color:var(--text-muted);width:160px">Category</td><td>{{ product.category or '—' }}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--text-muted)">Base Unit</td><td>{{ product.base_unit.name + ' (' + product.base_unit.abbreviation + ')' if product.base_unit else '—' }}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--text-muted)">Tier</td><td>{{ product.product_tier }}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--text-muted)">Low Stock Threshold</td><td>{{ product.low_stock_threshold if product.low_stock_threshold is not none else '—' }}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--text-muted)">Status</td><td>{{ 'Active' if product.is_active else 'Inactive' }}</td></tr>
-      </table>
-      {% if product.description %}
-      <div style="margin-top:10px;font-size:13px;color:var(--text-muted)">{{ product.description }}</div>
-      {% endif %}
-    </div>
-
-    {% if attributes %}
-    <div class="card" style="padding:18px;margin-bottom:16px">
-      <h3 style="margin-top:0">Attributes</h3>
-      <table style="width:100%;font-size:13px">
-        {% for label, value in attributes.items() %}
-        <tr><td style="padding:5px 0;color:var(--text-muted);width:160px">{{ label }}</td><td>{{ value }}</td></tr>
-        {% endfor %}
-      </table>
-    </div>
-    {% endif %}
-
-    <div class="card" style="padding:18px;margin-bottom:16px">
-      <h3 style="margin-top:0">Stock Status</h3>
-      {% if stock %}
-      {% set unit_abbr = product.base_unit.abbreviation if product.base_unit else 'units' %}
-      <table style="width:100%;font-size:13px">
-        <tr><td style="padding:5px 0;color:var(--text-muted);width:160px">✅ Available</td><td>{{ stock.qty_available }} {{ unit_abbr }}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--text-muted)">🔒 Reserved</td><td>{{ stock.qty_reserved }} {{ unit_abbr }}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--text-muted)">🚛 In-transit</td><td>
-          {{ in_transit_qty if in_transit_qty else 0 }} {{ unit_abbr }}
-          {% if in_transit_arrival %} — arriving {{ in_transit_arrival.strftime('%d %b %Y') }}{% endif %}
-        </td></tr>
-      </table>
-      {% if has_inventory_module %}
-      <div style="margin-top:10px"><a href="/inventory-v2/stock" class="btn btn-sm btn-outline">View in Inventory</a></div>
-      {% endif %}
-      {% else %}
-      <div style="font-size:13px;color:var(--text-faint)">— No stock record found for this product</div>
-      {% endif %}
-    </div>
-
-    <div class="card" style="padding:18px">
-      <h3 style="margin-top:0">Pricing</h3>
-      <div style="font-size:13px;color:var(--text-faint)">— Pricing data available once the Pricing module is set up</div>
-    </div>
-  </div>
+  {% else %}
+  <div style="font-size:13px;color:var(--text-faint)">No variants yet — add one below.</div>
+  {% endif %}
 </div>
+
+{% if user.role in ('ADMIN','MANAGER') %}
+<div class="card" style="padding:18px">
+  <h3 style="margin-top:0">Add Variant</h3>
+  <form method="post" action="/sales/catalog/{{ product.id }}/variants/add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end">
+    <div class="form-group" style="margin:0">
+      <label>SKU Code *</label>
+      <input name="sku_code" required>
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>Label</label>
+      <input name="variant_label" placeholder="e.g. Red / King">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>Unit</label>
+      <select name="base_unit_id">
+        <option value="">— default —</option>
+        {% for u in units %}
+        <option value="{{ u.id }}">{{ u.name }} ({{ u.abbreviation }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>Low Stock Threshold</label>
+      <input type="number" step="any" name="low_stock_threshold">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>Tier</label>
+      <select name="product_tier">
+        {% for t in tier_choices %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group" style="margin:0;align-self:center">
+      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="is_active" checked style="width:auto"> Active</label>
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">+ Add Variant</button>
+  </form>
+</div>
+{% endif %}
 {% endblock %}

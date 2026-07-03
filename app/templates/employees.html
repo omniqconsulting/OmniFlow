@@ -246,11 +246,11 @@
           <div class="form-section" style="margin-bottom:12px">
             <label>Visible Tabs</label>
             <p class="help-text" style="font-size:11px;color:var(--text-faint);margin:2px 0 6px">
-              Admin and Manager roles automatically see all modules.
-              For Employee role, select which tabs this user can access.
+              Admin automatically sees all modules.
+              For Manager and Employee roles, select which tabs this user can access.
               Only tabs your organization currently has enabled are shown below.
             </p>
-            {% if emp.role == "EMPLOYEE" %}
+            {% if emp.role in ("EMPLOYEE", "MANAGER") %}
             {% if tab_catalog %}
             <div class="checkbox-group" style="display:flex;gap:16px;flex-wrap:wrap">
               {% for tkey, tlabel in tab_catalog %}
@@ -265,7 +265,7 @@
             <p class="muted" style="font-size:12px;color:var(--text-faint)">No optional tabs are currently enabled for your organization.</p>
             {% endif %}
             {% else %}
-            <p class="muted" style="font-size:12px;color:var(--text-faint)">All modules visible (Admin / Manager role).</p>
+            <p class="muted" style="font-size:12px;color:var(--text-faint)">All modules visible (Admin role).</p>
             {% endif %}
           </div>
           <div style="display:flex;gap:8px">
@@ -509,7 +509,8 @@
       <h3 style="font-size:15px;font-weight:600;color:#f87171">Terminate Employee</h3>
       <button onclick="closeTerminate()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
     </div>
-    <p id="term-emp-label" style="font-size:13px;color:var(--text-muted);margin-bottom:16px"></p>
+    <p id="term-emp-label" style="font-size:13px;color:var(--text-muted);margin-bottom:8px"></p>
+    <a id="term-export-link" href="#" target="_blank" style="display:inline-block;margin-bottom:16px" class="btn btn-sm btn-outline">⬇ Export Open Work CSV</a>
 
     <!-- Loading state -->
     <div id="term-loading" style="text-align:center;padding:20px;color:var(--text-faint);font-size:13px">Loading open work…</div>
@@ -719,6 +720,7 @@ var _terminateEmpId = null;
 function openTerminate(empId, empName) {
   _terminateEmpId = empId;
   document.getElementById('term-emp-label').textContent = 'You are about to terminate: ' + empName;
+  document.getElementById('term-export-link').href = '/employees/' + empId + '/open-work/export';
   document.getElementById('term-loading').style.display = '';
   document.getElementById('term-no-work').style.display = 'none';
   document.getElementById('term-work-list').style.display = 'none';

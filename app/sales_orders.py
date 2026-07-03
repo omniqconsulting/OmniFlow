@@ -2,9 +2,13 @@
 Sales Orders — Brief 05.
 Order CRUD (header + line items), stock reservation engine wiring,
 dispatch/delivery flow, bulk order creation, CSV export.
+Line items reference ProductVariant (the sellable SKU) — see Catalog
+Hierarchy Phase 1. A Product alone isn't sellable; the order picker is a
+two-step Product -> Variant flow.
 """
 import csv
 import io
+import calendar
 from datetime import datetime, date
 from datetime import date as _date
 
@@ -15,15 +19,16 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from .database import (
-    get_db, new_id, User, Customer, Product, UnitOfMeasure, ProductStock,
+    get_db, new_id, User, Customer, Product, ProductVariant, UnitOfMeasure, ProductStock,
     InventoryPurchaseOrder, InventoryPOItem, SalesOrder, SalesOrderItem,
-    PriceList, PriceListItem, CustomerPriceOverride,
+    PriceList, PriceListItem, CustomerPriceOverride, Godown, MediaUpload, SalesTarget,
 )
 from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 from .sales_inventory import reserve_stock_for_item, release_all_reservations, fulfill_reservation
 from .constants import SALES_MARGIN_FLOOR_PCT, BULK_IMPORT_MAX_ROWS
+from .uploads import save_upload
 
 router = APIRouter()
 
@@ -68,13 +73,26 @@ def generate_order_display_id(db, tenant_id: str) -> str:
     return f"SO-{str(count + 1).zfill(4)}"
 
 
-def resolve_price(db, customer_id: str, product_id: str, tenant_id: str) -> dict:
+def _sales_agents(db: Session, tenant_id: str) -> list:
+    """Users with SALES module access — used for the Salesman dropdown."""
+    return [u for u in db.query(User).filter(
+        User.tenant_id == tenant_id, User.is_active == True, User.is_deleted == False,
+    ).order_by(User.name).all() if has_module(u, "SALES")]
+
+
+def _active_godowns(db: Session, tenant_id: str) -> list:
+    return db.query(Godown).filter(
+        Godown.tenant_id == tenant_id, Godown.is_deleted == False, Godown.is_active == True,
+    ).order_by(Godown.name).all()
+
+
+def resolve_price(db, customer_id: str, variant_id: str, tenant_id: str) -> dict:
     """
     Per-line-item price resolution — Brief 06. Checks three levels in order.
     Returns {"price": float | None, "source": str}
 
     Resolution order:
-      1. Active customer-specific override for (customer_id, product_id)
+      1. Active customer-specific override for (customer_id, variant_id)
       2. Price list assigned to this customer (customer.price_list_id)
       3. Tenant's default price list
       4. None — agent must enter manual price
@@ -86,7 +104,7 @@ def resolve_price(db, customer_id: str, product_id: str, tenant_id: str) -> dict
         db.query(CustomerPriceOverride)
         .filter(
             CustomerPriceOverride.customer_id == customer_id,
-            CustomerPriceOverride.product_id  == product_id,
+            CustomerPriceOverride.variant_id  == variant_id,
             CustomerPriceOverride.tenant_id   == tenant_id,
             CustomerPriceOverride.is_active   == True,
             _or(CustomerPriceOverride.valid_from == None,
@@ -108,7 +126,7 @@ def resolve_price(db, customer_id: str, product_id: str, tenant_id: str) -> dict
             .join(PriceList, PriceListItem.price_list_id == PriceList.id)
             .filter(
                 PriceListItem.price_list_id == customer.price_list_id,
-                PriceListItem.product_id    == product_id,
+                PriceListItem.variant_id    == variant_id,
                 PriceListItem.is_active     == True,
                 PriceList.is_active         == True,
                 _or(PriceList.valid_from == None, PriceList.valid_from <= today),
@@ -131,7 +149,7 @@ def resolve_price(db, customer_id: str, product_id: str, tenant_id: str) -> dict
         pli = (
             db.query(PriceListItem)
             .filter(PriceListItem.price_list_id == default_list.id,
-                    PriceListItem.product_id    == product_id,
+                    PriceListItem.variant_id    == variant_id,
                     PriceListItem.is_active     == True)
             .first()
         )
@@ -147,6 +165,187 @@ def check_margin(sell_price: float, cost_snapshot: float) -> bool:
         return True  # Can't compute margin without cost; allow and flag
     margin = (sell_price - cost_snapshot) / sell_price * 100
     return margin >= SALES_MARGIN_FLOOR_PCT
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GODOWNS — 1.2. Lightweight dispatch-location labels, Admin/Manager managed.
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/sales/orders/godowns", response_class=HTMLResponse)
+def godowns_list(
+    request: Request,
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    godowns = db.query(Godown).filter(
+        Godown.tenant_id == user.tenant_id, Godown.is_deleted == False,
+    ).order_by(Godown.name).all()
+    return templates.TemplateResponse(request, "sales/orders_godowns.html", _ctx(
+        db, user, godowns=godowns, is_admin=user.role in ("ADMIN", "MANAGER"),
+        msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
+    ))
+
+
+@router.post("/sales/orders/godowns/create")
+def godown_create(
+    name: str = Form(...),
+    address: str = Form(""),
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403, "Admin/Manager only")
+    if not name.strip():
+        return _redir("/sales/orders/godowns?err=Name+is+required")
+    db.add(Godown(tenant_id=user.tenant_id, name=name.strip(), address=address.strip() or None))
+    db.commit()
+    return _redir("/sales/orders/godowns?msg=Godown+added")
+
+
+@router.post("/sales/orders/godowns/{godown_id}/toggle")
+def godown_toggle(
+    godown_id: str,
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403, "Admin/Manager only")
+    godown = db.query(Godown).filter(
+        Godown.id == godown_id, Godown.tenant_id == user.tenant_id, Godown.is_deleted == False,
+    ).first()
+    if not godown:
+        return _redir("/sales/orders/godowns?err=Godown+not+found")
+    godown.is_active = not godown.is_active
+    db.commit()
+    status = "activated" if godown.is_active else "deactivated"
+    return _redir(f"/sales/orders/godowns?msg=Godown+{status}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SALES TARGETS — 1.9. Admin/Manager sets a revenue (+ optional order count)
+# target per agent per period; actuals are computed on read from SalesOrder,
+# never stored redundantly, to avoid drift. Bonus-formula calculation itself
+# is an open question per the brief — not implemented here.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _period_bounds(period_label: str):
+    """'YYYY-MM' -> (start_datetime, end_datetime_exclusive)."""
+    year, month = (int(p) for p in period_label.split("-"))
+    start = datetime(year, month, 1)
+    last_day = calendar.monthrange(year, month)[1]
+    end = datetime(year, month, last_day, 23, 59, 59)
+    return start, end
+
+
+def _actuals_for_agent(db: Session, tenant_id: str, agent_id: str, period_label: str) -> dict:
+    start, end = _period_bounds(period_label)
+    row = (
+        db.query(
+            func.coalesce(func.sum(SalesOrder.total_amount), 0.0).label("amount"),
+            func.count(SalesOrder.id).label("orders"),
+        )
+        .filter(
+            SalesOrder.tenant_id == tenant_id, SalesOrder.agent_id == agent_id,
+            SalesOrder.status.in_(["CONFIRMED", "DISPATCHED", "DELIVERED"]),
+            SalesOrder.is_deleted == False,
+            SalesOrder.created_at >= start, SalesOrder.created_at <= end,
+        )
+        .first()
+    )
+    return {"actual_amount": row.amount or 0.0, "actual_orders": row.orders or 0}
+
+
+@router.get("/sales/orders/targets", response_class=HTMLResponse)
+def sales_targets_view(
+    request: Request,
+    period: str = "",
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    period_label = period or datetime.utcnow().strftime("%Y-%m")
+    is_admin = user.role in ("ADMIN", "MANAGER")
+
+    agent_ids = [user.id]
+    if is_admin:
+        agent_ids = [a.id for a in _sales_agents(db, user.tenant_id)]
+
+    targets = db.query(SalesTarget).filter(
+        SalesTarget.tenant_id == user.tenant_id, SalesTarget.period_label == period_label,
+        SalesTarget.agent_id.in_(agent_ids),
+    ).all()
+    targets_by_agent = {t.agent_id: t for t in targets}
+
+    rows = []
+    for agent in (_sales_agents(db, user.tenant_id) if is_admin else [user]):
+        if agent.id not in agent_ids:
+            continue
+        target = targets_by_agent.get(agent.id)
+        actuals = _actuals_for_agent(db, user.tenant_id, agent.id, period_label)
+        target_amount = target.target_amount if target else None
+        attainment_pct = (
+            (actuals["actual_amount"] / target_amount * 100) if target_amount else None
+        )
+        rows.append({
+            "agent": agent, "target": target, "target_amount": target_amount,
+            "target_orders": target.target_orders if target else None,
+            "actual_amount": actuals["actual_amount"], "actual_orders": actuals["actual_orders"],
+            "attainment_pct": attainment_pct,
+        })
+
+    return templates.TemplateResponse(request, "sales/orders_targets.html", _ctx(
+        db, user, rows=rows, period_label=period_label, is_admin=is_admin,
+        agents=_sales_agents(db, user.tenant_id) if is_admin else [],
+        msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
+    ))
+
+
+@router.post("/sales/orders/targets/set")
+def sales_target_set(
+    agent_id: str = Form(...),
+    period_label: str = Form(...),
+    target_amount: str = Form(...),
+    target_orders: str = Form(""),
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403, "Admin/Manager only")
+
+    agent = db.query(User).filter(
+        User.id == agent_id, User.tenant_id == user.tenant_id,
+        User.is_active == True, User.is_deleted == False,
+    ).first()
+    if not agent or not has_module(agent, "SALES"):
+        return _redir(f"/sales/orders/targets?period={period_label}&err=Invalid+agent")
+
+    try:
+        amount = float(target_amount)
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        return _redir(f"/sales/orders/targets?period={period_label}&err=Target+amount+must+be+a+positive+number")
+
+    orders_target = None
+    if target_orders.strip():
+        try:
+            orders_target = int(target_orders)
+        except ValueError:
+            return _redir(f"/sales/orders/targets?period={period_label}&err=Target+orders+must+be+a+whole+number")
+
+    existing = db.query(SalesTarget).filter(
+        SalesTarget.tenant_id == user.tenant_id, SalesTarget.agent_id == agent_id,
+        SalesTarget.period_label == period_label,
+    ).first()
+    if existing:
+        existing.target_amount = amount
+        existing.target_orders = orders_target
+    else:
+        db.add(SalesTarget(
+            tenant_id=user.tenant_id, agent_id=agent_id, period_label=period_label,
+            target_amount=amount, target_orders=orders_target, created_by_id=user.id,
+        ))
+    db.commit()
+    return _redir(f"/sales/orders/targets?period={period_label}&msg=Target+saved")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -214,15 +413,66 @@ def order_new_form(
 
     return templates.TemplateResponse(request, "sales/orders_new.html", _ctx(
         db, user, customer=customer, customers=customers, call_log_id=call_log_id,
+        agents=_sales_agents(db, user.tenant_id), godowns=_active_godowns(db, user.tenant_id),
     ))
+
+
+@router.get("/sales/orders/api/customer-defaults")
+def order_customer_defaults_api(
+    customer_id: str,
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    """Returns a customer's default payment terms + price group for order-form prefill."""
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id, Customer.tenant_id == user.tenant_id,
+        Customer.is_deleted == False,
+    ).first()
+    if not customer:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    price_list = db.query(PriceList).filter(PriceList.id == customer.price_list_id).first() if customer.price_list_id else None
+    return JSONResponse({
+        "default_payment_terms": customer.default_payment_terms,
+        "price_list_id": customer.price_list_id,
+        "price_list_name": price_list.name if price_list else None,
+        "shipping_address": customer.shipping_address,
+    })
+
+
+@router.post("/sales/orders/quick-customer")
+def order_quick_customer_create(
+    name: str = Form(...),
+    phone: str = Form(""),
+    email: str = Form(""),
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    """Inline 'create new customer' affordance on the order screen (1.3) —
+    lets an agent add a new party without leaving the order-creation flow."""
+    if not name.strip():
+        return _redir("/sales/orders/new?err=Party+name+is+required")
+
+    customer = Customer(
+        tenant_id=user.tenant_id,
+        name=name.strip(),
+        phone=phone.strip() or None,
+        email=email.strip() or None,
+        created_by_id=user.id,
+        assigned_agent_id=user.id,
+    )
+    db.add(customer)
+    db.commit()
+    return _redir(f"/sales/orders/new?customer_id={customer.id}&msg=Customer+created")
 
 
 @router.post("/sales/orders/create")
 def order_create(
     customer_id: str = Form(...),
+    agent_id: str = Form(""),
     call_log_id: str = Form(""),
     payment_terms: str = Form(""),
     delivery_address: str = Form(""),
+    godown_id: str = Form(""),
     expected_delivery_date: str = Form(""),
     notes: str = Form(""),
     user: User = Depends(_require_sales),
@@ -237,6 +487,25 @@ def order_create(
     if user.role not in ("ADMIN", "MANAGER") and customer.assigned_agent_id != user.id:
         raise HTTPException(403, "Not your assigned customer")
 
+    resolved_agent_id = user.id
+    if agent_id and agent_id != user.id:
+        agent = db.query(User).filter(
+            User.id == agent_id, User.tenant_id == user.tenant_id,
+            User.is_active == True, User.is_deleted == False,
+        ).first()
+        if not agent or not has_module(agent, "SALES"):
+            return _redir("/sales/orders/new?err=Invalid+salesman")
+        resolved_agent_id = agent.id
+
+    resolved_godown_id = None
+    if godown_id:
+        godown = db.query(Godown).filter(
+            Godown.id == godown_id, Godown.tenant_id == user.tenant_id, Godown.is_deleted == False,
+        ).first()
+        if not godown:
+            return _redir("/sales/orders/new?err=Invalid+godown")
+        resolved_godown_id = godown.id
+
     edd = None
     if expected_delivery_date:
         try:
@@ -248,10 +517,11 @@ def order_create(
         display_id=generate_order_display_id(db, user.tenant_id),
         tenant_id=user.tenant_id,
         customer_id=customer_id,
-        agent_id=user.id,
+        agent_id=resolved_agent_id,
         status="DRAFT",
-        payment_terms=payment_terms.strip() or None,
+        payment_terms=payment_terms.strip() or customer.default_payment_terms,
         delivery_address=delivery_address.strip() or customer.shipping_address,
+        godown_id=resolved_godown_id,
         expected_delivery_date=edd,
         notes=notes.strip() or None,
         call_log_id=call_log_id or None,
@@ -268,7 +538,8 @@ def order_create(
 # ══════════════════════════════════════════════════════════════════════════════
 
 _BULK_COLS = ["customer_phone", "product_sku", "qty", "unit_abbreviation",
-              "manual_price", "expected_delivery_date", "notes"]
+              "manual_price", "expected_delivery_date", "notes",
+              "salesman_email", "godown_name"]
 
 
 @router.get("/sales/orders/bulk-template")
@@ -338,10 +609,14 @@ def order_detail(
     if not _can_view_order(user, order):
         raise HTTPException(403, "Not your order")
 
-    products = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id, Product.is_deleted == False,
-        Product.is_active == True,
-    ).order_by(Product.name).all()
+    # Two-step Product -> Variant picker: a Product with zero variants isn't sellable.
+    products = (
+        db.query(Product)
+        .filter(Product.tenant_id == user.tenant_id, Product.is_deleted == False, Product.is_active == True)
+        .order_by(Product.name)
+        .all()
+    )
+    products = [p for p in products if any(v.is_active and not v.is_deleted for v in p.variants)]
 
     return templates.TemplateResponse(request, "sales/order_detail.html", _ctx(
         db, user, order=order, products=products,
@@ -354,45 +629,49 @@ def order_detail(
 @router.get("/sales/orders/api/resolve-price")
 def order_resolve_price_api(
     customer_id: str,
-    product_id: str,
+    variant_id: str,
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
-    result = resolve_price(db, customer_id, product_id, user.tenant_id)
+    result = resolve_price(db, customer_id, variant_id, user.tenant_id)
     return JSONResponse(result)
 
 
-def _insufficient_stock_msg(db, tenant_id: str, product_id: str, qty: float):
-    """Returns an error message string if qty exceeds available stock, else None."""
+def _preview_stock_status(db, tenant_id: str, variant_id: str, qty: float) -> tuple:
+    """
+    Non-blocking stock check for add-item/update-item (1.5). Out-of-stock items
+    are still accepted onto a DRAFT order — this only computes the badge shown
+    on the order screen. The real reservation attempt happens at order_confirm().
+    Returns (stock_status, in_transit_date | None).
+    """
     stock = db.query(ProductStock).filter(
-        ProductStock.product_id == product_id, ProductStock.tenant_id == tenant_id,
+        ProductStock.variant_id == variant_id, ProductStock.tenant_id == tenant_id,
     ).first()
     available = stock.qty_available if stock else 0
     if qty <= available:
-        return None
+        return "AVAILABLE", None
 
     in_transit_date = (
         db.query(func.min(InventoryPurchaseOrder.expected_arrival_date))
         .join(InventoryPOItem, InventoryPOItem.po_id == InventoryPurchaseOrder.id)
         .filter(
-            InventoryPOItem.product_id == product_id,
+            InventoryPOItem.variant_id == variant_id,
             InventoryPurchaseOrder.tenant_id == tenant_id,
             InventoryPurchaseOrder.status.in_(["SUBMITTED", "APPROVED", "PARTIALLY_RECEIVED"]),
         )
         .scalar()
     )
-    if in_transit_date:
-        return f"Only+{available:g}+unit(s)+available.+Next+stock+arrives+{in_transit_date.isoformat()}"
-    return f"Only+{available:g}+unit(s)+available.+No+restock+scheduled"
+    return "UNAVAILABLE", in_transit_date
 
 
 @router.post("/sales/orders/{order_id}/add-item")
-def order_add_item(
+async def order_add_item(
     order_id: str,
-    product_id: str = Form(...),
+    variant_id: str = Form(...),
     qty_ordered: str = Form(...),
     manual_override_price: str = Form(""),
     override_reason: str = Form(""),
+    photo: UploadFile = File(None),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
@@ -402,12 +681,12 @@ def order_add_item(
     if order.status != "DRAFT":
         return _redir(f"/sales/orders/{order_id}?err=Only+DRAFT+orders+can+be+edited")
 
-    product = db.query(Product).filter(
-        Product.id == product_id, Product.tenant_id == user.tenant_id,
-        Product.is_deleted == False,
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id, ProductVariant.tenant_id == user.tenant_id,
+        ProductVariant.is_deleted == False,
     ).first()
-    if not product:
-        return _redir(f"/sales/orders/{order_id}?err=Invalid+product")
+    if not variant:
+        return _redir(f"/sales/orders/{order_id}?err=Invalid+variant")
 
     try:
         qty = float(qty_ordered)
@@ -416,11 +695,9 @@ def order_add_item(
     except ValueError:
         return _redir(f"/sales/orders/{order_id}?err=Invalid+quantity")
 
-    stock_err = _insufficient_stock_msg(db, user.tenant_id, product_id, qty)
-    if stock_err:
-        return _redir(f"/sales/orders/{order_id}?err={stock_err}")
+    preview_status, preview_in_transit = _preview_stock_status(db, user.tenant_id, variant_id, qty)
 
-    price_info = resolve_price(db, order.customer_id, product_id, user.tenant_id)
+    price_info = resolve_price(db, order.customer_id, variant_id, user.tenant_id)
     price = price_info["price"]
     price_source = price_info["source"]
 
@@ -433,29 +710,49 @@ def order_add_item(
             return _redir(f"/sales/orders/{order_id}?err=Invalid+manual+price")
         price_source = "MANUAL"
 
-    stock = db.query(ProductStock).filter(ProductStock.product_id == product_id).first()
+    stock = db.query(ProductStock).filter(ProductStock.variant_id == variant_id).first()
     cost_snapshot = stock.avg_cost if stock else None
 
     approval_status = None
     if price_source == "MANUAL" and not check_margin(price, cost_snapshot):
         approval_status = "PENDING"
 
+    unit_id = variant.base_unit_id or (variant.product.base_unit_id if variant.product else None)
+
     item = SalesOrderItem(
         order_id=order_id,
         tenant_id=user.tenant_id,
-        product_id=product_id,
+        variant_id=variant_id,
         qty_ordered=qty,
-        unit_id=product.base_unit_id,
+        unit_id=unit_id,
         unit_price=price,
         price_source=price_source,
         manual_override_price=float(manual_override_price) if manual_override_price else None,
         override_reason=override_reason.strip() or None,
         approval_status=approval_status,
         line_total=qty * price,
+        stock_status=preview_status,
+        in_transit_arrival=preview_in_transit,
     )
     db.add(item)
+    db.flush()
+
+    if photo is not None and (photo.filename or ""):
+        result = await save_upload(photo, user.tenant_id)
+        db.add(MediaUpload(
+            tenant_id=user.tenant_id,
+            entity_type="sales_order_item",
+            entity_id=item.id,
+            file_name=result["file_name"],
+            file_path=result["file_path"],
+            file_type=result["file_type"],
+            file_size=result["file_size"],
+            uploaded_by_id=user.id,
+        ))
+
     db.commit()
-    return _redir(f"/sales/orders/{order_id}?msg=Item+added")
+    msg = "Item+added" if preview_status == "AVAILABLE" else "Item+added+-+out+of+stock%2C+arrange+separately"
+    return _redir(f"/sales/orders/{order_id}?msg={msg}")
 
 
 @router.post("/sales/orders/{order_id}/update-item/{item_id}")
@@ -487,10 +784,7 @@ def order_update_item(
     except ValueError:
         return _redir(f"/sales/orders/{order_id}?err=Invalid+quantity")
 
-    stock_err = _insufficient_stock_msg(db, user.tenant_id, item.product_id, qty)
-    if stock_err:
-        return _redir(f"/sales/orders/{order_id}?err={stock_err}")
-
+    item.stock_status, item.in_transit_arrival = _preview_stock_status(db, user.tenant_id, item.variant_id, qty)
     item.qty_ordered = qty
 
     if manual_override_price:
@@ -503,7 +797,7 @@ def order_update_item(
         item.price_source = "MANUAL"
         item.override_reason = override_reason.strip() or None
 
-        stock = db.query(ProductStock).filter(ProductStock.product_id == item.product_id).first()
+        stock = db.query(ProductStock).filter(ProductStock.variant_id == item.variant_id).first()
         cost_snapshot = stock.avg_cost if stock else None
         item.approval_status = "PENDING" if not check_margin(price, cost_snapshot) else None
 
@@ -534,6 +828,67 @@ def order_remove_item(
     return _redir(f"/sales/orders/{order_id}?msg=Item+removed")
 
 
+@router.post("/sales/orders/{order_id}/item/{item_id}/upload-media")
+async def order_item_upload_media(
+    order_id: str,
+    item_id: str,
+    file: UploadFile = File(...),
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    """Per-line-item reference photo/document (1.3) — separate from catalog
+    photos, e.g. a custom print reference attached to just this order line."""
+    order = get_order_or_404(db, order_id, user.tenant_id)
+    if not _can_view_order(user, order):
+        raise HTTPException(403, "Not your order")
+    if order.status != "DRAFT":
+        return _redir(f"/sales/orders/{order_id}?err=Only+DRAFT+orders+can+be+edited")
+
+    item = db.query(SalesOrderItem).filter(
+        SalesOrderItem.id == item_id, SalesOrderItem.order_id == order_id,
+    ).first()
+    if not item:
+        return _redir(f"/sales/orders/{order_id}?err=Item+not+found")
+
+    result = await save_upload(file, user.tenant_id)
+    db.add(MediaUpload(
+        tenant_id=user.tenant_id,
+        entity_type="sales_order_item",
+        entity_id=item_id,
+        file_name=result["file_name"],
+        file_path=result["file_path"],
+        file_type=result["file_type"],
+        file_size=result["file_size"],
+        uploaded_by_id=user.id,
+    ))
+    db.commit()
+    return _redir(f"/sales/orders/{order_id}?msg=Reference+file+attached")
+
+
+@router.post("/sales/orders/{order_id}/item/{item_id}/media/{media_id}/delete")
+def order_item_delete_media(
+    order_id: str,
+    item_id: str,
+    media_id: str,
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    order = get_order_or_404(db, order_id, user.tenant_id)
+    if not _can_view_order(user, order):
+        raise HTTPException(403, "Not your order")
+    if order.status != "DRAFT":
+        return _redir(f"/sales/orders/{order_id}?err=Only+DRAFT+orders+can+be+edited")
+
+    media = db.query(MediaUpload).filter(
+        MediaUpload.id == media_id, MediaUpload.entity_type == "sales_order_item",
+        MediaUpload.entity_id == item_id, MediaUpload.tenant_id == user.tenant_id,
+    ).first()
+    if media:
+        db.delete(media)
+        db.commit()
+    return _redir(f"/sales/orders/{order_id}?msg=Reference+file+removed")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIRM / CANCEL / DISPATCH / DELIVER
 # ══════════════════════════════════════════════════════════════════════════════
@@ -560,12 +915,12 @@ def order_confirm(
 
     for item in order.items:
         stock = db.query(ProductStock).filter(
-            ProductStock.product_id == item.product_id
+            ProductStock.variant_id == item.variant_id
         ).first()
         item.cost_snapshot = stock.avg_cost if stock else None
 
         result = reserve_stock_for_item(
-            db, item.product_id, order.id, item.id,
+            db, item.variant_id, order.id, item.id,
             item.qty_ordered, user.id, user.tenant_id,
         )
 
@@ -637,7 +992,7 @@ def order_dispatch(
     for item in order.items:
         if item.stock_status in ("AVAILABLE", "PARTIAL"):
             fulfill_reservation(
-                db, order.id, item.product_id,
+                db, order.id, item.variant_id,
                 item.qty_ordered, user.tenant_id, user.id,
             )
             item.qty_dispatched = item.qty_ordered
@@ -676,11 +1031,15 @@ def order_deliver(
 # STOCK CHECK API
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.get("/sales/orders/api/check-stock/{product_id}")
-def api_check_stock(product_id: str, user: User = Depends(_require_sales), db: Session = Depends(get_db)):
-    """Returns JSON for inline stock status display on order form."""
+@router.get("/sales/orders/api/check-stock/{variant_id}")
+def api_check_stock(variant_id: str, user: User = Depends(_require_sales), db: Session = Depends(get_db)):
+    """
+    Returns JSON for inline stock status display on order form — 1.6.
+    Surfaces all three numbers (available / already-booked / in-transit) so
+    agents don't get a false sense of availability from qty_available alone.
+    """
     stock = db.query(ProductStock).filter(
-        ProductStock.product_id == product_id,
+        ProductStock.variant_id == variant_id,
         ProductStock.tenant_id == user.tenant_id,
     ).first()
 
@@ -694,7 +1053,7 @@ def api_check_stock(product_id: str, user: User = Depends(_require_sales), db: S
         )
         .join(InventoryPOItem, InventoryPOItem.po_id == InventoryPurchaseOrder.id)
         .filter(
-            InventoryPOItem.product_id == product_id,
+            InventoryPOItem.variant_id == variant_id,
             InventoryPurchaseOrder.tenant_id == user.tenant_id,
             InventoryPurchaseOrder.status.in_(["SUBMITTED", "APPROVED", "PARTIALLY_RECEIVED"]),
         )
@@ -755,11 +1114,11 @@ async def bulk_upload(
             errors.append({"row": i, "error": f"customer phone {phone} not found", "data": dict(row)})
             continue
 
-        product = db.query(Product).filter(
-            Product.tenant_id == user.tenant_id, Product.sku_code == sku,
-            Product.is_deleted == False,
+        variant = db.query(ProductVariant).filter(
+            ProductVariant.tenant_id == user.tenant_id, ProductVariant.sku_code == sku,
+            ProductVariant.is_deleted == False,
         ).first()
-        if not product:
+        if not variant:
             errors.append({"row": i, "error": f"product SKU {sku} not found", "data": dict(row)})
             continue
 
@@ -779,15 +1138,44 @@ async def bulk_upload(
                 errors.append({"row": i, "error": "manual_price must be a number", "data": dict(row)})
                 continue
 
-        stock = db.query(ProductStock).filter(ProductStock.product_id == product.id).first()
+        salesman_email = (row.get("salesman_email") or "").strip()
+        agent_id = None
+        if salesman_email:
+            agent = db.query(User).filter(
+                User.tenant_id == user.tenant_id, User.email == salesman_email,
+                User.is_active == True, User.is_deleted == False,
+            ).first()
+            if not agent or not has_module(agent, "SALES"):
+                errors.append({"row": i, "error": f"salesman_email {salesman_email} not found or lacks SALES access", "data": dict(row)})
+                continue
+            agent_id = agent.id
+
+        godown_name = (row.get("godown_name") or "").strip()
+        godown_id = None
+        if godown_name:
+            godown = db.query(Godown).filter(
+                Godown.tenant_id == user.tenant_id, Godown.is_deleted == False,
+                func.lower(Godown.name) == godown_name.lower(),
+            ).first()
+            if not godown:
+                errors.append({"row": i, "error": f"godown_name {godown_name} not found", "data": dict(row)})
+                continue
+            godown_id = godown.id
+
+        stock = db.query(ProductStock).filter(ProductStock.variant_id == variant.id).first()
         available = stock.qty_available if stock else 0
 
         edd = (row.get("expected_delivery_date") or "").strip() or None
 
-        rows_by_phone.setdefault(phone, {
-            "customer": customer, "items": [],
-        })["items"].append({
-            "product": product, "qty": qty, "manual_price": manual_price,
+        group = rows_by_phone.setdefault(phone, {
+            "customer": customer, "items": [], "agent_id": None, "godown_id": None,
+        })
+        if agent_id:
+            group["agent_id"] = agent_id
+        if godown_id:
+            group["godown_id"] = godown_id
+        group["items"].append({
+            "variant": variant, "qty": qty, "manual_price": manual_price,
             "available": available, "unavailable": available < qty,
             "expected_delivery_date": edd,
             "notes": (row.get("notes") or "").strip() or None,
@@ -795,7 +1183,8 @@ async def bulk_upload(
 
     preview_orders = [
         {"customer_phone": phone, "customer_name": data["customer"].name,
-         "customer_id": data["customer"].id, "items": data["items"]}
+         "customer_id": data["customer"].id, "items": data["items"],
+         "agent_id": data["agent_id"], "godown_id": data["godown_id"]}
         for phone, data in rows_by_phone.items()
     ]
     unavailable_count = sum(
@@ -810,10 +1199,12 @@ async def bulk_upload(
                 "customer_phone": o["customer_phone"],
                 "customer_name": o["customer_name"],
                 "customer_id": o["customer_id"],
+                "agent_id": o["agent_id"],
+                "godown_id": o["godown_id"],
                 "items": [
                     {
-                        "product_id": it["product"].id,
-                        "product_name": it["product"].name,
+                        "variant_id": it["variant"].id,
+                        "product_name": f"{it['variant'].product.name} — {it['variant'].sku_code}" if it["variant"].product else it["variant"].sku_code,
                         "qty": it["qty"],
                         "manual_price": it["manual_price"],
                         "available": it["available"],
@@ -847,7 +1238,8 @@ def bulk_upload_confirm(
         if not customer:
             continue
 
-        agent_id = customer.assigned_agent_id or user.id
+        agent_id = o.get("agent_id") or customer.assigned_agent_id or user.id
+        godown_id = o.get("godown_id")
 
         edd = None
         first_edd = next((it.get("expected_delivery_date") for it in o.get("items", []) if it.get("expected_delivery_date")), None)
@@ -862,31 +1254,36 @@ def bulk_upload_confirm(
             tenant_id=user.tenant_id,
             customer_id=customer.id,
             agent_id=agent_id,
+            godown_id=godown_id,
             status="DRAFT",
+            payment_terms=customer.default_payment_terms,
             expected_delivery_date=edd,
         )
         db.add(order)
         db.flush()
 
         for it in o.get("items", []):
-            product_id = it.get("product_id")
+            variant_id = it.get("variant_id")
             qty = it.get("qty")
             manual_price = it.get("manual_price")
             price = manual_price if manual_price is not None else 0.0
             price_source = "MANUAL" if manual_price is not None else "NONE"
 
-            product = db.query(Product).filter(Product.id == product_id).first()
+            variant = db.query(ProductVariant).filter(ProductVariant.id == variant_id).first()
+            unit_id = None
+            if variant:
+                unit_id = variant.base_unit_id or (variant.product.base_unit_id if variant.product else None)
             db.add(SalesOrderItem(
                 order_id=order.id,
                 tenant_id=user.tenant_id,
-                product_id=product_id,
+                variant_id=variant_id,
                 qty_ordered=qty,
-                unit_id=product.base_unit_id if product else None,
+                unit_id=unit_id,
                 unit_price=price,
                 price_source=price_source,
                 manual_override_price=manual_price,
                 line_total=qty * price,
-                stock_status=None,
+                stock_status="UNAVAILABLE" if it.get("unavailable") else "AVAILABLE",
             ))
         created += 1
 
@@ -896,3 +1293,4 @@ def bulk_upload_confirm(
         db.rollback()
         raise HTTPException(400, f"Import failed — no orders were created. {e}")
     return JSONResponse({"created": created})
+

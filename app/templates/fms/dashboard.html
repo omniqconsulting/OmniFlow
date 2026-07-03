@@ -213,7 +213,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
       <label class="ms-item">
         <input type="checkbox" value="{{ p }}" onchange="onMsChange(this)" {% if p in f_priority %}checked{% endif %}>
-        {{ p }}
+        {{ p | priority_label }}
       </label>
       {% endfor %}
     </div>
@@ -370,7 +370,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
   <tr>
     <td class="jt-s0" style="left:0"><span style="font-family:monospace;font-size:12px;color:#60a5fa;font-weight:600">{{ t.display_id or t.id[:8] }}</span>{% if t.is_flagged %} 🚩{% endif %}</td>
     <td style="font-size:12px;color:var(--text-muted)">{{ row.assignee_name }}</td>
-    <td class="jt-cell"><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
+    <td class="jt-cell"><span class="pri-badge pri-{{ t.priority }}">{{ t.priority | priority_label }}</span></td>
     <td class="jt-cell"><span class="st-badge st-{{ t.status }}">{{ t.status.replace('_',' ') }}</span></td>
     <td style="font-size:12px">
       {% if row.split_count and row.split_count > 1 %}
@@ -588,7 +588,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           {% endif %}
         </td>
         <td>{{ row.assignee_name }}</td>
-        <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
+        <td><span class="pri-badge pri-{{ t.priority }}">{{ t.priority | priority_label }}</span></td>
         <td>
           {% if row.tat_pct is not none %}
           {% set tc = '#10b981' if row.tat_color == 'green' else ('#f59e0b' if row.tat_color == 'amber' else '#ef4444') %}
@@ -731,7 +731,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
 
               {# Split — Phase 0: move part of this row's split's qty to another stage #}
               {% if can_act and t.status not in ('COMPLETED','CLOSED') and row.split_id %}
-              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openSplitActionModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ row.split_id }}','{{ active_stage.id }}')"
+              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openSplitActionModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ row.split_id }}','{{ active_stage.id }}',{{ 'true' if t.target_qty is not none else 'false' }})"
                       style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#60a5fa;cursor:pointer;font-family:inherit">
                 ✂ Split This Ticket
               </button>
@@ -815,7 +815,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
            onclick="location.href='/fms/dashboard?view=stage&flow_id={{ active_flow.id }}&stage_id={{ t.current_stage_id }}'">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
           <div class="tc-title">{{ t.title[:42] }}{% if t.title|length > 42 %}…{% endif %}</div>
-          <span class="pri-badge pri-{{ t.priority }}" style="flex-shrink:0;font-size:9px">{{ t.priority[0] }}</span>
+          <span class="pri-badge pri-{{ t.priority }}" style="flex-shrink:0;font-size:9px">{{ (t.priority | priority_label)[0] }}</span>
         </div>
         {% if t.display_id or t.wo_number %}
         <div class="tc-meta">
@@ -978,7 +978,7 @@ html.light .ctv-table tbody tr:hover .ctv-sticky{background:#eff6ff !important}
   <tr onclick="location.href='/fms/tickets/{{ t.id }}'">
     <td class="ctv-sticky ctv-s0"><span style="font-family:monospace;color:#60a5fa;font-size:12px">{{ t.display_id or t.id[:8] }}</span></td>
     <td class="ctv-sticky ctv-s1" style="font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis">{{ t.title[:40] }}{% if t.title|length > 40 %}…{% endif %}</td>
-    <td class="ctv-sticky ctv-s2 ctv-cell"><span class="pri-badge pri-{{ t.priority }}">{{ t.priority }}</span></td>
+    <td class="ctv-sticky ctv-s2 ctv-cell"><span class="pri-badge pri-{{ t.priority }}">{{ t.priority | priority_label }}</span></td>
     <td class="ctv-sticky ctv-s3 ctv-cell"><span class="st-badge st-{{ t.status }}">{{ t.status.replace('_',' ') }}</span>{% if t.is_flagged %} 🚩{% endif %}</td>
     {% for s in stage_table_stages %}
     {% set cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
@@ -1137,7 +1137,7 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
       {% if t.is_flagged %} 🚩{% endif %}
     </span>
     <span style="font-size:11px;color:var(--text-muted);white-space:nowrap">{{ tr.assignee_name }}</span>
-    <span class="pri-badge pri-{{ t.priority }}" style="font-size:10px;flex-shrink:0">{{ t.priority }}</span>
+    <span class="pri-badge pri-{{ t.priority }}" style="font-size:10px;flex-shrink:0">{{ t.priority | priority_label }}</span>
     <span style="font-size:11px;color:var(--text-faint);white-space:nowrap;flex-shrink:0" title="Time at this stage">
       {% set ts = tr.time_at_s %}
       {% if ts < 3600 %}{{ (ts // 60) }}m
@@ -1270,7 +1270,7 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
                 <option value="LOW">LOW</option>
                 <option value="MEDIUM" selected>MEDIUM</option>
                 <option value="HIGH">HIGH</option>
-                <option value="CRITICAL">CRITICAL</option>
+                <option value="CRITICAL">TOP PRIORITY</option>
               </select>
             </div>
             <div class="fm-group" style="margin-bottom:0">
@@ -1658,9 +1658,9 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
       <button onclick="closeSplitActionModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
     </div>
     <form id="fmsSplitActionForm" method="post">
-      <div style="margin-bottom:14px">
+      <div style="margin-bottom:14px" id="fmsSplitQtyGroup">
         <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Qty to move <span style="color:#f87171">*</span></label>
-        <input type="number" name="qty_to_move" id="fmsSplitQty" required min="1" step="1"
+        <input type="number" name="qty_to_move" id="fmsSplitQty" min="1" step="1"
                style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box">
         <div style="font-size:10px;color:var(--text-faint);margin-top:4px" id="fmsSplitQtyHint"></div>
       </div>
@@ -2596,7 +2596,7 @@ function openSplitsModal(ticketId, displayId, splits) {
       var splitBtn = document.createElement('button');
       splitBtn.className = 'btn btn-sm'; splitBtn.style.cssText = 'font-size:11px;color:#60a5fa';
       splitBtn.textContent = '✂ Split';
-      splitBtn.onclick = function() { openSplitActionModal(ticketId, displayId, s.id, s.stage_id); closeSplitsModal(); };
+      splitBtn.onclick = function() { openSplitActionModal(ticketId, displayId, s.id, s.stage_id, s.qty !== null && s.qty !== undefined); closeSplitsModal(); };
       right.appendChild(splitBtn);
       var flagBtn = document.createElement('button');
       flagBtn.className = 'btn btn-sm'; flagBtn.style.cssText = 'font-size:11px;color:#f87171';
@@ -2615,11 +2615,24 @@ function closeSplitsModal() {
 }
 
 /* ── Phase 0: Split action modal — carve qty off to another stage ───────── */
-function openSplitActionModal(ticketId, displayId, splitId, currentStageId) {
+function openSplitActionModal(ticketId, displayId, splitId, currentStageId, hasQty) {
   document.getElementById('fmsSplitActionForm').action = '/fms/tickets/' + ticketId + '/splits/' + splitId + '/split';
   document.getElementById('fmsSplitActionSubtitle').textContent = displayId;
-  document.getElementById('fmsSplitQty').value = '';
-  document.getElementById('fmsSplitQtyHint').textContent = 'Must be greater than 0 and no more than the split\'s remaining qty.';
+  var qtyGroup = document.getElementById('fmsSplitQtyGroup');
+  var qtyInput = document.getElementById('fmsSplitQty');
+  qtyInput.value = '';
+  // Not every flow tracks quantity (FMSTicket.target_qty is optional) — for
+  // those tickets, splitting is purely "carve a copy off to another stage",
+  // so don't force a meaningless number into a field that isn't part of
+  // the flow at all.
+  if (hasQty === false || hasQty === 'false') {
+    qtyGroup.style.display = 'none';
+    qtyInput.required = false;
+  } else {
+    qtyGroup.style.display = '';
+    qtyInput.required = true;
+    document.getElementById('fmsSplitQtyHint').textContent = 'Must be greater than 0 and no more than the split\'s remaining qty.';
+  }
   var sel = document.getElementById('fmsSplitTargetStage');
   var ns = NEXT_STAGE_MAP[currentStageId];
   if (ns) sel.value = ns.id;

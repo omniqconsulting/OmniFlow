@@ -22,6 +22,7 @@
 </form>
 
 {% if rows %}
+<div class="card" style="padding:0;overflow:hidden">
 <table class="table" style="width:100%">
   <thead><tr>
     <th>Product</th><th>SKU</th><th>Category</th><th>Tier</th><th>Revenue (90d)</th><th>Volume (90d)</th><th>Avg Margin %</th>
@@ -29,9 +30,9 @@
   <tbody>
     {% for r in rows %}
     <tr>
-      <td><a href="/sales/catalog/{{ r.product.id }}">{{ r.product.name }}</a></td>
+      <td><a href="/sales/catalog/{{ r.product.product_id }}">{{ r.product.product.name if r.product.product else '—' }}</a></td>
       <td style="font-size:12px;color:var(--text-faint)">{{ r.product.sku_code }}</td>
-      <td>{{ r.product.category or '—' }}</td>
+      <td>{{ r.product.product.sub_category.category.name if r.product.product and r.product.product.sub_category else '—' }}</td>
       <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(r.product.product_tier, '#94a3b8') }}">{{ r.product.product_tier }}</span></td>
       <td>{{ '₹%.0f'|format(r.basis.revenue_90d) if r.basis else '—' }}</td>
       <td>{{ '%.1f'|format(r.basis.volume_90d) if r.basis else '—' }}</td>
@@ -40,6 +41,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <div style="text-align:center;padding:60px 0;color:var(--text-faint)">
   <div style="font-size:40px;margin-bottom:12px">📦</div>

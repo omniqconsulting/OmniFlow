@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from .database import (
-    get_db, new_id, User, Customer, Product,
+    get_db, new_id, User, Customer, Product, ProductVariant,
     PriceList, PriceListItem, PriceListItemHistory, CustomerPriceOverride, CostEntry,
     SalesOrder, SalesOrderItem,
 )
@@ -26,7 +26,14 @@ from .constants import BULK_IMPORT_MAX_ROWS
 
 router = APIRouter()
 
+# 3.1 — BUY_PRICE retired as a manual entry screen: ProductStock.avg_cost is
+# already a running weighted average computed automatically on every STOCK_IN
+# / PO receipt (see handle_stock_in() in sales_inventory.py), and
+# order_confirm() already snapshots it as cost_snapshot for margin math. Manual
+# BUY_PRICE entries are redundant for COGS purposes and no longer accepted —
+# the type is kept in the model/history for old immutable rows only.
 COST_TYPES = ("BUY_PRICE", "FREIGHT", "HANDLING", "OTHER")
+NEW_COST_TYPES = ("FREIGHT", "HANDLING", "OTHER")
 
 _require_sales = require_module("SALES", "SALES_MODULE")
 
@@ -60,12 +67,12 @@ def get_price_list_or_404(db: Session, list_id: str, tenant_id: str) -> PriceLis
     return pl
 
 
-def set_price_list_item(db, price_list_id: str, product_id: str,
+def set_price_list_item(db, price_list_id: str, variant_id: str,
                          unit_price: float, tenant_id: str, changed_by_id: str):
-    """Set or update a product's price in a list. Writes a history row."""
+    """Set or update a variant's price in a list. Writes a history row."""
     existing = db.query(PriceListItem).filter(
         PriceListItem.price_list_id == price_list_id,
-        PriceListItem.product_id    == product_id,
+        PriceListItem.variant_id    == variant_id,
     ).first()
 
     old_price = existing.unit_price if existing else None
@@ -76,7 +83,7 @@ def set_price_list_item(db, price_list_id: str, product_id: str,
     else:
         db.add(PriceListItem(
             price_list_id = price_list_id,
-            product_id    = product_id,
+            variant_id    = variant_id,
             tenant_id     = tenant_id,
             unit_price    = unit_price,
         ))
@@ -85,7 +92,7 @@ def set_price_list_item(db, price_list_id: str, product_id: str,
     db.add(PriceListItemHistory(
         price_list_id            = price_list_id,
         price_list_name_snapshot = price_list.name if price_list else None,
-        product_id               = product_id,
+        variant_id                = variant_id,
         tenant_id                = tenant_id,
         old_price                = old_price,
         new_price                = unit_price,
@@ -113,21 +120,21 @@ def pricing_overview(
         CustomerPriceOverride.is_active == True,
     ).scalar() or 0
 
-    all_products = db.query(Product.id).filter(
-        Product.tenant_id == user.tenant_id, Product.is_deleted == False,
-        Product.is_active == True,
+    all_variants = db.query(ProductVariant.id).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
+        ProductVariant.is_active == True,
     ).all()
-    priced_product_ids = {
-        r[0] for r in db.query(PriceListItem.product_id).filter(
+    priced_variant_ids = {
+        r[0] for r in db.query(PriceListItem.variant_id).filter(
             PriceListItem.tenant_id == user.tenant_id, PriceListItem.is_active == True,
         ).all()
     }
-    no_price_count = len([p for p in all_products if p[0] not in priced_product_ids])
+    no_price_count = len([v for v in all_variants if v[0] not in priced_variant_ids])
 
     cutoff = datetime.utcnow() - timedelta(days=30)
     margin_rows = (
         db.query(
-            SalesOrderItem.product_id,
+            SalesOrderItem.variant_id,
             func.sum(SalesOrderItem.line_total).label("revenue"),
             func.sum(SalesOrderItem.cost_snapshot * SalesOrderItem.qty_ordered).label("cost"),
         )
@@ -139,7 +146,7 @@ def pricing_overview(
             SalesOrder.created_at >= cutoff,
             SalesOrderItem.cost_snapshot.isnot(None),
         )
-        .group_by(SalesOrderItem.product_id)
+        .group_by(SalesOrderItem.variant_id)
         .all()
     )
     margins = []
@@ -147,9 +154,9 @@ def pricing_overview(
         revenue = row.revenue or 0
         cost = row.cost or 0
         if revenue > 0:
-            product = db.query(Product).filter(Product.id == row.product_id).first()
+            variant = db.query(ProductVariant).filter(ProductVariant.id == row.variant_id).first()
             margins.append({
-                "product": product,
+                "product": variant,
                 "margin": (revenue - cost) / revenue * 100,
             })
     margins.sort(key=lambda m: m["margin"], reverse=True)
@@ -279,15 +286,15 @@ def pricing_list_items(
     items = db.query(PriceListItem).filter(
         PriceListItem.price_list_id == list_id,
     ).all()
-    items_by_product = {it.product_id: it for it in items}
+    items_by_variant = {it.variant_id: it for it in items}
 
-    products = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id, Product.is_deleted == False,
-        Product.is_active == True,
-    ).order_by(Product.name).all()
+    variants = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
+        ProductVariant.is_active == True,
+    ).order_by(Product.name, ProductVariant.sku_code).all()
 
     return templates.TemplateResponse(request, "sales/pricing_list_items.html", _ctx(
-        db, user, price_list=pl, products=products, items_by_product=items_by_product,
+        db, user, price_list=pl, variants=variants, items_by_variant=items_by_variant,
         is_admin=user.role in ("ADMIN", "MANAGER"),
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))
@@ -296,17 +303,17 @@ def pricing_list_items(
 @router.post("/sales/pricing/lists/{list_id}/items/set")
 def pricing_list_item_set(
     list_id: str,
-    product_id: str = Form(...),
+    variant_id: str = Form(...),
     unit_price: str = Form(...),
     user: User = Depends(_require_pricing_admin),
     db: Session = Depends(get_db),
 ):
     get_price_list_or_404(db, list_id, user.tenant_id)
-    product = db.query(Product).filter(
-        Product.id == product_id, Product.tenant_id == user.tenant_id,
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id, ProductVariant.tenant_id == user.tenant_id,
     ).first()
-    if not product:
-        return _redir(f"/sales/pricing/lists/{list_id}/items?err=Invalid+product")
+    if not variant:
+        return _redir(f"/sales/pricing/lists/{list_id}/items?err=Invalid+variant")
     try:
         price = float(unit_price)
         if price <= 0:
@@ -314,7 +321,7 @@ def pricing_list_item_set(
     except ValueError:
         return _redir(f"/sales/pricing/lists/{list_id}/items?err=Price+must+be+a+positive+number")
 
-    set_price_list_item(db, list_id, product_id, price, user.tenant_id, user.id)
+    set_price_list_item(db, list_id, variant_id, price, user.tenant_id, user.id)
     return _redir(f"/sales/pricing/lists/{list_id}/items?msg=Price+updated")
 
 
@@ -393,11 +400,11 @@ async def pricing_list_bulk_upload(
         if not sku:
             errors.append({"row": i, "error": "sku_code is required"})
             continue
-        product = db.query(Product).filter(
-            Product.tenant_id == user.tenant_id, Product.sku_code == sku,
-            Product.is_deleted == False,
+        variant = db.query(ProductVariant).filter(
+            ProductVariant.tenant_id == user.tenant_id, ProductVariant.sku_code == sku,
+            ProductVariant.is_deleted == False,
         ).first()
-        if not product:
+        if not variant:
             errors.append({"row": i, "error": f"SKU {sku} not found"})
             continue
         try:
@@ -407,7 +414,7 @@ async def pricing_list_bulk_upload(
         except ValueError:
             errors.append({"row": i, "error": "unit_price must be a positive number"})
             continue
-        set_price_list_item(db, list_id, product.id, price, user.tenant_id, user.id)
+        set_price_list_item(db, list_id, variant.id, price, user.tenant_id, user.id)
         applied += 1
 
     return JSONResponse({"applied": applied, "errors": errors})
@@ -432,13 +439,13 @@ def pricing_overrides(
         Customer.tenant_id == user.tenant_id, Customer.is_deleted == False,
         Customer.is_active == True,
     ).order_by(Customer.name).all()
-    products = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id, Product.is_deleted == False,
-        Product.is_active == True,
-    ).order_by(Product.name).all()
+    variants = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
+        ProductVariant.is_active == True,
+    ).order_by(Product.name, ProductVariant.sku_code).all()
 
     return templates.TemplateResponse(request, "sales/pricing_overrides.html", _ctx(
-        db, user, overrides=overrides, customers=customers, products=products,
+        db, user, overrides=overrides, customers=customers, variants=variants,
         is_admin=user.role in ("ADMIN", "MANAGER"),
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))
@@ -447,7 +454,7 @@ def pricing_overrides(
 @router.post("/sales/pricing/overrides/create")
 def pricing_override_create(
     customer_id: str = Form(...),
-    product_id: str = Form(...),
+    variant_id: str = Form(...),
     unit_price: str = Form(...),
     valid_from: str = Form(""),
     valid_to: str = Form(""),
@@ -458,11 +465,11 @@ def pricing_override_create(
     customer = db.query(Customer).filter(
         Customer.id == customer_id, Customer.tenant_id == user.tenant_id,
     ).first()
-    product = db.query(Product).filter(
-        Product.id == product_id, Product.tenant_id == user.tenant_id,
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id, ProductVariant.tenant_id == user.tenant_id,
     ).first()
-    if not customer or not product:
-        return _redir("/sales/pricing/overrides?err=Invalid+customer+or+product")
+    if not customer or not variant:
+        return _redir("/sales/pricing/overrides?err=Invalid+customer+or+variant")
     try:
         price = float(unit_price)
         if price <= 0:
@@ -471,7 +478,7 @@ def pricing_override_create(
         return _redir("/sales/pricing/overrides?err=Price+must+be+a+positive+number")
 
     override = CustomerPriceOverride(
-        tenant_id=user.tenant_id, customer_id=customer_id, product_id=product_id,
+        tenant_id=user.tenant_id, customer_id=customer_id, variant_id=variant_id,
         unit_price=price,
         valid_from=date.fromisoformat(valid_from) if valid_from.strip() else None,
         valid_to=date.fromisoformat(valid_to) if valid_to.strip() else None,
@@ -512,13 +519,13 @@ def pricing_costs(
         CostEntry.tenant_id == user.tenant_id,
     ).order_by(CostEntry.effective_date.desc(), CostEntry.created_at.desc()).limit(200).all()
 
-    products = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id, Product.is_deleted == False,
-        Product.is_active == True,
-    ).order_by(Product.name).all()
+    variants = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
+        ProductVariant.is_active == True,
+    ).order_by(Product.name, ProductVariant.sku_code).all()
 
     return templates.TemplateResponse(request, "sales/pricing_costs.html", _ctx(
-        db, user, entries=entries, products=products, cost_types=COST_TYPES,
+        db, user, entries=entries, variants=variants, cost_types=NEW_COST_TYPES,
         is_admin=user.role in ("ADMIN", "MANAGER"),
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))
@@ -526,7 +533,7 @@ def pricing_costs(
 
 @router.post("/sales/pricing/costs/add")
 def pricing_cost_add(
-    product_id: str = Form(...),
+    variant_id: str = Form(...),
     cost_type: str = Form(...),
     amount: str = Form(...),
     effective_date: str = Form(...),
@@ -534,12 +541,14 @@ def pricing_cost_add(
     user: User = Depends(_require_pricing_admin),
     db: Session = Depends(get_db),
 ):
-    product = db.query(Product).filter(
-        Product.id == product_id, Product.tenant_id == user.tenant_id,
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id, ProductVariant.tenant_id == user.tenant_id,
     ).first()
-    if not product:
-        return _redir("/sales/pricing/costs?err=Invalid+product")
-    if cost_type not in COST_TYPES:
+    if not variant:
+        return _redir("/sales/pricing/costs?err=Invalid+variant")
+    if cost_type == "BUY_PRICE":
+        return _redir("/sales/pricing/costs?err=Buy+price+is+now+computed+automatically+from+stock+-+use+Freight%2FHandling%2FOther+for+landed-cost+add-ons")
+    if cost_type not in NEW_COST_TYPES:
         return _redir("/sales/pricing/costs?err=Invalid+cost+type")
     try:
         amt = float(amount)
@@ -553,7 +562,7 @@ def pricing_cost_add(
         return _redir("/sales/pricing/costs?err=Invalid+effective+date")
 
     db.add(CostEntry(
-        tenant_id=user.tenant_id, product_id=product_id, cost_type=cost_type,
+        tenant_id=user.tenant_id, variant_id=variant_id, cost_type=cost_type,
         amount=amt, effective_date=eff_date, notes=notes.strip() or None, actor_id=user.id,
     ))
     db.commit()
@@ -604,15 +613,18 @@ async def pricing_costs_bulk_upload(
         if not sku:
             errors.append({"row": i, "error": "sku_code is required"})
             continue
-        product = db.query(Product).filter(
-            Product.tenant_id == user.tenant_id, Product.sku_code == sku,
-            Product.is_deleted == False,
+        variant = db.query(ProductVariant).filter(
+            ProductVariant.tenant_id == user.tenant_id, ProductVariant.sku_code == sku,
+            ProductVariant.is_deleted == False,
         ).first()
-        if not product:
+        if not variant:
             errors.append({"row": i, "error": f"SKU {sku} not found"})
             continue
-        if cost_type not in COST_TYPES:
-            errors.append({"row": i, "error": f"cost_type must be one of {COST_TYPES}"})
+        if cost_type == "BUY_PRICE":
+            errors.append({"row": i, "error": "BUY_PRICE is retired — buy cost is computed automatically from stock. Use FREIGHT, HANDLING or OTHER."})
+            continue
+        if cost_type not in NEW_COST_TYPES:
+            errors.append({"row": i, "error": f"cost_type must be one of {NEW_COST_TYPES}"})
             continue
         try:
             amt = float(amount_raw)
@@ -628,7 +640,7 @@ async def pricing_costs_bulk_upload(
             continue
 
         db.add(CostEntry(
-            tenant_id=user.tenant_id, product_id=product.id, cost_type=cost_type,
+            tenant_id=user.tenant_id, variant_id=variant.id, cost_type=cost_type,
             amount=amt, effective_date=eff_date, notes=notes, actor_id=user.id,
         ))
         applied += 1
@@ -655,7 +667,7 @@ def pricing_costs_export(
     writer.writerow(["sku_code", "product_name", "cost_type", "amount", "effective_date", "notes"])
     for e in entries:
         writer.writerow([
-            e.product.sku_code if e.product else "", e.product.name if e.product else "",
+            e.variant.sku_code if e.variant else "", e.variant.product.name if e.variant and e.variant.product else "",
             e.cost_type, e.amount, e.effective_date.isoformat(), e.notes or "",
         ])
     return StreamingResponse(
@@ -668,16 +680,16 @@ def pricing_costs_export(
 # PRICE TRENDS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.get("/sales/pricing/trends/{product_id}")
+@router.get("/sales/pricing/trends/{variant_id}")
 def price_trends(
-    product_id: str,
+    variant_id: str,
     user: User = Depends(_require_pricing_admin),
     db: Session = Depends(get_db),
 ):
     """Returns JSON for charting buy price history and sell price history."""
     buy_history = (
         db.query(CostEntry.effective_date, CostEntry.amount)
-        .filter(CostEntry.product_id == product_id,
+        .filter(CostEntry.variant_id == variant_id,
                 CostEntry.tenant_id  == user.tenant_id,
                 CostEntry.cost_type  == "BUY_PRICE")
         .order_by(CostEntry.effective_date.asc())
@@ -690,7 +702,7 @@ def price_trends(
             PriceListItemHistory.new_price,
             PriceListItemHistory.price_list_name_snapshot,
         )
-        .filter(PriceListItemHistory.product_id == product_id,
+        .filter(PriceListItemHistory.variant_id == variant_id,
                 PriceListItemHistory.tenant_id  == user.tenant_id)
         .order_by(PriceListItemHistory.changed_at.asc())
         .all()
@@ -736,7 +748,7 @@ def margin_report(
         group_col = SalesOrder.agent_id
     else:
         group_by = "product"
-        group_col = SalesOrderItem.product_id
+        group_col = SalesOrderItem.variant_id
 
     filters = [
         SalesOrder.tenant_id  == user.tenant_id,
@@ -764,7 +776,11 @@ def margin_report(
 
     entity_name_fn = None
     if group_by == "product":
-        entity_name_fn = lambda eid: (db.query(Product.name).filter(Product.id == eid).scalar() or eid)
+        def entity_name_fn(eid):
+            v = db.query(ProductVariant).filter(ProductVariant.id == eid).first()
+            if not v:
+                return eid
+            return f"{v.product.name} — {v.sku_code}" if v.product else v.sku_code
     elif group_by == "customer":
         entity_name_fn = lambda eid: (db.query(Customer.name).filter(Customer.id == eid).scalar() or eid)
     else:

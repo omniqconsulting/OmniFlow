@@ -8,17 +8,19 @@
 </div>
 
 {% if request.query_params.get('err') %}<div class="alert alert-red" style="margin-bottom:14px">{{ request.query_params.get('err') }}</div>{% endif %}
+{% if request.query_params.get('msg') %}<div class="alert alert-green" style="margin-bottom:14px">{{ request.query_params.get('msg') }}</div>{% endif %}
 
-<div class="card" style="padding:20px;max-width:600px">
-  <p style="font-size:13px;color:var(--text-muted);margin-top:0">
-    Select the customer to start building the order. You'll add line items and confirm on the next page.
-  </p>
-  <form method="post" action="/sales/orders/create">
-    <input type="hidden" name="call_log_id" value="{{ call_log_id }}">
+<p style="font-size:13px;color:var(--text-muted);margin-top:0;max-width:600px">
+  Select the customer to start building the order. You'll add line items and confirm on the next page.
+</p>
+<form method="post" action="/sales/orders/create" style="max-width:600px">
+  <input type="hidden" name="call_log_id" value="{{ call_log_id }}">
 
-    <div style="margin-bottom:12px">
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">PARTY</h3>
+    <div style="margin-bottom:6px">
       <label style="font-size:12px;color:var(--text-muted)">Customer *</label>
-      <select name="customer_id" required style="width:100%">
+      <select name="customer_id" id="customer_select" required style="width:100%" onchange="loadCustomerDefaults(this.value)">
         <option value="">— Select customer —</option>
         {% for c in customers %}
         <option value="{{ c.id }}" {{ 'selected' if customer and c.id == customer.id else '' }}>{{ c.name }} ({{ c.phone or 'no phone' }})</option>
@@ -26,27 +28,95 @@
       </select>
     </div>
 
+    <div>
+      <a href="javascript:void(0)" onclick="document.getElementById('new-party-form').style.display='block';this.style.display='none'" style="font-size:12px">+ Add New Party</a>
+      <div id="new-party-form" style="display:none;margin-top:8px;padding:10px;border:1px solid var(--border-subtle);border-radius:8px">
+        <label style="font-size:11px;color:var(--text-muted);display:block">Party Name *</label>
+        <input id="quick_party_name" style="width:100%;margin-bottom:6px">
+        <label style="font-size:11px;color:var(--text-muted);display:block">Phone</label>
+        <input id="quick_party_phone" style="width:100%;margin-bottom:6px">
+        <label style="font-size:11px;color:var(--text-muted);display:block">Email</label>
+        <input id="quick_party_email" type="email" style="width:100%;margin-bottom:8px">
+        <button type="button" class="btn btn-xs btn-primary" onclick="createQuickParty()">Create Party</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">SALESMAN &amp; TERMS</h3>
     <div style="margin-bottom:12px">
-      <label style="font-size:12px;color:var(--text-muted)">Payment Terms</label>
-      <input name="payment_terms" placeholder="e.g. Net 30">
+      <label style="font-size:12px;color:var(--text-muted)">Salesman</label>
+      <select name="agent_id" style="width:100%">
+        <option value="{{ user.id }}">Myself ({{ user.name }})</option>
+        {% for a in agents if a.id != user.id %}
+        <option value="{{ a.id }}">{{ a.name }}</option>
+        {% endfor %}
+      </select>
     </div>
 
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Payment Terms</label>
+      <input name="payment_terms" id="payment_terms_input" placeholder="e.g. Net 30">
+    </div>
+  </div>
+
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">DELIVERY</h3>
     <div style="margin-bottom:12px">
       <label style="font-size:12px;color:var(--text-muted)">Delivery Address</label>
-      <textarea name="delivery_address" rows="2" placeholder="Defaults to customer's shipping address"></textarea>
+      <textarea name="delivery_address" id="delivery_address_input" rows="2" placeholder="Defaults to customer's shipping address"></textarea>
     </div>
 
     <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--text-muted)">Select Godown</label>
+      <select name="godown_id" style="width:100%">
+        <option value="">— Not specified —</option>
+        {% for g in godowns %}
+        <option value="{{ g.id }}">{{ g.name }}</option>
+        {% endfor %}
+      </select>
+      <div class="muted" style="font-size:11px;margin-top:2px">Which location will dispatch this order — for reference only, doesn't affect stock.</div>
+    </div>
+
+    <div>
       <label style="font-size:12px;color:var(--text-muted)">Expected Delivery Date</label>
       <input type="date" name="expected_delivery_date">
     </div>
+  </div>
 
-    <div style="margin-bottom:16px">
-      <label style="font-size:12px;color:var(--text-muted)">Notes</label>
-      <textarea name="notes" rows="2"></textarea>
-    </div>
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">NOTES</h3>
+    <textarea name="notes" rows="2"></textarea>
+  </div>
 
-    <button type="submit" class="btn btn-sm btn-primary">Create Draft Order</button>
-  </form>
-</div>
+  <button type="submit" class="btn btn-sm btn-primary">Create Draft Order</button>
+</form>
+
+<script>
+async function loadCustomerDefaults(customerId) {
+  if (!customerId) return;
+  try {
+    const res = await fetch(`/sales/orders/api/customer-defaults?customer_id=${customerId}`);
+    if (!res.ok) return;
+    const d = await res.json();
+    const ptInput = document.getElementById('payment_terms_input');
+    const addrInput = document.getElementById('delivery_address_input');
+    if (!ptInput.value && d.default_payment_terms) ptInput.value = d.default_payment_terms;
+    if (!addrInput.value && d.shipping_address) addrInput.value = d.shipping_address;
+  } catch (e) {}
+}
+
+async function createQuickParty() {
+  const name = document.getElementById('quick_party_name').value.trim();
+  if (!name) { alert('Party name is required'); return; }
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('phone', document.getElementById('quick_party_phone').value.trim());
+  fd.append('email', document.getElementById('quick_party_email').value.trim());
+  const res = await fetch('/sales/orders/quick-customer', { method: 'POST', body: fd });
+  if (res.redirected) { window.location.href = res.url; }
+}
+
+{% if customer %}loadCustomerDefaults("{{ customer.id }}");{% endif %}
+</script>
 {% endblock %}

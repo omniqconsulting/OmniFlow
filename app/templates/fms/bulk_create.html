@@ -190,7 +190,7 @@ function buildCustomFieldCell(i, f) {
   // Built-in special fields
   if (f.field_type === '__priority__') {
     return '<td><select name="' + name + '">' +
-      ['LOW','MEDIUM','HIGH','CRITICAL'].map(function(p){ return '<option value="'+p+'"'+(p==='MEDIUM'?' selected':'')+'>'+p+'</option>'; }).join('') +
+      ['LOW','MEDIUM','HIGH','CRITICAL'].map(function(p){ return '<option value="'+p+'"'+(p==='MEDIUM'?' selected':'')+'>'+(p==='CRITICAL'?'TOP PRIORITY':p)+'</option>'; }).join('') +
     '</select></td>';
   }
   if (f.field_type === '__due_date__') {

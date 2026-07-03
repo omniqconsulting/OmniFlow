@@ -383,11 +383,11 @@ class Notification(Base):
     user = relationship("User")
 
 class MediaUpload(Base):
-    """Shared media table for tickets & checklists — Phase 0-E-1"""
+    """Shared media table for tickets, checklists & sales order line items — Phase 0-E-1"""
     __tablename__ = "media_uploads"
     id = Column(String, primary_key=True, default=new_id)
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
-    entity_type = Column(String, nullable=False)   # "ticket" or "checklist"
+    entity_type = Column(String, nullable=False)   # "ticket" / "checklist" / "sales_order_item"
     entity_id = Column(String, nullable=False)
     file_name = Column(String, nullable=False)
     file_path = Column(String, nullable=False)     # URL path under /static/uploads/
@@ -1069,10 +1069,12 @@ class Customer(Base):
     credit_limit      = Column(Float,  nullable=True)
     billing_address   = Column(Text,   nullable=True)
     shipping_address  = Column(Text,   nullable=True)
+    default_payment_terms = Column(String, nullable=True)
 
     tenant         = relationship("Tenant")
     created_by     = relationship("User", foreign_keys=[created_by_id])
     assigned_agent = relationship("User", foreign_keys=[assigned_agent_id])
+    price_list     = relationship("PriceList", foreign_keys=[price_list_id])
 
 
 class CRMCallLog(Base):
@@ -1247,6 +1249,7 @@ class KnowledgeItem(Base):
     file_type     = Column(String,  nullable=True)   # MIME type
     file_size     = Column(Integer, nullable=True)   # bytes
     external_url  = Column(String,  nullable=True)   # for link-type items
+    department_id = Column(String,  nullable=True)   # optional department scoping (migrated from TrainingMaterial)
     created_by_id = Column(String,  ForeignKey("users.id"), nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
     updated_at    = Column(DateTime, default=datetime.utcnow)
@@ -1254,6 +1257,23 @@ class KnowledgeItem(Base):
 
     tenant      = relationship("Tenant")
     created_by  = relationship("User", foreign_keys=[created_by_id])
+
+
+class TicketKnowledgeLink(Base):
+    """Phase 3: links a ticket (typically a closed delegation) to a KnowledgeItem
+    for future reference."""
+    __tablename__ = "ticket_knowledge_links"
+    id                 = Column(String, primary_key=True, default=new_id)
+    tenant_id          = Column(String, ForeignKey("tenants.id"), nullable=False)
+    ticket_id          = Column(String, ForeignKey("tickets.id"), nullable=False)
+    knowledge_item_id  = Column(String, ForeignKey("knowledge_items.id"), nullable=False)
+    linked_by_id       = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at         = Column(DateTime, default=datetime.utcnow)
+
+    tenant         = relationship("Tenant")
+    ticket         = relationship("Ticket", backref="knowledge_links")
+    knowledge_item = relationship("KnowledgeItem")
+    linked_by      = relationship("User", foreign_keys=[linked_by_id])
 
 _DEFAULT_UOMS = [
     {"name": "Piece",    "abbreviation": "pcs"},
@@ -1300,47 +1320,111 @@ class ProductSchemaField(Base):
     tenant = relationship("Tenant")
 
 
+class Category(Base):
+    """Tenant-scoped top-level catalog category (Catalog Hierarchy Phase 1)."""
+    __tablename__ = "categories"
+    id         = Column(String,  primary_key=True, default=new_id)
+    tenant_id  = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name       = Column(String,  nullable=False)
+    is_active  = Column(Boolean, default=True)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    tenant = relationship("Tenant")
+
+
+class SubCategory(Base):
+    """Belongs to exactly one Category (Catalog Hierarchy Phase 1)."""
+    __tablename__ = "sub_categories"
+    id          = Column(String,  primary_key=True, default=new_id)
+    tenant_id   = Column(String,  ForeignKey("tenants.id"),  nullable=False)
+    category_id = Column(String,  ForeignKey("categories.id"), nullable=False)
+    name        = Column(String,  nullable=False)
+    is_active   = Column(Boolean, default=True)
+    is_deleted  = Column(Boolean, default=False)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+    tenant   = relationship("Tenant")
+    category = relationship("Category")
+
+
 class Product(Base):
     """
-    SKU-level product catalog entry per tenant.
+    Parent catalog entry per tenant — shared attributes only. Not directly
+    sellable/stockable/priceable; see ProductVariant for the sellable SKU.
 
-    attributes_json: dict of {label: value} matching ProductSchemaField labels.
+    attributes_json: dict of {label: value} matching ProductSchemaField labels,
+        shared across all variants of this product.
         e.g. {"GSM": "180", "Width": "44 inch", "Composition": "100% Cotton"}
-        Schema is flexible — adding new schema fields does not break existing products.
 
-    media_urls_json: ordered list of file paths relative to /static/
-        e.g. ["uploads/{tenant_id}/products/{product_id}/img1.jpg"]
-        Max 8 images per product.
-
-    product_tier: set by AI job (Brief 07). Default UNRANKED.
-    low_stock_threshold: godown dashboard uses this to flag low stock.
+    base_unit_id: default unit for variants; a variant may override it.
     """
     __tablename__ = "products"
     id                  = Column(String,  primary_key=True, default=new_id)
     tenant_id           = Column(String,  ForeignKey("tenants.id"), nullable=False)
-    sku_code            = Column(String,  nullable=False)
     name                = Column(String,  nullable=False)
     description         = Column(Text,    nullable=True)
-    category            = Column(String,  nullable=True)
+    sub_category_id     = Column(String,  ForeignKey("sub_categories.id"), nullable=True)
     base_unit_id        = Column(String,  ForeignKey("units_of_measure.id"), nullable=True)
     attributes_json     = Column(Text,    default="{}")
-    media_urls_json      = Column(Text,    default="[]")
-    product_tier        = Column(String,  default="UNRANKED")
-    low_stock_threshold = Column(Float,   nullable=True)
     is_active           = Column(Boolean, default=True)
     is_deleted          = Column(Boolean, default=False)
     created_by_id       = Column(String,  ForeignKey("users.id"), nullable=True)
     created_at          = Column(DateTime, default=datetime.utcnow)
     updated_at          = Column(DateTime, default=datetime.utcnow)
 
-    tenant     = relationship("Tenant")
-    base_unit  = relationship("UnitOfMeasure", foreign_keys=[base_unit_id])
-    created_by = relationship("User", foreign_keys=[created_by_id])
+    tenant       = relationship("Tenant")
+    sub_category = relationship("SubCategory")
+    base_unit    = relationship("UnitOfMeasure", foreign_keys=[base_unit_id])
+    created_by   = relationship("User", foreign_keys=[created_by_id])
+    variants     = relationship("ProductVariant", back_populates="product",
+                                order_by="ProductVariant.created_at")
+
+
+class ProductVariant(Base):
+    """
+    The sellable/stockable/priceable unit — a SKU. Belongs to one Product
+    (the shared-attribute parent). Every downstream Sales table (stock,
+    pricing, orders, tiering) keys off variant_id, not product_id.
+
+    variant_label: display convenience, e.g. "Red / King" — auto-built from
+        variant_attributes_json when not explicitly set.
+    base_unit_id: nullable — inherits Product.base_unit_id when null.
+    media_urls_json: ordered list of file paths relative to /static/, e.g.
+        ["uploads/{tenant_id}/products/{variant_id}/img1.jpg"]. Max 8 images.
+    product_tier: set by AI job (Brief 07). Default UNRANKED.
+    low_stock_threshold: godown dashboard uses this to flag low stock.
+    end_product_id: mirrors this variant into Setup > End Products (used by
+        FMS/Delegations linked entities) so both lists stay in sync.
+    """
+    __tablename__ = "product_variants"
+    id                      = Column(String,  primary_key=True, default=new_id)
+    tenant_id               = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    product_id              = Column(String,  ForeignKey("products.id"), nullable=False)
+    sku_code                = Column(String,  nullable=False)
+    variant_label           = Column(String,  nullable=True)
+    variant_attributes_json = Column(Text,    default="{}")
+    base_unit_id            = Column(String,  ForeignKey("units_of_measure.id"), nullable=True)
+    media_urls_json         = Column(Text,    default="[]")
+    product_tier            = Column(String,  default="UNRANKED")
+    low_stock_threshold     = Column(Float,   nullable=True)
+    end_product_id          = Column(String,  ForeignKey("end_products.id"), nullable=True)
+    is_active               = Column(Boolean, default=True)
+    is_deleted              = Column(Boolean, default=False)
+    created_by_id           = Column(String,  ForeignKey("users.id"), nullable=True)
+    created_at              = Column(DateTime, default=datetime.utcnow)
+    updated_at              = Column(DateTime, default=datetime.utcnow)
+
+    tenant      = relationship("Tenant")
+    product     = relationship("Product", back_populates="variants")
+    base_unit   = relationship("UnitOfMeasure", foreign_keys=[base_unit_id])
+    end_product = relationship("EndProduct", foreign_keys=[end_product_id])
+    created_by  = relationship("User", foreign_keys=[created_by_id])
 
 
 class ProductStock(Base):
     """
-    Single row per product — the live stock snapshot.
+    Single row per variant — the live stock snapshot.
     Always kept consistent with stock_ledger aggregate.
     Updated atomically in the same transaction as every ledger write.
 
@@ -1351,7 +1435,7 @@ class ProductStock(Base):
     """
     __tablename__ = "product_stock"
     id              = Column(String,  primary_key=True, default=new_id)
-    product_id      = Column(String,  ForeignKey("products.id"), unique=True, nullable=False)
+    variant_id      = Column(String,  ForeignKey("product_variants.id"), unique=True, nullable=False)
     tenant_id       = Column(String,  ForeignKey("tenants.id"),  nullable=False)
     qty_available   = Column(Float,   default=0.0)
     qty_reserved    = Column(Float,   default=0.0)   # managed in Brief 04
@@ -1359,7 +1443,7 @@ class ProductStock(Base):
     avg_cost        = Column(Float,   nullable=True)
     last_updated_at = Column(DateTime, default=datetime.utcnow)
 
-    product = relationship("Product")
+    variant = relationship("ProductVariant")
     tenant  = relationship("Tenant")
 
 
@@ -1380,7 +1464,7 @@ class StockLedgerEntry(Base):
     __tablename__ = "stock_ledger"
     id              = Column(String,  primary_key=True, default=new_id)
     tenant_id       = Column(String,  ForeignKey("tenants.id"),  nullable=False)
-    product_id      = Column(String,  ForeignKey("products.id"), nullable=False)
+    variant_id      = Column(String,  ForeignKey("product_variants.id"), nullable=False)
     movement_type   = Column(String,  nullable=False)
     qty             = Column(Float,   nullable=False)
     unit_cost       = Column(Float,   nullable=True)
@@ -1391,7 +1475,7 @@ class StockLedgerEntry(Base):
     created_at      = Column(DateTime, default=datetime.utcnow)
 
     tenant  = relationship("Tenant")
-    product = relationship("Product")
+    variant = relationship("ProductVariant")
     actor   = relationship("User", foreign_keys=[actor_id])
 
 
@@ -1428,14 +1512,14 @@ class InventoryPOItem(Base):
     __tablename__ = "inventory_po_items"
     id           = Column(String, primary_key=True, default=new_id)
     po_id        = Column(String, ForeignKey("inventory_purchase_orders.id"), nullable=False)
-    product_id   = Column(String, ForeignKey("products.id"),    nullable=False)
+    variant_id   = Column(String, ForeignKey("product_variants.id"), nullable=False)
     qty_ordered  = Column(Float,  nullable=False)
     qty_received = Column(Float,  default=0.0)
     unit_cost    = Column(Float,  nullable=True)
     unit_id      = Column(String, ForeignKey("units_of_measure.id"), nullable=True)
 
     po      = relationship("InventoryPurchaseOrder", back_populates="items")
-    product = relationship("Product")
+    variant = relationship("ProductVariant")
     unit    = relationship("UnitOfMeasure", foreign_keys=[unit_id])
 
 
@@ -1470,7 +1554,7 @@ class PriceListItem(Base):
     __tablename__ = "price_list_items"
     id            = Column(String,  primary_key=True, default=new_id)
     price_list_id = Column(String,  ForeignKey("price_lists.id"),  nullable=False)
-    product_id    = Column(String,  ForeignKey("products.id"),     nullable=False)
+    variant_id    = Column(String,  ForeignKey("product_variants.id"), nullable=False)
     tenant_id     = Column(String,  ForeignKey("tenants.id"),      nullable=False)
     unit_price    = Column(Float,   nullable=False)
     min_qty       = Column(Float,   default=0.0)
@@ -1478,7 +1562,7 @@ class PriceListItem(Base):
     updated_at    = Column(DateTime, default=datetime.utcnow)
 
     price_list = relationship("PriceList", back_populates="items")
-    product    = relationship("Product")
+    variant    = relationship("ProductVariant")
     tenant     = relationship("Tenant")
 
 
@@ -1493,7 +1577,7 @@ class PriceListItemHistory(Base):
     id            = Column(String,  primary_key=True, default=new_id)
     price_list_id = Column(String,  ForeignKey("price_lists.id"),  nullable=False)
     price_list_name_snapshot = Column(String, nullable=True)
-    product_id    = Column(String,  ForeignKey("products.id"),     nullable=False)
+    variant_id    = Column(String,  ForeignKey("product_variants.id"), nullable=False)
     tenant_id     = Column(String,  ForeignKey("tenants.id"),      nullable=False)
     old_price     = Column(Float,   nullable=True)
     new_price     = Column(Float,   nullable=False)
@@ -1501,7 +1585,7 @@ class PriceListItemHistory(Base):
     changed_at    = Column(DateTime, default=datetime.utcnow)
 
     price_list = relationship("PriceList")
-    product    = relationship("Product")
+    variant    = relationship("ProductVariant")
     tenant     = relationship("Tenant")
     changed_by = relationship("User", foreign_keys=[changed_by_id])
 
@@ -1516,7 +1600,7 @@ class CustomerPriceOverride(Base):
     id           = Column(String, primary_key=True, default=new_id)
     tenant_id    = Column(String, ForeignKey("tenants.id"),   nullable=False)
     customer_id  = Column(String, ForeignKey("customers.id"), nullable=False)
-    product_id   = Column(String, ForeignKey("products.id"),  nullable=False)
+    variant_id   = Column(String, ForeignKey("product_variants.id"), nullable=False)
     unit_price   = Column(Float,  nullable=False)
     valid_from   = Column(Date,   nullable=True)
     valid_to     = Column(Date,   nullable=True)
@@ -1527,7 +1611,7 @@ class CustomerPriceOverride(Base):
 
     tenant     = relationship("Tenant")
     customer   = relationship("Customer", foreign_keys=[customer_id])
-    product    = relationship("Product")
+    variant    = relationship("ProductVariant")
     created_by = relationship("User", foreign_keys=[created_by_id])
 
 
@@ -1549,7 +1633,7 @@ class CostEntry(Base):
     __tablename__ = "cost_entries"
     id             = Column(String,  primary_key=True, default=new_id)
     tenant_id      = Column(String,  ForeignKey("tenants.id"),  nullable=False)
-    product_id     = Column(String,  ForeignKey("products.id"), nullable=False)
+    variant_id     = Column(String,  ForeignKey("product_variants.id"), nullable=False)
     cost_type      = Column(String,  nullable=False)
     amount         = Column(Float,   nullable=False)
     effective_date = Column(Date,    nullable=False)
@@ -1558,8 +1642,26 @@ class CostEntry(Base):
     created_at     = Column(DateTime, default=datetime.utcnow)
 
     tenant  = relationship("Tenant")
-    product = relationship("Product")
+    variant = relationship("ProductVariant")
     actor   = relationship("User", foreign_keys=[actor_id])
+
+
+class Godown(Base):
+    """
+    Lightweight dispatch-location label — Phase 2. NOT a stock partition;
+    stock quantities remain a single pool per tenant. Purely metadata for
+    "which location will dispatch this order" shown to the godown/dispatch team.
+    """
+    __tablename__ = "godowns"
+    id         = Column(String,  primary_key=True, default=new_id)
+    tenant_id  = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name       = Column(String,  nullable=False)
+    address    = Column(Text,    nullable=True)
+    is_active  = Column(Boolean, default=True)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    tenant = relationship("Tenant")
 
 
 class SalesOrder(Base):
@@ -1584,6 +1686,7 @@ class SalesOrder(Base):
     status                 = Column(String,  default="DRAFT")
     payment_terms          = Column(String,  nullable=True)
     delivery_address       = Column(Text,    nullable=True)
+    godown_id              = Column(String,  ForeignKey("godowns.id"), nullable=True)
     expected_delivery_date = Column(Date,    nullable=True)
     notes                  = Column(Text,    nullable=True)
     call_log_id            = Column(String,  nullable=True)
@@ -1603,6 +1706,7 @@ class SalesOrder(Base):
     tenant   = relationship("Tenant")
     customer = relationship("Customer",  foreign_keys=[customer_id])
     agent    = relationship("User",      foreign_keys=[agent_id])
+    godown   = relationship("Godown",    foreign_keys=[godown_id])
     items    = relationship("SalesOrderItem", back_populates="order",
                             cascade="all, delete-orphan",
                             order_by="SalesOrderItem.created_at")
@@ -1634,7 +1738,7 @@ class SalesOrderItem(Base):
     id                    = Column(String,  primary_key=True, default=new_id)
     order_id              = Column(String,  ForeignKey("sales_orders.id"),     nullable=False)
     tenant_id             = Column(String,  ForeignKey("tenants.id"),          nullable=False)
-    product_id            = Column(String,  ForeignKey("products.id"),         nullable=False)
+    variant_id            = Column(String,  ForeignKey("product_variants.id"), nullable=False)
     qty_ordered           = Column(Float,   nullable=False)
     unit_id               = Column(String,  ForeignKey("units_of_measure.id"), nullable=True)
     unit_price            = Column(Float,   nullable=False)
@@ -1650,9 +1754,14 @@ class SalesOrderItem(Base):
     created_at            = Column(DateTime, default=datetime.utcnow)
 
     order   = relationship("SalesOrder",    back_populates="items")
-    product = relationship("Product")
+    variant = relationship("ProductVariant")
     unit    = relationship("UnitOfMeasure", foreign_keys=[unit_id])
     tenant  = relationship("Tenant")
+    media   = relationship(
+        "MediaUpload",
+        primaryjoin="and_(MediaUpload.entity_type=='sales_order_item', foreign(MediaUpload.entity_id)==SalesOrderItem.id)",
+        viewonly=True,
+    )
 
 
 class StockReservation(Base):
@@ -1670,7 +1779,7 @@ class StockReservation(Base):
     __tablename__ = "stock_reservations"
     id             = Column(String,  primary_key=True, default=new_id)
     tenant_id      = Column(String,  ForeignKey("tenants.id"),       nullable=False)
-    product_id     = Column(String,  ForeignKey("products.id"),      nullable=False)
+    variant_id     = Column(String,  ForeignKey("product_variants.id"), nullable=False)
     order_id       = Column(String,  ForeignKey("sales_orders.id"),  nullable=False)
     order_item_id  = Column(String,  ForeignKey("sales_order_items.id"), nullable=True)
     qty_reserved   = Column(Float,   nullable=False)
@@ -1683,10 +1792,33 @@ class StockReservation(Base):
     release_reason = Column(Text,    nullable=True)
 
     tenant      = relationship("Tenant")
-    product     = relationship("Product")
+    variant     = relationship("ProductVariant")
     order       = relationship("SalesOrder",    foreign_keys=[order_id])
     order_item  = relationship("SalesOrderItem", foreign_keys=[order_item_id])
     reserved_by = relationship("User",          foreign_keys=[reserved_by_id])
+
+
+class SalesTarget(Base):
+    """
+    Admin/Manager-set revenue (and optional order-count) target per agent
+    per period — Phase 2. Actuals are computed on read from SalesOrder
+    (status in CONFIRMED/DISPATCHED/DELIVERED), not stored redundantly here.
+
+    period_label: e.g. "2026-07" for a monthly target.
+    """
+    __tablename__ = "sales_targets"
+    id             = Column(String,  primary_key=True, default=new_id)
+    tenant_id      = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    agent_id       = Column(String,  ForeignKey("users.id"),   nullable=False)
+    period_label   = Column(String,  nullable=False)
+    target_amount  = Column(Float,   nullable=False)
+    target_orders  = Column(Integer, nullable=True)
+    created_by_id  = Column(String,  ForeignKey("users.id"), nullable=True)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    agent      = relationship("User", foreign_keys=[agent_id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
 
 
 def create_tables():
@@ -1784,6 +1916,28 @@ def _pg_add_columns():
         """CREATE INDEX IF NOT EXISTS idx_call_logs_agent_followup
             ON crm_call_logs(agent_id, follow_up_at, follow_up_done)
             WHERE follow_up_done = FALSE""",
+        # Phase 2 — Orders/Contacts/Pricing brief
+        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS default_payment_terms VARCHAR",
+        """CREATE TABLE IF NOT EXISTS godowns (
+            id VARCHAR PRIMARY KEY,
+            tenant_id VARCHAR NOT NULL REFERENCES tenants(id),
+            name VARCHAR NOT NULL,
+            address TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
+            is_deleted BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
+        "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS godown_id VARCHAR REFERENCES godowns(id)",
+        """CREATE TABLE IF NOT EXISTS sales_targets (
+            id VARCHAR PRIMARY KEY,
+            tenant_id VARCHAR NOT NULL REFERENCES tenants(id),
+            agent_id VARCHAR NOT NULL REFERENCES users(id),
+            period_label VARCHAR NOT NULL,
+            target_amount FLOAT NOT NULL,
+            target_orders INTEGER,
+            created_by_id VARCHAR REFERENCES users(id),
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
     ]
     try:
         with engine.begin() as conn:

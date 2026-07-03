@@ -5,7 +5,7 @@
 <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
   <div>
     <h2 class="page-title">Cost Entry Log</h2>
-    <div class="muted">Immutable buy-price & cost ledger</div>
+    <div class="muted">Freight/handling/other landed-cost ledger — buy price is now computed automatically from stock (avg cost), no manual entry needed</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     {% if is_admin %}
@@ -24,9 +24,9 @@
   <h3 style="margin-top:0">Add Cost Entry</h3>
   <form method="post" action="/sales/pricing/costs/add" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
     <div>
-      <label style="font-size:12px;color:var(--text-muted)">Product *</label><br>
-      <select name="product_id" required style="min-width:160px">
-        {% for p in products %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      <label style="font-size:12px;color:var(--text-muted)">Variant (SKU) *</label><br>
+      <select name="variant_id" required style="min-width:160px">
+        {% for v in variants %}<option value="{{ v.id }}">{{ v.product.name if v.product else '' }} — {{ v.sku_code }}</option>{% endfor %}
       </select>
     </div>
     <div>
@@ -73,7 +73,7 @@
   <tbody>
     {% for e in entries %}
     <tr style="border-bottom:1px solid var(--border-subtle)">
-      <td style="padding:6px 8px">{{ e.product.name if e.product else '—' }}</td>
+      <td style="padding:6px 8px">{{ (e.variant.product.name + ' — ' + e.variant.sku_code) if e.variant and e.variant.product else (e.variant.sku_code if e.variant else '—') }}</td>
       <td style="padding:6px 8px">{{ e.cost_type }}</td>
       <td style="padding:6px 8px">₹{{ '%.2f'|format(e.amount) }}</td>
       <td style="padding:6px 8px">{{ e.effective_date.strftime('%d %b %Y') }}</td>

@@ -269,8 +269,13 @@ def contact_create_form(
             User.is_deleted == False,
         ).all() if has_module(u, "SALES")]
 
+    price_lists = db.query(PriceList).filter(
+        PriceList.tenant_id == user.tenant_id, PriceList.is_deleted == False,
+        PriceList.is_active == True,
+    ).order_by(PriceList.name).all()
+
     return templates.TemplateResponse(request, "sales/contact_create.html", _ctx(
-        db, user, agents=agents, tier_choices=TIER_CHOICES,
+        db, user, agents=agents, tier_choices=TIER_CHOICES, price_lists=price_lists,
     ))
 
 
@@ -336,7 +341,7 @@ def contacts_list(
 # ══════════════════════════════════════════════════════════════════════════════
 
 _BULK_COLS = [
-    "name", "phone", "email", "agent_email", "contact_freq_days",
+    "name", "phone", "email", "agent_email", "employee_name", "contact_freq_days",
     "tier", "gstin", "credit_limit", "billing_address", "shipping_address",
 ]
 
@@ -367,6 +372,7 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
     name = (row.get("name") or "").strip()
     phone = (row.get("phone") or "").strip()
     agent_email = (row.get("agent_email") or "").strip()
+    employee_name = (row.get("employee_name") or "").strip()
     tier = (row.get("tier") or "").strip().upper()
     freq_raw = (row.get("contact_freq_days") or "").strip()
     credit_raw = (row.get("credit_limit") or "").strip()
@@ -391,6 +397,18 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
         ).first()
         if not agent or not has_module(agent, "SALES"):
             return None, f"agent_email {agent_email} not found or lacks SALES access"
+    elif employee_name:
+        # 2.2 — alternate match key so uploaders can work from names alone,
+        # without needing to know each agent's email address.
+        matches = [u for u in db.query(User).filter(
+            User.tenant_id == tenant_id, User.is_active == True, User.is_deleted == False,
+            func.lower(User.name) == employee_name.lower(),
+        ).all() if has_module(u, "SALES")]
+        if not matches:
+            return None, f"employee_name {employee_name} not found or lacks SALES access"
+        if len(matches) > 1:
+            return None, f"employee_name {employee_name} matches {len(matches)} agents — ambiguous, use agent_email instead"
+        agent = matches[0]
 
     if tier and tier not in ("A", "B", "C"):
         return None, "tier must be A, B, C or blank"
@@ -617,6 +635,7 @@ def contact_edit_save(
     credit_limit: str = Form(""),
     assigned_agent_id: str = Form(""),
     price_list_id: str = Form(""),
+    default_payment_terms: str = Form(""),
     is_active: str = Form("1"),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
@@ -641,6 +660,7 @@ def contact_edit_save(
         customer.gstin = gstin.strip() or None
         customer.assigned_agent_id = assigned_agent_id or None
         customer.price_list_id = price_list_id or None
+        customer.default_payment_terms = default_payment_terms.strip() or None
         customer.is_active = is_active == "1"
         try:
             customer.contact_freq_days = int(contact_freq_days) if contact_freq_days else 30
@@ -673,6 +693,8 @@ def contact_create(
     customer_tier: str = Form("UNRANKED"),
     contact_freq_days: str = Form("30"),
     assigned_agent_id: str = Form(""),
+    default_payment_terms: str = Form(""),
+    price_list_id: str = Form(""),
     notes: str = Form(""),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
@@ -706,6 +728,8 @@ def contact_create(
         credit_limit=credit,
         billing_address=billing_address.strip() or None,
         shipping_address=shipping_address.strip() or None,
+        default_payment_terms=default_payment_terms.strip() or None,
+        price_list_id=price_list_id or None,
     )
     db.add(c)
     db.commit()

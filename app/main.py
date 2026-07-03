@@ -17,11 +17,12 @@ from .database import (
     TicketStatus, Priority, ChecklistStatus, new_id,
     LoginEvent, PerformanceFormula,
     EmployeeDocument, EmployeeGadget, EmployeeGadgetDocument,
+    KnowledgeItem, TicketKnowledgeLink,
 )
 from .auth import (
     hash_password, verify_password, create_token,
     get_current_user, require_admin, require_manager,
-    get_user_modules, has_module, get_user_tabs,
+    get_user_modules, has_module, get_user_tabs, get_nav_flags,
 )
 from .notifications import (
     notify_ticket_assigned, notify_ticket_reminder, notify_helper_added,
@@ -332,31 +333,9 @@ def _limit_hit(tenant, limit_name: str, current_count: int) -> bool:
     return not within_limit(tenant, limit_name, current_count)
 
 def _nav_ctx(db, user, tenant=None) -> dict:
-    """Return nav feature flags for base.html — avoids repeating per-route."""
-    if user is None:
-        return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_checklists": False, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
-    try:
-        t = tenant or db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
-        modules = get_user_modules(user)
-        # Per-employee tab access — falls back to every tenant-enabled tab when unset (P8-xx)
-        user_tabs = get_user_tabs(user, t, db) if t else []
-        return {
-            "has_inventory":         has_feature(t, "INVENTORY",       db) if t else False,
-            "has_tickets":           "TICKETS"    in user_tabs,
-            "has_fms":               "FMS"        in user_tabs,
-            "has_knowledge_repo":    "KNOWLEDGE"  in user_tabs,
-            "has_checklists":        "CHECKLISTS" in user_tabs,
-            "has_sales":             "SALES"     in modules and "SALES"     in user_tabs,
-            "has_inventory_module":  "INVENTORY" in modules and "INVENTORY" in user_tabs,
-            "has_sales_analytics":   (has_feature(t, "SALES_ANALYTICS", db) if t else False)
-                                      and (has_feature(t, "SALES_MODULE", db) if t else False)
-                                      and "SALES" in modules and user.role in ("ADMIN", "MANAGER"),
-            "user_modules":          modules,
-        }
-    except Exception as _e:
-        import logging as _log
-        _log.getLogger(__name__).warning("_nav_ctx failed: %s", _e)
-        return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_knowledge_repo": False, "has_checklists": True, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
+    """Return nav feature flags for base.html — thin wrapper around the shared
+    auth.get_nav_flags() so every blueprint computes tabs identically."""
+    return get_nav_flags(db, user, tenant)
 
 def _has_inv(db, user) -> bool:
     return _nav_ctx(db, user)["has_inventory"]
@@ -1234,6 +1213,20 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             )
         flagged = ticket_q.filter(Ticket.is_flagged == True).all()
 
+        # Hot tasks — CRITICAL priority, not closed (scoped same as flagged above)
+        hot_q = db.query(Ticket).filter(
+            Ticket.tenant_id == tid, Ticket.is_deleted == False,
+            Ticket.priority == "CRITICAL", Ticket.status != "CLOSED")
+        if user.role == "MANAGER":
+            hot_q = hot_q.filter(
+                (Ticket.current_assignee_id.in_(mgr_team_ids)) |
+                (Ticket.created_by_id.in_(mgr_team_ids)) |
+                (Ticket.id.in_(mgr_helper_tids))
+            )
+        hot_tasks = hot_q.order_by(Ticket.due_at.asc().nullslast()).all()
+        hot_tasks_count = len(hot_tasks)
+        hot_tasks = hot_tasks[:10]
+
         # Checklists
         cl_sc   = get_checklist_scorecards(db, tid, date_from, date_to, dept_ids, manager_ids)
         cl_wk   = get_checklist_weekly(db, tid, dept_ids, manager_ids)
@@ -1274,6 +1267,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             "deleg_sc": deleg_sc, "deleg_wk": deleg_wk,
             "deleg_dept": deleg_dept, "deleg_mgr": deleg_mgr,
             "deleg_pri": deleg_pri, "emp_tat": emp_tat, "flagged": flagged,
+            "hot_tasks": hot_tasks, "hot_tasks_count": hot_tasks_count,
             # Checklists
             "cl_sc": cl_sc, "cl_wk": cl_wk,
             "cl_tmpl": cl_tmpl, "cl_dept": cl_dept,
@@ -1287,6 +1281,14 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         # ── KPIs ───────────────────────────────────────────────────────────────
         kpis    = get_employee_kpis(db, user.id, tid)
         org_avg = get_org_avg_tat(db, tid)
+
+        # ── Dashboard list filters (P-EMP-FILTERS) ──────────────────────────────
+        t_priority = request.query_params.get("t_priority") or ""
+        t_status   = request.query_params.get("t_status") or ""
+        f_priority = request.query_params.get("f_priority") or ""
+        f_status   = request.query_params.get("f_status") or ""
+        c_freq     = request.query_params.get("c_freq") or ""
+        c_status   = request.query_params.get("c_status") or ""
 
         # ── Regular tickets — 'ever worked on' ─────────────────────────────────
         helper_ticket_ids = [
@@ -1304,6 +1306,14 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         ).order_by(Ticket.created_at.desc()).all()
 
         active_tickets = [t for t in all_my_tickets if t.status not in ("DONE", "CLOSED")]
+        hot_tasks = [t for t in all_my_tickets if t.priority == "CRITICAL" and t.status != "CLOSED"
+                     and t.current_assignee_id == user.id]
+        hot_tasks_count = len(hot_tasks)
+        hot_tasks = hot_tasks[:10]
+        if t_priority:
+            active_tickets = [t for t in active_tickets if t.priority == t_priority]
+        if t_status:
+            active_tickets = [t for t in active_tickets if t.status == t_status]
         recent_closed  = [t for t in all_my_tickets if t.status in ("DONE", "CLOSED")][:5]
 
         # ── FMS tickets — 'ever worked on' ─────────────────────────────────────
@@ -1326,6 +1336,10 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
         ).order_by(FMSTicket.updated_at.desc()).all()
 
         active_fms   = [t for t in my_fms_tickets if t.status not in ("COMPLETED", "CLOSED")]
+        if f_priority:
+            active_fms = [t for t in active_fms if t.priority == f_priority]
+        if f_status:
+            active_fms = [t for t in active_fms if t.status == f_status]
         complete_fms = [t for t in my_fms_tickets if t.status in ("COMPLETED", "CLOSED")][:5]
 
         # ── Checklists ─────────────────────────────────────────────────────────
@@ -1334,6 +1348,10 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             ChecklistAssignment.user_id == user.id,
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
         ).order_by(ChecklistAssignment.due_at).all()
+        if c_freq:
+            my_checklists = [a for a in my_checklists if a.template and a.template.frequency == c_freq]
+        if c_status:
+            my_checklists = [a for a in my_checklists if a.status == c_status]
 
         # ── Employee Performance Score (formula-driven, Phase A5 stage scoring) ─
         _has_fms = has_feature(tenant, "FMS", db) if hasattr(tenant, "plan") else True
@@ -1358,12 +1376,16 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             # Tickets
             "active_tickets": active_tickets,
             "recent_closed": recent_closed,
+            "hot_tasks": hot_tasks, "hot_tasks_count": hot_tasks_count,
+            "t_priority": t_priority, "t_status": t_status,
             # FMS
             "active_fms": active_fms,
             "complete_fms": complete_fms,
             "has_fms": _has_fms,
+            "f_priority": f_priority, "f_status": f_status,
             # Checklists
             "my_checklists": my_checklists,
+            "c_freq": c_freq, "c_status": c_status,
             # Performance score
             "perf_score": emp_perf_score, "perf_components": emp_perf_components,
         })
@@ -1657,6 +1679,7 @@ async def create_ticket(
     priority: str = Form("MEDIUM"), assignee_id: str = Form(...),
     due_at: str = Form(...), evidence_required: bool = Form(False),
     ticket_category: str = Form("NORMAL"),
+    file: UploadFile = File(None),
     user: User = Depends(get_current_user), db: Session = Depends(get_db),
 ):
     # P5-02: Employees can only create Help tickets
@@ -1686,6 +1709,13 @@ async def create_ticket(
     ticket.display_id = f"T-{tenant.ticket_seq:04d}"
     assignee = db.query(User).get(assignee_id)
     log_event(db, ticket.id, user.id, "CREATED", f"Assigned to {assignee.name if assignee else assignee_id}")
+    if file and hasattr(file, "filename") and file.filename:
+        info = await save_upload(file, user.tenant_id)
+        db.add(MediaUpload(
+            tenant_id=user.tenant_id, entity_type="ticket", entity_id=ticket.id,
+            uploaded_by_id=user.id, **info,
+        ))
+        log_event(db, ticket.id, user.id, "DOC_UPLOADED", info["file_name"])
     if assignee:
         notify_ticket_assigned(db, ticket, assignee)
     # P5-10: save linked entities
@@ -1714,8 +1744,8 @@ def move_ticket(ticket_id: str, new_status: str = Form(...),
     # Delegation tickets only allow OPEN/DONE/CLOSED transitions
     if new_status not in ("OPEN", "DONE", "CLOSED"):
         raise HTTPException(400, "Invalid status for delegation ticket")
-    if new_status == "CLOSED" and user.role != "ADMIN":
-        raise HTTPException(403, "Only Admin can close delegation tickets")
+    if new_status == "CLOSED" and user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403, "Only Admin or Manager can close delegation tickets")
     if ticket.status == "CLOSED":
         raise HTTPException(400, "CLOSED tickets cannot be modified")
     old_status = ticket.status
@@ -1733,6 +1763,56 @@ def move_ticket(ticket_id: str, new_status: str = Form(...),
         "old_status": old_status, "new_status": new_status,
     })
     return redirect(f"/tickets?view=kanban")
+
+
+@app.post("/tickets/{ticket_id}/close-direct")
+def ticket_close_direct(ticket_id: str,
+                        user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Phase 3: close a delegation ticket directly from OPEN or DONE, skipping the
+    intermediate DONE stage. Admin/Manager only — same event-logging, notification,
+    and broadcast pattern as move_ticket/ticket_advance."""
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403, "Only Admin or Manager can close a ticket directly")
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id,
+        Ticket.is_deleted == False).first()
+    if not ticket:
+        raise HTTPException(404)
+    if ticket.status not in ("OPEN", "DONE"):
+        raise HTTPException(400, "Ticket must be OPEN or DONE to close directly")
+    old_status = ticket.status
+    ticket.status = "CLOSED"
+    ticket.closed_at = datetime.utcnow()
+    log_event(db, ticket_id, user.id, "STATUS_CHANGED", f"{old_status} → CLOSED (direct)")
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+    notify_ticket_status_changed(db, ticket, user.id, old_status, "CLOSED", admins, managers)
+    db.commit()
+    audience = list(set(admins + managers + [ticket.current_assignee_id]))
+    broadcast_sync(user.tenant_id, audience, TICKET_STATUS_CHANGED, {
+        "ticket_id": ticket_id, "display_id": ticket.display_id,
+        "old_status": old_status, "new_status": "CLOSED",
+    })
+    return redirect(f"/tickets/{ticket_id}")
+
+
+@app.post("/tickets/{ticket_id}/acknowledge")
+def acknowledge_ticket(ticket_id: str,
+                       user: User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    """Phase 3: re-enable acknowledge on delegation tickets — sets acknowledged_at."""
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id).first()
+    if not ticket:
+        raise HTTPException(404)
+    if ticket.current_assignee_id != user.id:
+        raise HTTPException(403, "Only the assignee can acknowledge this ticket")
+    if not ticket.acknowledged_at:
+        ticket.acknowledged_at = datetime.utcnow()
+        log_event(db, ticket_id, user.id, "ACKNOWLEDGED", "")
+        db.commit()
+    return redirect(f"/tickets/{ticket_id}")
 
 
 # Must be registered before /tickets/{ticket_id} — otherwise "bulk-template"
@@ -1773,12 +1853,16 @@ def ticket_detail(ticket_id: str, request: Request,
         LinkedEntityReference.parent_id == ticket_id,
     ).order_by(LinkedEntityReference.created_at).all()
     entity_options = get_linked_entity_options(db, user.tenant_id)
+    knowledge_items = db.query(KnowledgeItem).filter(
+        KnowledgeItem.tenant_id == user.tenant_id, KnowledgeItem.is_deleted == False,
+    ).order_by(KnowledgeItem.title).all()
     return templates.TemplateResponse(request, "ticket_detail.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "ticket": ticket, "employees": employees,
         "media": media, "helper_ids": helper_ids,
         "linked_refs": linked_refs, "entity_options": entity_options,
+        "knowledge_items": knowledge_items,
         "now": datetime.utcnow(),
     })
 
@@ -1794,8 +1878,8 @@ async def ticket_advance(ticket_id: str, request: Request,
         raise HTTPException(404)
     # Delegation tickets: simplified OPEN → DONE → CLOSED flow
     _status_seq = {"OPEN": "DONE", "DONE": "CLOSED"}
-    # DONE→CLOSED is Admin-only
-    if ticket.status == "DONE" and user.role != "ADMIN":
+    # DONE→CLOSED is Admin or Manager
+    if ticket.status == "DONE" and user.role not in ("ADMIN", "MANAGER"):
         return redirect(f"/tickets/{ticket_id}")
     next_status = _status_seq.get(ticket.status)
     if not next_status:
@@ -2067,6 +2151,8 @@ def ticket_action(ticket_id: str, action: str = Form(...),
         log_event(db, ticket_id, user.id, "DONE")
         notify_ticket_status_changed(db, ticket, user.id, old_status, "DONE", admins, managers)
     elif action == "close":
+        if user.role not in ("ADMIN", "MANAGER"):
+            raise HTTPException(403)
         old_status = ticket.status
         ticket.status = "CLOSED"
         ticket.closed_at = datetime.utcnow()
@@ -2222,6 +2308,42 @@ async def upload_ticket_media(ticket_id: str, file: UploadFile = File(...),
         uploaded_by_id=user.id, **info,
     ))
     log_event(db, ticket_id, user.id, "PROOF_UPLOADED", info["file_name"])
+    db.commit()
+    return redirect(f"/tickets/{ticket_id}")
+
+@app.post("/tickets/{ticket_id}/link-knowledge")
+def link_ticket_knowledge(ticket_id: str, knowledge_item_id: str = Form(...),
+                          user: User = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    """Phase 3: link a (typically just-closed) ticket to a Knowledge/Training item."""
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id).first()
+    if not ticket:
+        raise HTTPException(404)
+    item = db.query(KnowledgeItem).filter(
+        KnowledgeItem.id == knowledge_item_id, KnowledgeItem.tenant_id == user.tenant_id,
+        KnowledgeItem.is_deleted == False).first()
+    if not item:
+        raise HTTPException(404, "Knowledge item not found")
+    already = db.query(TicketKnowledgeLink).filter(
+        TicketKnowledgeLink.ticket_id == ticket_id,
+        TicketKnowledgeLink.knowledge_item_id == knowledge_item_id).first()
+    if not already:
+        db.add(TicketKnowledgeLink(
+            tenant_id=user.tenant_id, ticket_id=ticket_id,
+            knowledge_item_id=knowledge_item_id, linked_by_id=user.id,
+        ))
+        log_event(db, ticket_id, user.id, "KNOWLEDGE_LINKED", item.title)
+        db.commit()
+    return redirect(f"/tickets/{ticket_id}")
+
+@app.post("/tickets/{ticket_id}/unlink-knowledge")
+def unlink_ticket_knowledge(ticket_id: str, link_id: str = Form(...),
+                            user: User = Depends(require_manager),
+                            db: Session = Depends(get_db)):
+    db.query(TicketKnowledgeLink).filter(
+        TicketKnowledgeLink.id == link_id, TicketKnowledgeLink.tenant_id == user.tenant_id,
+        TicketKnowledgeLink.ticket_id == ticket_id).delete()
     db.commit()
     return redirect(f"/tickets/{ticket_id}")
 
@@ -3885,6 +4007,56 @@ def emp_open_work(emp_id: str, user: User = Depends(require_admin),
     })
 
 
+# ── Phase 3: Export open work CSV before termination ──────────────────────────
+@app.get("/employees/{emp_id}/open-work/export")
+def emp_open_work_export(emp_id: str, user: User = Depends(require_admin),
+                         db: Session = Depends(get_db)):
+    tid = user.tenant_id
+    target = db.query(User).filter(
+        User.id == emp_id, User.tenant_id == tid, User.is_deleted == False,
+    ).first()
+    if not target:
+        raise HTTPException(404)
+    from sqlalchemy import or_
+    _open_statuses = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "HELP_REQUESTED", "DONE"]
+    _helper_tids = [
+        row.ticket_id for row in
+        db.query(TicketAssignee.ticket_id).filter(TicketAssignee.user_id == emp_id).all()
+    ]
+    ticket_rows = db.query(Ticket).filter(
+        Ticket.tenant_id == tid, Ticket.is_deleted == False,
+        Ticket.status.in_(_open_statuses),
+        or_(Ticket.current_assignee_id == emp_id, Ticket.id.in_(_helper_tids)),
+    ).all()
+    cl_rows = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.user_id == emp_id, ChecklistAssignment.is_deleted == False,
+        ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
+    ).all()
+    from .database import FMSTicketHelper as _FTH
+    fms_rows = (
+        db.query(FMSTicket)
+        .join(_FTH, _FTH.ticket_id == FMSTicket.id)
+        .filter(_FTH.user_id == emp_id,
+                FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
+                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+        .all()
+    )
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["type", "id", "title", "status", "due_at"])
+    for t in ticket_rows:
+        w.writerow(["ticket", t.id, t.title, t.status, t.due_at.isoformat() if t.due_at else ""])
+    for c in cl_rows:
+        w.writerow(["checklist", c.id, c.template.title if c.template else str(c.id), c.status,
+                    c.due_at.isoformat() if c.due_at else ""])
+    for f in fms_rows:
+        w.writerow(["fms", f.id, f.title or f"FMS #{f.id[:8]}", f.status, ""])
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue().encode("utf-8-sig")]), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=open_work_{target.name.replace(' ','_')}.csv"})
+
+
 # ── P8-02: Terminate employee with migration flow ─────────────────────────────
 @app.post("/employees/{emp_id}/terminate")
 def terminate_employee(
@@ -3922,7 +4094,7 @@ def terminate_employee(
             ).all()
             for t in open_tickets:
                 t.current_assignee_id = ticket_reassign_to
-                log_event(db, t.id, user.id, "REASSIGNED",
+                log_event(db, t.id, user.id, "REASSIGNED_ON_TERMINATION",
                           f"Bulk reassign on termination of {emp.name} → {reassignee.name}")
 
             # 2. Reassign helper/co-assignee rows on open tickets (tenant-scoped)

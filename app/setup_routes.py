@@ -18,11 +18,11 @@ import os
 from .database import (
     get_db, new_id,
     User, Tenant, Branch, Department,
-    Customer, EndProduct, Vendor, RawMaterial,
+    Customer, EndProduct, Vendor, RawMaterial, ProductVariant, UnitOfMeasure,
     CustomReferenceList, CustomReferenceItem,
     FMSFlow, FMSStage, FMSTicket, FMSStageHistory,
 )
-from .auth import require_admin
+from .auth import require_admin, get_nav_flags
 from .labels import get_labels
 from .constants import BULK_IMPORT_MAX_ROWS
 
@@ -86,23 +86,8 @@ def _unread(db: Session, user: User) -> int:
 
 
 def _nav_ctx(db: Session, user: User) -> dict:
-    from .constants import has_feature
-    from .auth import get_user_modules
     tenant = db.query(Tenant).get(user.tenant_id)
-    modules = get_user_modules(user)
-    return {
-        "has_inventory":         has_feature(tenant, "INVENTORY",       db),
-        "has_fms":               has_feature(tenant, "FMS",             db),
-        "has_knowledge_repo":    has_feature(tenant, "KNOWLEDGE_REPO",  db),
-        "has_checklists":        has_feature(tenant, "CHECKLISTS",      db),
-        "has_ai":                has_feature(tenant, "ASK_AI",          db),
-        "has_sales":             "SALES"     in modules and has_feature(tenant, "SALES_MODULE",     db),
-        "has_inventory_module":  "INVENTORY" in modules and has_feature(tenant, "INVENTORY_MODULE",  db),
-        "has_sales_analytics":   has_feature(tenant, "SALES_ANALYTICS", db)
-                                  and has_feature(tenant, "SALES_MODULE", db)
-                                  and "SALES" in modules and user.role in ("ADMIN", "MANAGER"),
-        "user_modules":          modules,
-    }
+    return get_nav_flags(db, user, tenant)
 
 
 # ── Customer CSV template columns ─────────────────────────────────────────────
@@ -347,7 +332,34 @@ async def import_customers(
 
 # ══════════════════════════════════════════════════════════════════════════════
 # END PRODUCTS
+# Kept in sync with Sales Catalog's ProductVariant (see app/sales_catalog_sync.py
+# for the Catalog -> EndProduct direction). This is the reverse direction:
+# best-effort, sku-matched only — Catalog remains the authoritative place
+# variants are *created* (it has category/sub-category/attributes that
+# EndProduct doesn't), so a sku with no existing variant is left alone here.
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _sync_variant_from_end_product(db: Session, end_product: EndProduct) -> None:
+    if not end_product.sku_code:
+        return
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.tenant_id == end_product.tenant_id,
+        ProductVariant.sku_code == end_product.sku_code,
+        ProductVariant.is_deleted == False,
+    ).first()
+    if not variant:
+        return
+    if end_product.unit:
+        unit = db.query(UnitOfMeasure).filter(
+            UnitOfMeasure.tenant_id == end_product.tenant_id,
+            UnitOfMeasure.abbreviation == end_product.unit,
+            UnitOfMeasure.is_active == True,
+        ).first()
+        if unit:
+            variant.base_unit_id = unit.id
+    variant.is_active = end_product.is_active
+    variant.end_product_id = end_product.id
+
 
 @router.get("/setup/end-products", response_class=HTMLResponse)
 def end_products_page(
@@ -392,11 +404,14 @@ def add_end_product(
         ).first()
         if exists:
             return _redir(f"/setup/end-products?err=SKU+{sku}+already+exists")
-    db.add(EndProduct(
+    end_product = EndProduct(
         tenant_id=user.tenant_id, name=name.strip(), sku_code=sku,
         unit=unit.strip() or None, description=description.strip() or None,
         created_by_id=user.id,
-    ))
+    )
+    db.add(end_product)
+    db.flush()
+    _sync_variant_from_end_product(db, end_product)
     db.commit()
     return _redir("/setup/end-products?msg=Product+added")
 
@@ -434,6 +449,7 @@ def edit_end_product(
     p.description = description.strip() or None
     p.is_active = is_active == "1"
     p.updated_at = datetime.utcnow()
+    _sync_variant_from_end_product(db, p)
     db.commit()
     return _redir("/setup/end-products?msg=Product+updated")
 
@@ -481,12 +497,15 @@ async def import_end_products(
             if exists:
                 errors.append({"row": i, "error": f"SKU {sku} already exists", "data": dict(row)})
                 continue
-        db.add(EndProduct(
+        end_product = EndProduct(
             tenant_id=user.tenant_id, name=name, sku_code=sku,
             unit=(row.get("unit") or "").strip() or None,
             description=(row.get("description") or "").strip() or None,
             created_by_id=user.id,
-        ))
+        )
+        db.add(end_product)
+        db.flush()
+        _sync_variant_from_end_product(db, end_product)
         imported += 1
     try:
         db.commit()

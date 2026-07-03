@@ -24,7 +24,7 @@ from .database import (
     Customer, Vendor, RawMaterial,
     CustomReferenceList, CustomReferenceItem,
 )
-from .auth import get_current_user, require_admin, require_manager
+from .auth import get_current_user, require_admin, require_manager, get_nav_flags
 from .labels import get_labels, DEFAULT_L
 from .constants import has_feature, PLAN_LIMITS, BULK_IMPORT_MAX_ROWS
 from .notifications import (
@@ -140,22 +140,10 @@ def _unread(db: Session, user: User) -> int:
         Notification.user_id == user.id, Notification.is_read == False).count()
 
 def _ctx(request, user, db, **kw):
-    from .constants import has_feature
-    from .auth import get_user_modules
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user else None
-    modules = get_user_modules(user) if user else []
     return {"request": request, "user": user,
             "L": _L(db, user), "unread": _unread(db, user),
-            "has_inventory":       has_feature(tenant, "INVENTORY",       db) if tenant else False,
-            "has_fms":             has_feature(tenant, "FMS",             db) if tenant else False,
-            "has_knowledge_repo":  has_feature(tenant, "KNOWLEDGE_REPO",  db) if tenant else False,
-            "has_checklists": True,  # core feature, always available
-            "has_sales":            "SALES"     in modules and (has_feature(tenant, "SALES_MODULE",     db) if tenant else False),
-            "has_inventory_module": "INVENTORY" in modules and (has_feature(tenant, "INVENTORY_MODULE",  db) if tenant else False),
-            "has_sales_analytics":  (has_feature(tenant, "SALES_ANALYTICS", db) if tenant else False)
-                                     and (has_feature(tenant, "SALES_MODULE", db) if tenant else False)
-                                     and "SALES" in modules and user.role in ("ADMIN", "MANAGER") if user else False,
-            "user_modules":         modules,
+            **get_nav_flags(db, user, tenant),
             **kw}
 
 def _log(db: Session, ticket_id: str, actor_id: str, event_type: str, detail: str = ""):
@@ -3299,7 +3287,7 @@ async def fms_split_ticket(
     request: Request,
     ticket_id: str,
     split_id: str,
-    qty_to_move: str = Form(...),
+    qty_to_move: str = Form(""),
     target_stage_id: str = Form(...),
     new_assignee_id: str = Form(""),
     completion_note: str = Form(""),
@@ -3339,13 +3327,23 @@ async def fms_split_ticket(
     if ticket.status == "CLOSED" or source.status in ("COMPLETED", "CLOSED"):
         raise HTTPException(400, "This split is already completed or closed")
 
-    try:
-        qty = int(qty_to_move)
-    except (TypeError, ValueError):
-        raise HTTPException(400, "qty_to_move must be a whole number")
-    orig_qty = source.qty if source.qty is not None else None
-    if qty <= 0 or (orig_qty is not None and qty > orig_qty):
-        raise HTTPException(400, f"qty_to_move must be > 0 and no more than the split's remaining qty ({orig_qty})")
+    # Splitting isn't always a quantity concept — plenty of flows never set
+    # target_qty at all (it's nullable on FMSTicket). When this ticket
+    # doesn't track quantity, qty_to_move is ignored entirely: the split is
+    # purely "carve a copy of this portion off to another stage/assignee",
+    # qty stays null on both sides, and the source is never auto-retired
+    # (there's no quantity signal to say it's "used up" — it keeps existing
+    # independently until acted on directly).
+    qty_tracked = source.qty is not None
+    orig_qty = source.qty
+    qty = None
+    if qty_tracked:
+        try:
+            qty = int(qty_to_move)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "qty_to_move must be a whole number")
+        if qty <= 0 or qty > orig_qty:
+            raise HTTPException(400, f"qty_to_move must be > 0 and no more than the split's remaining qty ({orig_qty})")
 
     target_stage = db.query(FMSStage).filter(
         FMSStage.id == target_stage_id, FMSStage.flow_id == ticket.flow_id).first()
@@ -3444,10 +3442,15 @@ async def fms_split_ticket(
                     custom_fields_data[fdef.get("id", "")] = computed
 
     # 1. Decrement the source split; if fully consumed, its story ends here.
-    remaining = (orig_qty or 0) - qty
-    source.qty = remaining
+    # (Qty-less tickets: nothing to decrement, source never auto-retires.)
+    if qty_tracked:
+        remaining = orig_qty - qty
+        source.qty = remaining
+        source_retired = remaining <= 0
+    else:
+        remaining = None
+        source_retired = False
     source.updated_at = now
-    source_retired = remaining <= 0
     if source_retired:
         if open_h:
             open_h.exited_at = now
@@ -3512,9 +3515,14 @@ async def fms_split_ticket(
                 raise HTTPException(400, err)
 
     # 3. Audit trail (brief §5: reuses the existing append-only event log).
-    detail = (f"{source.split_label} ({orig_qty}) -> {new_label} ({qty}) @ {target_stage.name}. "
-              + (f"{source.split_label} fully consumed (retired)." if source_retired
-                 else f"{source.split_label} continues at {cur_stage.name if cur_stage else '?'} with {remaining} remaining."))
+    if qty_tracked:
+        detail = (f"{source.split_label} ({orig_qty}) -> {new_label} ({qty}) @ {target_stage.name}. "
+                  + (f"{source.split_label} fully consumed (retired)." if source_retired
+                     else f"{source.split_label} continues at {cur_stage.name if cur_stage else '?'} with {remaining} remaining."))
+    else:
+        detail = (f"{source.split_label} -> {new_label} @ {target_stage.name} "
+                  f"(no quantity tracked for this ticket). "
+                  f"{source.split_label} continues at {cur_stage.name if cur_stage else '?'}.")
     _log(db, ticket_id, user.id, "SPLIT_CREATED", detail)
 
     _sync_ticket_cache(db, ticket)

@@ -94,7 +94,7 @@
       {% for pri, col in [('CRITICAL','#f87171'),('HIGH','#fb923c'),('MEDIUM','#fbbf24'),('LOW','#6ee7b7')] %}
       {% if ticket_kpis.active_by_priority.get(pri, 0) > 0 %}
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-        <span style="font-size:9px;padding:1px 6px;border-radius:99px;background:{{ col }}22;color:{{ col }};font-weight:700">{{ pri }}</span>
+        <span style="font-size:9px;padding:1px 6px;border-radius:99px;background:{{ col }}22;color:{{ col }};font-weight:700">{{ pri | priority_label }}</span>
         <span style="font-size:12px;color:var(--text-primary)">{{ ticket_kpis.active_by_priority[pri] }}</span>
       </div>
       {% endif %}

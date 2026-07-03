@@ -62,7 +62,7 @@
     <tbody>
       {% for item in po.items %}
       <tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:6px 8px">{{ item.product.name if item.product else '—' }}</td>
+        <td style="padding:6px 8px">{{ (item.variant.product.name + ' — ' + item.variant.sku_code) if item.variant else '—' }}</td>
         <td style="padding:6px 8px">{{ item.qty_ordered }} {{ item.unit.abbreviation if item.unit else '' }}</td>
         <td style="padding:6px 8px">{{ item.qty_received }}</td>
         <td style="padding:6px 8px">{{ item.unit_cost or '—' }}</td>

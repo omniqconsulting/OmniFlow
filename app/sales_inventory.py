@@ -1,6 +1,7 @@
 """
 Sales Inventory — Brief 03: Inventory & Godown.
 Stock snapshot, stock ledger, stock-in, purchase orders, godown dashboard.
+Operates on ProductVariant (the sellable SKU) — see Catalog Hierarchy Phase 1.
 """
 import csv
 import io
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from .database import (
-    get_db, new_id, Product, UnitOfMeasure, User, Vendor,
+    get_db, new_id, Product, ProductVariant, UnitOfMeasure, User, Vendor,
     ProductStock, StockLedgerEntry, InventoryPurchaseOrder, InventoryPOItem,
     StockReservation,
 )
@@ -43,19 +44,24 @@ def _ctx(db: Session, user: User, **extra) -> dict:
     return ctx
 
 
+def _variant_unit_abbr(variant: ProductVariant) -> str:
+    unit = variant.base_unit or (variant.product.base_unit if variant.product else None)
+    return unit.abbreviation if unit else "units"
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # BUSINESS LOGIC
 # ══════════════════════════════════════════════════════════════════════════════
 
-def stock_status_badge(stock: ProductStock, product: Product):
+def stock_status_badge(stock: ProductStock, variant: ProductVariant):
     if stock.qty_available <= 0:
         return ("OUT", "red")
-    if product.low_stock_threshold and stock.qty_available < product.low_stock_threshold:
+    if variant.low_stock_threshold and stock.qty_available < variant.low_stock_threshold:
         return ("LOW", "amber")
     return ("OK", "green")
 
 
-def handle_stock_in(db: Session, product_id: str, qty: float, unit_cost: Optional[float],
+def handle_stock_in(db: Session, variant_id: str, qty: float, unit_cost: Optional[float],
                      vendor_name: Optional[str], notes: Optional[str], actor_id: str, tenant_id: str,
                      reference_type: str = "MANUAL", reference_id: str = None):
     """
@@ -64,17 +70,17 @@ def handle_stock_in(db: Session, product_id: str, qty: float, unit_cost: Optiona
     """
     stock = (
         db.query(ProductStock)
-        .filter(ProductStock.product_id == product_id, ProductStock.tenant_id == tenant_id)
+        .filter(ProductStock.variant_id == variant_id, ProductStock.tenant_id == tenant_id)
         .with_for_update()
         .first()
     )
     if not stock:
-        raise ValueError("Product stock record not found. Ensure product exists.")
+        raise ValueError("Variant stock record not found. Ensure variant exists.")
 
-    product = db.query(Product).filter(Product.id == product_id).first()
+    variant = db.query(ProductVariant).filter(ProductVariant.id == variant_id).first()
     was_below_threshold = (
-        product.low_stock_threshold is not None and
-        stock.qty_available < product.low_stock_threshold
+        variant.low_stock_threshold is not None and
+        stock.qty_available < variant.low_stock_threshold
     )
 
     if unit_cost and stock.avg_cost is not None:
@@ -91,7 +97,7 @@ def handle_stock_in(db: Session, product_id: str, qty: float, unit_cost: Optiona
 
     db.add(StockLedgerEntry(
         tenant_id=tenant_id,
-        product_id=product_id,
+        variant_id=variant_id,
         movement_type="STOCK_IN",
         qty=qty,
         unit_cost=unit_cost,
@@ -103,25 +109,25 @@ def handle_stock_in(db: Session, product_id: str, qty: float, unit_cost: Optiona
 
     db.commit()
 
-    _notify_stock_updated(db, product_id, tenant_id, qty, stock.qty_available)
+    _notify_stock_updated(db, variant_id, tenant_id, qty, stock.qty_available)
 
-    if was_below_threshold and product.low_stock_threshold and stock.qty_available >= product.low_stock_threshold:
+    if was_below_threshold and variant.low_stock_threshold and stock.qty_available >= variant.low_stock_threshold:
         pass  # resolved — no dedicated "resolved" template defined yet
 
-    _check_low_stock_alert(db, product_id, tenant_id)
+    _check_low_stock_alert(db, variant_id, tenant_id)
 
 
-def handle_stock_adjustment(db: Session, product_id: str, new_qty: float,
+def handle_stock_adjustment(db: Session, variant_id: str, new_qty: float,
                              reason: str, actor_id: str, tenant_id: str):
     """Admin/Manager sets stock to a specific quantity (correction after physical count)."""
     stock = (
         db.query(ProductStock)
-        .filter(ProductStock.product_id == product_id, ProductStock.tenant_id == tenant_id)
+        .filter(ProductStock.variant_id == variant_id, ProductStock.tenant_id == tenant_id)
         .with_for_update()
         .first()
     )
     if not stock:
-        raise ValueError("Product stock record not found.")
+        raise ValueError("Variant stock record not found.")
 
     delta = new_qty - stock.qty_available
     stock.qty_available = new_qty
@@ -129,7 +135,7 @@ def handle_stock_adjustment(db: Session, product_id: str, new_qty: float,
 
     db.add(StockLedgerEntry(
         tenant_id=tenant_id,
-        product_id=product_id,
+        variant_id=variant_id,
         movement_type="ADJUSTMENT",
         qty=delta,
         reference_type="MANUAL",
@@ -138,7 +144,7 @@ def handle_stock_adjustment(db: Session, product_id: str, new_qty: float,
     ))
     db.commit()
 
-    _check_low_stock_alert(db, product_id, tenant_id)
+    _check_low_stock_alert(db, variant_id, tenant_id)
 
 
 def handle_po_receive(db: Session, po: InventoryPurchaseOrder, received_items: list, actor_id: str, tenant_id: str):
@@ -155,7 +161,7 @@ def handle_po_receive(db: Session, po: InventoryPurchaseOrder, received_items: l
         po_item.qty_received += qty
 
         handle_stock_in(
-            db, po_item.product_id, qty,
+            db, po_item.variant_id, qty,
             unit_cost=recv.get("unit_cost") or po_item.unit_cost,
             vendor_name=po.vendor_name_snapshot,
             notes=f"PO receipt: {po.display_id}",
@@ -165,7 +171,7 @@ def handle_po_receive(db: Session, po: InventoryPurchaseOrder, received_items: l
             reference_id=po.id,
         )
 
-        stock = db.query(ProductStock).filter(ProductStock.product_id == po_item.product_id).first()
+        stock = db.query(ProductStock).filter(ProductStock.variant_id == po_item.variant_id).first()
         if stock:
             stock.qty_in_transit = max(0, stock.qty_in_transit - qty)
 
@@ -180,7 +186,7 @@ def _apply_in_transit_delta(db: Session, po: InventoryPurchaseOrder, sign: int):
     for item in po.items:
         stock = (
             db.query(ProductStock)
-            .filter(ProductStock.product_id == item.product_id)
+            .filter(ProductStock.variant_id == item.variant_id)
             .with_for_update()
             .first()
         )
@@ -192,11 +198,12 @@ def _apply_in_transit_delta(db: Session, po: InventoryPurchaseOrder, sign: int):
 
 # ── Notifications ──────────────────────────────────────────────────────────
 
-def _notify_stock_updated(db: Session, product_id: str, tenant_id: str, qty_added: float, new_available: float):
+def _notify_stock_updated(db: Session, variant_id: str, tenant_id: str, qty_added: float, new_available: float):
     from .notifications import create_notification
     from .constants import WHATSAPP_TEMPLATES
 
-    product = db.query(Product).filter(Product.id == product_id).first()
+    variant = db.query(ProductVariant).filter(ProductVariant.id == variant_id).first()
+    product_name = f"{variant.product.name} ({variant.sku_code})" if variant.product else variant.sku_code
     managers = db.query(User).filter(
         User.tenant_id == tenant_id,
         User.role.in_(["ADMIN", "MANAGER"]),
@@ -204,12 +211,12 @@ def _notify_stock_updated(db: Session, product_id: str, tenant_id: str, qty_adde
         User.is_active == True,
     ).all()
 
-    unit_abbr = product.base_unit.abbreviation if product.base_unit else "units"
+    unit_abbr = _variant_unit_abbr(variant)
     for mgr in managers:
         create_notification(
             db=db, tenant_id=tenant_id, user_id=mgr.id,
             notif_type="STOCK_UPDATED",
-            title=f"Stock updated: {product.name}",
+            title=f"Stock updated: {product_name}",
             body=f"+{qty_added} {unit_abbr}. Now available: {new_available}",
             link="/inventory-v2/stock",
         )
@@ -222,29 +229,30 @@ def _notify_stock_updated(db: Session, product_id: str, tenant_id: str, qty_adde
         for mgr in managers:
             if not mgr.mobile_verified:
                 continue
-            variables = [mgr.name, product.name, str(qty_added), str(new_available)]
+            variables = [mgr.name, product_name, str(qty_added), str(new_available)]
             success, error = send_whatsapp_template(mgr.phone, "omniflow_stock_updated", variables)
             db.add(WhatsAppMessageLog(
                 tenant_id=tenant_id, template_name="omniflow_stock_updated",
                 recipient_user_id=mgr.id, recipient_phone=mgr.phone,
                 variables_json=json.dumps(variables),
                 status="SENT" if success else "FAILED", error_message=error,
-                related_entity_type="product_stock", related_entity_id=product_id,
+                related_entity_type="product_stock", related_entity_id=variant_id,
             ))
         db.commit()
 
 
-def _check_low_stock_alert(db: Session, product_id: str, tenant_id: str):
+def _check_low_stock_alert(db: Session, variant_id: str, tenant_id: str):
     from .notifications import create_notification
     from .constants import WHATSAPP_TEMPLATES
 
-    product = db.query(Product).filter(Product.id == product_id).first()
-    stock = db.query(ProductStock).filter(ProductStock.product_id == product_id).first()
-    if not product or not stock or not product.low_stock_threshold:
+    variant = db.query(ProductVariant).filter(ProductVariant.id == variant_id).first()
+    stock = db.query(ProductStock).filter(ProductStock.variant_id == variant_id).first()
+    if not variant or not stock or not variant.low_stock_threshold:
         return
-    if stock.qty_available >= product.low_stock_threshold:
+    if stock.qty_available >= variant.low_stock_threshold:
         return
 
+    product_name = f"{variant.product.name} ({variant.sku_code})" if variant.product else variant.sku_code
     managers = db.query(User).filter(
         User.tenant_id == tenant_id,
         User.role.in_(["ADMIN", "MANAGER"]),
@@ -256,8 +264,8 @@ def _check_low_stock_alert(db: Session, product_id: str, tenant_id: str):
         create_notification(
             db=db, tenant_id=tenant_id, user_id=mgr.id,
             notif_type="LOW_STOCK_ALERT",
-            title=f"Low stock: {product.name}",
-            body=f"Available: {stock.qty_available} (threshold: {product.low_stock_threshold})",
+            title=f"Low stock: {product_name}",
+            body=f"Available: {stock.qty_available} (threshold: {variant.low_stock_threshold})",
             link="/inventory-v2/stock",
         )
     db.commit()
@@ -269,14 +277,14 @@ def _check_low_stock_alert(db: Session, product_id: str, tenant_id: str):
         for mgr in managers:
             if not mgr.mobile_verified:
                 continue
-            variables = [mgr.name, product.name, str(stock.qty_available), str(product.low_stock_threshold)]
+            variables = [mgr.name, product_name, str(stock.qty_available), str(variant.low_stock_threshold)]
             success, error = send_whatsapp_template(mgr.phone, "omniflow_low_stock_alert", variables)
             db.add(WhatsAppMessageLog(
                 tenant_id=tenant_id, template_name="omniflow_low_stock_alert",
                 recipient_user_id=mgr.id, recipient_phone=mgr.phone,
                 variables_json=json.dumps(variables),
                 status="SENT" if success else "FAILED", error_message=error,
-                related_entity_type="product_stock", related_entity_id=product_id,
+                related_entity_type="product_stock", related_entity_id=variant_id,
             ))
         db.commit()
 
@@ -288,28 +296,28 @@ def _check_low_stock_alert(db: Session, product_id: str, tenant_id: str):
 @router.get("/inventory-v2", response_class=HTMLResponse)
 def inventory_dashboard(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
     tier_order = {"A": 0, "B": 1, "C": 2, "D": 3, "UNRANKED": 4}
-    products = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id, Product.is_deleted == False,
+    variants = db.query(ProductVariant).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
     ).all()
-    stocks_by_product = {
-        s.product_id: s for s in db.query(ProductStock).filter(ProductStock.tenant_id == user.tenant_id).all()
+    stocks_by_variant = {
+        s.variant_id: s for s in db.query(ProductStock).filter(ProductStock.tenant_id == user.tenant_id).all()
     }
 
     rows = []
-    for p in products:
-        stock = stocks_by_product.get(p.id)
+    for v in variants:
+        stock = stocks_by_variant.get(v.id)
         if not stock:
             continue
-        badge_label, badge_color = stock_status_badge(stock, p)
+        badge_label, badge_color = stock_status_badge(stock, v)
         sort_key = (
             0 if stock.qty_available <= 0 else
-            1 if (p.low_stock_threshold and stock.qty_available < p.low_stock_threshold) else 2,
-            tier_order.get(p.product_tier, 4),
-            p.name,
+            1 if (v.low_stock_threshold and stock.qty_available < v.low_stock_threshold) else 2,
+            tier_order.get(v.product_tier, 4),
+            v.product.name if v.product else v.sku_code,
         )
-        rows.append((sort_key, p, stock, badge_label, badge_color))
+        rows.append((sort_key, v, stock, badge_label, badge_color))
     rows.sort(key=lambda r: r[0])
-    stock_rows = [(p, s, lbl, color) for _, p, s, lbl, color in rows]
+    stock_rows = [(v, s, lbl, color) for _, v, s, lbl, color in rows]
 
     open_pos = db.query(InventoryPurchaseOrder).filter(
         InventoryPurchaseOrder.tenant_id == user.tenant_id,
@@ -336,21 +344,23 @@ def inventory_dashboard(request: Request, user: User = Depends(_require_inventor
 
 @router.get("/inventory-v2/stock", response_class=HTMLResponse)
 def stock_list(request: Request, q: str = "", user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
-    query = db.query(Product).filter(Product.tenant_id == user.tenant_id, Product.is_deleted == False)
+    query = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
+    )
     if q:
         like = f"%{q}%"
-        query = query.filter((Product.name.ilike(like)) | (Product.sku_code.ilike(like)))
-    products = query.order_by(Product.name).all()
-    stocks_by_product = {
-        s.product_id: s for s in db.query(ProductStock).filter(ProductStock.tenant_id == user.tenant_id).all()
+        query = query.filter((Product.name.ilike(like)) | (ProductVariant.sku_code.ilike(like)))
+    variants = query.order_by(Product.name).all()
+    stocks_by_variant = {
+        s.variant_id: s for s in db.query(ProductStock).filter(ProductStock.tenant_id == user.tenant_id).all()
     }
     rows = []
-    for p in products:
-        stock = stocks_by_product.get(p.id)
+    for v in variants:
+        stock = stocks_by_variant.get(v.id)
         if not stock:
             continue
-        badge_label, badge_color = stock_status_badge(stock, p)
-        rows.append((p, stock, badge_label, badge_color))
+        badge_label, badge_color = stock_status_badge(stock, v)
+        rows.append((v, stock, badge_label, badge_color))
 
     can_edit = user.role in ("ADMIN", "MANAGER")
     return templates.TemplateResponse(request, "inventory_v2/stock_list.html", _ctx(
@@ -359,21 +369,21 @@ def stock_list(request: Request, q: str = "", user: User = Depends(_require_inve
     ))
 
 
-@router.post("/inventory-v2/stock/{product_id}/adjust")
+@router.post("/inventory-v2/stock/{variant_id}/adjust")
 def stock_adjust_submit(
-    product_id: str,
+    variant_id: str,
     new_qty: float = Form(...),
     reason: str = Form(...),
     user: User = Depends(_require_inventory_manager),
     db: Session = Depends(get_db),
 ):
-    product = db.query(Product).filter(
-        Product.id == product_id, Product.tenant_id == user.tenant_id, Product.is_deleted == False,
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id, ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
     ).first()
-    if not product:
-        raise HTTPException(404, "Product not found")
+    if not variant:
+        raise HTTPException(404, "Variant not found")
     try:
-        handle_stock_adjustment(db, product_id, new_qty, reason, user.id, user.tenant_id)
+        handle_stock_adjustment(db, variant_id, new_qty, reason, user.id, user.tenant_id)
     except ValueError as e:
         return RedirectResponse(f"/inventory-v2/stock?err={e}", status_code=303)
     return RedirectResponse("/inventory-v2/stock?msg=Stock+adjusted", status_code=303)
@@ -381,29 +391,30 @@ def stock_adjust_submit(
 
 @router.get("/inventory-v2/stock/export")
 def stock_export(user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
-    products = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id, Product.is_deleted == False,
+    variants = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
     ).order_by(Product.name).all()
-    stocks_by_product = {
-        s.product_id: s for s in db.query(ProductStock).filter(ProductStock.tenant_id == user.tenant_id).all()
+    stocks_by_variant = {
+        s.variant_id: s for s in db.query(ProductStock).filter(ProductStock.tenant_id == user.tenant_id).all()
     }
 
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
-        "sku_code", "product_name", "category", "unit", "qty_available", "qty_reserved",
+        "sku_code", "product_name", "variant_label", "unit", "qty_available", "qty_reserved",
         "qty_in_transit", "avg_cost", "low_stock_threshold", "status", "last_updated_at",
     ])
-    for p in products:
-        stock = stocks_by_product.get(p.id)
+    for v in variants:
+        stock = stocks_by_variant.get(v.id)
         if not stock:
             continue
-        badge_label, _ = stock_status_badge(stock, p)
+        badge_label, _ = stock_status_badge(stock, v)
+        unit = v.base_unit or (v.product.base_unit if v.product else None)
         writer.writerow([
-            p.sku_code, p.name, p.category or "",
-            p.base_unit.abbreviation if p.base_unit else "",
+            v.sku_code, v.product.name if v.product else "", v.variant_label or "",
+            unit.abbreviation if unit else "",
             stock.qty_available, stock.qty_reserved, stock.qty_in_transit,
-            stock.avg_cost or "", p.low_stock_threshold or "",
+            stock.avg_cost or "", v.low_stock_threshold or "",
             badge_label, stock.last_updated_at.isoformat() if stock.last_updated_at else "",
         ])
     buf.seek(0)
@@ -419,14 +430,14 @@ def stock_export(user: User = Depends(_require_inventory), db: Session = Depends
 
 @router.get("/inventory-v2/stock-in/new", response_class=HTMLResponse)
 def stock_in_new(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
-    products = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id, Product.is_deleted == False, Product.is_active == True,
+    variants = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False, ProductVariant.is_active == True,
     ).order_by(Product.name).all()
     units = db.query(UnitOfMeasure).filter(
         UnitOfMeasure.tenant_id == user.tenant_id, UnitOfMeasure.is_active == True,
     ).order_by(UnitOfMeasure.name).all()
     return templates.TemplateResponse(request, "inventory_v2/stock_in_new.html", _ctx(
-        db, user, products=products, units=units,
+        db, user, variants=variants, units=units,
         err=request.query_params.get("err", ""),
     ))
 
@@ -434,7 +445,7 @@ def stock_in_new(request: Request, user: User = Depends(_require_inventory), db:
 @router.post("/inventory-v2/stock-in/create")
 async def stock_in_create(
     request: Request,
-    product_id: str = Form(...),
+    variant_id: str = Form(...),
     qty: float = Form(...),
     unit_cost: str = Form(""),
     vendor_name: str = Form(""),
@@ -442,11 +453,11 @@ async def stock_in_create(
     user: User = Depends(_require_inventory),
     db: Session = Depends(get_db),
 ):
-    product = db.query(Product).filter(
-        Product.id == product_id, Product.tenant_id == user.tenant_id, Product.is_deleted == False,
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id, ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
     ).first()
-    if not product:
-        return RedirectResponse("/inventory-v2/stock-in/new?err=Product+not+found", status_code=303)
+    if not variant:
+        return RedirectResponse("/inventory-v2/stock-in/new?err=Variant+not+found", status_code=303)
     if qty <= 0:
         return RedirectResponse("/inventory-v2/stock-in/new?err=Quantity+must+be+positive", status_code=303)
 
@@ -468,7 +479,7 @@ async def stock_in_create(
 
     try:
         handle_stock_in(
-            db, product_id, qty,
+            db, variant_id, qty,
             unit_cost=float(unit_cost) if unit_cost else None,
             vendor_name=vendor_name.strip() or None,
             notes=(notes.strip() or "") + (f" [Bill: {bill_photo_path}]" if bill_photo_path else ""),
@@ -498,10 +509,10 @@ def _validate_stock_in_row(row: dict, tenant_id: str, db: Session) -> List[str]:
     if not sku:
         errors.append("sku_code is required")
     else:
-        product = db.query(Product).filter(
-            Product.tenant_id == tenant_id, Product.sku_code == sku, Product.is_deleted == False,
+        variant = db.query(ProductVariant).filter(
+            ProductVariant.tenant_id == tenant_id, ProductVariant.sku_code == sku, ProductVariant.is_deleted == False,
         ).first()
-        if not product:
+        if not variant:
             errors.append(f"Unknown sku_code: {sku}")
 
     qty_raw = (row.get("qty") or "").strip()
@@ -580,12 +591,12 @@ async def stock_in_bulk_confirm(request: Request, user: User = Depends(_require_
             skipped += 1
             continue
         sku = row.get("sku_code", "").strip()
-        product = db.query(Product).filter(
-            Product.tenant_id == user.tenant_id, Product.sku_code == sku, Product.is_deleted == False,
+        variant = db.query(ProductVariant).filter(
+            ProductVariant.tenant_id == user.tenant_id, ProductVariant.sku_code == sku, ProductVariant.is_deleted == False,
         ).first()
         try:
             handle_stock_in(
-                db, product.id, float(row["qty"]),
+                db, variant.id, float(row["qty"]),
                 unit_cost=float(row["unit_cost"]) if (row.get("unit_cost") or "").strip() else None,
                 vendor_name=(row.get("vendor_name") or "").strip() or None,
                 notes=(row.get("notes") or "").strip() or None,
@@ -615,8 +626,8 @@ def po_list(request: Request, user: User = Depends(_require_inventory), db: Sess
 
 @router.get("/inventory-v2/purchase-orders/new", response_class=HTMLResponse)
 def po_new_form(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
-    products = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id, Product.is_deleted == False, Product.is_active == True,
+    variants = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False, ProductVariant.is_active == True,
     ).order_by(Product.name).all()
     vendors = db.query(Vendor).filter(
         Vendor.tenant_id == user.tenant_id, Vendor.is_deleted == False, Vendor.is_active == True,
@@ -625,7 +636,7 @@ def po_new_form(request: Request, user: User = Depends(_require_inventory), db: 
         UnitOfMeasure.tenant_id == user.tenant_id, UnitOfMeasure.is_active == True,
     ).order_by(UnitOfMeasure.name).all()
     return templates.TemplateResponse(request, "inventory_v2/po_new.html", _ctx(
-        db, user, products=products, vendors=vendors, units=units,
+        db, user, variants=variants, vendors=vendors, units=units,
         err=request.query_params.get("err", ""),
     ))
 
@@ -641,12 +652,12 @@ async def po_create(
     db: Session = Depends(get_db),
 ):
     form = await request.form()
-    product_ids = form.getlist("product_id[]")
+    variant_ids = form.getlist("variant_id[]")
     qtys = form.getlist("qty_ordered[]")
     unit_costs = form.getlist("unit_cost[]")
     unit_ids = form.getlist("unit_id[]")
 
-    if not product_ids:
+    if not variant_ids:
         return RedirectResponse("/inventory-v2/purchase-orders/new?err=Add+at+least+one+line+item", status_code=303)
 
     vendor_name_snapshot = vendor_name.strip() or None
@@ -670,8 +681,8 @@ async def po_create(
     db.add(po)
     db.flush()
 
-    for pid, qty_raw, cost_raw, uid in zip(product_ids, qtys, unit_costs, unit_ids):
-        if not pid or not qty_raw:
+    for vid, qty_raw, cost_raw, uid in zip(variant_ids, qtys, unit_costs, unit_ids):
+        if not vid or not qty_raw:
             continue
         try:
             qty = float(qty_raw)
@@ -680,7 +691,7 @@ async def po_create(
         if qty <= 0:
             continue
         db.add(InventoryPOItem(
-            id=new_id(), po_id=po.id, product_id=pid, qty_ordered=qty,
+            id=new_id(), po_id=po.id, variant_id=vid, qty_ordered=qty,
             unit_cost=float(cost_raw) if cost_raw else None,
             unit_id=uid or None,
         ))
@@ -786,10 +797,10 @@ def po_cancel(po_id: str, user: User = Depends(_require_inventory_manager), db: 
 # STOCK RESERVATION ENGINE — Brief 05
 # ══════════════════════════════════════════════════════════════════════════════
 
-def reserve_stock_for_item(db, product_id: str, order_id: str, order_item_id: str,
+def reserve_stock_for_item(db, variant_id: str, order_id: str, order_item_id: str,
                             qty: float, agent_id: str, tenant_id: str) -> dict:
     """
-    Atomically reserve qty units of a product for one order line item.
+    Atomically reserve qty units of a variant for one order line item.
     MUST be called inside an active transaction.
     Uses SELECT FOR UPDATE (row-level lock on PostgreSQL).
     On SQLite (local dev) with_for_update() is silently ignored — test concurrency on Postgres.
@@ -800,7 +811,7 @@ def reserve_stock_for_item(db, product_id: str, order_id: str, order_item_id: st
     """
     stock = (
         db.query(ProductStock)
-        .filter(ProductStock.product_id == product_id,
+        .filter(ProductStock.variant_id == variant_id,
                 ProductStock.tenant_id  == tenant_id)
         .with_for_update()
         .first()
@@ -815,7 +826,7 @@ def reserve_stock_for_item(db, product_id: str, order_id: str, order_item_id: st
 
         db.add(StockReservation(
             tenant_id      = tenant_id,
-            product_id     = product_id,
+            variant_id     = variant_id,
             order_id       = order_id,
             order_item_id  = order_item_id,
             qty_reserved   = qty,
@@ -826,7 +837,7 @@ def reserve_stock_for_item(db, product_id: str, order_id: str, order_item_id: st
 
         db.add(StockLedgerEntry(
             tenant_id      = tenant_id,
-            product_id     = product_id,
+            variant_id     = variant_id,
             movement_type  = "RESERVATION",
             qty            = qty,
             reference_type = "ORDER",
@@ -847,7 +858,7 @@ def reserve_stock_for_item(db, product_id: str, order_id: str, order_item_id: st
             )
             .join(InventoryPurchaseOrder, InventoryPOItem.po_id == InventoryPurchaseOrder.id)
             .filter(
-                InventoryPOItem.product_id == product_id,
+                InventoryPOItem.variant_id == variant_id,
                 InventoryPurchaseOrder.tenant_id == tenant_id,
                 InventoryPurchaseOrder.status.in_(
                     ["SUBMITTED", "APPROVED", "PARTIALLY_RECEIVED"]
@@ -879,7 +890,7 @@ def release_all_reservations(db, order_id: str, tenant_id: str, reason: str = ""
     for res in reservations:
         stock = (
             db.query(ProductStock)
-            .filter(ProductStock.product_id == res.product_id)
+            .filter(ProductStock.variant_id == res.variant_id)
             .with_for_update()
             .first()
         )
@@ -894,7 +905,7 @@ def release_all_reservations(db, order_id: str, tenant_id: str, reason: str = ""
 
         db.add(StockLedgerEntry(
             tenant_id      = tenant_id,
-            product_id     = res.product_id,
+            variant_id     = res.variant_id,
             movement_type  = "RELEASE",
             qty            = res.qty_reserved,
             reference_type = "ORDER",
@@ -902,13 +913,13 @@ def release_all_reservations(db, order_id: str, tenant_id: str, reason: str = ""
         ))
 
 
-def fulfill_reservation(db, order_id: str, product_id: str,
+def fulfill_reservation(db, order_id: str, variant_id: str,
                          qty_dispatched: float, tenant_id: str, actor_id: str):
     """Mark reservation as FULFILLED when the order is dispatched."""
     reservation = (
         db.query(StockReservation)
         .filter(StockReservation.order_id   == order_id,
-                StockReservation.product_id == product_id,
+                StockReservation.variant_id == variant_id,
                 StockReservation.tenant_id  == tenant_id,
                 StockReservation.status     == "ACTIVE")
         .with_for_update()
@@ -919,7 +930,7 @@ def fulfill_reservation(db, order_id: str, product_id: str,
 
     stock = (
         db.query(ProductStock)
-        .filter(ProductStock.product_id == product_id)
+        .filter(ProductStock.variant_id == variant_id)
         .with_for_update()
         .first()
     )
@@ -933,7 +944,7 @@ def fulfill_reservation(db, order_id: str, product_id: str,
 
     db.add(StockLedgerEntry(
         tenant_id      = tenant_id,
-        product_id     = product_id,
+        variant_id     = variant_id,
         movement_type  = "STOCK_OUT",
         qty            = qty_dispatched,
         reference_type = "ORDER",
@@ -964,7 +975,7 @@ def get_demand_projection(db, tenant_id: str, days: int = 7):
 
     demand_rows = (
         db.query(
-            SalesOrderItem.product_id,
+            SalesOrderItem.variant_id,
             func.sum(
                 SalesOrderItem.qty_ordered - SalesOrderItem.qty_dispatched
             ).label("qty_needed"),
@@ -976,21 +987,21 @@ def get_demand_projection(db, tenant_id: str, days: int = 7):
             SalesOrder.expected_delivery_date != None,
             SalesOrder.expected_delivery_date <= cutoff,
         )
-        .group_by(SalesOrderItem.product_id)
+        .group_by(SalesOrderItem.variant_id)
         .all()
     )
 
     result = []
     for row in demand_rows:
         stock   = db.query(ProductStock).filter(
-            ProductStock.product_id == row.product_id).first()
-        product = db.query(Product).filter(Product.id == row.product_id).first()
-        if not product:
+            ProductStock.variant_id == row.variant_id).first()
+        variant = db.query(ProductVariant).filter(ProductVariant.id == row.variant_id).first()
+        if not variant:
             continue
         gap = (stock.qty_available if stock else 0) - row.qty_needed
 
         result.append({
-            "product":        product,
+            "product":        variant,
             "qty_needed":     row.qty_needed,
             "qty_available":  stock.qty_available if stock else 0,
             "qty_in_transit": stock.qty_in_transit if stock else 0,

@@ -66,17 +66,49 @@ def has_module(user, module: str) -> bool:
 
 def get_user_tabs(user, tenant, db: Session = None) -> list:
     """Effective nav tabs visible to this user, constrained by tenant-enabled tabs.
-    ADMIN/MANAGER and users with no tab_access_json set (None) get every
-    tenant-enabled tab — restriction is opt-in per employee."""
+    ADMIN and users with no tab_access_json set (None) get every tenant-enabled
+    tab — restriction is opt-in per employee/manager."""
     from .constants import get_tenant_enabled_tabs
     tenant_tabs = get_tenant_enabled_tabs(tenant, db)
-    if user.role in ("ADMIN", "MANAGER") or not user.tab_access_json:
+    if user.role == "ADMIN" or not user.tab_access_json:
         return tenant_tabs
     try:
         selected = set(_json.loads(user.tab_access_json))
     except Exception:
         return tenant_tabs
     return [t for t in tenant_tabs if t in selected]
+
+
+def get_nav_flags(db: Session, user, tenant=None) -> dict:
+    """Return nav feature flags for base.html — the single source of truth for
+    which tabs are visible, shared by every blueprint so the nav bar stays
+    consistent no matter which route rendered the current page."""
+    from .database import Tenant as _Tenant
+    if user is None:
+        return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_checklists": False, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
+    try:
+        from .constants import has_feature
+        t = tenant or db.query(_Tenant).filter(_Tenant.id == user.tenant_id).first()
+        modules = get_user_modules(user)
+        # Per-employee/manager tab access — falls back to every tenant-enabled tab when unset
+        user_tabs = get_user_tabs(user, t, db) if t else []
+        return {
+            "has_inventory":         has_feature(t, "INVENTORY",       db) if t else False,
+            "has_tickets":           "TICKETS"    in user_tabs,
+            "has_fms":               "FMS"        in user_tabs,
+            "has_knowledge_repo":    "KNOWLEDGE"  in user_tabs,
+            "has_checklists":        "CHECKLISTS" in user_tabs,
+            "has_sales":             "SALES"     in modules and "SALES"     in user_tabs,
+            "has_inventory_module":  "INVENTORY" in modules and "INVENTORY" in user_tabs,
+            "has_sales_analytics":   (has_feature(t, "SALES_ANALYTICS", db) if t else False)
+                                      and (has_feature(t, "SALES_MODULE", db) if t else False)
+                                      and "SALES" in modules and user.role in ("ADMIN", "MANAGER"),
+            "user_modules":          modules,
+        }
+    except Exception as _e:
+        import logging as _log
+        _log.getLogger(__name__).warning("get_nav_flags failed: %s", _e)
+        return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_knowledge_repo": False, "has_checklists": True, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
 
 
 def require_module(module: str, feature: str):

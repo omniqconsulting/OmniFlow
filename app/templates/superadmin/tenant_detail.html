@@ -333,7 +333,7 @@ document.addEventListener('DOMContentLoaded', function() {
       <td style="color:#e2e8f0">{{ t.title }}</td>
       <td>
         <span class="badge badge-{% if t.priority=='CRITICAL' %}red{% elif t.priority=='HIGH' %}amber{% elif t.priority=='MEDIUM' %}blue{% else %}gray{% endif %}">
-          {{ t.priority }}
+          {{ t.priority | priority_label }}
         </span>
       </td>
       <td><span class="badge badge-gray">{{ t.status }}</span></td>
@@ -549,7 +549,7 @@ document.addEventListener('DOMContentLoaded', function() {
       <td>
         {% if t.priority == 'HIGH' %}<span class="badge badge-red" style="font-size:9px">HIGH</span>
         {% elif t.priority == 'MEDIUM' %}<span class="badge badge-yellow" style="font-size:9px">MEDIUM</span>
-        {% else %}<span class="badge badge-gray" style="font-size:9px">{{ t.priority or 'LOW' }}</span>{% endif %}
+        {% else %}<span class="badge badge-gray" style="font-size:9px">{{ (t.priority or 'LOW') | priority_label }}</span>{% endif %}
       </td>
       <td><span class="badge badge-{% if t.status in ('COMPLETED','CLOSED') %}green{% elif t.status == 'IN_PROGRESS' %}blue{% else %}gray{% endif %}" style="font-size:9px">{{ t.status }}</span></td>
       <td class="muted" style="font-size:11px">{{ t.created_at.strftime('%d %b %Y') if t.created_at else '—' }}</td>

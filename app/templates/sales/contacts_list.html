@@ -44,6 +44,7 @@
 </form>
 
 {% if rows %}
+<div class="card" style="padding:0;overflow:hidden">
 <table class="table" style="width:100%">
   <thead><tr>
     <th>Name</th><th>Phone</th><th>Tier</th><th>Assigned Agent</th>
@@ -65,6 +66,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 
 {% if total > page_size %}
 <div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:24px;font-size:12px;color:var(--text-muted)">

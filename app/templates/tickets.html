@@ -137,7 +137,7 @@
       {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
       <label class="ms-item">
         <input type="checkbox" value="{{ p }}" onchange="onMsChange(this)" {% if p in priority %}checked{% endif %}>
-        {{ p }}
+        {{ p | priority_label }}
       </label>
       {% endfor %}
     </div>
@@ -245,12 +245,13 @@
       <a href="/tickets/{{ t.id }}" style="font-weight:500;color:var(--text-primary);text-decoration:none">{{ t.title }}</a>
       {% set cat = t.ticket_category if t.ticket_category is defined else 'NORMAL' %}
       {% if cat == 'HELP' %}<span class="badge badge-amber" style="font-size:9px;margin-left:4px">HELP</span>{% endif %}
+      {% if t.acknowledged_at %}<span class="badge badge-green" style="font-size:9px;margin-left:4px" title="Acknowledged {{ t.acknowledged_at.strftime('%d %b, %H:%M') }}">✓ Acked</span>{% endif %}
     </td>
     <td>
       <span class="badge {{ sty[0] }}" style="font-size:10px;white-space:nowrap">{{ sty[1] }}</span>
     </td>
     <td>
-      <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}">{{ t.priority }}</span>
+      <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}">{{ t.priority | priority_label }}</span>
     </td>
     <td style="color:var(--text-muted);font-size:12px">{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
     <td {% if t.due_at and t.due_at < now and t.status not in ('CLOSED','DONE') %}style="color:#f87171;font-size:12px"{% else %}style="color:var(--text-muted);font-size:12px"{% endif %}>
@@ -360,7 +361,7 @@
         <div class="form-group">
           <label class="form-label">Priority</label>
           <select name="priority" class="form-input">
-            <option>LOW</option><option selected>MEDIUM</option><option>HIGH</option><option>CRITICAL</option>
+            <option>LOW</option><option selected>MEDIUM</option><option>HIGH</option><option value="CRITICAL">TOP PRIORITY</option>
           </select>
         </div>
         <div class="form-group">
@@ -385,6 +386,11 @@
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);margin-bottom:16px;cursor:pointer">
         <input type="checkbox" name="evidence_required" value="true"> Evidence required (photo/file upload before completion)
       </label>
+
+      <div class="form-group">
+        <label class="form-label">Attach document (PDF/photo)</label>
+        <input type="file" name="file" class="form-input" accept=".pdf,image/*">
+      </div>
 
       {# P5-10: Linked Entities #}
       {% set parent_type = 'TICKET' %}

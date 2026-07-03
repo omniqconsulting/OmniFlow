@@ -17,11 +17,11 @@
 
 <div class="card" style="padding:20px;max-width:520px">
   <form method="post" action="/inventory-v2/stock-in/create" enctype="multipart/form-data">
-    <label style="font-size:12px;color:var(--text-muted)">Product</label>
-    <select name="product_id" required style="width:100%;margin-bottom:12px" list="product-list">
-      <option value="">Select a product…</option>
-      {% for p in products %}
-      <option value="{{ p.id }}">{{ p.name }} ({{ p.sku_code }})</option>
+    <label style="font-size:12px;color:var(--text-muted)">Variant (SKU)</label>
+    <select name="variant_id" required style="width:100%;margin-bottom:12px">
+      <option value="">Select a variant…</option>
+      {% for v in variants %}
+      <option value="{{ v.id }}">{{ v.product.name if v.product else '' }} — {{ v.sku_code }}</option>
       {% endfor %}
     </select>
 

@@ -141,7 +141,7 @@ select option{background:var(--bg-card)}
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <span class="badge {{ sc_map.get(ticket.status,'b-gray') }}">{{ ticket.status.replace('_',' ') }}</span>
-        <span class="badge {{ pc_map.get(ticket.priority,'b-gray') }}">{{ ticket.priority }}</span>
+        <span class="badge {{ pc_map.get(ticket.priority,'b-gray') }}">{{ ticket.priority | priority_label }}</span>
         {% if ticket.is_flagged %}<span class="badge b-red">FLAGGED</span>{% endif %}
       </div>
     </div>

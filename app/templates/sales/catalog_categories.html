@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Categories{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:18px">
+  <h2 class="page-title">Categories &amp; Sub-Categories</h2>
+  <a href="/sales/catalog" class="btn btn-sm btn-gray">← Back to Catalog</a>
+</div>
+
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+{% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+<div class="card" style="padding:18px;max-width:520px;margin-bottom:18px">
+  <h3 style="margin-top:0">Add Category</h3>
+  <form method="post" action="/sales/catalog/categories/add" style="display:flex;gap:8px">
+    <input name="name" placeholder="Category name" required style="flex:1">
+    <button type="submit" class="btn btn-sm btn-primary">Add</button>
+  </form>
+</div>
+
+{% for cat in categories %}
+<div class="card" style="padding:18px;max-width:680px;margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <h3 style="margin:0">{{ cat.name }}</h3>
+    <form method="post" action="/sales/catalog/categories/{{ cat.id }}/delete" onsubmit="return confirm('Remove this category?')">
+      <button type="submit" class="btn btn-xs btn-gray">Remove</button>
+    </form>
+  </div>
+  <ul style="list-style:none;padding:0;margin:10px 0">
+    {% for sc in subcats_by_cat.get(cat.id, []) %}
+    <li style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:13px">
+      <span>{{ sc.name }}</span>
+      <form method="post" action="/sales/catalog/subcategories/{{ sc.id }}/delete" onsubmit="return confirm('Remove this sub-category?')">
+        <button type="submit" class="btn btn-xs btn-gray">Remove</button>
+      </form>
+    </li>
+    {% else %}
+    <li style="font-size:12px;color:var(--text-faint);padding:6px 0">No sub-categories yet</li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="/sales/catalog/subcategories/add" style="display:flex;gap:8px">
+    <input type="hidden" name="category_id" value="{{ cat.id }}">
+    <input name="name" placeholder="New sub-category name" required style="flex:1">
+    <button type="submit" class="btn btn-xs btn-outline">Add Sub-Category</button>
+  </form>
+</div>
+{% else %}
+<div style="color:var(--text-faint);font-size:13px">No categories yet — add one above.</div>
+{% endfor %}
+{% endblock %}

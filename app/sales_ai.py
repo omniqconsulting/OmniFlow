@@ -9,7 +9,7 @@ from sqlalchemy import func, case
 
 from .database import (
     TierSnapshot, AnomalyAlert,
-    Product, Customer, SalesOrder, SalesOrderItem, CostEntry, ProductStock,
+    Product, ProductVariant, Customer, SalesOrder, SalesOrderItem, CostEntry, ProductStock,
     CRMCallLog, User,
 )
 from .auth import has_module
@@ -17,18 +17,18 @@ from .auth import has_module
 
 def run_tier_classification(db, tenant_id: str):
     """
-    Computes A/B/C/D tiers for all products and customers.
+    Computes A/B/C/D tiers for all variants (SKUs) and customers.
     Reads last 90 days of confirmed/dispatched/delivered orders.
-    Writes TierSnapshot rows and updates products.product_tier + customers.customer_tier.
+    Writes TierSnapshot rows and updates product_variants.product_tier + customers.customer_tier.
     Safe to run multiple times — existing tier values are overwritten.
     """
     period_label = "W" + datetime.utcnow().strftime("%Y-%U")
     cutoff       = datetime.utcnow() - timedelta(days=90)
 
-    # ── PRODUCT TIERS: Pareto by revenue contribution ─────────────────────
-    product_stats = (
+    # ── VARIANT TIERS: Pareto by revenue contribution ──────────────────────
+    variant_stats = (
         db.query(
-            SalesOrderItem.product_id,
+            SalesOrderItem.variant_id,
             func.sum(SalesOrderItem.line_total).label("revenue"),
             func.sum(SalesOrderItem.qty_ordered).label("volume"),
             func.avg(
@@ -47,15 +47,15 @@ def run_tier_classification(db, tenant_id: str):
             SalesOrder.created_at >= cutoff,
             SalesOrder.is_deleted == False,
         )
-        .group_by(SalesOrderItem.product_id)
+        .group_by(SalesOrderItem.variant_id)
         .order_by(func.sum(SalesOrderItem.line_total).desc())
         .all()
     )
 
-    total_revenue = sum(r.revenue or 0 for r in product_stats) or 1
+    total_revenue = sum(r.revenue or 0 for r in variant_stats) or 1
     cumulative = 0
 
-    for row in product_stats:
+    for row in variant_stats:
         cumulative += (row.revenue or 0)
         pct = cumulative / total_revenue * 100
         tier = "A" if pct <= 70 else ("B" if pct <= 90 else ("C" if pct <= 98 else "D"))
@@ -63,7 +63,7 @@ def run_tier_classification(db, tenant_id: str):
         db.add(TierSnapshot(
             tenant_id    = tenant_id,
             entity_type  = "PRODUCT",
-            entity_id    = row.product_id,
+            entity_id    = row.variant_id,
             tier         = tier,
             score        = round(row.revenue or 0, 2),
             basis_json   = json.dumps({
@@ -74,18 +74,18 @@ def run_tier_classification(db, tenant_id: str):
             }),
             period_label = period_label,
         ))
-        db.query(Product).filter(Product.id == row.product_id).update(
+        db.query(ProductVariant).filter(ProductVariant.id == row.variant_id).update(
             {"product_tier": tier}
         )
 
-    # Products with zero orders in 90 days → UNRANKED
-    sold_product_ids = {r.product_id for r in product_stats}
-    q = db.query(Product).filter(
-        Product.tenant_id == tenant_id,
-        Product.is_deleted == False,
+    # Variants with zero orders in 90 days → UNRANKED
+    sold_variant_ids = {r.variant_id for r in variant_stats}
+    q = db.query(ProductVariant).filter(
+        ProductVariant.tenant_id == tenant_id,
+        ProductVariant.is_deleted == False,
     )
-    if sold_product_ids:
-        q = q.filter(Product.id.notin_(sold_product_ids))
+    if sold_variant_ids:
+        q = q.filter(ProductVariant.id.notin_(sold_variant_ids))
     q.update({"product_tier": "UNRANKED"}, synchronize_session=False)
 
     # ── CUSTOMER TIERS: RFM scoring ───────────────────────────────────────
@@ -161,15 +161,18 @@ def run_anomaly_detection(db, tenant_id: str, anthropic_client):
     alerts_to_create = []
 
     # ── 1. PRICE_SPIKE: buy price up >15% vs prior readings ───────────────
-    products = db.query(Product).filter(
-        Product.tenant_id == tenant_id,
-        Product.is_deleted == False,
+    variants = db.query(ProductVariant).filter(
+        ProductVariant.tenant_id == tenant_id,
+        ProductVariant.is_deleted == False,
     ).all()
 
-    for product in products:
+    def _variant_label(v):
+        return f"{v.product.name} — {v.sku_code}" if v.product else v.sku_code
+
+    for variant in variants:
         recent = (
             db.query(CostEntry)
-            .filter(CostEntry.product_id == product.id,
+            .filter(CostEntry.variant_id == variant.id,
                     CostEntry.cost_type  == "BUY_PRICE",
                     CostEntry.tenant_id  == tenant_id)
             .order_by(CostEntry.effective_date.desc())
@@ -184,8 +187,8 @@ def run_anomaly_detection(db, tenant_id: str, anthropic_client):
                 alerts_to_create.append({
                     "alert_type":   "PRICE_SPIKE",
                     "entity_type":  "PRODUCT",
-                    "entity_id":    product.id,
-                    "entity_label": product.name,
+                    "entity_id":    variant.id,
+                    "entity_label": _variant_label(variant),
                     "severity":     "HIGH" if pct > 25 else "MEDIUM",
                     "metric":       {"current": latest, "baseline": round(baseline, 2),
                                      "pct_change": round(pct, 1)},
@@ -195,7 +198,7 @@ def run_anomaly_detection(db, tenant_id: str, anthropic_client):
     week_ago   = datetime.utcnow() - timedelta(days=7)
     month_ago  = datetime.utcnow() - timedelta(days=35)
 
-    def get_avg_margin(db, tenant_id, product_id, start, end):
+    def get_avg_margin(db, tenant_id, variant_id, start, end):
         return (
             db.query(
                 func.avg(
@@ -205,7 +208,7 @@ def run_anomaly_detection(db, tenant_id: str, anthropic_client):
             )
             .join(SalesOrder, SalesOrderItem.order_id == SalesOrder.id)
             .filter(SalesOrder.tenant_id   == tenant_id,
-                    SalesOrderItem.product_id == product_id,
+                    SalesOrderItem.variant_id == variant_id,
                     SalesOrderItem.cost_snapshot != None,
                     SalesOrderItem.unit_price    > 0,
                     SalesOrder.status.in_(["CONFIRMED","DISPATCHED","DELIVERED"]),
@@ -214,17 +217,17 @@ def run_anomaly_detection(db, tenant_id: str, anthropic_client):
             .scalar()
         )
 
-    for product in products:
-        this_week_margin   = get_avg_margin(db, tenant_id, product.id, week_ago, datetime.utcnow())
-        prior_month_margin = get_avg_margin(db, tenant_id, product.id, month_ago, week_ago)
+    for variant in variants:
+        this_week_margin   = get_avg_margin(db, tenant_id, variant.id, week_ago, datetime.utcnow())
+        prior_month_margin = get_avg_margin(db, tenant_id, variant.id, month_ago, week_ago)
         if this_week_margin and prior_month_margin:
             drop = prior_month_margin - this_week_margin
             if drop > 10:
                 alerts_to_create.append({
                     "alert_type":   "MARGIN_DROP",
                     "entity_type":  "PRODUCT",
-                    "entity_id":    product.id,
-                    "entity_label": product.name,
+                    "entity_id":    variant.id,
+                    "entity_label": _variant_label(variant),
                     "severity":     "HIGH" if drop > 20 else "MEDIUM",
                     "metric":       {"this_week_margin":  round(this_week_margin, 1),
                                      "prior_month_margin": round(prior_month_margin, 1),
@@ -258,28 +261,28 @@ def run_anomaly_detection(db, tenant_id: str, anthropic_client):
                 "metric":       {"days_since_order": days_gone, "tier": cust.customer_tier},
             })
 
-    # ── 4. LOW_STOCK: tier-A product below threshold ──────────────────────
+    # ── 4. LOW_STOCK: tier-A variant below threshold ───────────────────────
     low_stock_rows = (
-        db.query(ProductStock, Product)
-        .join(Product, ProductStock.product_id == Product.id)
+        db.query(ProductStock, ProductVariant)
+        .join(ProductVariant, ProductStock.variant_id == ProductVariant.id)
         .filter(
             ProductStock.tenant_id     == tenant_id,
-            Product.product_tier       == "A",
-            Product.low_stock_threshold != None,
-            ProductStock.qty_available < Product.low_stock_threshold,
-            Product.is_deleted         == False,
+            ProductVariant.product_tier       == "A",
+            ProductVariant.low_stock_threshold != None,
+            ProductStock.qty_available < ProductVariant.low_stock_threshold,
+            ProductVariant.is_deleted         == False,
         )
         .all()
     )
-    for stock, product in low_stock_rows:
+    for stock, variant in low_stock_rows:
         alerts_to_create.append({
             "alert_type":   "LOW_STOCK",
             "entity_type":  "PRODUCT",
-            "entity_id":    product.id,
-            "entity_label": product.name,
+            "entity_id":    variant.id,
+            "entity_label": _variant_label(variant),
             "severity":     "HIGH" if stock.qty_available <= 0 else "MEDIUM",
             "metric":       {"available":  stock.qty_available,
-                             "threshold":  product.low_stock_threshold,
+                             "threshold":  variant.low_stock_threshold,
                              "in_transit": stock.qty_in_transit},
         })
 

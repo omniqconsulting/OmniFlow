@@ -12,7 +12,7 @@ from sqlalchemy import func, and_
 from sqlalchemy.orm import Session
 
 from .database import (
-    get_db, Customer, Product, SalesOrder, SalesOrderItem,
+    get_db, Customer, Product, ProductVariant, SalesOrder, SalesOrderItem,
     TierSnapshot, AnomalyAlert, User,
 )
 from .auth import get_current_user, has_module
@@ -150,11 +150,12 @@ def analytics_dashboard(request: Request, db: Session = Depends(get_db),
         return counts
 
     customer_tier_dist = tier_distribution("CUSTOMER", Customer, Customer.customer_tier)
-    product_tier_dist  = tier_distribution("PRODUCT",  Product,  Product.product_tier)
+    product_tier_dist  = tier_distribution("PRODUCT",  ProductVariant,  ProductVariant.product_tier)
 
     top_products = (
-        db.query(Product.id, Product.name, func.sum(SalesOrderItem.line_total).label("revenue"))
-        .join(SalesOrderItem, SalesOrderItem.product_id == Product.id)
+        db.query(ProductVariant.id, Product.name, func.sum(SalesOrderItem.line_total).label("revenue"))
+        .join(Product, ProductVariant.product_id == Product.id)
+        .join(SalesOrderItem, SalesOrderItem.variant_id == ProductVariant.id)
         .join(SalesOrder, SalesOrderItem.order_id == SalesOrder.id)
         .filter(
             SalesOrder.tenant_id  == tenant_id,
@@ -162,7 +163,7 @@ def analytics_dashboard(request: Request, db: Session = Depends(get_db),
             SalesOrder.created_at >= thirty_days_ago,
             SalesOrder.is_deleted == False,
         )
-        .group_by(Product.id, Product.name)
+        .group_by(ProductVariant.id, Product.name)
         .order_by(func.sum(SalesOrderItem.line_total).desc())
         .limit(5)
         .all()
@@ -292,18 +293,20 @@ def product_tiers(request: Request, db: Session = Depends(get_db),
                    user: User = Depends(_require_analytics), tier: str = None):
     tenant_id = user.tenant_id
     snapshots = _latest_tier_snapshots(db, tenant_id, "PRODUCT")
-    snap_by_product = {s.entity_id: s for s in snapshots}
+    snap_by_variant = {s.entity_id: s for s in snapshots}
 
-    q = db.query(Product).filter(Product.tenant_id == tenant_id, Product.is_deleted == False)
+    q = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
+        ProductVariant.tenant_id == tenant_id, ProductVariant.is_deleted == False,
+    )
     if tier:
-        q = q.filter(Product.product_tier == tier)
-    products = q.order_by(Product.name).all()
+        q = q.filter(ProductVariant.product_tier == tier)
+    variants = q.order_by(Product.name, ProductVariant.sku_code).all()
 
     rows = []
-    for p in products:
-        snap = snap_by_product.get(p.id)
+    for v in variants:
+        snap = snap_by_variant.get(v.id)
         basis = json.loads(snap.basis_json) if snap and snap.basis_json else None
-        rows.append({"product": p, "snapshot": snap, "basis": basis})
+        rows.append({"product": v, "snapshot": snap, "basis": basis})
 
     return templates.TemplateResponse("sales/analytics_tiers_products.html", _ctx(
         db, user, request=request, rows=rows,
@@ -323,11 +326,12 @@ def volume_breakdown(request: Request, db: Session = Depends(get_db),
 
     rows = (
         db.query(
-            Product.id, Product.name, Product.sku_code, Product.product_tier,
+            ProductVariant.id, Product.name, ProductVariant.sku_code, ProductVariant.product_tier,
             func.sum(SalesOrderItem.line_total).label("revenue"),
             func.sum(SalesOrderItem.qty_ordered).label("volume"),
         )
-        .join(SalesOrderItem, SalesOrderItem.product_id == Product.id)
+        .join(Product, ProductVariant.product_id == Product.id)
+        .join(SalesOrderItem, SalesOrderItem.variant_id == ProductVariant.id)
         .join(SalesOrder, SalesOrderItem.order_id == SalesOrder.id)
         .filter(
             SalesOrder.tenant_id  == tenant_id,
@@ -335,7 +339,7 @@ def volume_breakdown(request: Request, db: Session = Depends(get_db),
             SalesOrder.created_at >= cutoff,
             SalesOrder.is_deleted == False,
         )
-        .group_by(Product.id, Product.name, Product.sku_code, Product.product_tier)
+        .group_by(ProductVariant.id, Product.name, ProductVariant.sku_code, ProductVariant.product_tier)
         .order_by(func.sum(SalesOrderItem.line_total).desc())
         .all()
     )

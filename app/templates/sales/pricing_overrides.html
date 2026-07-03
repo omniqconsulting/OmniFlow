@@ -24,9 +24,9 @@
       </select>
     </div>
     <div>
-      <label style="font-size:12px;color:var(--text-muted)">Product *</label><br>
-      <select name="product_id" required style="min-width:160px">
-        {% for p in products %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      <label style="font-size:12px;color:var(--text-muted)">Variant (SKU) *</label><br>
+      <select name="variant_id" required style="min-width:160px">
+        {% for v in variants %}<option value="{{ v.id }}">{{ v.product.name if v.product else '' }} — {{ v.sku_code }}</option>{% endfor %}
       </select>
     </div>
     <div>
@@ -51,6 +51,7 @@
 {% endif %}
 
 {% if overrides %}
+<div class="card" style="padding:0;overflow:hidden">
 <table style="width:100%;font-size:13px;border-collapse:collapse">
   <thead>
     <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
@@ -64,7 +65,7 @@
     {% for o in overrides %}
     <tr style="border-bottom:1px solid var(--border-subtle)">
       <td style="padding:6px 8px">{{ o.customer.name if o.customer else '—' }}</td>
-      <td style="padding:6px 8px">{{ o.product.name if o.product else '—' }}</td>
+      <td style="padding:6px 8px">{{ (o.variant.product.name + ' — ' + o.variant.sku_code) if o.variant and o.variant.product else (o.variant.sku_code if o.variant else '—') }}</td>
       <td style="padding:6px 8px">₹{{ '%.2f'|format(o.unit_price) }}</td>
       <td style="padding:6px 8px">{{ o.valid_from.strftime('%d %b %Y') if o.valid_from else '—' }}</td>
       <td style="padding:6px 8px">{{ o.valid_to.strftime('%d %b %Y') if o.valid_to else '—' }}</td>
@@ -80,6 +81,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <div class="muted">No active overrides.</div>
 {% endif %}

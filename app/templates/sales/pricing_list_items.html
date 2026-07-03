@@ -5,7 +5,7 @@
 <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
   <div>
     <h2 class="page-title">{{ price_list.name }}</h2>
-    <div class="muted">{{ products|length }} products</div>
+    <div class="muted">{{ variants|length }} variants</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     {% if is_admin %}
@@ -19,7 +19,12 @@
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-<table style="width:100%;font-size:13px;border-collapse:collapse">
+<div class="filter-bar" style="margin-bottom:14px">
+  <input id="priceItemSearch" placeholder="Search product or SKU…" style="flex:1;min-width:220px" oninput="filterPriceItems()">
+</div>
+
+<div class="card" style="padding:0;overflow:hidden">
+<table style="width:100%;font-size:13px;border-collapse:collapse" id="priceItemsTable">
   <thead>
     <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
       <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
@@ -28,16 +33,19 @@
     </tr>
   </thead>
   <tbody>
-    {% for p in products %}
-    {% set item = items_by_product.get(p.id) %}
-    <tr style="border-bottom:1px solid var(--border-subtle)">
-      <td style="padding:6px 8px">{{ p.name }}</td>
-      <td style="padding:6px 8px">{{ p.sku_code }}</td>
-      <td style="padding:6px 8px">{{ '₹%.2f'|format(item.unit_price) if item else '—' }}</td>
+    {% for v in variants %}
+    {% set item = items_by_variant.get(v.id) %}
+    <tr style="border-bottom:1px solid var(--border-subtle)" data-search="{{ (v.product.name if v.product else '') | lower }} {{ v.sku_code | lower }}">
+      <td style="padding:6px 8px">{{ v.product.name if v.product else '—' }}</td>
+      <td style="padding:6px 8px">{{ v.sku_code }}</td>
+      <td style="padding:6px 8px">
+        {% if item %}₹{{ '%.2f'|format(item.unit_price) }}
+        {% else %}<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#ef4444">NO PRICE</span>{% endif %}
+      </td>
       {% if is_admin %}
       <td style="padding:6px 8px">
         <form method="post" action="/sales/pricing/lists/{{ price_list.id }}/items/set" style="display:flex;gap:6px">
-          <input type="hidden" name="product_id" value="{{ p.id }}">
+          <input type="hidden" name="variant_id" value="{{ v.id }}">
           <input name="unit_price" type="number" step="0.01" value="{{ item.unit_price if item else '' }}" style="width:110px">
           <button type="submit" class="btn btn-sm btn-outline">Save</button>
         </form>
@@ -54,5 +62,15 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
+
+<script>
+function filterPriceItems() {
+  const q = document.getElementById('priceItemSearch').value.toLowerCase().trim();
+  document.querySelectorAll('#priceItemsTable tbody tr').forEach(function(row) {
+    row.style.display = !q || row.dataset.search.includes(q) ? '' : 'none';
+  });
+}
+</script>
 
 {% endblock %}
