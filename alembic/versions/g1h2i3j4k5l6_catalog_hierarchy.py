@@ -157,35 +157,21 @@ def upgrade() -> None:
                     "VALUES (:id, :tenant_id, :category_id, 'General', true, false)"
                 ), {"id": sub_id, "tenant_id": key[0], "category_id": category_map[key]})
 
-        # 4. product_variants: reuse the OLD product id as the variant id —
-        #    every downstream FK value already equals this id, so no rewrite
-        #    of downstream data is needed, only the column rename in step 7.
-        parent_id_by_old_id = {}
-        for row in rows:
-            parent_id = str(uuid.uuid4())
-            parent_id_by_old_id[row["id"]] = parent_id
-            conn.execute(sa.text(
-                "INSERT INTO product_variants (id, tenant_id, product_id, sku_code, variant_label, "
-                "variant_attributes_json, base_unit_id, media_urls_json, product_tier, "
-                "low_stock_threshold, is_active, is_deleted, created_by_id, created_at, updated_at) "
-                "VALUES (:id, :tenant_id, :product_id, :sku_code, :variant_label, '{}', :base_unit_id, "
-                ":media_urls_json, :product_tier, :low_stock_threshold, :is_active, :is_deleted, "
-                ":created_by_id, :created_at, :updated_at)"
-            ), {
-                "id": row["id"], "tenant_id": row["tenant_id"], "product_id": parent_id,
-                "sku_code": row["sku_code"], "variant_label": row["name"],
-                "base_unit_id": row["base_unit_id"], "media_urls_json": row["media_urls_json"] or "[]",
-                "product_tier": row["product_tier"] or "UNRANKED",
-                "low_stock_threshold": row["low_stock_threshold"],
-                "is_active": row["is_active"], "is_deleted": row["is_deleted"],
-                "created_by_id": row["created_by_id"], "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
-            })
+        # 4. Compute the new parent id each old row will get — reused as the
+        #    product_variants FK target below, and as the variant's own id
+        #    (every downstream FK value already equals the old product id,
+        #    so no rewrite of downstream data is needed, only the column
+        #    rename in step 7).
+        parent_id_by_old_id = {row["id"]: str(uuid.uuid4()) for row in rows}
 
         # 5. Add sub_category_id to products (nullable), delete the old atomic
         #    rows, then insert the new parent rows — still against the OLD
         #    products schema (sku_code etc. still present but now unused, will
-        #    be dropped in step 6).
+        #    be dropped in step 6). Must happen BEFORE the product_variants
+        #    insert below: product_variants.product_id has an FK to
+        #    products(id), so the parent row has to exist first (Postgres
+        #    enforces this; SQLite doesn't, which is why this ordering bug
+        #    only surfaced on Postgres).
         if "sub_category_id" not in old_cols:
             op.add_column("products", sa.Column("sub_category_id", sa.String(), nullable=True))
 
@@ -209,13 +195,34 @@ def upgrade() -> None:
                 "updated_at": row["updated_at"],
             })
 
+        # 6. Now that every parent row exists, insert the product_variants
+        #    rows that reference them.
+        for row in rows:
+            conn.execute(sa.text(
+                "INSERT INTO product_variants (id, tenant_id, product_id, sku_code, variant_label, "
+                "variant_attributes_json, base_unit_id, media_urls_json, product_tier, "
+                "low_stock_threshold, is_active, is_deleted, created_by_id, created_at, updated_at) "
+                "VALUES (:id, :tenant_id, :product_id, :sku_code, :variant_label, '{}', :base_unit_id, "
+                ":media_urls_json, :product_tier, :low_stock_threshold, :is_active, :is_deleted, "
+                ":created_by_id, :created_at, :updated_at)"
+            ), {
+                "id": row["id"], "tenant_id": row["tenant_id"], "product_id": parent_id_by_old_id[row["id"]],
+                "sku_code": row["sku_code"], "variant_label": row["name"],
+                "base_unit_id": row["base_unit_id"], "media_urls_json": row["media_urls_json"] or "[]",
+                "product_tier": row["product_tier"] or "UNRANKED",
+                "low_stock_threshold": row["low_stock_threshold"],
+                "is_active": row["is_active"], "is_deleted": row["is_deleted"],
+                "created_by_id": row["created_by_id"], "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            })
+
         parent_total = conn.execute(sa.text("SELECT COUNT(*) FROM products")).scalar()
         variant_total = conn.execute(sa.text("SELECT COUNT(*) FROM product_variants")).scalar()
         assert parent_total == len(rows) and variant_total >= len(rows), (
             "Catalog hierarchy backfill row-count mismatch — aborting migration"
         )
 
-        # 6. Drop the now-obsolete SKU-level columns from products.
+        # 7. Drop the now-obsolete SKU-level columns from products.
         if dialect == "sqlite":
             with op.batch_alter_table("products") as batch_op:
                 batch_op.drop_column("sku_code")
@@ -239,7 +246,7 @@ def upgrade() -> None:
                 for col in ("sku_code", "media_urls_json", "product_tier", "low_stock_threshold", "category"):
                     conn.execute(sa.text(f"ALTER TABLE products DROP COLUMN IF EXISTS {col}"))
 
-    # 7. Rename product_id -> variant_id on every downstream table (data untouched).
+    # 8. Rename product_id -> variant_id on every downstream table (data untouched).
     inspector = sa.inspect(conn)
     existing_tables = inspector.get_table_names()
     for table in _RENAME_TABLES:
@@ -252,7 +259,7 @@ def upgrade() -> None:
     # entity_type='PRODUCT' rows — those values are unchanged (variant ids
     # equal old product ids), so no data update is required there.
 
-    # 8. Link pre-existing Setup > End Products rows to their matching new
+    # 9. Link pre-existing Setup > End Products rows to their matching new
     # ProductVariant by (tenant_id, sku_code), per user request that Catalog
     # and End Products stay in sync going forward.
     existing_tables = sa.inspect(conn).get_table_names()
