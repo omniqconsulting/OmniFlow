@@ -382,6 +382,21 @@ class Notification(Base):
 
     user = relationship("User")
 
+
+class PushSubscription(Base):
+    """Web Push subscription per device — Phase 6 PWA push channel."""
+    __tablename__ = "push_subscriptions"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    endpoint = Column(Text, nullable=False)
+    p256dh_key = Column(String, nullable=False)
+    auth_key = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime)
+
+    user = relationship("User")
+
 class MediaUpload(Base):
     """Shared media table for tickets, checklists & sales order line items — Phase 0-E-1"""
     __tablename__ = "media_uploads"

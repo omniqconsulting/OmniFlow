@@ -105,6 +105,12 @@ def create_notification(db, tenant_id: str, user_id: str,
         "body": body,
         "link": link,
     })
+    # Web Push — third, additive channel alongside in-app + WhatsApp (Phase 6)
+    try:
+        from .push import send_push_for_user
+        send_push_for_user(db, user_id, title, body, link)
+    except Exception:
+        logger.warning("Web push send skipped for user %s", user_id, exc_info=True)
 
 
 def send_whatsapp_for_ticket_assigned(db, ticket, assignee):

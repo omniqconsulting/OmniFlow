@@ -321,7 +321,7 @@
       </button>
       <div id="cl-failed-body" style="display:none;margin-top:12px">
       <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <table class="mobile-cards" style="width:100%;border-collapse:collapse;font-size:12px">
         <thead>
           <tr style="border-bottom:1px solid var(--border-subtle)">
             <th style="text-align:left;padding:10px 12px;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em">Checklist</th>
@@ -432,7 +432,7 @@
     {% endif %}
     {% if templates_list %}
     <div style="overflow-x:auto">
-    <table id="cl-table" style="white-space:nowrap">
+    <table id="cl-table" class="mobile-cards" style="white-space:nowrap">
       <thead>
         <tr>
           {% if user.role == 'ADMIN' %}

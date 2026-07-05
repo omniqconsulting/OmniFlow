@@ -95,6 +95,8 @@ from .sales_analytics import router as analytics_router
 app.include_router(analytics_router)
 from .employee_extras import router as employee_extras_router, DOC_TYPE_LABELS
 app.include_router(employee_extras_router)
+from .push import router as push_router
+app.include_router(push_router)
 from .templates_env import templates, _OrmEncoder, _to_ist, _format_tat  # shared filters
 BASE_DIR = os.path.dirname(__file__)
 

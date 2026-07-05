@@ -247,7 +247,7 @@
       <div class="card">
         <div class="card-hdr"><span class="card-title">Avg TaT by employee</span></div>
         {% if emp_tat %}
-        <table class="dt">
+        <table class="dt mobile-cards">
           <thead><tr><th>{{ L.Employee }}</th><th>Dept</th><th>Closed</th><th>Avg TaT</th><th>vs org</th></tr></thead>
           <tbody>{% for r in emp_tat %}
           <tr>
@@ -267,7 +267,7 @@
       <div class="card">
         <div class="card-hdr"><span class="card-title">By department</span></div>
         {% if deleg_dept %}
-        <table class="dt">
+        <table class="dt mobile-cards">
           <thead><tr><th>Dept</th><th>Open</th><th>Closed</th><th>Overdue</th></tr></thead>
           <tbody>{% for r in deleg_dept %}
           <tr><td class="name">{{ r.dept }}</td><td>{{ r.open }}</td>
@@ -297,7 +297,7 @@
       {% if user.role=='ADMIN' and deleg_mgr %}
       <div class="card">
         <div class="card-hdr"><span class="card-title">By manager</span></div>
-        <table class="dt">
+        <table class="dt mobile-cards">
           <thead><tr><th>Manager</th><th>Team open</th><th>Team closed</th></tr></thead>
           <tbody>{% for r in deleg_mgr %}
           <tr><td class="name">{{ r.manager }}</td><td>{{ r.open }}</td><td style="color:#10b981">{{ r.closed }}</td></tr>
@@ -313,7 +313,7 @@
         <span class="card-title" style="color:#f87171">🔥 Hot tasks</span>
         <span class="cnt" style="background:rgba(239,68,68,0.2);color:#f87171;border-radius:99px;padding:1px 7px;font-size:10px">{{ hot_tasks_count }}</span>
       </div>
-      <table class="dt">
+      <table class="dt mobile-cards">
         <thead><tr><th>Title</th><th>Assignee</th><th>Due</th><th>Days overdue</th></tr></thead>
         <tbody>{% for t in hot_tasks %}
         <tr>
@@ -331,7 +331,7 @@
     {% if flagged %}
     <div class="card" style="border-color:rgba(239,68,68,0.2)">
       <div class="card-hdr"><span class="card-title" style="color:#f87171">🚩 Flagged tickets</span></div>
-      <table class="dt">
+      <table class="dt mobile-cards">
         <thead><tr><th>Title</th><th>Reason</th><th>Assignee</th><th>Due</th><th></th></tr></thead>
         <tbody>{% for t in flagged %}
         <tr>
@@ -399,7 +399,7 @@
       <div class="card">
         <div class="card-hdr"><span class="card-title">By template</span></div>
         {% if cl_tmpl %}
-        <table class="dt">
+        <table class="dt mobile-cards">
           <thead><tr><th>{{ L.Checklist }}</th><th>Freq</th><th>Assigned</th><th>Done</th><th>Rate</th></tr></thead>
           <tbody>{% for r in cl_tmpl %}
           <tr>
@@ -417,7 +417,7 @@
     {% if cl_dept %}
     <div class="card">
       <div class="card-hdr"><span class="card-title">Compliance by department</span></div>
-      <table class="dt">
+      <table class="dt mobile-cards">
         <thead><tr><th>{{ L.Department }}</th><th>Assigned</th><th>Done</th><th style="min-width:180px">Rate</th></tr></thead>
         <tbody>{% for r in cl_dept %}
         <tr>
@@ -487,7 +487,7 @@
     <div class="card">
       <div class="card-hdr"><span class="card-title">Flow-level summary</span></div>
       {% if fms_flows %}
-      <table class="dt">
+      <table class="dt mobile-cards">
         <thead><tr><th>Flow</th><th>Active</th><th>Completed</th><th>Flagged</th><th>Avg stage TaT</th><th>Breaches</th><th></th></tr></thead>
         <tbody>
         {% for flow in fms_flows %}
@@ -519,7 +519,7 @@
                 <span style="font-size:12px;font-weight:500;color:var(--text-strong)">{{ flow.name }} — stage breakdown</span>
                 <span class="badge b-blue">{{ flow.active }} active tickets</span>
               </div>
-              <table class="dt">
+              <table class="dt mobile-cards">
                 <thead><tr><th>Stage</th><th>Tickets here</th><th>Avg time at stage</th><th>TaT target</th><th>Breaches</th><th>Oldest ticket</th></tr></thead>
                 <tbody>{% for s in fms_stage_bd %}
                 <tr>
@@ -557,7 +557,7 @@
       <button class="modal-close" onclick="closeModal('deleg-due')">×</button>
     </div>
     {% if deleg_sc.due_24h_tickets %}
-    <table class="dt">
+    <table class="dt mobile-cards">
       <thead><tr><th>Title</th><th>Assignee</th><th>Due</th><th>Priority</th><th></th></tr></thead>
       <tbody>{% for t in deleg_sc.due_24h_tickets %}
       <tr>
@@ -580,7 +580,7 @@
       <button class="modal-close" onclick="closeModal('cl-due')">×</button>
     </div>
     {% if cl_sc.due_24h_items %}
-    <table class="dt">
+    <table class="dt mobile-cards">
       <thead><tr><th>{{ L.Checklist }}</th><th>Assignee</th><th>Due</th></tr></thead>
       <tbody>{% for item in cl_sc.due_24h_items %}
       <tr>
@@ -602,7 +602,7 @@
       <button class="modal-close" onclick="closeModal('fms-due')">×</button>
     </div>
     {% if fms_sc.due_24h_tickets %}
-    <table class="dt">
+    <table class="dt mobile-cards">
       <thead><tr><th>Title</th><th>Flow</th><th>Stage</th><th>Assignee</th><th>Due</th><th></th></tr></thead>
       <tbody>{% for t in fms_sc.due_24h_tickets %}
       <tr>
