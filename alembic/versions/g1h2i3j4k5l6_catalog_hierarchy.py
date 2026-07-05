@@ -147,14 +147,14 @@ def upgrade() -> None:
                 category_map[key] = cat_id
                 conn.execute(sa.text(
                     "INSERT INTO categories (id, tenant_id, name, is_active, is_deleted) "
-                    "VALUES (:id, :tenant_id, :name, 1, 0)"
+                    "VALUES (:id, :tenant_id, :name, true, false)"
                 ), {"id": cat_id, "tenant_id": key[0], "name": key[1]})
             if key not in subcat_map:
                 sub_id = str(uuid.uuid4())
                 subcat_map[key] = sub_id
                 conn.execute(sa.text(
                     "INSERT INTO sub_categories (id, tenant_id, category_id, name, is_active, is_deleted) "
-                    "VALUES (:id, :tenant_id, :category_id, 'General', 1, 0)"
+                    "VALUES (:id, :tenant_id, :category_id, 'General', true, false)"
                 ), {"id": sub_id, "tenant_id": key[0], "category_id": category_map[key]})
 
         # 4. product_variants: reuse the OLD product id as the variant id —
