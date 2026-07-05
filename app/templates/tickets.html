@@ -274,6 +274,19 @@
       {% elif t.status == 'CLOSED' %}
       <span style="font-size:11px;color:var(--text-xfaint)">Closed</span>
       {% endif %}
+      {# Acknowledge — assignee only, before it's been acknowledged, not yet closed #}
+      {% if t.current_assignee_id == user.id and not t.acknowledged_at and t.status != 'CLOSED' %}
+      <form method="post" action="/tickets/{{ t.id }}/acknowledge" style="display:inline">
+        <button type="submit" class="btn btn-xs btn-green" style="margin-left:4px">✓ Acknowledge</button>
+      </form>
+      {% endif %}
+      {# Direct close — Admin/Manager only, skips the Done stage #}
+      {% if user.role in ('ADMIN','MANAGER') and t.status in ('OPEN','DONE') %}
+      <form method="post" action="/tickets/{{ t.id }}/close-direct" style="display:inline"
+            onsubmit="return confirm('Close this ticket directly, skipping the Done stage?')">
+        <button type="submit" class="btn btn-xs btn-red" title="Close Directly" style="margin-left:4px">⏭ Close</button>
+      </form>
+      {% endif %}
       {# Send Reminder (Admin/Manager only, for open tickets) #}
       {% if user.role in ('ADMIN','MANAGER') and t.status not in ('DONE','CLOSED') %}
       <form method="post" action="/tickets/{{ t.id }}/remind" style="display:inline">
