@@ -28,8 +28,27 @@ _DEV_VAPID_PRIVATE_KEY = (
     "-----END PRIVATE KEY-----\n"
 )
 
+def _resolve_vapid_private_key(raw: str) -> str:
+    """
+    Accepts either a raw multi-line PEM string, or that same PEM
+    base64-encoded onto a single line (for env-var UIs that don't support
+    multi-line values). Returns a proper multi-line PEM string either way.
+    """
+    raw = raw.strip()
+    if raw.startswith("-----BEGIN"):
+        return raw
+    import base64
+    try:
+        return base64.b64decode(raw).decode()
+    except Exception:
+        logger.warning("VAPID_PRIVATE_KEY is set but not valid PEM or base64 — falling back to dev key")
+        return _DEV_VAPID_PRIVATE_KEY
+
+
 VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", _DEV_VAPID_PUBLIC_KEY)
-VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", _DEV_VAPID_PRIVATE_KEY)
+VAPID_PRIVATE_KEY = _resolve_vapid_private_key(
+    os.environ.get("VAPID_PRIVATE_KEY", _DEV_VAPID_PRIVATE_KEY)
+)
 VAPID_CLAIM_EMAIL = os.environ.get("VAPID_CLAIM_EMAIL", "mailto:admin@omniflow.app")
 
 
