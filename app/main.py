@@ -1174,6 +1174,26 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             }
             sum_perf_score, sum_perf_components = _compute_perf_score(_kpis_v, _formula_w)
 
+            # ── Priority tasks — CRITICAL/HIGH priority, not closed ──────────
+            hot_q = db.query(Ticket).filter(
+                Ticket.tenant_id == tid, Ticket.is_deleted == False,
+                Ticket.priority.in_(["CRITICAL", "HIGH"]), Ticket.status != "CLOSED")
+            if user.role == "MANAGER":
+                mgr_team_ids = [u.id for u in db.query(User).filter(
+                    User.manager_id == user.id, User.is_deleted == False).all()]
+                mgr_team_ids.append(user.id)
+                mgr_helper_tids = [h.ticket_id for h in db.query(TicketAssignee).filter(
+                    TicketAssignee.user_id.in_(mgr_team_ids)).all()]
+                hot_q = hot_q.filter(
+                    (Ticket.current_assignee_id.in_(mgr_team_ids)) |
+                    (Ticket.created_by_id.in_(mgr_team_ids)) |
+                    (Ticket.id.in_(mgr_helper_tids))
+                )
+            hot_tasks = hot_q.order_by(
+                Ticket.priority.asc(), Ticket.due_at.asc().nullslast()).all()
+            hot_tasks_count = len(hot_tasks)
+            hot_tasks = hot_tasks[:10]
+
             return templates.TemplateResponse(request, "dashboard_summary.html", {
                 "user": user, "unread": unread, "L": _L(db, user),
                 "now": datetime.utcnow(),
@@ -1186,6 +1206,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
                 "kpis": kpis, "dept_health": dept_health,
                 "has_fms": has_fms, "has_checklists": has_checklists,
                 "perf_score": sum_perf_score, "perf_components": sum_perf_components,
+                "hot_tasks": hot_tasks, "hot_tasks_count": hot_tasks_count,
             })
 
         # ── Detailed View ─────────────────────────────────────────────────────

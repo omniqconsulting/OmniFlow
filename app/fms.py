@@ -878,6 +878,9 @@ def fms_dashboard(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     my_work: int = 0,
+    log_event_type: List[str] = Query([]),
+    log_actor_id: Optional[str] = None,
+    log_search: Optional[str] = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -885,7 +888,7 @@ def fms_dashboard(
     # View name normalisation — map legacy names and accept new names
     _view_map = {"list": "stage", "stage_table": "stage", "consolidated": "table"}
     view = _view_map.get(view, view)
-    if view not in ("table", "stage", "timeline", "swimlane"):
+    if view not in ("table", "stage", "timeline", "swimlane", "log"):
         view = "stage"
     import logging as _log, traceback as _tb
     try:
@@ -896,6 +899,7 @@ def fms_dashboard(
             f_priority=f_priority, f_assignee_id=f_assignee_id,
             date_from=date_from, date_to=date_to,
             my_work=my_work,
+            log_event_type=log_event_type, log_actor_id=log_actor_id, log_search=log_search,
             user=user, db=db,
         )
     except Exception as _exc:
@@ -909,6 +913,7 @@ def _fms_dashboard_inner(
     request, flow_id, stage_id, view, dept_id, manager_id, branch_id,
     month, status_filter, f_priority, f_assignee_id, date_from, date_to, user, db,
     my_work: int = 0,
+    log_event_type: List[str] = [], log_actor_id: Optional[str] = None, log_search: Optional[str] = None,
 ):
     tid = user.tenant_id
     now = datetime.utcnow()
@@ -1307,6 +1312,76 @@ def _fms_dashboard_inner(
     employees = db.query(User).filter(
         User.tenant_id == tid, User.is_deleted == False, User.is_active == True,
     ).order_by(User.name).all()
+
+    # ── Log view — consolidated audit trail (all events + field edits) across
+    # every ticket the user can see, filterable by event type / user / date /
+    # ticket search. Reuses base_q, which is already role- and filter-bar-scoped.
+    log_rows = []
+    log_event_types = []
+    if view == "log":
+        log_event_types = sorted({
+            r[0] for r in db.query(FMSEvent.event_type).distinct().all()
+        } | {"FIELD_EDITED", "FIELD_RECALCULATED"})
+        log_tids = [row[0] for row in base_q.with_entities(FMSTicket.id).all()]
+        if log_tids:
+            tickets_by_id = {t.id: t for t in db.query(FMSTicket).filter(FMSTicket.id.in_(log_tids)).all()}
+
+            ev_q = db.query(FMSEvent).filter(FMSEvent.ticket_id.in_(log_tids))
+            edit_q = db.query(FMSFieldEditLog).filter(
+                FMSFieldEditLog.tenant_id == tid, FMSFieldEditLog.ticket_id.in_(log_tids))
+            if log_actor_id:
+                ev_q = ev_q.filter(FMSEvent.actor_id == log_actor_id)
+                edit_q = edit_q.filter(FMSFieldEditLog.edited_by_id == log_actor_id)
+            if date_from:
+                try:
+                    _df = datetime.fromisoformat(date_from)
+                    ev_q = ev_q.filter(FMSEvent.created_at >= _df)
+                    edit_q = edit_q.filter(FMSFieldEditLog.edited_at >= _df)
+                except ValueError:
+                    pass
+            if date_to:
+                try:
+                    _dtt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                    ev_q = ev_q.filter(FMSEvent.created_at < _dtt)
+                    edit_q = edit_q.filter(FMSFieldEditLog.edited_at < _dtt)
+                except ValueError:
+                    pass
+
+            _search = (log_search or "").strip().lower()
+
+            def _matches_search(t):
+                if not _search:
+                    return True
+                return _search in (t.display_id or "").lower() or _search in (t.title or "").lower()
+
+            for e in ev_q.order_by(FMSEvent.created_at.desc()).limit(500).all():
+                if log_event_type and e.event_type not in log_event_type:
+                    continue
+                t = tickets_by_id.get(e.ticket_id)
+                if not t or not _matches_search(t):
+                    continue
+                log_rows.append({
+                    "at": e.created_at, "ticket": t, "event_type": e.event_type,
+                    "detail": e.detail, "actor_name": e.actor.name if e.actor else "System",
+                })
+
+            if not log_event_type or "FIELD_EDITED" in log_event_type or "FIELD_RECALCULATED" in log_event_type:
+                for ed in edit_q.order_by(FMSFieldEditLog.edited_at.desc()).limit(500).all():
+                    ev_type = "FIELD_RECALCULATED" if ed.is_cascade else "FIELD_EDITED"
+                    if log_event_type and ev_type not in log_event_type:
+                        continue
+                    t = tickets_by_id.get(ed.ticket_id)
+                    if not t or not _matches_search(t):
+                        continue
+                    log_rows.append({
+                        "at": ed.edited_at, "ticket": t, "event_type": ev_type,
+                        "detail": f"{ed.field_label or ed.field_id}: {ed.old_value or '—'} → {ed.new_value or '—'}"
+                                  + (f" ({ed.reason})" if ed.reason else ""),
+                        "actor_name": ed.edited_by.name if ed.edited_by else "System",
+                    })
+
+            log_rows.sort(key=lambda r: r["at"], reverse=True)
+            log_rows = log_rows[:400]
 
     # ── P7-03/04: Stage-table view ────────────────────────────────────────────
     stage_table_stages = []
@@ -1752,6 +1827,12 @@ def _fms_dashboard_inner(
         table_tickets=table_tickets,
         # Timeline view
         timeline_data=timeline_data,
+        # Log view — consolidated audit trail
+        log_rows=log_rows,
+        log_event_types=log_event_types,
+        f_log_event_type=list(log_event_type),
+        f_log_actor_id=log_actor_id or "",
+        f_log_search=log_search or "",
         # swimlane (legacy)
         tickets_by_stage=tickets_by_stage,
         tat_info=tat_info,
@@ -4296,10 +4377,46 @@ async def fms_table_cell_edit(
             return None
         return str(int(result)) if result == int(result) else f"{result:.4f}".rstrip("0")
 
+    try:
+        ticket_field_defs = (_json.loads(ticket.flow.ticket_form_fields_json)
+                             if ticket.flow and ticket.flow.ticket_form_fields_json else [])
+    except Exception:
+        ticket_field_defs = []
+
     cascaded = []
     for _pass in range(5):
         changed_this_pass = False
         lookup = _merged_cf()
+
+        # Ticket-level formula columns.
+        ticket_formula_defs = [f for f in ticket_field_defs if f.get("field_type") == "formula"]
+        if ticket_formula_defs:
+            try:
+                tff = _json.loads(ticket.ticket_custom_fields_json or "{}")
+            except Exception:
+                tff = {}
+            row_changed = False
+            for f in ticket_formula_defs:
+                fid = f.get("id", "")
+                computed = _eval_formula(f.get("formula_steps") or [], lookup)
+                if computed is None:
+                    continue
+                if tff.get(fid) != computed:
+                    old = tff.get(fid)
+                    tff[fid] = computed
+                    row_changed = True
+                    changed_this_pass = True
+                    cascaded.append({"field_id": fid, "stage_id": None, "value": computed})
+                    db.add(FMSFieldEditLog(
+                        tenant_id=user.tenant_id, ticket_id=ticket_id, stage_id=None,
+                        field_id=fid, field_label=f.get("label", fid),
+                        old_value=old, new_value=computed,
+                        reason=f"Auto-recalculated after '{fdef.get('label', field_id)}' was edited",
+                        is_cascade=True, edited_by_id=user.id,
+                    ))
+            if row_changed:
+                ticket.ticket_custom_fields_json = _json.dumps(tff)
+
         for s in all_stages:
             try:
                 defs = _json.loads(s.custom_fields_json or "[]")
