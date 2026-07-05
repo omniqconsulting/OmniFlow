@@ -1,6 +1,7 @@
 """
-Sales Catalog — Brief 02: Products & Catalog.
-Product master, custom attribute schema, media, bulk import/export.
+Sales Catalog — Catalog Hierarchy Phase 1.
+Category -> SubCategory -> Product (parent, shared attrs) -> Variant (the
+sellable SKU). Product master, custom attribute schema, media, bulk import/export.
 """
 import csv
 import io
@@ -15,11 +16,18 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from .database import get_db, new_id, Product, ProductSchemaField, UnitOfMeasure, User, ProductStock
+from .database import (
+    get_db, new_id, Product, ProductVariant, ProductSchemaField, UnitOfMeasure,
+    User, ProductStock, Category, SubCategory,
+)
 from .auth import get_current_user, require_admin, require_manager, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 from .constants import BULK_IMPORT_MAX_ROWS
+from .sales_catalog_sync import (
+    sync_end_product_from_variant, remove_end_product_for_variant,
+    resolve_or_create_hierarchy, attach_drive_photo,
+)
 
 router = APIRouter()
 
@@ -55,6 +63,17 @@ def get_product_or_404(db: Session, product_id: str, tenant_id: str) -> Product:
     return product
 
 
+def get_variant_or_404(db: Session, variant_id: str, tenant_id: str) -> ProductVariant:
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id,
+        ProductVariant.tenant_id == tenant_id,
+        ProductVariant.is_deleted == False,
+    ).first()
+    if not variant:
+        raise HTTPException(404, "Variant not found")
+    return variant
+
+
 def _active_schema_fields(db: Session, tenant_id: str):
     return (
         db.query(ProductSchemaField)
@@ -73,37 +92,113 @@ def _active_units(db: Session, tenant_id: str):
     )
 
 
-def _existing_categories(db: Session, tenant_id: str):
-    rows = (
-        db.query(Product.category)
-        .filter(Product.tenant_id == tenant_id, Product.is_deleted == False, Product.category.isnot(None))
-        .distinct()
+def _active_categories(db: Session, tenant_id: str):
+    return (
+        db.query(Category)
+        .filter(Category.tenant_id == tenant_id, Category.is_active == True, Category.is_deleted == False)
+        .order_by(Category.name)
         .all()
     )
-    return sorted({r[0] for r in rows if r[0]})
 
 
-def _parse_attributes_from_form(form, schema_fields) -> dict:
+def _active_subcategories(db: Session, tenant_id: str, category_id: str = None):
+    q = db.query(SubCategory).filter(
+        SubCategory.tenant_id == tenant_id, SubCategory.is_active == True, SubCategory.is_deleted == False,
+    )
+    if category_id:
+        q = q.filter(SubCategory.category_id == category_id)
+    return q.order_by(SubCategory.name).all()
+
+
+def _parse_attributes_from_form(form, schema_fields, prefix="attr__") -> dict:
     attrs = {}
     for field in schema_fields:
         if field.field_type == "boolean":
-            attrs[field.label] = "true" if form.get(f"attr__{field.label}") else "false"
+            attrs[field.label] = "true" if form.get(f"{prefix}{field.label}") else "false"
         else:
-            val = form.get(f"attr__{field.label}", "")
+            val = form.get(f"{prefix}{field.label}", "")
             if val:
                 attrs[field.label] = val
     return attrs
 
 
+def _build_variant_label(sku_code: str, explicit_label: str, attrs: dict) -> str:
+    if explicit_label and explicit_label.strip():
+        return explicit_label.strip()
+    if attrs:
+        return " / ".join(str(v) for v in attrs.values())
+    return sku_code
+
+
 # ══════════════════════════════════════════════════════════════════════════════
-# PRODUCT LIST
+# CATEGORY / SUB-CATEGORY
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/sales/catalog/categories", response_class=HTMLResponse)
+def categories_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    categories = db.query(Category).filter(
+        Category.tenant_id == user.tenant_id, Category.is_deleted == False,
+    ).order_by(Category.name).all()
+    subcats_by_cat = {}
+    for sc in db.query(SubCategory).filter(SubCategory.tenant_id == user.tenant_id, SubCategory.is_deleted == False).order_by(SubCategory.name).all():
+        subcats_by_cat.setdefault(sc.category_id, []).append(sc)
+    return templates.TemplateResponse(request, "sales/catalog_categories.html", _ctx(
+        db, user, categories=categories, subcats_by_cat=subcats_by_cat,
+        msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
+    ))
+
+
+@router.post("/sales/catalog/categories/add")
+def category_add(name: str = Form(...), user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    name = name.strip()
+    if not name:
+        return RedirectResponse("/sales/catalog/categories?err=Name+is+required", status_code=303)
+    db.add(Category(id=new_id(), tenant_id=user.tenant_id, name=name))
+    db.commit()
+    return RedirectResponse("/sales/catalog/categories?msg=Category+added", status_code=303)
+
+
+@router.post("/sales/catalog/categories/{category_id}/delete")
+def category_delete(category_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    cat = db.query(Category).filter(Category.id == category_id, Category.tenant_id == user.tenant_id).first()
+    if cat:
+        cat.is_deleted = True
+        db.commit()
+    return RedirectResponse("/sales/catalog/categories?msg=Category+removed", status_code=303)
+
+
+@router.post("/sales/catalog/subcategories/add")
+def subcategory_add(
+    category_id: str = Form(...), name: str = Form(...),
+    user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    name = name.strip()
+    if not name:
+        return RedirectResponse("/sales/catalog/categories?err=Name+is+required", status_code=303)
+    db.add(SubCategory(id=new_id(), tenant_id=user.tenant_id, category_id=category_id, name=name))
+    db.commit()
+    return RedirectResponse("/sales/catalog/categories?msg=Sub-category+added", status_code=303)
+
+
+@router.post("/sales/catalog/subcategories/{subcategory_id}/delete")
+def subcategory_delete(subcategory_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    sc = db.query(SubCategory).filter(SubCategory.id == subcategory_id, SubCategory.tenant_id == user.tenant_id).first()
+    if sc:
+        sc.is_deleted = True
+        db.commit()
+    return RedirectResponse("/sales/catalog/categories?msg=Sub-category+removed", status_code=303)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PRODUCT LIST (Category -> Sub-Category tree, Product/Variant list on the right)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sales/catalog", response_class=HTMLResponse)
 def catalog_list(
     request: Request,
     q: str = "",
-    category: str = "",
+    category_id: str = "",
+    sub_category_id: str = "",
     tier: str = "",
     active: str = "",
     page: int = 1,
@@ -113,11 +208,18 @@ def catalog_list(
     query = db.query(Product).filter(Product.tenant_id == user.tenant_id, Product.is_deleted == False)
     if q:
         like = f"%{q}%"
-        query = query.filter(or_(Product.name.ilike(like), Product.sku_code.ilike(like)))
-    if category:
-        query = query.filter(Product.category == category)
+        query = query.join(ProductVariant, ProductVariant.product_id == Product.id, isouter=True).filter(
+            or_(Product.name.ilike(like), ProductVariant.sku_code.ilike(like))
+        ).distinct()
+    if sub_category_id:
+        query = query.filter(Product.sub_category_id == sub_category_id)
+    elif category_id:
+        sub_ids = [sc.id for sc in _active_subcategories(db, user.tenant_id, category_id)]
+        query = query.filter(Product.sub_category_id.in_(sub_ids))
     if tier:
-        query = query.filter(Product.product_tier == tier)
+        query = query.join(ProductVariant, ProductVariant.product_id == Product.id).filter(
+            ProductVariant.product_tier == tier, ProductVariant.is_deleted == False,
+        ).distinct()
     if active in ("true", "false"):
         query = query.filter(Product.is_active == (active == "true"))
 
@@ -125,18 +227,23 @@ def catalog_list(
     total = query.count()
     products = query.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
 
+    categories = _active_categories(db, user.tenant_id)
+    subcats_by_cat = {}
+    for sc in _active_subcategories(db, user.tenant_id):
+        subcats_by_cat.setdefault(sc.category_id, []).append(sc)
+
     return templates.TemplateResponse(request, "sales/catalog_list.html", _ctx(
         db, user,
         products=products, total=total, page=page, page_size=PAGE_SIZE,
-        q=q, category=category, tier=tier, active=active,
-        categories=_existing_categories(db, user.tenant_id),
+        q=q, category_id=category_id, sub_category_id=sub_category_id, tier=tier, active=active,
+        categories=categories, subcats_by_cat=subcats_by_cat,
         tier_choices=TIER_CHOICES,
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CREATE / EDIT
+# CREATE / EDIT PRODUCT (+ inline variants on create)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sales/catalog/new", response_class=HTMLResponse)
@@ -146,7 +253,8 @@ def catalog_new_form(request: Request, user: User = Depends(_require_sales_edito
         product=None, attributes={},
         schema_fields=_active_schema_fields(db, user.tenant_id),
         units=_active_units(db, user.tenant_id),
-        categories=_existing_categories(db, user.tenant_id),
+        categories=_active_categories(db, user.tenant_id),
+        subcats_by_cat={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
         err="",
     ))
 
@@ -154,64 +262,91 @@ def catalog_new_form(request: Request, user: User = Depends(_require_sales_edito
 @router.post("/sales/catalog/create")
 async def catalog_create(
     request: Request,
-    sku_code: str = Form(...),
     name: str = Form(...),
     description: str = Form(""),
-    category: str = Form(""),
+    sub_category_id: str = Form(""),
     base_unit_id: str = Form(""),
-    low_stock_threshold: str = Form(""),
-    is_active: Optional[str] = Form(None),
     user: User = Depends(_require_sales_editor),
     db: Session = Depends(get_db),
 ):
-    sku_code = sku_code.strip()
     name = name.strip()
     schema_fields = _active_schema_fields(db, user.tenant_id)
-
-    existing = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id,
-        Product.sku_code == sku_code,
-        Product.is_deleted == False,
-    ).first()
-    if existing:
-        form = await request.form()
-        return templates.TemplateResponse(request, "sales/catalog_new.html", _ctx(
-            db, user,
-            product={"sku_code": sku_code, "name": name, "description": description,
-                     "category": category, "base_unit_id": base_unit_id,
-                     "low_stock_threshold": low_stock_threshold, "is_active": bool(is_active)},
-            attributes=_parse_attributes_from_form(form, schema_fields),
-            schema_fields=schema_fields,
-            units=_active_units(db, user.tenant_id),
-            categories=_existing_categories(db, user.tenant_id),
-            err="SKU code already exists",
-        ), status_code=400)
-
     form = await request.form()
     attributes = _parse_attributes_from_form(form, schema_fields)
 
+    # Inline variant rows: variant_sku[], variant_label[], variant_unit_id[], variant_low_stock[]
+    skus = form.getlist("variant_sku[]")
+    labels = form.getlist("variant_label[]")
+    unit_ids = form.getlist("variant_unit_id[]")
+    thresholds = form.getlist("variant_low_stock[]")
+
+    variant_rows = []
+    seen_skus = set()
+    for i, sku in enumerate(skus):
+        sku = (sku or "").strip()
+        if not sku:
+            continue
+        if sku in seen_skus:
+            return templates.TemplateResponse(request, "sales/catalog_new.html", _ctx(
+                db, user, product={"name": name, "description": description, "sub_category_id": sub_category_id, "base_unit_id": base_unit_id},
+                attributes=attributes, schema_fields=schema_fields,
+                units=_active_units(db, user.tenant_id), categories=_active_categories(db, user.tenant_id),
+                subcats_by_cat={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
+                err=f"Duplicate SKU '{sku}' in the form",
+            ), status_code=400)
+        seen_skus.add(sku)
+        existing = db.query(ProductVariant).filter(
+            ProductVariant.tenant_id == user.tenant_id, ProductVariant.sku_code == sku,
+            ProductVariant.is_deleted == False,
+        ).first()
+        if existing:
+            return templates.TemplateResponse(request, "sales/catalog_new.html", _ctx(
+                db, user, product={"name": name, "description": description, "sub_category_id": sub_category_id, "base_unit_id": base_unit_id},
+                attributes=attributes, schema_fields=schema_fields,
+                units=_active_units(db, user.tenant_id), categories=_active_categories(db, user.tenant_id),
+                subcats_by_cat={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
+                err=f"SKU '{sku}' already exists",
+            ), status_code=400)
+        variant_rows.append({
+            "sku": sku,
+            "label": labels[i].strip() if i < len(labels) else "",
+            "unit_id": unit_ids[i] if i < len(unit_ids) and unit_ids[i] else None,
+            "threshold": thresholds[i] if i < len(thresholds) and thresholds[i] else None,
+        })
+
+    if not variant_rows:
+        return templates.TemplateResponse(request, "sales/catalog_new.html", _ctx(
+            db, user, product={"name": name, "description": description, "sub_category_id": sub_category_id, "base_unit_id": base_unit_id},
+            attributes=attributes, schema_fields=schema_fields,
+            units=_active_units(db, user.tenant_id), categories=_active_categories(db, user.tenant_id),
+            subcats_by_cat={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
+            err="At least one Variant (SKU) is required — a Product alone isn't sellable",
+        ), status_code=400)
+
     product = Product(
-        id=new_id(),
-        tenant_id=user.tenant_id,
-        sku_code=sku_code,
-        name=name,
+        id=new_id(), tenant_id=user.tenant_id, name=name,
         description=description.strip() or None,
-        category=category.strip() or None,
+        sub_category_id=sub_category_id or None,
         base_unit_id=base_unit_id or None,
         attributes_json=json.dumps(attributes),
-        low_stock_threshold=float(low_stock_threshold) if low_stock_threshold else None,
-        is_active=bool(is_active),
         created_by_id=user.id,
     )
     db.add(product)
-    db.commit()
-    db.add(ProductStock(
-        product_id=product.id,
-        tenant_id=user.tenant_id,
-        qty_available=0.0,
-        qty_reserved=0.0,
-        qty_in_transit=0.0,
-    ))
+    db.flush()
+
+    for vr in variant_rows:
+        variant = ProductVariant(
+            id=new_id(), tenant_id=user.tenant_id, product_id=product.id,
+            sku_code=vr["sku"], variant_label=_build_variant_label(vr["sku"], vr["label"], {}),
+            base_unit_id=vr["unit_id"],
+            low_stock_threshold=float(vr["threshold"]) if vr["threshold"] else None,
+            created_by_id=user.id,
+        )
+        db.add(variant)
+        db.flush()
+        db.add(ProductStock(variant_id=variant.id, tenant_id=user.tenant_id))
+        sync_end_product_from_variant(db, variant)
+
     db.commit()
     return RedirectResponse(f"/sales/catalog/{product.id}?msg=Product+created", status_code=303)
 
@@ -224,7 +359,8 @@ def catalog_edit_form(product_id: str, request: Request, user: User = Depends(_r
         product=product, attributes=json.loads(product.attributes_json or "{}"),
         schema_fields=_active_schema_fields(db, user.tenant_id),
         units=_active_units(db, user.tenant_id),
-        categories=_existing_categories(db, user.tenant_id),
+        categories=_active_categories(db, user.tenant_id),
+        subcats_by_cat={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
         err="",
     ))
 
@@ -233,45 +369,22 @@ def catalog_edit_form(product_id: str, request: Request, user: User = Depends(_r
 async def catalog_edit_save(
     product_id: str,
     request: Request,
-    sku_code: str = Form(...),
     name: str = Form(...),
     description: str = Form(""),
-    category: str = Form(""),
+    sub_category_id: str = Form(""),
     base_unit_id: str = Form(""),
-    low_stock_threshold: str = Form(""),
     is_active: Optional[str] = Form(None),
     user: User = Depends(_require_sales_editor),
     db: Session = Depends(get_db),
 ):
     product = get_product_or_404(db, product_id, user.tenant_id)
-    sku_code = sku_code.strip()
     schema_fields = _active_schema_fields(db, user.tenant_id)
-
-    existing = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id,
-        Product.sku_code == sku_code,
-        Product.is_deleted == False,
-        Product.id != product_id,
-    ).first()
-    if existing:
-        form = await request.form()
-        return templates.TemplateResponse(request, "sales/catalog_edit.html", _ctx(
-            db, user,
-            product=product,
-            attributes=_parse_attributes_from_form(form, schema_fields),
-            schema_fields=schema_fields,
-            units=_active_units(db, user.tenant_id),
-            categories=_existing_categories(db, user.tenant_id),
-            err="SKU code already exists",
-        ), status_code=400)
-
     form = await request.form()
-    product.sku_code = sku_code
+
     product.name = name.strip()
     product.description = description.strip() or None
-    product.category = category.strip() or None
+    product.sub_category_id = sub_category_id or None
     product.base_unit_id = base_unit_id or None
-    product.low_stock_threshold = float(low_stock_threshold) if low_stock_threshold else None
     product.is_active = bool(is_active)
     product.attributes_json = json.dumps(_parse_attributes_from_form(form, schema_fields))
     product.updated_at = datetime.utcnow()
@@ -283,23 +396,130 @@ async def catalog_edit_save(
 def catalog_delete(product_id: str, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
     product = get_product_or_404(db, product_id, user.tenant_id)
     product.is_deleted = True
+    for v in db.query(ProductVariant).filter(ProductVariant.product_id == product.id, ProductVariant.is_deleted == False).all():
+        v.is_deleted = True
+        remove_end_product_for_variant(db, v)
     db.commit()
     return RedirectResponse("/sales/catalog?msg=Product+deleted", status_code=303)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MEDIA
+# VARIANT CRUD (nested under a Product)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.post("/sales/catalog/{product_id}/upload-media")
-async def upload_product_media(
+@router.post("/sales/catalog/{product_id}/variants/add")
+async def variant_add(
     product_id: str,
-    files: List[UploadFile] = File(...),
+    request: Request,
+    sku_code: str = Form(...),
+    variant_label: str = Form(""),
+    base_unit_id: str = Form(""),
+    low_stock_threshold: str = Form(""),
+    product_tier: str = Form("UNRANKED"),
+    is_active: Optional[str] = Form(None),
     user: User = Depends(_require_sales_editor),
     db: Session = Depends(get_db),
 ):
     product = get_product_or_404(db, product_id, user.tenant_id)
-    existing = json.loads(product.media_urls_json or "[]")
+    sku_code = sku_code.strip()
+    existing = db.query(ProductVariant).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.sku_code == sku_code,
+        ProductVariant.is_deleted == False,
+    ).first()
+    if existing:
+        return RedirectResponse(f"/sales/catalog/{product_id}?err=SKU+{sku_code}+already+exists", status_code=303)
+
+    form = await request.form()
+    variant_attrs = _parse_attributes_from_form(form, _active_schema_fields(db, user.tenant_id), prefix="vattr__")
+
+    variant = ProductVariant(
+        id=new_id(), tenant_id=user.tenant_id, product_id=product.id,
+        sku_code=sku_code, variant_label=_build_variant_label(sku_code, variant_label, variant_attrs),
+        variant_attributes_json=json.dumps(variant_attrs),
+        base_unit_id=base_unit_id or None,
+        low_stock_threshold=float(low_stock_threshold) if low_stock_threshold else None,
+        product_tier=product_tier or "UNRANKED",
+        is_active=bool(is_active),
+        created_by_id=user.id,
+    )
+    db.add(variant)
+    db.flush()
+    db.add(ProductStock(variant_id=variant.id, tenant_id=user.tenant_id))
+    sync_end_product_from_variant(db, variant)
+    db.commit()
+    return RedirectResponse(f"/sales/catalog/{product_id}?msg=Variant+added", status_code=303)
+
+
+@router.get("/sales/catalog/variant/{variant_id}/edit", response_class=HTMLResponse)
+def variant_edit_form(variant_id: str, request: Request, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
+    variant = get_variant_or_404(db, variant_id, user.tenant_id)
+    return templates.TemplateResponse(request, "sales/catalog_variant_edit.html", _ctx(
+        db, user, variant=variant, product=variant.product,
+        attributes=json.loads(variant.variant_attributes_json or "{}"),
+        media_urls=json.loads(variant.media_urls_json or "[]"),
+        units=_active_units(db, user.tenant_id),
+        tier_choices=TIER_CHOICES,
+        msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
+    ))
+
+
+@router.post("/sales/catalog/variant/{variant_id}/edit")
+async def variant_edit_save(
+    variant_id: str,
+    request: Request,
+    sku_code: str = Form(...),
+    variant_label: str = Form(""),
+    base_unit_id: str = Form(""),
+    low_stock_threshold: str = Form(""),
+    product_tier: str = Form("UNRANKED"),
+    is_active: Optional[str] = Form(None),
+    user: User = Depends(_require_sales_editor),
+    db: Session = Depends(get_db),
+):
+    variant = get_variant_or_404(db, variant_id, user.tenant_id)
+    sku_code = sku_code.strip()
+    existing = db.query(ProductVariant).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.sku_code == sku_code,
+        ProductVariant.id != variant_id, ProductVariant.is_deleted == False,
+    ).first()
+    if existing:
+        return RedirectResponse(f"/sales/catalog/variant/{variant_id}/edit?err=SKU+{sku_code}+already+exists", status_code=303)
+
+    variant.sku_code = sku_code
+    variant.variant_label = variant_label.strip() or variant.variant_label
+    variant.base_unit_id = base_unit_id or None
+    variant.low_stock_threshold = float(low_stock_threshold) if low_stock_threshold else None
+    variant.product_tier = product_tier or "UNRANKED"
+    variant.is_active = bool(is_active)
+    variant.updated_at = datetime.utcnow()
+    sync_end_product_from_variant(db, variant)
+    db.commit()
+    return RedirectResponse(f"/sales/catalog/variant/{variant_id}/edit?msg=Variant+updated", status_code=303)
+
+
+@router.post("/sales/catalog/variant/{variant_id}/delete")
+def variant_delete(variant_id: str, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
+    variant = get_variant_or_404(db, variant_id, user.tenant_id)
+    product_id = variant.product_id
+    variant.is_deleted = True
+    remove_end_product_for_variant(db, variant)
+    db.commit()
+    return RedirectResponse(f"/sales/catalog/{product_id}?msg=Variant+removed", status_code=303)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MEDIA (per-variant)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/sales/catalog/variant/{variant_id}/upload-media")
+async def upload_variant_media(
+    variant_id: str,
+    files: List[UploadFile] = File(...),
+    user: User = Depends(_require_sales_editor),
+    db: Session = Depends(get_db),
+):
+    variant = get_variant_or_404(db, variant_id, user.tenant_id)
+    existing = json.loads(variant.media_urls_json or "[]")
 
     if len(existing) + len(files) > 8:
         raise HTTPException(400, f"Max 8 photos allowed. Currently {len(existing)}.")
@@ -314,37 +534,37 @@ async def upload_product_media(
 
         ext = file.filename.rsplit(".", 1)[-1].lower()
         filename = f"{_uuid.uuid4().hex}.{ext}"
-        rel_path = f"uploads/{user.tenant_id}/products/{product_id}/{filename}"
+        rel_path = f"uploads/{user.tenant_id}/products/{variant_id}/{filename}"
         full_path = Path(__file__).parent / "static" / rel_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_bytes(content)
         existing.append(rel_path)
 
-    product.media_urls_json = json.dumps(existing)
-    product.updated_at = datetime.utcnow()
+    variant.media_urls_json = json.dumps(existing)
+    variant.updated_at = datetime.utcnow()
     db.commit()
-    return RedirectResponse(f"/sales/catalog/{product_id}?msg=Photos+uploaded", status_code=303)
+    return RedirectResponse(f"/sales/catalog/variant/{variant_id}/edit?msg=Photos+uploaded", status_code=303)
 
 
-@router.post("/sales/catalog/{product_id}/delete-media")
-def delete_product_media(
-    product_id: str,
+@router.post("/sales/catalog/variant/{variant_id}/delete-media")
+def delete_variant_media(
+    variant_id: str,
     index: int = Form(...),
     user: User = Depends(_require_sales_editor),
     db: Session = Depends(get_db),
 ):
-    product = get_product_or_404(db, product_id, user.tenant_id)
-    existing = json.loads(product.media_urls_json or "[]")
+    variant = get_variant_or_404(db, variant_id, user.tenant_id)
+    existing = json.loads(variant.media_urls_json or "[]")
     if 0 <= index < len(existing):
         existing.pop(index)
-        product.media_urls_json = json.dumps(existing)
-        product.updated_at = datetime.utcnow()
+        variant.media_urls_json = json.dumps(existing)
+        variant.updated_at = datetime.utcnow()
         db.commit()
-    return RedirectResponse(f"/sales/catalog/{product_id}?msg=Photo+removed", status_code=303)
+    return RedirectResponse(f"/sales/catalog/variant/{variant_id}/edit?msg=Photo+removed", status_code=303)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SCHEMA MANAGEMENT (Admin only)
+# SCHEMA MANAGEMENT (Admin only) — unchanged, shared attributes live on Product
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sales/catalog/schema", response_class=HTMLResponse)
@@ -433,7 +653,8 @@ async def schema_reorder(request: Request, user: User = Depends(require_admin), 
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BULK OPERATIONS
+# BULK OPERATIONS — one row = one Variant; rows sharing category/sub_category/
+# product_name collapse onto the same parent Product.
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sales/catalog/bulk-upload", response_class=HTMLResponse)
@@ -444,7 +665,10 @@ def bulk_upload_page(request: Request, user: User = Depends(_require_sales_edito
 @router.get("/sales/catalog/bulk-template")
 def bulk_template(user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
     schema_fields = _active_schema_fields(db, user.tenant_id)
-    cols = ["sku_code", "name", "description", "category", "unit_abbreviation", "low_stock_threshold"]
+    cols = [
+        "category", "sub_category", "product_name", "product_description",
+        "sku_code", "variant_label", "unit_abbreviation", "low_stock_threshold", "photo_drive_link",
+    ]
     cols += [f.label for f in schema_fields]
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -452,19 +676,19 @@ def bulk_template(user: User = Depends(_require_sales_editor), db: Session = Dep
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]), media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=product_template.csv"},
+        headers={"Content-Disposition": "attachment; filename=product_variant_template.csv"},
     )
 
 
-def _validate_product_row(row, tenant_id, db, schema_fields, existing_skus):
+def _validate_variant_row(row, tenant_id, db, existing_skus):
     errors = []
     sku = (row.get("sku_code") or "").strip()
     if not sku:
         errors.append("SKU code is required")
     elif sku in existing_skus:
         errors.append(f"SKU '{sku}' already exists")
-    if not (row.get("name") or "").strip():
-        errors.append("Name is required")
+    if not (row.get("product_name") or "").strip():
+        errors.append("product_name is required")
     unit_abbr = (row.get("unit_abbreviation") or "").strip()
     if unit_abbr:
         unit = db.query(UnitOfMeasure).filter(
@@ -495,10 +719,9 @@ async def bulk_upload(
         raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
     if len(rows) > BULK_IMPORT_MAX_ROWS:
         raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    schema_fields = _active_schema_fields(db, user.tenant_id)
     existing_skus = {
-        r[0] for r in db.query(Product.sku_code).filter(
-            Product.tenant_id == user.tenant_id, Product.is_deleted == False,
+        r[0] for r in db.query(ProductVariant.sku_code).filter(
+            ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
         ).all()
     }
 
@@ -506,7 +729,7 @@ async def bulk_upload(
     valid_count = 0
     seen_in_file = set()
     for i, row in enumerate(rows, start=2):
-        errors = _validate_product_row(row, user.tenant_id, db, schema_fields, existing_skus | seen_in_file)
+        errors = _validate_variant_row(row, user.tenant_id, db, existing_skus | seen_in_file)
         sku = (row.get("sku_code") or "").strip()
         if not errors:
             valid_count += 1
@@ -526,21 +749,36 @@ async def bulk_upload(
 async def bulk_upload_confirm(request: Request, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
     body = await request.json()
     rows = body.get("rows", [])
-    schema_fields = _active_schema_fields(db, user.tenant_id)
-    schema_labels = {f.label for f in schema_fields}
     existing_skus = {
-        r[0] for r in db.query(Product.sku_code).filter(
-            Product.tenant_id == user.tenant_id, Product.is_deleted == False,
+        r[0] for r in db.query(ProductVariant.sku_code).filter(
+            ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
         ).all()
     }
 
+    # Collapse rows sharing (category, sub_category, product_name) onto one parent Product.
+    product_cache: dict = {}
     created = 0
     skipped = 0
+    photo_warnings = []
+
     for row in rows:
-        errors = _validate_product_row(row, user.tenant_id, db, schema_fields, existing_skus)
+        errors = _validate_variant_row(row, user.tenant_id, db, existing_skus)
         if errors:
             skipped += 1
             continue
+
+        cat_name = (row.get("category") or "").strip() or "Uncategorized"
+        sub_name = (row.get("sub_category") or "").strip() or "General"
+        product_name = (row.get("product_name") or "").strip()
+        key = (cat_name, sub_name, product_name)
+
+        if key not in product_cache:
+            product_cache[key] = resolve_or_create_hierarchy(
+                db, user.tenant_id, cat_name, sub_name, product_name,
+                row.get("product_description"), user.id,
+            )
+        product = product_cache[key]
+
         unit_abbr = (row.get("unit_abbreviation") or "").strip()
         unit = None
         if unit_abbr:
@@ -549,57 +787,61 @@ async def bulk_upload_confirm(request: Request, user: User = Depends(_require_sa
                 UnitOfMeasure.abbreviation == unit_abbr,
                 UnitOfMeasure.is_active == True,
             ).first()
-        attrs = {k: v for k, v in row.items() if k in schema_labels and v}
-        product = Product(
-            id=new_id(), tenant_id=user.tenant_id,
-            sku_code=row.get("sku_code", "").strip(),
-            name=row.get("name", "").strip(),
-            description=(row.get("description") or "").strip() or None,
-            category=(row.get("category") or "").strip() or None,
+
+        sku = row.get("sku_code", "").strip()
+        variant = ProductVariant(
+            id=new_id(), tenant_id=user.tenant_id, product_id=product.id,
+            sku_code=sku,
+            variant_label=(row.get("variant_label") or "").strip() or sku,
             base_unit_id=unit.id if unit else None,
             low_stock_threshold=float(row["low_stock_threshold"]) if (row.get("low_stock_threshold") or "").strip() else None,
-            attributes_json=json.dumps(attrs),
             created_by_id=user.id,
         )
-        db.add(product)
-        existing_skus.add(product.sku_code)
-        created += 1
+        db.add(variant)
         db.flush()
-        db.add(ProductStock(
-            product_id=product.id,
-            tenant_id=user.tenant_id,
-            qty_available=0.0,
-            qty_reserved=0.0,
-            qty_in_transit=0.0,
-        ))
+        db.add(ProductStock(variant_id=variant.id, tenant_id=user.tenant_id))
+        sync_end_product_from_variant(db, variant)
+
+        drive_link = (row.get("photo_drive_link") or "").strip()
+        if drive_link:
+            err = await attach_drive_photo(variant, drive_link)
+            if err:
+                photo_warnings.append({"sku": sku, "error": err})
+
+        existing_skus.add(sku)
+        created += 1
 
     try:
         db.commit()
     except Exception as e:
         db.rollback()
         raise HTTPException(400, f"Import failed — no products were created. {e}")
-    return JSONResponse({"created": created, "skipped": skipped})
+    return JSONResponse({"created": created, "skipped": skipped, "photo_warnings": photo_warnings})
 
 
 @router.get("/sales/catalog/export")
 def catalog_export(user: User = Depends(_require_sales), db: Session = Depends(get_db)):
     schema_fields = _active_schema_fields(db, user.tenant_id)
-    products = db.query(Product).filter(
-        Product.tenant_id == user.tenant_id, Product.is_deleted == False,
-    ).order_by(Product.name).all()
+    variants = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
+        ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
+    ).order_by(Product.name, ProductVariant.sku_code).all()
 
-    cols = ["sku_code", "name", "description", "category", "unit", "tier", "is_active", "low_stock_threshold"]
+    cols = ["category", "sub_category", "product_name", "sku_code", "variant_label", "unit", "tier", "is_active", "low_stock_threshold"]
     cols += [f.label for f in schema_fields]
 
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(cols)
-    for p in products:
-        attrs = json.loads(p.attributes_json or "{}")
+    for v in variants:
+        p = v.product
+        attrs = json.loads(p.attributes_json or "{}") if p else {}
+        sub = p.sub_category if p else None
+        cat = sub.category if sub else None
+        unit = v.base_unit or (p.base_unit if p else None)
         row = [
-            p.sku_code, p.name, p.description or "", p.category or "",
-            p.base_unit.abbreviation if p.base_unit else "",
-            p.product_tier, p.is_active, p.low_stock_threshold or "",
+            cat.name if cat else "", sub.name if sub else "", p.name if p else "",
+            v.sku_code, v.variant_label or "", unit.abbreviation if unit else "",
+            v.product_tier, v.is_active, v.low_stock_threshold or "",
         ]
         row += [attrs.get(f.label, "") for f in schema_fields]
         writer.writerow(row)
@@ -612,42 +854,31 @@ def catalog_export(user: User = Depends(_require_sales), db: Session = Depends(g
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DETAIL — registered last: catch-all {product_id} must not shadow literal
-# paths above (schema, bulk-upload, bulk-template, export).
+# paths above (categories, schema, bulk-upload, bulk-template, export, variant).
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sales/catalog/{product_id}", response_class=HTMLResponse)
 def catalog_detail(product_id: str, request: Request, user: User = Depends(_require_sales), db: Session = Depends(get_db)):
-    from sqlalchemy import func
-    from .database import InventoryPurchaseOrder, InventoryPOItem
-
     product = get_product_or_404(db, product_id, user.tenant_id)
+    variants = db.query(ProductVariant).filter(
+        ProductVariant.product_id == product_id, ProductVariant.is_deleted == False,
+    ).order_by(ProductVariant.created_at).all()
 
-    stock = db.query(ProductStock).filter(
-        ProductStock.product_id == product_id,
-        ProductStock.tenant_id == user.tenant_id,
-    ).first()
-
-    in_transit_info = (
-        db.query(
-            func.sum(InventoryPOItem.qty_ordered - InventoryPOItem.qty_received).label("qty"),
-            func.min(InventoryPurchaseOrder.expected_arrival_date).label("arrival_date"),
-        )
-        .join(InventoryPurchaseOrder, InventoryPOItem.po_id == InventoryPurchaseOrder.id)
-        .filter(
-            InventoryPOItem.product_id == product_id,
-            InventoryPurchaseOrder.tenant_id == user.tenant_id,
-            InventoryPurchaseOrder.status.in_(["SUBMITTED", "APPROVED", "PARTIALLY_RECEIVED"]),
-        )
-        .first()
-    )
+    stock_by_variant = {
+        s.variant_id: s for s in db.query(ProductStock).filter(
+            ProductStock.tenant_id == user.tenant_id,
+            ProductStock.variant_id.in_([v.id for v in variants]),
+        ).all()
+    } if variants else {}
 
     return templates.TemplateResponse(request, "sales/catalog_detail.html", _ctx(
         db, user,
         product=product,
         attributes=json.loads(product.attributes_json or "{}"),
-        media_urls=json.loads(product.media_urls_json or "[]"),
-        stock=stock,
-        in_transit_qty=in_transit_info.qty if in_transit_info else None,
-        in_transit_arrival=in_transit_info.arrival_date if in_transit_info else None,
+        variants=variants,
+        stock_by_variant=stock_by_variant,
+        units=_active_units(db, user.tenant_id),
+        schema_fields=_active_schema_fields(db, user.tenant_id),
+        tier_choices=TIER_CHOICES,
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))

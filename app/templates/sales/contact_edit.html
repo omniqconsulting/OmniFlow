@@ -7,9 +7,10 @@
   <div class="muted">{{ customer.name }}</div>
 </div>
 
-<div class="card" style="padding:20px;max-width:600px">
-  <form method="post" action="/sales/contacts/{{ customer.id }}/edit">
-    {% if is_full_editor %}
+<form method="post" action="/sales/contacts/{{ customer.id }}/edit" style="max-width:600px">
+  {% if is_full_editor %}
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">BASIC INFO</h3>
     <label style="font-size:12px;color:var(--text-muted)">Name *</label>
     <input name="name" value="{{ customer.name }}" required style="width:100%;margin-bottom:10px">
 
@@ -28,23 +29,26 @@
     </select>
 
     <label style="font-size:12px;color:var(--text-muted)">Contact Frequency (days)</label>
-    <input name="contact_freq_days" type="number" value="{{ customer.contact_freq_days }}" style="width:100%;margin-bottom:10px">
+    <input name="contact_freq_days" type="number" value="{{ customer.contact_freq_days }}" style="width:100%">
 
+    {% if agents %}
+    <label style="font-size:12px;color:var(--text-muted);margin-top:10px;display:block">Assigned Agent</label>
+    <select name="assigned_agent_id" style="width:100%">
+      <option value="">Unassigned</option>
+      {% for a in agents %}<option value="{{ a.id }}" {{ 'selected' if a.id == customer.assigned_agent_id else '' }}>{{ a.name }}</option>{% endfor %}
+    </select>
+    {% endif %}
+  </div>
+
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">COMMERCIAL TERMS</h3>
     <label style="font-size:12px;color:var(--text-muted)">GSTIN</label>
     <input name="gstin" value="{{ customer.gstin or '' }}" style="width:100%;margin-bottom:10px">
 
     <label style="font-size:12px;color:var(--text-muted)">Credit Limit</label>
     <input name="credit_limit" type="number" step="0.01" value="{{ customer.credit_limit or '' }}" style="width:100%;margin-bottom:10px">
 
-    {% if agents %}
-    <label style="font-size:12px;color:var(--text-muted)">Assigned Agent</label>
-    <select name="assigned_agent_id" style="width:100%;margin-bottom:10px">
-      <option value="">Unassigned</option>
-      {% for a in agents %}<option value="{{ a.id }}" {{ 'selected' if a.id == customer.assigned_agent_id else '' }}>{{ a.name }}</option>{% endfor %}
-    </select>
-    {% endif %}
-
-    <label style="font-size:12px;color:var(--text-muted)">Price List</label>
+    <label style="font-size:12px;color:var(--text-muted)">Default Price Group</label>
     <select name="price_list_id" style="width:100%;margin-bottom:10px">
       <option value="">-- Default --</option>
       {% for pl in price_lists %}
@@ -54,13 +58,19 @@
       {% endfor %}
     </select>
 
+    <label style="font-size:12px;color:var(--text-muted)">Default Payment Terms</label>
+    <input name="default_payment_terms" value="{{ customer.default_payment_terms or '' }}" placeholder="e.g. Net 30" style="width:100%;margin-bottom:10px">
+
     <label style="font-size:12px;color:var(--text-muted)">Status</label>
-    <select name="is_active" style="width:100%;margin-bottom:10px">
+    <select name="is_active" style="width:100%">
       <option value="1" {{ 'selected' if customer.is_active else '' }}>Active</option>
       <option value="0" {{ 'selected' if not customer.is_active else '' }}>Inactive</option>
     </select>
-    {% endif %}
+  </div>
+  {% endif %}
 
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">ADDRESSES &amp; NOTES</h3>
     <label style="font-size:12px;color:var(--text-muted)">Billing Address</label>
     <textarea name="billing_address" rows="2" style="width:100%;margin-bottom:10px">{{ customer.billing_address or '' }}</textarea>
 
@@ -68,12 +78,12 @@
     <textarea name="shipping_address" rows="2" style="width:100%;margin-bottom:10px">{{ customer.shipping_address or '' }}</textarea>
 
     <label style="font-size:12px;color:var(--text-muted)">Notes</label>
-    <textarea name="notes" rows="3" style="width:100%;margin-bottom:14px">{{ customer.notes or '' }}</textarea>
+    <textarea name="notes" rows="3" style="width:100%">{{ customer.notes or '' }}</textarea>
+  </div>
 
-    <div style="display:flex;gap:8px">
-      <button type="submit" class="btn btn-primary">Save</button>
-      <a href="/sales/contacts/{{ customer.id }}" class="btn btn-outline">Cancel</a>
-    </div>
-  </form>
-</div>
+  <div style="display:flex;gap:8px">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a href="/sales/contacts/{{ customer.id }}" class="btn btn-outline">Cancel</a>
+  </div>
+</form>
 {% endblock %}

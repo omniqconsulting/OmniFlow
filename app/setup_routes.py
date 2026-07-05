@@ -18,13 +18,16 @@ import os
 from .database import (
     get_db, new_id,
     User, Tenant, Branch, Department,
-    Customer, EndProduct, Vendor, RawMaterial,
+    Customer, EndProduct, Vendor, RawMaterial, UnitOfMeasure,
     CustomReferenceList, CustomReferenceItem,
     FMSFlow, FMSStage, FMSTicket, FMSStageHistory,
 )
-from .auth import require_admin
+from .auth import require_admin, get_nav_flags, has_module
 from .labels import get_labels
 from .constants import BULK_IMPORT_MAX_ROWS
+from .sales_catalog_sync import (
+    sync_variant_from_end_product, attach_drive_photo, resolve_or_create_category_pair,
+)
 
 router = APIRouter()
 
@@ -86,40 +89,57 @@ def _unread(db: Session, user: User) -> int:
 
 
 def _nav_ctx(db: Session, user: User) -> dict:
-    from .constants import has_feature
-    from .auth import get_user_modules
     tenant = db.query(Tenant).get(user.tenant_id)
-    modules = get_user_modules(user)
-    return {
-        "has_inventory":         has_feature(tenant, "INVENTORY",       db),
-        "has_fms":               has_feature(tenant, "FMS",             db),
-        "has_knowledge_repo":    has_feature(tenant, "KNOWLEDGE_REPO",  db),
-        "has_checklists":        has_feature(tenant, "CHECKLISTS",      db),
-        "has_ai":                has_feature(tenant, "ASK_AI",          db),
-        "has_sales":             "SALES"     in modules and has_feature(tenant, "SALES_MODULE",     db),
-        "has_inventory_module":  "INVENTORY" in modules and has_feature(tenant, "INVENTORY_MODULE",  db),
-        "has_sales_analytics":   has_feature(tenant, "SALES_ANALYTICS", db)
-                                  and has_feature(tenant, "SALES_MODULE", db)
-                                  and "SALES" in modules and user.role in ("ADMIN", "MANAGER"),
-        "user_modules":          modules,
-    }
+    return get_nav_flags(db, user, tenant)
 
 
-# ── Customer CSV template columns ─────────────────────────────────────────────
+# ── Customer CSV columns — shared canonical set, also used by Sales CRM's
+# contacts bulk template/import/export (app/sales_contacts.py) so all three
+# surfaces (Setup import, Sales CRM bulk import, Sales CRM export) round-trip
+# the same columns. ────────────────────────────────────────────────────────
 _CUSTOMER_COLS = [
-    ("name",           "Mandatory. Customer/client name. Max 200 characters."),
-    ("contact_person", "Optional. Primary contact name at the customer."),
-    ("phone",          "Optional. Contact phone number."),
-    ("email",          "Optional. Contact email address."),
-    ("address",        "Optional. Customer address. Free text."),
-    ("notes",          "Optional. Any additional notes. Free text."),
+    ("name",                "Mandatory. Customer/client name. Max 200 characters."),
+    ("contact_person",      "Optional. Primary contact name at the customer."),
+    ("phone",               "Optional. Contact phone number."),
+    ("email",               "Optional. Contact email address."),
+    ("address",             "Optional. Customer address. Free text."),
+    ("notes",               "Optional. Any additional notes. Free text."),
+    ("agent_email",         "Optional. Email of the assigned salesman (must have Sales access). Defaults to you."),
+    ("tier",                "Optional. Customer tier: A, B, C, or blank for UNRANKED."),
+    ("contact_freq_days",   "Optional. Integer. How often (days) this customer should be contacted. Defaults to 30."),
+    ("credit_limit",        "Optional. Numeric credit limit."),
+    ("gstin",               "Optional. GST identification number."),
+    ("billing_address",     "Optional. Billing address, if different from the general address above."),
+    ("shipping_address",    "Optional. Shipping address, if different from the general address above."),
+    ("default_payment_terms", "Optional. Default payment terms for Sales Orders, e.g. Net 30."),
 ]
 
+_CUSTOMER_TIERS = ("A", "B", "C")
+
+
+def resolve_customer_agent(db: Session, tenant_id: str, agent_email: str):
+    """Find-or-error the Sales-access User for an agent_email column value.
+    Shared by Setup's customer import and Sales CRM's contacts bulk import."""
+    if not agent_email:
+        return None, None
+    agent = db.query(User).filter(
+        User.tenant_id == tenant_id, User.email == agent_email,
+        User.is_active == True, User.is_deleted == False,
+    ).first()
+    if not agent or not has_module(agent, "SALES"):
+        return None, f"agent_email {agent_email} not found or lacks SALES access"
+    return agent, None
+
 _ENDPRODUCT_COLS = [
-    ("name",        "Mandatory. Product name. Max 200 characters."),
-    ("sku_code",    "Optional. Must be unique per tenant if provided. Alphanumeric, no spaces."),
-    ("unit",        "Optional. Unit of measure. E.g. pcs, kg, litres, box."),
-    ("description", "Optional. Product description. Free text."),
+    ("category",            "Optional. Catalog category name. Created if it doesn't exist yet. Defaults to 'Uncategorized'."),
+    ("sub_category",        "Optional. Catalog sub-category name (under category). Created if it doesn't exist yet. Defaults to 'General'."),
+    ("name",                "Mandatory. Product name. Max 200 characters."),
+    ("description",         "Optional. Product description. Free text."),
+    ("sku_code",            "Optional. Must be unique per tenant if provided. Alphanumeric, no spaces."),
+    ("variant_label",       "Optional. Display label for the Catalog variant. Defaults to name."),
+    ("unit",                "Optional. Unit of measure abbreviation — must match an existing Setup > Units entry, e.g. pcs, kg, litres, box."),
+    ("low_stock_threshold", "Optional. Numeric. Godown dashboard flags stock below this level."),
+    ("photo_drive_link",    "Optional. Google Drive share link ('Anyone with the link') to a product photo."),
 ]
 
 _CUSTOM_ITEM_COLS = [
@@ -229,6 +249,14 @@ def add_customer(
     email: str = Form(""),
     address: str = Form(""),
     notes: str = Form(""),
+    agent_email: str = Form(""),
+    tier: str = Form(""),
+    contact_freq_days: str = Form(""),
+    credit_limit: str = Form(""),
+    gstin: str = Form(""),
+    billing_address: str = Form(""),
+    shipping_address: str = Form(""),
+    default_payment_terms: str = Form(""),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -237,11 +265,27 @@ def add_customer(
     p = phone.strip()
     if p and not _PHONE_RE.match(p):
         return _redir("/setup/customers?err=Invalid+phone+number+format")
+    tier = tier.strip().upper()
+    if tier and tier not in _CUSTOMER_TIERS:
+        return _redir("/setup/customers?err=Tier+must+be+A%2C+B%2C+C+or+blank")
+    agent, agent_err = resolve_customer_agent(db, user.tenant_id, agent_email.strip())
+    if agent_err:
+        return _redir(f"/setup/customers?err={agent_err}")
+    freq = int(contact_freq_days) if contact_freq_days.strip().isdigit() else 30
+    credit = float(credit_limit) if credit_limit.strip() else None
     db.add(Customer(
         tenant_id=user.tenant_id,
         name=name.strip(), contact_person=contact_person.strip() or None,
         phone=p or None, email=email.strip() or None,
         address=address.strip() or None, notes=notes.strip() or None,
+        assigned_agent_id=agent.id if agent else user.id,
+        customer_tier=tier or "UNRANKED",
+        contact_freq_days=freq,
+        credit_limit=credit,
+        gstin=gstin.strip() or None,
+        billing_address=billing_address.strip() or None,
+        shipping_address=shipping_address.strip() or None,
+        default_payment_terms=default_payment_terms.strip() or None,
         created_by_id=user.id,
     ))
     db.commit()
@@ -257,6 +301,14 @@ def edit_customer(
     email: str = Form(""),
     address: str = Form(""),
     notes: str = Form(""),
+    agent_email: str = Form(""),
+    tier: str = Form(""),
+    contact_freq_days: str = Form(""),
+    credit_limit: str = Form(""),
+    gstin: str = Form(""),
+    billing_address: str = Form(""),
+    shipping_address: str = Form(""),
+    default_payment_terms: str = Form(""),
     is_active: str = Form("1"),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -270,12 +322,27 @@ def edit_customer(
     p = phone.strip()
     if p and not _PHONE_RE.match(p):
         return _redir("/setup/customers?err=Invalid+phone+number+format")
+    tier = tier.strip().upper()
+    if tier and tier not in _CUSTOMER_TIERS:
+        return _redir("/setup/customers?err=Tier+must+be+A%2C+B%2C+C+or+blank")
+    if agent_email.strip():
+        agent, agent_err = resolve_customer_agent(db, user.tenant_id, agent_email.strip())
+        if agent_err:
+            return _redir(f"/setup/customers?err={agent_err}")
+        c.assigned_agent_id = agent.id
     c.name = name.strip()
     c.contact_person = contact_person.strip() or None
     c.phone = p or None
     c.email = email.strip() or None
     c.address = address.strip() or None
     c.notes = notes.strip() or None
+    c.customer_tier = tier or "UNRANKED"
+    c.contact_freq_days = int(contact_freq_days) if contact_freq_days.strip().isdigit() else c.contact_freq_days
+    c.credit_limit = float(credit_limit) if credit_limit.strip() else None
+    c.gstin = gstin.strip() or None
+    c.billing_address = billing_address.strip() or None
+    c.shipping_address = shipping_address.strip() or None
+    c.default_payment_terms = default_payment_terms.strip() or None
     c.is_active = is_active == "1"
     c.updated_at = datetime.utcnow()
     db.commit()
@@ -321,6 +388,26 @@ async def import_customers(
         if len(name) > 200:
             errors.append({"row": i, "error": "name exceeds 200 characters", "data": dict(row)})
             continue
+        tier = (row.get("tier") or "").strip().upper()
+        if tier and tier not in _CUSTOMER_TIERS:
+            errors.append({"row": i, "error": "tier must be A, B, C or blank", "data": dict(row)})
+            continue
+        agent, agent_err = resolve_customer_agent(db, user.tenant_id, (row.get("agent_email") or "").strip())
+        if agent_err:
+            errors.append({"row": i, "error": agent_err, "data": dict(row)})
+            continue
+        freq_raw = (row.get("contact_freq_days") or "").strip()
+        try:
+            freq = int(freq_raw) if freq_raw else 30
+        except ValueError:
+            errors.append({"row": i, "error": "contact_freq_days must be a positive integer", "data": dict(row)})
+            continue
+        credit_raw = (row.get("credit_limit") or "").strip()
+        try:
+            credit = float(credit_raw) if credit_raw else None
+        except ValueError:
+            errors.append({"row": i, "error": "credit_limit must be a number", "data": dict(row)})
+            continue
         db.add(Customer(
             tenant_id=user.tenant_id,
             name=name,
@@ -329,6 +416,14 @@ async def import_customers(
             email=(row.get("email") or "").strip() or None,
             address=(row.get("address") or "").strip() or None,
             notes=(row.get("notes") or "").strip() or None,
+            assigned_agent_id=agent.id if agent else user.id,
+            customer_tier=tier or "UNRANKED",
+            contact_freq_days=freq,
+            credit_limit=credit,
+            gstin=(row.get("gstin") or "").strip() or None,
+            billing_address=(row.get("billing_address") or "").strip() or None,
+            shipping_address=(row.get("shipping_address") or "").strip() or None,
+            default_payment_terms=(row.get("default_payment_terms") or "").strip() or None,
             created_by_id=user.id,
         ))
         imported += 1
@@ -347,7 +442,27 @@ async def import_customers(
 
 # ══════════════════════════════════════════════════════════════════════════════
 # END PRODUCTS
+# Kept bidirectionally in sync with Sales Catalog's Category -> SubCategory ->
+# Product -> ProductVariant hierarchy (matched on sku_code). See
+# app/sales_catalog_sync.py: sync_end_product_from_variant() is the Catalog ->
+# EndProduct direction; sync_variant_from_end_product() (used below) is the
+# reverse — it can create a brand-new Category/SubCategory/Product/Variant
+# chain when a category/sub_category is supplied here and no variant exists
+# yet for the sku.
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _end_product_unit_or_error(db: Session, tenant_id: str, unit_abbr: str):
+    if not unit_abbr:
+        return None, None
+    unit = db.query(UnitOfMeasure).filter(
+        UnitOfMeasure.tenant_id == tenant_id,
+        UnitOfMeasure.abbreviation == unit_abbr,
+        UnitOfMeasure.is_active == True,
+    ).first()
+    if not unit:
+        return None, f"Unit '{unit_abbr}' not found. Add it in Setup → Units first."
+    return unit, None
+
 
 @router.get("/setup/end-products", response_class=HTMLResponse)
 def end_products_page(
@@ -362,6 +477,9 @@ def end_products_page(
     ).order_by(EndProduct.name)
     total = q.count()
     products = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    for p in products:
+        p.category_name = p.category.name if p.category else ""
+        p.sub_category_name = p.sub_category.name if p.sub_category else ""
     return templates.TemplateResponse(request, "setup/end_products.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -373,11 +491,16 @@ def end_products_page(
 
 
 @router.post("/setup/end-products/add")
-def add_end_product(
+async def add_end_product(
     name: str = Form(...),
     sku_code: str = Form(""),
     unit: str = Form(""),
     description: str = Form(""),
+    category: str = Form(""),
+    sub_category: str = Form(""),
+    variant_label: str = Form(""),
+    low_stock_threshold: str = Form(""),
+    photo_drive_link: str = Form(""),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -392,22 +515,46 @@ def add_end_product(
         ).first()
         if exists:
             return _redir(f"/setup/end-products?err=SKU+{sku}+already+exists")
-    db.add(EndProduct(
+    unit_abbr = unit.strip()
+    _, unit_err = _end_product_unit_or_error(db, user.tenant_id, unit_abbr)
+    if unit_err:
+        return _redir(f"/setup/end-products?err={unit_err}")
+    end_product = EndProduct(
         tenant_id=user.tenant_id, name=name.strip(), sku_code=sku,
-        unit=unit.strip() or None, description=description.strip() or None,
+        unit=unit_abbr or None, description=description.strip() or None,
         created_by_id=user.id,
-    ))
+    )
+    db.add(end_product)
+    db.flush()
+    if category.strip() or sub_category.strip():
+        end_product.category_id, end_product.sub_category_id = _resolve_end_product_category(
+            db, user.tenant_id, category.strip(), sub_category.strip(),
+        )
+    low_stock = float(low_stock_threshold) if low_stock_threshold.strip() else None
+    variant = sync_variant_from_end_product(
+        db, end_product, variant_label=variant_label, low_stock_threshold=low_stock,
+    )
+    photo_err = None
+    if variant and photo_drive_link.strip():
+        photo_err = await attach_drive_photo(variant, photo_drive_link.strip())
     db.commit()
+    if photo_err:
+        return _redir(f"/setup/end-products?msg=Product+added&err=Photo+not+attached:+{photo_err}")
     return _redir("/setup/end-products?msg=Product+added")
 
 
 @router.post("/setup/end-products/{prod_id}/edit")
-def edit_end_product(
+async def edit_end_product(
     prod_id: str,
     name: str = Form(...),
     sku_code: str = Form(""),
     unit: str = Form(""),
     description: str = Form(""),
+    category: str = Form(""),
+    sub_category: str = Form(""),
+    variant_label: str = Form(""),
+    low_stock_threshold: str = Form(""),
+    photo_drive_link: str = Form(""),
     is_active: str = Form("1"),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -428,14 +575,38 @@ def edit_end_product(
         ).first()
         if exists:
             return _redir(f"/setup/end-products?err=SKU+{sku}+already+exists")
+    unit_abbr = unit.strip()
+    _, unit_err = _end_product_unit_or_error(db, user.tenant_id, unit_abbr)
+    if unit_err:
+        return _redir(f"/setup/end-products?err={unit_err}")
     p.name = name.strip()
     p.sku_code = sku
-    p.unit = unit.strip() or None
+    p.unit = unit_abbr or None
     p.description = description.strip() or None
     p.is_active = is_active == "1"
     p.updated_at = datetime.utcnow()
+    if category.strip() or sub_category.strip():
+        p.category_id, p.sub_category_id = _resolve_end_product_category(
+            db, user.tenant_id, category.strip(), sub_category.strip(),
+        )
+    low_stock = float(low_stock_threshold) if low_stock_threshold.strip() else None
+    variant = sync_variant_from_end_product(
+        db, p, variant_label=variant_label, low_stock_threshold=low_stock,
+    )
+    photo_err = None
+    if variant and photo_drive_link.strip():
+        photo_err = await attach_drive_photo(variant, photo_drive_link.strip())
     db.commit()
+    if photo_err:
+        return _redir(f"/setup/end-products?msg=Product+updated&err=Photo+not+attached:+{photo_err}")
     return _redir("/setup/end-products?msg=Product+updated")
+
+
+def _resolve_end_product_category(db: Session, tenant_id: str, category_name: str, sub_category_name: str):
+    """Find-or-create Category/SubCategory for a manual End Product edit,
+    returning (category_id, sub_category_id)."""
+    sub = resolve_or_create_category_pair(db, tenant_id, category_name, sub_category_name)
+    return sub.category_id, sub.id
 
 
 @router.post("/setup/end-products/{prod_id}/delete")
@@ -481,12 +652,36 @@ async def import_end_products(
             if exists:
                 errors.append({"row": i, "error": f"SKU {sku} already exists", "data": dict(row)})
                 continue
-        db.add(EndProduct(
+        unit_abbr = (row.get("unit") or "").strip()
+        _, unit_err = _end_product_unit_or_error(db, user.tenant_id, unit_abbr)
+        if unit_err:
+            errors.append({"row": i, "error": unit_err, "data": dict(row)})
+            continue
+        end_product = EndProduct(
             tenant_id=user.tenant_id, name=name, sku_code=sku,
-            unit=(row.get("unit") or "").strip() or None,
+            unit=unit_abbr or None,
             description=(row.get("description") or "").strip() or None,
             created_by_id=user.id,
-        ))
+        )
+        db.add(end_product)
+        db.flush()
+        category = (row.get("category") or "").strip()
+        sub_category = (row.get("sub_category") or "").strip()
+        if category or sub_category:
+            end_product.category_id, end_product.sub_category_id = _resolve_end_product_category(
+                db, user.tenant_id, category, sub_category,
+            )
+        low_stock_raw = (row.get("low_stock_threshold") or "").strip()
+        variant = sync_variant_from_end_product(
+            db, end_product,
+            variant_label=row.get("variant_label"),
+            low_stock_threshold=float(low_stock_raw) if low_stock_raw else None,
+        )
+        drive_link = (row.get("photo_drive_link") or "").strip()
+        if variant and drive_link:
+            photo_err = await attach_drive_photo(variant, drive_link)
+            if photo_err:
+                errors.append({"row": i, "error": f"Photo not attached: {photo_err}", "data": dict(row)})
         imported += 1
     try:
         db.commit()

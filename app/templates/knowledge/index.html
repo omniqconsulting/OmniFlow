@@ -130,7 +130,9 @@
           </td>
           <td>
             <div class="kr-title">
-              {% if it.file_url %}
+              {% if it.media_kind == 'video' and it.file_url %}
+              <a href="#" class="kr-video-play" data-video-url="{{ it.file_url }}" data-video-title="{{ it.title }}">{{ it.title }}</a>
+              {% elif it.file_url %}
               <a href="{{ it.file_url }}" target="_blank" rel="noopener">{{ it.title }}</a>
               {% elif it.external_url %}
               <a href="{{ it.external_url }}" target="_blank" rel="noopener">{{ it.title }}</a>
@@ -275,7 +277,41 @@
   </div>
 </div>
 
+<!-- ── Video Player Modal (in-app playback, no download link) ── -->
+<div id="videoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1100;align-items:center;justify-content:center;padding:16px">
+  <div style="width:100%;max-width:860px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 id="videoModalTitle" style="font-size:14px;font-weight:600;margin:0;color:#fff"></h2>
+      <button onclick="closeVideoModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#fff">✕</button>
+    </div>
+    <video id="videoModalPlayer" controls autoplay controlsList="nodownload noremoteplayback" disablePictureInPicture oncontextmenu="return false;" style="width:100%;max-height:75vh;background:#000;border-radius:8px"></video>
+  </div>
+</div>
+
 <script>
+function playVideo(url, title) {
+  var player = document.getElementById('videoModalPlayer');
+  player.src = url;
+  document.getElementById('videoModalTitle').textContent = title;
+  document.getElementById('videoModal').style.display = 'flex';
+}
+function closeVideoModal() {
+  var player = document.getElementById('videoModalPlayer');
+  player.pause();
+  player.removeAttribute('src');
+  player.load();
+  document.getElementById('videoModal').style.display = 'none';
+}
+document.getElementById('videoModal').addEventListener('click', function(e) {
+  if (e.target === this) closeVideoModal();
+});
+document.querySelectorAll('.kr-video-play').forEach(function(a) {
+  a.addEventListener('click', function(e) {
+    e.preventDefault();
+    playVideo(a.getAttribute('data-video-url'), a.getAttribute('data-video-title'));
+  });
+});
+
 function updateBulkList(files) {
   var list = document.getElementById('bulkFileList');
   if (!files || !files.length) { list.textContent = ''; return; }

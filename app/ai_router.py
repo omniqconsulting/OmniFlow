@@ -29,7 +29,7 @@ from .database import (
     get_db, User, Tenant, TenantAIUsage,
     Ticket, ChecklistAssignment, ChecklistTemplate,
 )
-from .auth import get_current_user
+from .auth import get_current_user, get_nav_flags
 from .labels import get_labels
 from .constants import has_feature, get_limit
 from .ai_context import build_context
@@ -74,23 +74,12 @@ def _unread(db, user):
 
 
 def _ctx(request, user, db, **kw):
-    from .auth import get_user_modules
     L = get_labels(db, user.tenant_id)
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
-    modules = get_user_modules(user)
     return {
         "request": request, "user": user, "L": L,
         "unread": _unread(db, user),
-        "has_inventory":       has_feature(tenant, "INVENTORY",       db) if tenant else False,
-        "has_fms":             has_feature(tenant, "FMS",             db) if tenant else False,
-        "has_knowledge_repo":  has_feature(tenant, "KNOWLEDGE_REPO",  db) if tenant else False,
-        "has_checklists": True,  # core feature, always available
-        "has_sales":            "SALES"     in modules and (has_feature(tenant, "SALES_MODULE",     db) if tenant else False),
-        "has_inventory_module": "INVENTORY" in modules and (has_feature(tenant, "INVENTORY_MODULE",  db) if tenant else False),
-        "has_sales_analytics":  (has_feature(tenant, "SALES_ANALYTICS", db) if tenant else False)
-                                 and (has_feature(tenant, "SALES_MODULE", db) if tenant else False)
-                                 and "SALES" in modules and user.role in ("ADMIN", "MANAGER"),
-        "user_modules":         modules,
+        **get_nav_flags(db, user, tenant),
         **kw,
     }
 

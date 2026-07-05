@@ -11,7 +11,9 @@
   <p style="font-size:13px;color:var(--text-muted)">
     1. Download the <a href="/sales/orders/bulk-template">CSV template</a>.<br>
     2. One row = one line item. Rows with the same <code>customer_phone</code> are grouped into one order.<br>
-    3. Orders are created as <b>DRAFT</b> — an agent must manually confirm each one to trigger stock reservation.
+    3. Optional <code>salesman_email</code> (matched to a SALES-access user) and <code>branch_name</code> (matched by name, see <a href="/setup">Setup → {{ L.Branches }}</a>) columns set the order's salesman and dispatch location.<br>
+    4. Items flagged unavailable are still added to the order (marked "out of stock — arrange separately"), they are not rejected.<br>
+    5. Orders are created as <b>DRAFT</b> — an agent must manually confirm each one to trigger stock reservation.
   </p>
 
   <div style="display:flex;gap:10px;align-items:center;margin:16px 0">

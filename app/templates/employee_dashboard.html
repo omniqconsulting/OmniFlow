@@ -84,12 +84,62 @@
 
 </div>
 
+{% if hot_tasks %}
+<!-- ── Hot Tasks ───────────────────────────────────────────────── -->
+<div class="card" style="border-color:rgba(239,68,68,0.2)">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h2 style="margin:0;color:#f87171">🔥 Hot Tasks ({{ hot_tasks_count }})</h2>
+    <a href="/tickets?status=OPEN&priority=CRITICAL" class="btn btn-sm btn-outline">View All →</a>
+  </div>
+  <table>
+    <thead><tr><th>Title</th><th>Due</th><th>Days overdue</th></tr></thead>
+    <tbody>
+    {% for t in hot_tasks %}
+    <tr>
+      <td style="font-weight:500;color:var(--text-primary)"><a href="/tickets/{{ t.id }}" style="color:inherit">{{ t.title }}</a></td>
+      <td style="font-size:12px;{% if t.due_at and t.due_at < now %}color:#f87171{% else %}color:var(--text-muted){% endif %}">
+        {{ t.due_at.strftime('%d %b') if t.due_at else '—' }}
+      </td>
+      <td style="font-size:12px;color:#f87171">{% if t.due_at and t.due_at < now %}{{ (now - t.due_at).days }}{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <!-- ── My Active Tickets ───────────────────────────────────────── -->
 <div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <h2 style="margin:0">My Active Tickets</h2>
     <a href="/tickets" class="btn btn-sm btn-outline">View All →</a>
   </div>
+  <form method="get" action="/dashboard" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+    <input type="hidden" name="f_priority" value="{{ f_priority }}">
+    <input type="hidden" name="f_status" value="{{ f_status }}">
+    <input type="hidden" name="c_freq" value="{{ c_freq }}">
+    <input type="hidden" name="c_status" value="{{ c_status }}">
+    <div>
+      <div style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Priority</div>
+      <select name="t_priority" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+        <option value="" {% if not t_priority %}selected{% endif %}>All Priorities</option>
+        {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+        <option value="{{ p }}" {% if t_priority == p %}selected{% endif %}>{{ p | priority_label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Status</div>
+      <select name="t_status" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+        <option value="" {% if not t_status %}selected{% endif %}>All Statuses</option>
+        {% for s in ['OPEN','ACKNOWLEDGED','IN_PROGRESS','HELP_REQUESTED'] %}
+        <option value="{{ s }}" {% if t_status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+    {% if t_priority or t_status %}<a href="/dashboard?f_priority={{ f_priority }}&f_status={{ f_status }}&c_freq={{ c_freq }}&c_status={{ c_status }}" class="btn btn-sm btn-gray">Clear</a>{% endif %}
+  </form>
   {% if active_tickets %}
   <table>
     <thead>
@@ -111,7 +161,7 @@
       </td>
       <td>
         <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}" style="font-size:11px">
-          {{ t.priority }}
+          {{ t.priority | priority_label }}
         </span>
       </td>
       <td>
@@ -140,6 +190,32 @@
     <h2 style="margin:0">My FMS Tickets</h2>
     <a href="/fms" class="btn btn-sm btn-outline">View All →</a>
   </div>
+  <form method="get" action="/dashboard" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+    <input type="hidden" name="t_priority" value="{{ t_priority }}">
+    <input type="hidden" name="t_status" value="{{ t_status }}">
+    <input type="hidden" name="c_freq" value="{{ c_freq }}">
+    <input type="hidden" name="c_status" value="{{ c_status }}">
+    <div>
+      <div style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Priority</div>
+      <select name="f_priority" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+        <option value="" {% if not f_priority %}selected{% endif %}>All Priorities</option>
+        {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+        <option value="{{ p }}" {% if f_priority == p %}selected{% endif %}>{{ p | priority_label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Status</div>
+      <select name="f_status" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+        <option value="" {% if not f_status %}selected{% endif %}>All Statuses</option>
+        {% for s in ['ACTIVE','STAGE_COMPLETE','IN_TRANSITION','HELP_REQUESTED','FLAGGED','ON_HOLD'] %}
+        <option value="{{ s }}" {% if f_status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+    {% if f_priority or f_status %}<a href="/dashboard?t_priority={{ t_priority }}&t_status={{ t_status }}&c_freq={{ c_freq }}&c_status={{ c_status }}" class="btn btn-sm btn-gray">Clear</a>{% endif %}
+  </form>
   <table>
     <thead>
       <tr>
@@ -186,6 +262,39 @@
     <h2 style="margin:0">My Checklists</h2>
     <a href="/checklists" class="btn btn-sm btn-outline">View All →</a>
   </div>
+  <form method="get" action="/dashboard" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+    <input type="hidden" name="t_priority" value="{{ t_priority }}">
+    <input type="hidden" name="t_status" value="{{ t_status }}">
+    <input type="hidden" name="f_priority" value="{{ f_priority }}">
+    <input type="hidden" name="f_status" value="{{ f_status }}">
+    <div>
+      <div style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Frequency</div>
+      <select name="c_freq" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+        <option value="" {% if not c_freq %}selected{% endif %}>All Frequencies</option>
+        <option value="DAILY"          {% if c_freq == 'DAILY' %}selected{% endif %}>Daily</option>
+        <option value="WEEKLY"         {% if c_freq == 'WEEKLY' %}selected{% endif %}>Weekly</option>
+        <option value="WEEKLY_CUSTOM"  {% if c_freq == 'WEEKLY_CUSTOM' %}selected{% endif %}>Weekly (custom days)</option>
+        <option value="TWICE_A_MONTH"  {% if c_freq == 'TWICE_A_MONTH' %}selected{% endif %}>Twice a month</option>
+        <option value="MONTHLY"        {% if c_freq == 'MONTHLY' %}selected{% endif %}>Monthly</option>
+        <option value="MONTHLY_DATE"   {% if c_freq == 'MONTHLY_DATE' %}selected{% endif %}>Monthly (specific date)</option>
+        <option value="QUARTERLY"      {% if c_freq == 'QUARTERLY' %}selected{% endif %}>Quarterly</option>
+        <option value="YEARLY"         {% if c_freq == 'YEARLY' %}selected{% endif %}>Yearly</option>
+        <option value="YEARLY_DATE"    {% if c_freq == 'YEARLY_DATE' %}selected{% endif %}>Yearly (specific date)</option>
+        <option value="PER_SHIFT"      {% if c_freq == 'PER_SHIFT' %}selected{% endif %}>Per shift</option>
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Status</div>
+      <select name="c_status" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+        <option value="" {% if not c_status %}selected{% endif %}>All Statuses</option>
+        {% for s in ['PENDING','IN_PROGRESS','OVERDUE'] %}
+        <option value="{{ s }}" {% if c_status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+    {% if c_freq or c_status %}<a href="/dashboard?t_priority={{ t_priority }}&t_status={{ t_status }}&f_priority={{ f_priority }}&f_status={{ f_status }}" class="btn btn-sm btn-gray">Clear</a>{% endif %}
+  </form>
   {% if my_checklists %}
   {% set overdue = my_checklists | selectattr('status','eq','OVERDUE') | list %}
   {% set pending = my_checklists | rejectattr('status','eq','OVERDUE') | list %}
@@ -263,7 +372,7 @@ new Chart(document.getElementById('complianceChart'), {
       <td style="color:#cbd5e1">{{ t.title }}</td>
       <td>
         <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}" style="font-size:9px;opacity:0.7">
-          {{ t.priority }}
+          {{ t.priority | priority_label }}
         </span>
       </td>
       <td style="font-size:12px;color:var(--text-faint)">

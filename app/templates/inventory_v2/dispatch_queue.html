@@ -14,27 +14,29 @@
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
 {% if orders %}
-<table class="table" style="width:100%">
-  <thead><tr>
-    <th>Order</th><th>Customer</th><th>Items</th><th>Expected Delivery</th><th></th>
-  </tr></thead>
-  <tbody>
-    {% for o in orders %}
-    <tr>
-      <td>{{ o.display_id or o.id[:8] }}</td>
-      <td>{{ o.customer.name if o.customer else '—' }}</td>
-      <td>{{ o.items|length }}</td>
-      <td>{{ o.expected_delivery_date.strftime('%d %b %Y') if o.expected_delivery_date else '—' }}</td>
-      <td>
-        <a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline">View</a>
-        <form method="post" action="/sales/orders/{{ o.id }}/dispatch" style="display:inline">
-          <button type="submit" class="btn btn-xs btn-primary" onclick="return confirm('Dispatch order {{ o.display_id }}?')">Dispatch</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
+  {% for o in orders %}
+  <div class="card" style="padding:16px">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:8px">
+      <div>
+        <div style="font-weight:700;font-size:14px">{{ o.display_id or o.id[:8] }}</div>
+        <div class="muted" style="font-size:13px">{{ o.customer.name if o.customer else '—' }}
+          {% if o.customer %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(o.customer.customer_tier, '#94a3b8') }};margin-left:4px">{{ o.customer.customer_tier }}</span>{% endif %}
+        </div>
+      </div>
+      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#f59e0b">{{ o.items|length }} item{{ '' if o.items|length == 1 else 's' }}</span>
+    </div>
+    <div style="font-size:12px;color:var(--text-faint);margin-bottom:12px">Expected {{ o.expected_delivery_date.strftime('%d %b %Y') if o.expected_delivery_date else '—' }}</div>
+    <div style="display:flex;gap:6px">
+      <a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline" style="flex:1;text-align:center">View</a>
+      <form method="post" action="/sales/orders/{{ o.id }}/dispatch" style="flex:1">
+        <button type="submit" class="btn btn-xs btn-primary" style="width:100%" onclick="return confirm('Dispatch order {{ o.display_id }}?')">Dispatch</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
 {% else %}
 <div style="text-align:center;padding:60px 0;color:var(--text-faint)">
   <div style="font-size:40px;margin-bottom:12px">📦</div>

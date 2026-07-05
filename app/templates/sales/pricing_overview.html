@@ -36,7 +36,7 @@
     <table style="width:100%;font-size:13px;border-collapse:collapse">
       {% for m in top_margin %}
       <tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:6px 4px">{{ m.product.name if m.product else '—' }}</td>
+        <td style="padding:6px 4px">{{ (m.product.product.name + ' — ' + m.product.sku_code) if m.product and m.product.product else (m.product.sku_code if m.product else '—') }}</td>
         <td style="padding:6px 4px;text-align:right;color:#22c55e;font-weight:600">{{ '%.1f'|format(m.margin) }}%</td>
       </tr>
       {% endfor %}
@@ -49,7 +49,7 @@
     <table style="width:100%;font-size:13px;border-collapse:collapse">
       {% for m in bottom_margin %}
       <tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:6px 4px">{{ m.product.name if m.product else '—' }}</td>
+        <td style="padding:6px 4px">{{ (m.product.product.name + ' — ' + m.product.sku_code) if m.product and m.product.product else (m.product.sku_code if m.product else '—') }}</td>
         <td style="padding:6px 4px;text-align:right;color:#ef4444;font-weight:600">{{ '%.1f'|format(m.margin) }}%</td>
       </tr>
       {% endfor %}

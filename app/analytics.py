@@ -597,21 +597,27 @@ def get_fms_flow_summary(db: Session, tenant_id: str) -> list:
 
 
 def get_fms_stage_breakdown(db: Session, flow_id: str, tenant_id: str) -> list:
-    from .database import FMSStageHistory
+    from .database import FMSStageHistory, FMSTicketSplit
     now = datetime.utcnow()
     result = []
     for stage in db.query(FMSStage).filter(
             FMSStage.flow_id==flow_id, FMSStage.is_deleted==False
             ).order_by(FMSStage.order).all():
-        tickets = db.query(FMSTicket).filter(
+        # Phase 0: count active splits at this stage, not tickets — a ticket
+        # with 2 splits at 2 different stages should count in both buckets,
+        # not force a single-bucket answer.
+        splits = db.query(FMSTicketSplit).join(
+            FMSTicket, FMSTicketSplit.ticket_id == FMSTicket.id
+        ).filter(
             FMSTicket.flow_id==flow_id,
-            FMSTicket.current_stage_id==stage.id,
+            FMSTicketSplit.current_stage_id==stage.id,
+            FMSTicketSplit.is_deleted==False,
             FMSTicket.is_deleted==False,
-            FMSTicket.status.notin_(["COMPLETED","CLOSED"])).all()
+            FMSTicketSplit.status.notin_(["COMPLETED","CLOSED"])).all()
         times = []
-        for t in tickets:
+        for sp in splits:
             h = db.query(FMSStageHistory).filter(
-                FMSStageHistory.ticket_id==t.id,
+                FMSStageHistory.split_id==sp.id,
                 FMSStageHistory.stage_id==stage.id,
                 FMSStageHistory.exited_at==None
             ).order_by(FMSStageHistory.entered_at.desc()).first()
@@ -622,7 +628,7 @@ def get_fms_stage_breakdown(db: Session, flow_id: str, tenant_id: str) -> list:
                        if stage.target_tat_hours and h > stage.target_tat_hours)
         result.append({"name": stage.name,
                         "target_tat": stage.target_tat_hours,
-                        "ticket_count": len(tickets),
+                        "ticket_count": len(splits),
                         "avg_time_hrs": avg,
                         "oldest_hrs": oldest,
                         "breaches": breaches})

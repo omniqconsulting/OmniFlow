@@ -17,13 +17,14 @@ from .database import (
     get_db, new_id,
     Tenant, User, Department, Branch,
     FMSFlow, FMSStage, FMSTicket, FMSStageHistory, FMSEvent, FMSTicketHelper,
+    FMSTicketSplit,
     LibrarySubmoduleDefinition, TenantDeployedItem,
     Notification, MediaUpload,
     PMSDailyLog, DispatchRecord, InvoiceRecord,
     Customer, Vendor, RawMaterial,
     CustomReferenceList, CustomReferenceItem,
 )
-from .auth import get_current_user, require_admin, require_manager
+from .auth import get_current_user, require_admin, require_manager, get_nav_flags
 from .labels import get_labels, DEFAULT_L
 from .constants import has_feature, PLAN_LIMITS, BULK_IMPORT_MAX_ROWS
 from .notifications import (
@@ -139,22 +140,10 @@ def _unread(db: Session, user: User) -> int:
         Notification.user_id == user.id, Notification.is_read == False).count()
 
 def _ctx(request, user, db, **kw):
-    from .constants import has_feature
-    from .auth import get_user_modules
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user else None
-    modules = get_user_modules(user) if user else []
     return {"request": request, "user": user,
             "L": _L(db, user), "unread": _unread(db, user),
-            "has_inventory":       has_feature(tenant, "INVENTORY",       db) if tenant else False,
-            "has_fms":             has_feature(tenant, "FMS",             db) if tenant else False,
-            "has_knowledge_repo":  has_feature(tenant, "KNOWLEDGE_REPO",  db) if tenant else False,
-            "has_checklists": True,  # core feature, always available
-            "has_sales":            "SALES"     in modules and (has_feature(tenant, "SALES_MODULE",     db) if tenant else False),
-            "has_inventory_module": "INVENTORY" in modules and (has_feature(tenant, "INVENTORY_MODULE",  db) if tenant else False),
-            "has_sales_analytics":  (has_feature(tenant, "SALES_ANALYTICS", db) if tenant else False)
-                                     and (has_feature(tenant, "SALES_MODULE", db) if tenant else False)
-                                     and "SALES" in modules and user.role in ("ADMIN", "MANAGER") if user else False,
-            "user_modules":         modules,
+            **get_nav_flags(db, user, tenant),
             **kw}
 
 def _log(db: Session, ticket_id: str, actor_id: str, event_type: str, detail: str = ""):
@@ -190,19 +179,37 @@ def _planned_dates(ticket, stages) -> dict:
     return result
 
 
-def _cross_stage_cf(db: Session, ticket_id: str, stages: list, exclude_history_id: str = None) -> dict:
-    """Aggregate custom field values from every stage this ticket has already
+def _cross_stage_cf(db: Session, ticket_id: str, stages: list, split_id: str = None, exclude_history_id: str = None) -> dict:
+    """Aggregate custom field values from every stage this split has already
     passed through, keyed by both field id (UUID) and field label, so that
     formula columns and 'already captured' field dedup can look up values
-    captured in earlier stages — not just the current stage's own fields."""
+    captured in earlier stages — not just the current stage's own fields.
+
+    When split_id is given, scoped strictly to that split's own history rows
+    (plus any legacy rows with no split_id, for safety). Inheritance across
+    a split point is handled NOT here but by fms_split_ticket(), which seeds
+    a new split's opening history row with a snapshot of everything its
+    source split had accumulated at the moment of the split (see that
+    function's docstring). A live time-cutoff approach was tried first and
+    rejected: a source split's *currently open* row can keep being edited
+    after a sibling is carved off it (via the "Enter Data" stage-data
+    endpoint), sharing the same entered_at — a cutoff on entered_at can't
+    tell "captured before the split" from "captured after, same row" apart.
+    Snapshotting at the moment of the split sidesteps that entirely: each
+    split's own history is then a fully self-contained, independent copy
+    from that point forward, and nested splits (S2 split again into S3)
+    compose correctly for free, since S2's own history already carries
+    S1's baked-in snapshot."""
     import json as _json
-    cf_all: dict = {}
     hist = (
         db.query(FMSStageHistory)
         .filter(FMSStageHistory.ticket_id == ticket_id)
         .order_by(FMSStageHistory.entered_at)
         .all()
     )
+    if split_id:
+        hist = [h for h in hist if h.split_id is None or h.split_id == split_id]
+    cf_all: dict = {}
     for h in hist:
         if exclude_history_id and h.id == exclude_history_id:
             continue
@@ -291,10 +298,14 @@ def _tat_pct(history_row: FMSStageHistory, stage: FMSStage = None) -> Optional[i
         return int(elapsed_h / stage.target_tat_hours * 100)
     return None
 
-def _can_transition(user: User, ticket: FMSTicket) -> bool:
-    """Admins and managers can always transition; employees only their own stage."""
+def _can_transition(user: User, ticket: FMSTicket, split=None) -> bool:
+    """Admins and managers can always transition; employees only their own stage.
+    When split is given, checked against that split's assignee (for multi-split
+    tickets); otherwise falls back to the ticket-level cache, unchanged."""
     if user.role in ("ADMIN", "MANAGER"):
         return True
+    if split is not None:
+        return split.current_assignee_id == user.id
     return ticket.current_assignee_id == user.id
 
 def _get_ticket(db, ticket_id, tenant_id) -> FMSTicket:
@@ -307,12 +318,28 @@ def _get_ticket(db, ticket_id, tenant_id) -> FMSTicket:
         raise HTTPException(404, "Ticket not found")
     return t
 
-def _open_history(db, ticket_id) -> Optional[FMSStageHistory]:
-    """The currently active stage history row (no exited_at)."""
+def _open_history(db, ticket_id, split_id: str = None) -> Optional[FMSStageHistory]:
+    """The currently active stage history row (no exited_at).
+    For single-split tickets (the common case) this is unambiguous and behaves
+    exactly as before. When split_id is given, scoped to that split. When not
+    given on a multi-split ticket, returns the most-recently-entered open row
+    (a reasonable "primary" pick for legacy call sites — see _open_histories_for_ticket
+    for code that must consider every active split)."""
+    q = db.query(FMSStageHistory).filter(
+        FMSStageHistory.ticket_id == ticket_id,
+        FMSStageHistory.exited_at == None,
+    )
+    if split_id:
+        q = q.filter(FMSStageHistory.split_id == split_id)
+    return q.order_by(FMSStageHistory.entered_at.desc()).first()
+
+def _open_histories_for_ticket(db, ticket_id) -> list:
+    """All currently-open stage history rows for a ticket — one per active split.
+    Use this (not _open_history) anywhere that must not assume a single active stage."""
     return db.query(FMSStageHistory).filter(
         FMSStageHistory.ticket_id == ticket_id,
         FMSStageHistory.exited_at == None,
-    ).order_by(FMSStageHistory.entered_at.desc()).first()
+    ).order_by(FMSStageHistory.entered_at.desc()).all()
 
 def _stage_cumulative_qty(db, ticket_id, stage_id) -> int:
     result = db.query(func.sum(FMSStageHistory.qty_completed)).filter(
@@ -320,6 +347,211 @@ def _stage_cumulative_qty(db, ticket_id, stage_id) -> int:
         FMSStageHistory.stage_id  == stage_id,
     ).scalar()
     return result or 0
+
+
+# ── Phase 0: Split Flows — core helpers ─────────────────────────────────────
+
+def _active_splits(db, ticket_id) -> list:
+    """Leaf, still-live splits for a ticket. A split is marked is_deleted=True
+    the instant its qty is fully carved into a child split (brief §5) — so
+    'active' == 'is_deleted == False', ordered oldest-first for stable
+    split_label numbering."""
+    return db.query(FMSTicketSplit).filter(
+        FMSTicketSplit.ticket_id == ticket_id,
+        FMSTicketSplit.is_deleted == False,
+    ).order_by(FMSTicketSplit.created_at).all()
+
+
+def _ensure_ticket_has_split(db, ticket: FMSTicket) -> FMSTicketSplit:
+    """Every ticket must have exactly one split covering its progress at all
+    times (brief §3) — this is the backfill/self-heal path for tickets that
+    existed before Phase 0, and a no-op safety net after that. Idempotent:
+    if the ticket already has an active split, returns it unchanged.
+
+    Also backfills split_id on any of the ticket's pre-existing FMSStageHistory
+    rows that don't have one yet (deterministic 1:1, since only one history
+    line was ever open per ticket before splits existed — brief §4)."""
+    existing = _active_splits(db, ticket.id)
+    if existing:
+        return existing[0]
+
+    split = FMSTicketSplit(
+        tenant_id=ticket.tenant_id,
+        ticket_id=ticket.id,
+        split_label="S1",
+        qty=ticket.target_qty,
+        current_stage_id=ticket.current_stage_id,
+        current_assignee_id=ticket.current_assignee_id,
+        status=ticket.status if ticket.status in FMS_STATUSES else "ACTIVE",
+    )
+    db.add(split)
+    db.flush()
+
+    db.query(FMSStageHistory).filter(
+        FMSStageHistory.ticket_id == ticket.id,
+        FMSStageHistory.split_id == None,
+    ).update({FMSStageHistory.split_id: split.id})
+
+    return split
+
+
+def _init_first_split(db, ticket: FMSTicket, stage_id: str, assignee_id: str) -> FMSTicketSplit:
+    """Every newly-created ticket gets exactly one split ('S1') covering its
+    full target_qty at the starting stage — brief §3. Call this right after
+    the ticket row is flushed (has an id) and before creating its first
+    FMSStageHistory row, which should then carry split_id=<this split's id>."""
+    split = FMSTicketSplit(
+        tenant_id=ticket.tenant_id, ticket_id=ticket.id,
+        split_label="S1", qty=ticket.target_qty,
+        current_stage_id=stage_id, current_assignee_id=assignee_id,
+        status="ACTIVE",
+    )
+    db.add(split)
+    db.flush()
+    return split
+
+
+def _next_split_label(db, ticket_id) -> str:
+    """Next auto-numbered split label (S1, S2, ...) — counts every split ever
+    created for this ticket (including consumed/inactive ones) so labels never
+    collide even after a split is fully carved away."""
+    n = db.query(FMSTicketSplit).filter(FMSTicketSplit.ticket_id == ticket_id).count()
+    return f"S{n + 1}"
+
+
+_STATUS_PRIORITY = ["FLAGGED", "HELP_REQUESTED", "ON_HOLD", "IN_TRANSITION",
+                     "STAGE_COMPLETE", "ACTIVE"]
+
+def _rollup_ticket_status(splits: list) -> str:
+    """Brief §6: ticket status is derived from its (leaf) splits once there's
+    more than one. COMPLETED only when every leaf split is terminal
+    (COMPLETED/CLOSED); otherwise the 'busiest' meaningful state wins, so a
+    manager scanning the ticket list sees e.g. FLAGGED without opening every
+    ticket."""
+    if not splits:
+        return "ACTIVE"
+    statuses = {s.status for s in splits}
+    if statuses <= {"COMPLETED", "CLOSED"}:
+        return "COMPLETED" if "COMPLETED" in statuses or len(statuses) == 1 else "CLOSED"
+    for candidate in _STATUS_PRIORITY:
+        if candidate in statuses:
+            return candidate
+    return "ACTIVE"
+
+
+def _sync_ticket_cache(db, ticket: FMSTicket, splits: list = None) -> None:
+    """Keeps FMSTicket.current_stage_id/current_assignee_id/status as a
+    convenience cache mirroring the splits, per brief §3. For the common
+    single-split case this reproduces today's exact behavior byte-for-byte.
+    For multi-split tickets these fields stop being authoritative (downstream
+    code should use the split rows / rollup status directly) — we still set
+    them defensively to the furthest-along split so nothing reading them
+    directly sees wildly stale data."""
+    if splits is None:
+        splits = _active_splits(db, ticket.id)
+    ticket.status = _rollup_ticket_status(splits)
+    if not splits:
+        return
+    if len(splits) == 1:
+        primary = splits[0]
+    else:
+        # "Furthest along" = highest stage order; ties broken by most recently updated
+        def _order(s):
+            return (s.current_stage.order if s.current_stage else -1, s.updated_at or datetime.min)
+        primary = max(splits, key=_order)
+    ticket.current_stage_id = primary.current_stage_id
+    ticket.current_assignee_id = primary.current_assignee_id
+    if ticket.status == "COMPLETED" and not ticket.completed_at:
+        ticket.completed_at = datetime.utcnow()
+
+
+def _check_qty_discrepancy(db, ticket: FMSTicket, actor_id: str = None) -> bool:
+    """Brief §5: soft warning, never blocks. Sums qty across leaf splits
+    (is_deleted==False, status != CLOSED — a CLOSED split is an intentional
+    write-off, not part of the expected total) and compares to target_qty.
+    Logs QTY_DISCREPANCY only on the False→True transition to avoid event-log
+    spam; silently clears the flag on match. Returns the resulting flag value."""
+    if ticket.target_qty is None:
+        return False
+    splits = [s for s in _active_splits(db, ticket.id) if s.status != "CLOSED"]
+    actual = sum(s.qty or 0 for s in splits)
+    mismatched = actual != ticket.target_qty
+    if mismatched and not ticket.has_qty_discrepancy:
+        _log(db, ticket.id, actor_id, "QTY_DISCREPANCY",
+             f"Expected {ticket.target_qty}, found {actual} across {len(splits)} active split(s)")
+    ticket.has_qty_discrepancy = mismatched
+    return mismatched
+
+
+def _ticket_closing_rule_check(db, ticket: FMSTicket, stages: list, rule: dict,
+                                in_progress_split_id=None,
+                                in_progress_values: dict = None):
+    """A flow's closing_rule_json (e.g. 'excess quantity == 0') gates whether
+    a ticket may reach its terminal stage. Per product decision: once a
+    ticket has more than one split, the rule must hold for the ticket AS A
+    WHOLE — the aggregate (sum) of the rule's column across every active
+    split — not just whichever single split happens to be completing right
+    now. For the common single-split case this is exactly the old
+    behavior (sum of one number is that number).
+
+    Returns (ok: bool, error_message: str | None).
+
+    Boundary cases handled:
+      - CLOSED splits are write-offs (same convention as the qty-discrepancy
+        check) — excluded from the aggregate entirely.
+      - If ANY active leaf split hasn't captured a numeric value for the
+        rule's column yet, the aggregate is unknowable — this blocks with a
+        clear message naming the split, rather than silently treating the
+        missing value as 0 and under-counting.
+      - A ticket with zero active leaf splits (shouldn't happen given
+        _ensure_ticket_has_split, but defensive) passes — nothing to check.
+      - The split(s) currently mid-transition may have form values not yet
+        committed to the DB; pass their id(s) via in_progress_split_id
+        (a single id or an iterable of ids — bulk actions can move several
+        splits at once with the same captured values) plus
+        in_progress_values so they're judged on what they're *about* to
+        have, not stale DB state.
+    """
+    col_id = rule.get("col_id")
+    if not col_id:
+        return True, None
+    if isinstance(in_progress_split_id, str):
+        in_progress_ids = {in_progress_split_id}
+    else:
+        in_progress_ids = set(in_progress_split_id or [])
+    leaf_splits = [s for s in _active_splits(db, ticket.id) if s.status != "CLOSED"]
+    if not leaf_splits:
+        return True, None
+    total = 0.0
+    for sp in leaf_splits:
+        if sp.id in in_progress_ids:
+            lookup = in_progress_values or {}
+        else:
+            lookup = _cross_stage_cf(db, ticket.id, stages, split_id=sp.id)
+        raw = lookup.get(col_id, "")
+        try:
+            total += float(raw)
+        except (ValueError, TypeError):
+            return False, (
+                f"Cannot close ticket: split {sp.split_label} hasn't captured "
+                f"the closing-rule column yet."
+            )
+    op = rule.get("op", "==")
+    target = rule.get("value", 0)
+    ok = (
+        total == target if op == "==" else
+        total != target if op == "!=" else
+        total <  target if op == "<"  else
+        total <= target if op == "<=" else
+        total >  target if op == ">"  else
+        total >= target if op == ">=" else True
+    )
+    if not ok:
+        return False, (
+            f"Cannot close ticket: closing rule not met across all splits "
+            f"(aggregate {total} {op} {target} is false)."
+        )
+    return True, None
 
 
 # ── 2-B: Flow Builder ────────────────────────────────────────────────────────
@@ -821,17 +1053,18 @@ def _fms_dashboard_inner(
     open_tickets = base_q.filter(
         FMSTicket.status.notin_(["COMPLETED", "CLOSED"])).all()
     for t in open_tickets:
-        h = _open_history(db, t.id)
-        if not h:
-            continue
-        # Prefer ticket-specific planned_end; fall back to stage target
-        if h.planned_end:
-            if now > h.planned_end:
-                tat_breaches += 1
-        elif t.current_stage and t.current_stage.target_tat_hours:
-            elapsed = (now - h.entered_at).total_seconds() / 3600
-            if elapsed > t.current_stage.target_tat_hours:
-                tat_breaches += 1
+        # Phase 0: check every currently-open split, not just one — two splits
+        # of the same ticket can breach TAT independently at different stages.
+        for h in _open_histories_for_ticket(db, t.id):
+            stage_for_h = h.stage
+            # Prefer ticket-specific planned_end; fall back to stage target
+            if h.planned_end:
+                if now > h.planned_end:
+                    tat_breaches += 1
+            elif stage_for_h and stage_for_h.target_tat_hours:
+                elapsed = (now - h.entered_at).total_seconds() / 3600
+                if elapsed > stage_for_h.target_tat_hours:
+                    tat_breaches += 1
 
     # Compliance: completed stage history rows with a planned window or stage target
     all_history = db.query(FMSStageHistory).join(
@@ -1085,12 +1318,13 @@ def _fms_dashboard_inner(
         stage_table_stages = sorted(
             [s for s in active_flow.stages if not s.is_deleted], key=lambda s: s.order
         )
-        # Per-stage ticket counts for badges
+        # Per-stage counts for badges — Phase 0: count active splits at that
+        # stage, not tickets, so a 2-split ticket contributes to both buckets.
         for s in stage_table_stages:
-            stage_ticket_counts[s.id] = db.query(FMSTicket).filter(
-                FMSTicket.current_stage_id == s.id,
-                FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            stage_ticket_counts[s.id] = db.query(FMSTicketSplit).filter(
+                FMSTicketSplit.current_stage_id == s.id,
+                FMSTicketSplit.is_deleted == False,
+                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
             ).count()
 
         # Determine active stage (default: first)
@@ -1100,11 +1334,23 @@ def _fms_dashboard_inner(
             active_stage = stage_table_stages[0]
 
         if active_stage and view in ("stage", "stage_table"):
+            # Phase 0: a ticket appears under a stage tab if it has an active
+            # split parked there — single-split tickets: identical result set
+            # to before (their one split mirrors current_stage_id). Multi-split
+            # tickets now correctly show up under every stage they have a live
+            # split in.
+            _stage_split_ticket_ids = [
+                row[0] for row in db.query(FMSTicketSplit.ticket_id).filter(
+                    FMSTicketSplit.current_stage_id == active_stage.id,
+                    FMSTicketSplit.is_deleted == False,
+                    FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                ).distinct()
+            ]
             q = db.query(FMSTicket).filter(
-                FMSTicket.current_stage_id == active_stage.id,
+                FMSTicket.id.in_(_stage_split_ticket_ids),
                 FMSTicket.is_deleted == False,
                 FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
-            )
+            ) if _stage_split_ticket_ids else db.query(FMSTicket).filter(FMSTicket.id == None)
             if user.role == "MANAGER":
                 q = q.filter(
                     (FMSTicket.current_assignee_id.in_(team_ids)) |
@@ -1128,7 +1374,33 @@ def _fms_dashboard_inner(
 
             raw = q.order_by(FMSTicket.created_at.desc()).all()
             for t in raw:
-                h = _open_history(db, t.id)
+                # Phase 0: this row represents whichever of the ticket's active
+                # splits is parked at this stage (normally exactly one — the
+                # rare case of two splits landing on the same stage just picks
+                # the first for the row's summary columns; both are still
+                # independently actionable from the Splits modal).
+                all_active_splits = _active_splits(db, t.id)
+                splits_here = [
+                    s for s in all_active_splits
+                    if s.current_stage_id == active_stage.id and s.status not in ("COMPLETED", "CLOSED")
+                ]
+                row_split = splits_here[0] if splits_here else _ensure_ticket_has_split(db, t)
+                split_count = len(all_active_splits)
+
+                h = _open_history(db, t.id, split_id=row_split.id)
+                # Most recent evidence file uploaded on this split's lineage
+                # (evidence attaches to the history row of the stage it was
+                # required on exit from, so look across all of them).
+                latest_evidence = (
+                    db.query(FMSStageHistory)
+                    .filter(
+                        FMSStageHistory.ticket_id == t.id,
+                        FMSStageHistory.split_id == row_split.id,
+                        FMSStageHistory.evidence_url.isnot(None),
+                    )
+                    .order_by(FMSStageHistory.entered_at.desc())
+                    .first()
+                )
                 if h and active_stage.target_tat_hours:
                     pct = _tat_pct(h, active_stage)
                     tc = "green" if pct < 50 else "amber" if pct < 90 else "red"
@@ -1180,15 +1452,32 @@ def _fms_dashboard_inner(
                 pd = _planned_dates(t, stage_table_stages)
                 if active_stage.id in pd:
                     planned_end = pd[active_stage.id][1]
+                row_assignee = row_split.current_assignee if row_split else t.current_assignee
+                splits_payload = [
+                    {
+                        "id": s.id, "label": s.split_label, "qty": s.qty,
+                        "stage_id": s.current_stage_id,
+                        "stage_name": s.current_stage.name if s.current_stage else "—",
+                        "assignee_name": s.current_assignee.name if s.current_assignee else "—",
+                        "status": s.status,
+                        "updated_at": s.updated_at.strftime("%d %b %Y, %H:%M") if s.updated_at else None,
+                    }
+                    for s in all_active_splits
+                ] if split_count > 1 else []
                 stage_tickets.append({
                     "ticket": t,
                     "tat_pct": pct,
                     "tat_color": tc,
-                    "assignee_name": t.current_assignee.name if t.current_assignee else "—",
+                    "assignee_name": row_assignee.name if row_assignee else "—",
                     "sub": sub_cols,
                     "entered_at": h.entered_at if h else None,
                     "cf_all": cf_all,
                     "planned_end": planned_end,
+                    "split_id": row_split.id if row_split else None,
+                    "split_count": split_count,
+                    "splits_payload": splits_payload,
+                    "evidence_url": latest_evidence.evidence_url if latest_evidence else None,
+                    "evidence_filename": latest_evidence.evidence_filename if latest_evidence else None,
                 })
 
     # Next/prev stage maps (used by Mark Done and Move Backward modals)
@@ -1296,10 +1585,15 @@ def _fms_dashboard_inner(
                     "assignee_name":  assignee_name,
                 })
 
+            _t_active_splits = _active_splits(db, t.id)
             table_tickets.append({
                 "ticket":        t,
                 "assignee_name": t.current_assignee.name if t.current_assignee else "—",
                 "stages":        stages_info,
+                # Phase 0 §6: stage-distribution badge for multi-split tickets
+                "split_count":   len(_t_active_splits),
+                "split_stage_names": [s.current_stage.name for s in _t_active_splits
+                                       if s.current_stage and s.status not in ("COMPLETED", "CLOSED")],
             })
 
     # ── Timeline view ─────────────────────────────────────────────────────────
@@ -1612,8 +1906,9 @@ async def fms_ticket_create(
     tenant = db.query(Tenant).get(user.tenant_id)
     ticket.display_id = _next_fms_display_id(db, tenant)
 
+    split = _init_first_split(db, ticket, stage.id, assignee_id)
     db.add(FMSStageHistory(
-        ticket_id=ticket.id, stage_id=stage.id,
+        ticket_id=ticket.id, split_id=split.id, stage_id=stage.id,
         stage_name=stage.name, assignee_id=assignee_id,
         direction="FORWARD",
         planned_start=first_ps,
@@ -1741,6 +2036,32 @@ def fms_ticket_notify(
     if stage_id: return_url += f"&stage_id={stage_id}"
     from urllib.parse import quote
     return _redirect(return_url + f"&msg=Notification+sent+to+{quote(assignee_name)}")
+
+
+@router.get("/tickets/{ticket_id}/events")
+def fms_ticket_events(
+    ticket_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Append-only audit trail for a ticket — every action (by whom, when,
+    what) across the ticket and all of its splits. Backs the History modal."""
+    from fastapi.responses import JSONResponse
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    events = db.query(FMSEvent).filter(
+        FMSEvent.ticket_id == ticket.id,
+    ).order_by(FMSEvent.created_at.desc()).all()
+    actor_ids = {e.actor_id for e in events if e.actor_id}
+    actors = {u.id: u.name for u in db.query(User).filter(User.id.in_(actor_ids)).all()} if actor_ids else {}
+    return JSONResponse({"events": [
+        {
+            "event_type": e.event_type,
+            "detail": e.detail or "",
+            "actor_name": actors.get(e.actor_id, "System"),
+            "created_at": e.created_at.strftime("%d %b %Y, %H:%M") if e.created_at else "",
+        }
+        for e in events
+    ]})
 
 
 # ── P7-07: Bulk upload FMS tickets ────────────────────────────────────────────
@@ -1959,8 +2280,9 @@ async def fms_bulk_upload(
         )
         db.add(ticket); db.flush()
         ticket.display_id = _next_fms_display_id(db, tenant)
+        split = _init_first_split(db, ticket, stages[0].id, first_assignee_id)
         db.add(FMSStageHistory(
-            ticket_id=ticket.id, stage_id=stages[0].id,
+            ticket_id=ticket.id, split_id=split.id, stage_id=stages[0].id,
             stage_name=stages[0].name, assignee_id=first_assignee_id,
             direction="FORWARD",
             planned_start=datetime.fromisoformat(first_sched["planned_start"]) if first_sched.get("planned_start") else None,
@@ -2216,8 +2538,9 @@ async def fms_bulk_create_post(
         )
         db.add(ticket); db.flush()
         ticket.display_id = _next_fms_display_id(db, tenant)
+        split = _init_first_split(db, ticket, first_stage.id, first_assignee_id)
         db.add(FMSStageHistory(
-            ticket_id=ticket.id, stage_id=first_stage.id,
+            ticket_id=ticket.id, split_id=split.id, stage_id=first_stage.id,
             stage_name=first_stage.name, assignee_id=first_assignee_id,
             direction="FORWARD",
             planned_start=datetime.fromisoformat(first_sched["planned_start"]) if first_sched.get("planned_start") else None,
@@ -2290,18 +2613,26 @@ async def fms_bulk_transition(
         if not ticket:
             skipped.append(f"{t_id[:8]}: not found")
             continue
-        if ticket.status in ("COMPLETED", "CLOSED"):
-            skipped.append(f"{ticket.display_id or t_id[:8]}: already completed/closed")
+        if ticket.status == "CLOSED":
+            skipped.append(f"{ticket.display_id or t_id[:8]}: already closed")
             continue
-        if current_stage_id and ticket.current_stage_id != current_stage_id:
+        # Phase 0: resolve the active split(s) sitting at this stage — the common
+        # case is exactly one (mirrors ticket.current_stage_id), but a ticket can
+        # have more than one leaf split parked at the same stage.
+        target_splits = [
+            s for s in _active_splits(db, t_id)
+            if s.status not in ("COMPLETED", "CLOSED")
+            and (not current_stage_id or s.current_stage_id == current_stage_id)
+        ]
+        if not target_splits:
             skipped.append(f"{ticket.display_id or t_id[:8]}: no longer at this stage")
             continue
-        if user.role == "EMPLOYEE" and not _can_transition(user, ticket):
+        if user.role == "EMPLOYEE" and not any(_can_transition(user, ticket, s) for s in target_splits):
             skipped.append(f"{ticket.display_id or t_id[:8]}: not your ticket")
             continue
 
         completion_note = (form.get(f"completion_note_{t_id}") or "").strip()
-        cur_stage = ticket.current_stage
+        cur_stage = target_splits[0].current_stage
         if cur_stage and cur_stage.completion_note_required and not completion_note:
             skipped.append(f"{ticket.display_id or t_id[:8]}: completion note required")
             continue
@@ -2339,7 +2670,7 @@ async def fms_bulk_transition(
             all_flow_stages = db.query(FMSStage).filter(
                 FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False
             ).all()
-            _bulk_open_h = _open_history(db, t_id)
+            _bulk_open_h = _open_history(db, t_id, split_id=target_splits[0].id)
             _bulk_tff = {}
             if ticket.ticket_custom_fields_json:
                 try:
@@ -2348,7 +2679,7 @@ async def fms_bulk_transition(
                     pass
             formula_lookup = {
                 **_bulk_tff,
-                **_cross_stage_cf(db, t_id, all_flow_stages, exclude_history_id=_bulk_open_h.id if _bulk_open_h else None),
+                **_cross_stage_cf(db, t_id, all_flow_stages, split_id=target_splits[0].id, exclude_history_id=_bulk_open_h.id if _bulk_open_h else None),
                 **custom_fields_data,
             }
 
@@ -2378,7 +2709,9 @@ async def fms_bulk_transition(
                 if computed is not None:
                     custom_fields_data[fdef.get("id", "")] = computed
 
-        # Enforce the flow's closing rule before letting a ticket land on the terminal stage
+        # Enforce the flow's closing rule before letting a ticket land on the
+        # terminal stage — aggregate across every active split (see
+        # _ticket_closing_rule_check), not just target_splits alone.
         if next_stage.is_terminal and ticket.flow and ticket.flow.closing_rule_json:
             try:
                 rule = _json.loads(ticket.flow.closing_rule_json)
@@ -2386,50 +2719,48 @@ async def fms_bulk_transition(
                 rule = None
             if rule and rule.get("col_id"):
                 bulk_lookup = {**(formula_lookup if cur_stage and cur_stage.custom_fields_json else {}), **custom_fields_data}
-                raw = bulk_lookup.get(rule["col_id"], "")
-                try:
-                    actual = float(raw)
-                    op = rule.get("op", "=="); target = rule.get("value", 0)
-                    ok = (
-                        actual == target if op == "==" else
-                        actual != target if op == "!=" else
-                        actual <  target if op == "<"  else
-                        actual <= target if op == "<=" else
-                        actual >  target if op == ">"  else
-                        actual >= target if op == ">=" else True
-                    )
-                except (ValueError, TypeError):
-                    ok = False
+                stages_for_rule = db.query(FMSStage).filter(
+                    FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False).all()
+                ok, _err = _ticket_closing_rule_check(
+                    db, ticket, stages_for_rule, rule,
+                    in_progress_split_id=[s.id for s in target_splits],
+                    in_progress_values=bulk_lookup)
                 if not ok:
                     skipped.append(f"{ticket.display_id or t_id[:8]}: closing rule not met")
                     continue
 
-        open_h = _open_history(db, t_id)
-        if open_h:
-            open_h.exited_at = now
-            open_h.completion_note = completion_note or None
-            open_h.custom_fields_data_json = _json.dumps(custom_fields_data) if custom_fields_data else None
-            _log(db, t_id, user.id, "STAGE_EXITED",
-                 f"From: {cur_stage.name if cur_stage else '?'}")
+        multi = len(target_splits) > 1 or len(_active_splits(db, t_id)) > 1
+        moved_assignees = set()
+        for tsplit in target_splits:
+            open_h = _open_history(db, t_id, split_id=tsplit.id)
+            if open_h:
+                open_h.exited_at = now
+                open_h.completion_note = completion_note or None
+                open_h.custom_fields_data_json = _json.dumps(custom_fields_data) if custom_fields_data else None
+                suffix = f" [{tsplit.split_label}]" if multi else ""
+                _log(db, t_id, user.id, "STAGE_EXITED", f"From: {cur_stage.name if cur_stage else '?'}{suffix}")
 
-        new_assignee_id = next_stage.default_assignee_id or ticket.current_assignee_id
-        db.add(FMSStageHistory(
-            ticket_id=t_id, stage_id=next_stage_id,
-            stage_name=next_stage.name, assignee_id=new_assignee_id,
-            direction="FORWARD",
-        ))
-        ticket.current_stage_id = next_stage_id
-        ticket.current_assignee_id = new_assignee_id
+            new_assignee_id = next_stage.default_assignee_id or tsplit.current_assignee_id
+            db.add(FMSStageHistory(
+                ticket_id=t_id, split_id=tsplit.id, stage_id=next_stage_id,
+                stage_name=next_stage.name, assignee_id=new_assignee_id,
+                direction="FORWARD",
+            ))
+            tsplit.current_stage_id = next_stage_id
+            tsplit.current_assignee_id = new_assignee_id
+            tsplit.updated_at = now
+            tsplit.status = "COMPLETED" if next_stage.is_terminal else "ACTIVE"
+            suffix = f" [{tsplit.split_label}]" if multi else ""
+            _log(db, t_id, user.id, "STAGE_ENTERED", f"To: {next_stage.name}{suffix}")
+            if new_assignee_id:
+                moved_assignees.add(new_assignee_id)
+
         ticket.updated_at = now
-        if next_stage.is_terminal:
-            ticket.status = "COMPLETED"
-            ticket.completed_at = now
-        else:
-            ticket.status = "ACTIVE"
-        _log(db, t_id, user.id, "STAGE_ENTERED", f"To: {next_stage.name}")
+        _sync_ticket_cache(db, ticket)
+        _check_qty_discrepancy(db, ticket, user.id)
 
-        # Notify new assignee
-        if new_assignee_id:
+        # Notify assignees of the moved split(s)
+        for new_assignee_id in moved_assignees:
             mgrs = _manager_ids_for(db, new_assignee_id)
             notify_fms_stage_transition(
                 tid, t_id, ticket.title, next_stage.name, user.id,
@@ -2660,6 +2991,7 @@ async def fms_transition(
     qty_completed: str = Form("0"),
     return_reason: str = Form(""),
     is_override: bool = Form(False),
+    split_id: str = Form(""),
     evidence_file: UploadFile = File(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2667,12 +2999,29 @@ async def fms_transition(
     """
     2-C-2/3/4/5/6/7: Stage transition engine.
     Handles FORWARD, BACKWARD, non-linear revisits, and manager override.
+
+    Phase 0 (split flows): operates on a *split*, not the ticket directly.
+    split_id is optional — when omitted (every existing caller/template),
+    resolves to the ticket's sole/primary split via _ensure_ticket_has_split,
+    so single-split tickets (the overwhelming majority) behave identically
+    to before.
     """
     ticket = _get_ticket(db, ticket_id, user.tenant_id)
-    if not _can_transition(user, ticket):
+    if split_id:
+        split = db.query(FMSTicketSplit).filter(
+            FMSTicketSplit.id == split_id,
+            FMSTicketSplit.ticket_id == ticket_id,
+            FMSTicketSplit.is_deleted == False,
+        ).first()
+        if not split:
+            raise HTTPException(404, "Split not found")
+    else:
+        split = _ensure_ticket_has_split(db, ticket)
+
+    if not _can_transition(user, ticket, split):
         raise HTTPException(403, "Not authorised to transition this ticket")
-    if ticket.status in ("COMPLETED", "CLOSED"):
-        raise HTTPException(400, "Ticket is already completed or closed")
+    if ticket.status == "CLOSED" or split.status in ("COMPLETED", "CLOSED"):
+        raise HTTPException(400, "This ticket/split is already completed or closed")
 
     # Empty next_stage_id means "complete the current terminal stage"
     terminal_complete = not next_stage_id.strip()
@@ -2684,8 +3033,11 @@ async def fms_transition(
         if not next_stage:
             raise HTTPException(400, "Invalid next stage")
 
-    cur_stage  = ticket.current_stage
-    open_h     = _open_history(db, ticket_id)
+    cur_stage  = split.current_stage
+    open_h     = _open_history(db, ticket_id, split_id=split.id)
+    split_label_suffix = ""
+    if len(_active_splits(db, ticket_id)) > 1:
+        split_label_suffix = f" [{split.split_label}]"
 
     if terminal_complete:
         direction = "FORWARD"
@@ -2777,7 +3129,7 @@ async def fms_transition(
                 pass
         formula_lookup = {
             **_ticket_tff,
-            **_cross_stage_cf(db, ticket_id, all_flow_stages, exclude_history_id=open_h.id if open_h else None),
+            **_cross_stage_cf(db, ticket_id, all_flow_stages, split_id=split.id, exclude_history_id=open_h.id if open_h else None),
             **custom_fields_data,
         }
 
@@ -2824,15 +3176,17 @@ async def fms_transition(
         open_h.evidence_filename      = evidence_filename
         open_h.custom_fields_data_json = _json.dumps(custom_fields_data) if custom_fields_data else None
         _log(db, ticket_id, user.id, "STAGE_EXITED",
-             f"From: {cur_stage.name if cur_stage else '?'} | "
+             f"From: {cur_stage.name if cur_stage else '?'}{split_label_suffix} | "
              f"note: {completion_note[:80]}" if completion_note else "")
 
     ticket.updated_at = datetime.utcnow()
+    split.updated_at = datetime.utcnow()
 
     if terminal_complete:
         # Enforce the flow's closing rule (e.g. "excess quantity = 0") before
-        # allowing the ticket to close, using the same cross-stage + ticket-form
-        # value lookup used for formula columns above.
+        # allowing the ticket to close — evaluated in aggregate across every
+        # active split (brief follow-up: the rule gates the ticket as a
+        # whole, not just whichever split is completing right now).
         flow_for_rule = ticket.flow
         if flow_for_rule and flow_for_rule.closing_rule_json:
             try:
@@ -2840,30 +3194,21 @@ async def fms_transition(
             except Exception:
                 rule = None
             if rule and rule.get("col_id"):
-                final_lookup = {**formula_lookup, **custom_fields_data} if cur_stage else custom_fields_data
-                raw = final_lookup.get(rule["col_id"], "")
-                try:
-                    actual = float(raw)
-                except (ValueError, TypeError):
-                    raise HTTPException(400, "Cannot close ticket: the closing rule's column has no value yet.")
-                op = rule.get("op", "==")
-                target = rule.get("value", 0)
-                ok = (
-                    actual == target if op == "==" else
-                    actual != target if op == "!=" else
-                    actual <  target if op == "<"  else
-                    actual <= target if op == "<=" else
-                    actual >  target if op == ">"  else
-                    actual >= target if op == ">=" else True
-                )
+                in_progress = {**formula_lookup, **custom_fields_data} if cur_stage else custom_fields_data
+                stages_for_rule = db.query(FMSStage).filter(
+                    FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False).all()
+                ok, err = _ticket_closing_rule_check(
+                    db, ticket, stages_for_rule, rule,
+                    in_progress_split_id=split.id, in_progress_values=in_progress)
                 if not ok:
-                    raise HTTPException(400, f"Cannot close ticket: closing rule not met ({actual} {op} {target} is false).")
+                    raise HTTPException(400, err)
 
         # Completing the current terminal stage — no new history row needed
-        ticket.status       = "COMPLETED"
-        ticket.completed_at = datetime.utcnow()
+        split.status = "COMPLETED"
+        _sync_ticket_cache(db, ticket)
+        _check_qty_discrepancy(db, ticket, user.id)
         _log(db, ticket_id, user.id, "COMPLETED",
-             f"Completed terminal stage: {cur_stage.name if cur_stage else '?'}")
+             f"Completed terminal stage: {cur_stage.name if cur_stage else '?'}{split_label_suffix}")
         db.commit()
         admins = _admin_ids(db, user.tenant_id)
         broadcast_sync(user.tenant_id, admins, FMS_STAGE_TRANSITION, {
@@ -2889,7 +3234,7 @@ async def fms_transition(
 
     # Create new stage history row (2-C-5: non-linear — always new row)
     db.add(FMSStageHistory(
-        ticket_id=ticket_id, stage_id=next_stage_id,
+        ticket_id=ticket_id, split_id=split.id, stage_id=next_stage_id,
         stage_name=next_stage.name, assignee_id=new_assignee_id,
         direction=direction,
         return_reason=return_reason.strip() or None,
@@ -2899,9 +3244,9 @@ async def fms_transition(
         planned_end=_npe,
     ))
 
-    # Update ticket
-    ticket.current_stage_id    = next_stage_id
-    ticket.current_assignee_id = new_assignee_id
+    # Update the split (the ticket-level cache is refreshed below via _sync_ticket_cache)
+    split.current_stage_id    = next_stage_id
+    split.current_assignee_id = new_assignee_id
 
     if next_stage.is_terminal:
         flow_for_rule = ticket.flow
@@ -2911,34 +3256,26 @@ async def fms_transition(
             except Exception:
                 rule = None
             if rule and rule.get("col_id"):
-                final_lookup = {**formula_lookup, **custom_fields_data} if cur_stage else custom_fields_data
-                raw = final_lookup.get(rule["col_id"], "")
-                try:
-                    actual = float(raw)
-                except (ValueError, TypeError):
-                    raise HTTPException(400, "Cannot close ticket: the closing rule's column has no value yet.")
-                op = rule.get("op", "==")
-                target = rule.get("value", 0)
-                ok = (
-                    actual == target if op == "==" else
-                    actual != target if op == "!=" else
-                    actual <  target if op == "<"  else
-                    actual <= target if op == "<=" else
-                    actual >  target if op == ">"  else
-                    actual >= target if op == ">=" else True
-                )
+                in_progress = {**formula_lookup, **custom_fields_data} if cur_stage else custom_fields_data
+                stages_for_rule = db.query(FMSStage).filter(
+                    FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False).all()
+                ok, err = _ticket_closing_rule_check(
+                    db, ticket, stages_for_rule, rule,
+                    in_progress_split_id=split.id, in_progress_values=in_progress)
                 if not ok:
-                    raise HTTPException(400, f"Cannot close ticket: closing rule not met ({actual} {op} {target} is false).")
-        ticket.status       = "COMPLETED"
-        ticket.completed_at = datetime.utcnow()
+                    raise HTTPException(400, err)
+        split.status = "COMPLETED"
         _log(db, ticket_id, user.id, "COMPLETED",
-             f"Reached terminal stage: {next_stage.name}")
+             f"Reached terminal stage: {next_stage.name}{split_label_suffix}")
     else:
-        ticket.status = "ACTIVE"
+        split.status = "ACTIVE"
+
+    _sync_ticket_cache(db, ticket)
+    _check_qty_discrepancy(db, ticket, user.id)
 
     event_type = "RETURNED" if direction == "BACKWARD" else (
         "MANAGER_OVERRIDE" if direction == "MANAGER_OVERRIDE" else "STAGE_ENTERED")
-    detail_parts = [f"To: {next_stage.name}"]
+    detail_parts = [f"To: {next_stage.name}{split_label_suffix}"]
     if return_reason: detail_parts.append(f"Reason: {return_reason}")
     _log(db, ticket_id, user.id, event_type, " | ".join(detail_parts))
 
@@ -2948,12 +3285,12 @@ async def fms_transition(
     admins   = _admin_ids(db, user.tenant_id)
     managers = _manager_ids_for(db, new_assignee_id)
     notify_fms_stage_transition(
-        user.tenant_id, ticket_id, ticket.title,
+        user.tenant_id, ticket_id, f"{ticket.title}{split_label_suffix}",
         next_stage.name, user.id, admins, managers, new_assignee_id)
     new_assignee_obj = db.query(User).filter(User.id == new_assignee_id).first()
     if new_assignee_obj:
         send_whatsapp_for_fms_stage_transition(
-            db, user.tenant_id, ticket_id, ticket.title,
+            db, user.tenant_id, ticket_id, f"{ticket.title}{split_label_suffix}",
             next_stage.name, new_assignee_obj)
     audience = list(set(admins + managers + [new_assignee_id]))
     broadcast_sync(user.tenant_id, audience, FMS_STAGE_TRANSITION, {
@@ -2964,7 +3301,7 @@ async def fms_transition(
 
     # Backward move: notify managers with a 2-hour override window message
     if direction == "BACKWARD":
-        mgr_ids = _manager_ids_for(db, ticket.current_assignee_id)
+        mgr_ids = _manager_ids_for(db, new_assignee_id)
         for mid in mgr_ids + admins:
             create_notification(
                 db, user.tenant_id,
@@ -2982,6 +3319,300 @@ async def fms_transition(
         f"/fms/dashboard?view=stage"
         f"{'&flow_id=' + ticket.flow_id if ticket.flow_id else ''}"
         f"{'&stage_id=' + next_stage_id}"
+    )
+
+
+# ── Phase 0: Split Flows — the split action ─────────────────────────────────
+
+@router.post("/tickets/{ticket_id}/splits/{split_id}/split")
+async def fms_split_ticket(
+    request: Request,
+    ticket_id: str,
+    split_id: str,
+    qty_to_move: str = Form(""),
+    target_stage_id: str = Form(...),
+    new_assignee_id: str = Form(""),
+    completion_note: str = Form(""),
+    return_reason: str = Form(""),
+    is_override: bool = Form(False),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Brief §5: carve part of a split's qty off into a new, independently
+    trackable split at a (usually different) stage. Reuses the same
+    linear-movement / backward-reason / manager-override / completion-note
+    rules as fms_transition(), applied to the source split rather than the
+    whole ticket.
+
+    Follow-up (splitting "at the custom-column level"): a split isn't
+    purely quantity-only — the source stage's own custom fields (cf__{id})
+    can optionally be submitted alongside qty_to_move, using the same
+    required/formula rules as a normal transition. Where they land depends
+    on what happens to the source split: if it's fully consumed by this
+    split (qty hits 0), the values describe what happened at its exit, so
+    they're recorded there — exactly like a normal transition. If the
+    source continues (the common case — only part of its qty moved), there
+    is no exit event to attach to, so the values describe the new branch
+    instead and are recorded on the new split's opening history row.
+    """
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    source = db.query(FMSTicketSplit).filter(
+        FMSTicketSplit.id == split_id,
+        FMSTicketSplit.ticket_id == ticket_id,
+        FMSTicketSplit.is_deleted == False,
+    ).first()
+    if not source:
+        raise HTTPException(404, "Split not found")
+    if not _can_transition(user, ticket, source):
+        raise HTTPException(403, "Not authorised to split this ticket")
+    if ticket.status == "CLOSED" or source.status in ("COMPLETED", "CLOSED"):
+        raise HTTPException(400, "This split is already completed or closed")
+
+    # Splitting isn't always a quantity concept — plenty of flows never set
+    # target_qty at all (it's nullable on FMSTicket). When this ticket
+    # doesn't track quantity, qty_to_move is ignored entirely: the split is
+    # purely "carve a copy of this portion off to another stage/assignee",
+    # qty stays null on both sides, and the source is never auto-retired
+    # (there's no quantity signal to say it's "used up" — it keeps existing
+    # independently until acted on directly).
+    qty_tracked = source.qty is not None
+    orig_qty = source.qty
+    qty = None
+    if qty_tracked:
+        try:
+            qty = int(qty_to_move)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "qty_to_move must be a whole number")
+        if qty <= 0 or qty > orig_qty:
+            raise HTTPException(400, f"qty_to_move must be > 0 and no more than the split's remaining qty ({orig_qty})")
+
+    target_stage = db.query(FMSStage).filter(
+        FMSStage.id == target_stage_id, FMSStage.flow_id == ticket.flow_id).first()
+    if not target_stage:
+        raise HTTPException(400, "Invalid target stage")
+
+    cur_stage = source.current_stage
+    cur_order = cur_stage.order if cur_stage else 0
+    next_order = target_stage.order
+    direction = "BACKWARD" if next_order < cur_order else "FORWARD"
+
+    if is_override:
+        if user.role not in ("ADMIN", "MANAGER"):
+            raise HTTPException(403, "Only managers/admins can override")
+        direction = "MANAGER_OVERRIDE"
+    else:
+        if direction == "FORWARD" and next_order != cur_order + 1:
+            raise HTTPException(400, "Splits can only move to the next stage in sequence")
+        if direction == "BACKWARD" and next_order != cur_order - 1:
+            raise HTTPException(400, "Splits can only move to the previous stage in sequence")
+    if direction == "BACKWARD" and not return_reason.strip():
+        raise HTTPException(400, "Return reason is required for backward movement")
+    if cur_stage and cur_stage.completion_note_required and not completion_note.strip():
+        raise HTTPException(400, f"Stage '{cur_stage.name}' requires a completion note")
+
+    open_h = _open_history(db, ticket_id, split_id=source.id)
+    now = datetime.utcnow()
+
+    # Optional custom-field capture for the source stage (same rules as
+    # fms_transition: required fields only enforced on FORWARD moves,
+    # formula columns evaluated server-side against this split's own
+    # lineage so they can reference values captured before this split).
+    custom_fields_data: dict = {}
+    all_flow_stages = db.query(FMSStage).filter(
+        FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False).all()
+    if cur_stage:
+        try:
+            field_defs = _json.loads(cur_stage.custom_fields_json or "[]")
+        except Exception:
+            field_defs = []
+        if field_defs:
+            form_data = await request.form()
+            missing_required = []
+            for fdef in field_defs:
+                fid = fdef.get("id", "")
+                if fdef.get("field_type") == "formula":
+                    continue
+                val = str(form_data.get(f"cf__{fid}", "") or "").strip()
+                if fdef.get("required") and not val and direction != "BACKWARD":
+                    missing_required.append(fdef.get("label", fid))
+                if val:
+                    custom_fields_data[fid] = val
+            if missing_required:
+                raise HTTPException(400, f"Required column(s) not filled: {', '.join(missing_required)}")
+
+            _ticket_tff = {}
+            if ticket.ticket_custom_fields_json:
+                try:
+                    _ticket_tff = _json.loads(ticket.ticket_custom_fields_json)
+                except Exception:
+                    pass
+            formula_lookup = {
+                **_ticket_tff,
+                **_cross_stage_cf(db, ticket_id, all_flow_stages, split_id=source.id,
+                                   exclude_history_id=open_h.id if open_h else None),
+                **custom_fields_data,
+            }
+
+            def _eval_formula_split(steps: list):
+                result = None
+                for i, step in enumerate(steps):
+                    raw = formula_lookup.get(step.get("col_id", ""), "")
+                    try:
+                        val = float(raw)
+                    except (ValueError, TypeError):
+                        return None
+                    if i == 0:
+                        result = val
+                        continue
+                    op = step.get("op", "+")
+                    if op == "+":   result += val
+                    elif op == "-": result -= val
+                    elif op == "*": result *= val
+                    elif op == "/":
+                        if val == 0: return None
+                        result /= val
+                if result is None:
+                    return None
+                return str(int(result)) if result == int(result) else f"{result:.4f}".rstrip("0")
+
+            for fdef in field_defs:
+                if fdef.get("field_type") != "formula":
+                    continue
+                computed = _eval_formula_split(fdef.get("formula_steps") or [])
+                if computed is not None:
+                    custom_fields_data[fdef.get("id", "")] = computed
+
+    # 1. Decrement the source split; if fully consumed, its story ends here.
+    # (Qty-less tickets: nothing to decrement, source never auto-retires.)
+    if qty_tracked:
+        remaining = orig_qty - qty
+        source.qty = remaining
+        source_retired = remaining <= 0
+    else:
+        remaining = None
+        source_retired = False
+    source.updated_at = now
+    if source_retired:
+        if open_h:
+            open_h.exited_at = now
+            open_h.completion_note = completion_note.strip() or open_h.completion_note
+            # Custom-field values belong to the source's exit record when it
+            # has one (it fully left this stage) — same as a normal transition.
+            if custom_fields_data:
+                open_h.custom_fields_data_json = _json.dumps(custom_fields_data)
+        source.is_deleted = True
+        source.status = "CLOSED"
+
+    # 2. Create the new split + open its stage-history row.
+    # Snapshot everything the source split had accumulated up to (and
+    # including) this split action — this is what lets the new branch's
+    # formula columns / closing-rule contribution keep working immediately,
+    # without waiting for it to revisit every earlier stage itself. Taken
+    # now (source's own exit/update above has already happened), and static
+    # from here on — the source's future is its own, independent history.
+    inherited_snapshot = _cross_stage_cf(db, ticket_id, all_flow_stages, split_id=source.id)
+    new_label = _next_split_label(db, ticket_id)
+    new_assignee = new_assignee_id or source.current_assignee_id
+    new_split = FMSTicketSplit(
+        tenant_id=ticket.tenant_id, ticket_id=ticket_id, parent_split_id=source.id,
+        split_label=new_label, qty=qty,
+        current_stage_id=target_stage_id, current_assignee_id=new_assignee,
+        status="COMPLETED" if target_stage.is_terminal else "ACTIVE",
+    )
+    db.add(new_split)
+    db.flush()
+    # Source continues (no exit event) — the newly captured values describe
+    # this new branch, not a source update, so they're merged into the
+    # inherited snapshot rather than left on the source.
+    new_row_cf = {**inherited_snapshot, **(custom_fields_data if not source_retired else {})}
+    db.add(FMSStageHistory(
+        ticket_id=ticket_id, split_id=new_split.id, stage_id=target_stage_id,
+        stage_name=target_stage.name, assignee_id=new_assignee,
+        direction=direction,
+        return_reason=return_reason.strip() or None,
+        from_stage_id=cur_stage.id if cur_stage else None,
+        from_stage_name=cur_stage.name if cur_stage else None,
+        custom_fields_data_json=_json.dumps(new_row_cf) if new_row_cf else None,
+    ))
+
+    # 2b. Closing rule (aggregate across the ticket's active splits — see
+    # _ticket_closing_rule_check) if this split just landed on a terminal
+    # stage. Checked here — after the new split exists so it's part of the
+    # aggregate — rather than up front, since only NOW do we know its
+    # contribution. Validation failure rolls back everything above.
+    if target_stage.is_terminal and ticket.flow and ticket.flow.closing_rule_json:
+        try:
+            rule = _json.loads(ticket.flow.closing_rule_json)
+        except Exception:
+            rule = None
+        if rule and rule.get("col_id"):
+            # new_split's history row (and, if source_retired, source's exit
+            # row) are already flushed above — _cross_stage_cf reads them via
+            # the same session, and lineage-walks back through source, so no
+            # separate in-progress override is needed here.
+            ok, err = _ticket_closing_rule_check(db, ticket, all_flow_stages, rule)
+            if not ok:
+                db.rollback()
+                raise HTTPException(400, err)
+
+    # 3. Audit trail (brief §5: reuses the existing append-only event log).
+    if qty_tracked:
+        detail = (f"{source.split_label} ({orig_qty}) -> {new_label} ({qty}) @ {target_stage.name}. "
+                  + (f"{source.split_label} fully consumed (retired)." if source_retired
+                     else f"{source.split_label} continues at {cur_stage.name if cur_stage else '?'} with {remaining} remaining."))
+    else:
+        detail = (f"{source.split_label} -> {new_label} @ {target_stage.name} "
+                  f"(no quantity tracked for this ticket). "
+                  f"{source.split_label} continues at {cur_stage.name if cur_stage else '?'}.")
+    _log(db, ticket_id, user.id, "SPLIT_CREATED", detail)
+
+    _sync_ticket_cache(db, ticket)
+    _check_qty_discrepancy(db, ticket, user.id)
+    ticket.updated_at = now
+    db.commit()
+
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for(db, new_assignee)
+    notify_fms_stage_transition(
+        user.tenant_id, ticket_id, f"{ticket.title} [{new_label}]",
+        target_stage.name, user.id, admins, managers, new_assignee)
+    new_assignee_obj = db.query(User).filter(User.id == new_assignee).first() if new_assignee else None
+    if new_assignee_obj:
+        send_whatsapp_for_fms_stage_transition(
+            db, user.tenant_id, ticket_id, f"{ticket.title} [{new_label}]",
+            target_stage.name, new_assignee_obj)
+    audience = list(set(admins + managers + ([new_assignee] if new_assignee else [])))
+    broadcast_sync(user.tenant_id, audience, FMS_STAGE_TRANSITION, {
+        "ticket_id": ticket_id, "display_id": ticket.display_id,
+        "title": ticket.title, "stage": target_stage.name,
+        "status": ticket.status,
+    })
+
+    return _redirect(
+        f"/fms/dashboard?view=stage&flow_id={ticket.flow_id}&stage_id={target_stage_id}"
+        f"&msg={new_label}+created"
+    )
+
+
+@router.post("/tickets/{ticket_id}/discrepancy/acknowledge")
+def fms_discrepancy_acknowledge(
+    ticket_id: str,
+    user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """Brief §5: manager/admin acknowledges a system-detected qty discrepancy —
+    no requirement to 'fix' it, just to consciously note the drift is expected."""
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    ticket.has_qty_discrepancy = False
+    ticket.updated_at = datetime.utcnow()
+    _log(db, ticket_id, user.id, "QTY_DISCREPANCY_ACKNOWLEDGED",
+         "Manager acknowledged quantity drift as expected/explained")
+    db.commit()
+    return _redirect(
+        f"/fms/dashboard?view=stage"
+        f"{'&flow_id=' + ticket.flow_id if ticket.flow_id else ''}"
+        f"{'&stage_id=' + ticket.current_stage_id if ticket.current_stage_id else ''}"
     )
 
 
@@ -3050,33 +3681,70 @@ def fms_action(
     new_assignee_id: str = Form(""),
     helper_id: str = Form(""),
     flag_reason: str = Form(""),
+    split_id: str = Form(""),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """2-D: Reassign, help request, flag, comment, on-hold, close."""
+    """2-D: Reassign, help request, flag, comment, on-hold, close.
+
+    Phase 0 (split flows): split_id is optional. Omitted (every existing
+    caller) → today's exact ticket-level behavior, unchanged. Present (only
+    reachable from the Splits modal on a multi-split ticket) → reassign/
+    help-request/flag/mark-stage-complete apply to that split instead, then
+    roll up to the ticket. comment/on_hold/resume/close/helpers stay
+    ticket-wide administrative actions either way (brief §6 only calls out
+    advance/return/flag/help/complete as per-split)."""
     ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    split = None
+    if split_id:
+        split = db.query(FMSTicketSplit).filter(
+            FMSTicketSplit.id == split_id,
+            FMSTicketSplit.ticket_id == ticket_id,
+            FMSTicketSplit.is_deleted == False,
+        ).first()
+        if not split:
+            raise HTTPException(404, "Split not found")
 
     if action == "comment" and comment.strip():
         _log(db, ticket_id, user.id, "COMMENT", comment.strip())
 
     elif action == "reassign" and new_assignee_id and reason.strip():
         # 2-D-1/2: reassign — mandatory handoff form
-        if user.role == "EMPLOYEE" and ticket.current_assignee_id != user.id:
-            raise HTTPException(403, "Only the current assignee can reassign")
-        old_assignee = ticket.current_assignee_id
-        ticket.current_assignee_id = new_assignee_id
-        ticket.updated_at = datetime.utcnow()
-        # Update open stage history assignee
-        open_h = _open_history(db, ticket_id)
-        if open_h:
-            open_h.assignee_id = new_assignee_id
-        _log(db, ticket_id, user.id, "REASSIGNED",
-             f"From: {old_assignee} → To: {new_assignee_id} | {reason}")
+        if split:
+            if user.role == "EMPLOYEE" and split.current_assignee_id != user.id:
+                raise HTTPException(403, "Only the current assignee can reassign")
+            old_assignee = split.current_assignee_id
+            split.current_assignee_id = new_assignee_id
+            split.updated_at = datetime.utcnow()
+            open_h = _open_history(db, ticket_id, split_id=split.id)
+            if open_h:
+                open_h.assignee_id = new_assignee_id
+            _sync_ticket_cache(db, ticket)
+            _log(db, ticket_id, user.id, "REASSIGNED",
+                 f"[{split.split_label}] From: {old_assignee} → To: {new_assignee_id} | {reason}")
+        else:
+            if user.role == "EMPLOYEE" and ticket.current_assignee_id != user.id:
+                raise HTTPException(403, "Only the current assignee can reassign")
+            old_assignee = ticket.current_assignee_id
+            ticket.current_assignee_id = new_assignee_id
+            ticket.updated_at = datetime.utcnow()
+            # Update open stage history assignee
+            open_h = _open_history(db, ticket_id)
+            if open_h:
+                open_h.assignee_id = new_assignee_id
+            _log(db, ticket_id, user.id, "REASSIGNED",
+                 f"From: {old_assignee} → To: {new_assignee_id} | {reason}")
 
     elif action == "help_request" and comment.strip():
         # 2-D-3
-        ticket.status = "HELP_REQUESTED"
-        _log(db, ticket_id, user.id, "HELP_REQUESTED", comment.strip())
+        if split:
+            split.status = "HELP_REQUESTED"
+            split.updated_at = datetime.utcnow()
+            _sync_ticket_cache(db, ticket)
+            _log(db, ticket_id, user.id, "HELP_REQUESTED", f"[{split.split_label}] {comment.strip()}")
+        else:
+            ticket.status = "HELP_REQUESTED"
+            _log(db, ticket_id, user.id, "HELP_REQUESTED", comment.strip())
 
     elif action == "add_helper" and helper_id:
         # 2-D-3
@@ -3101,19 +3769,39 @@ def fms_action(
         _log(db, ticket_id, user.id, "HELPER_REMOVED", f"Helper: {helper_id}")
 
     elif action == "flag" and flag_reason.strip():
-        # 2-D-4
+        # 2-D-4. FMSTicketSplit has no separate flagged_reason column (brief §3
+        # schema) — a split flag sets its status and mirrors is_flagged onto
+        # the ticket so the existing 🚩 badge keeps working unchanged.
         if user.role not in ("ADMIN", "MANAGER"):
             raise HTTPException(403, "Managers only")
-        ticket.is_flagged    = True
-        ticket.flagged_reason = flag_reason.strip()
-        _log(db, ticket_id, user.id, "FLAGGED", flag_reason.strip())
+        if split:
+            split.status = "FLAGGED"
+            split.updated_at = datetime.utcnow()
+            ticket.is_flagged = True
+            ticket.flagged_reason = flag_reason.strip()
+            _sync_ticket_cache(db, ticket)
+            _log(db, ticket_id, user.id, "FLAGGED", f"[{split.split_label}] {flag_reason.strip()}")
+        else:
+            ticket.is_flagged    = True
+            ticket.flagged_reason = flag_reason.strip()
+            _log(db, ticket_id, user.id, "FLAGGED", flag_reason.strip())
 
     elif action == "unflag":
         if user.role not in ("ADMIN", "MANAGER"):
             raise HTTPException(403, "Managers only")
-        ticket.is_flagged     = False
-        ticket.flagged_reason = None
-        _log(db, ticket_id, user.id, "UNFLAGGED")
+        if split and split.status == "FLAGGED":
+            split.status = "ACTIVE"
+            split.updated_at = datetime.utcnow()
+            _sync_ticket_cache(db, ticket)
+            other_splits = _active_splits(db, ticket_id)
+            ticket.is_flagged = any(s.status == "FLAGGED" for s in other_splits)
+            if not ticket.is_flagged:
+                ticket.flagged_reason = None
+            _log(db, ticket_id, user.id, "UNFLAGGED", f"[{split.split_label}]")
+        else:
+            ticket.is_flagged     = False
+            ticket.flagged_reason = None
+            _log(db, ticket_id, user.id, "UNFLAGGED")
 
     elif action == "on_hold":
         if user.role not in ("ADMIN", "MANAGER"):
@@ -3135,11 +3823,18 @@ def fms_action(
         _log(db, ticket_id, user.id, "CLOSED", reason)
 
     elif action == "mark_stage_complete":
-        if not _can_transition(user, ticket):
+        if not _can_transition(user, ticket, split):
             raise HTTPException(403)
-        ticket.status = "STAGE_COMPLETE"
-        _log(db, ticket_id, user.id, "STAGE_EXITED",
-             f"Marked complete at {ticket.current_stage.name if ticket.current_stage else '?'}")
+        if split:
+            split.status = "STAGE_COMPLETE"
+            split.updated_at = datetime.utcnow()
+            _sync_ticket_cache(db, ticket)
+            _log(db, ticket_id, user.id, "STAGE_EXITED",
+                 f"[{split.split_label}] Marked complete at {split.current_stage.name if split.current_stage else '?'}")
+        else:
+            ticket.status = "STAGE_COMPLETE"
+            _log(db, ticket_id, user.id, "STAGE_EXITED",
+                 f"Marked complete at {ticket.current_stage.name if ticket.current_stage else '?'}")
 
     ticket.updated_at = datetime.utcnow()
     db.commit()
@@ -3156,15 +3851,28 @@ def fms_help_request(
     ticket_id: str,
     reason: str = Form(...),
     helper_id: str = Form(""),
+    split_id: str = Form(""),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Phase A2: Help Needed popup — set HELP_REQUESTED, notify admin/manager."""
+    """Phase A2: Help Needed popup — set HELP_REQUESTED, notify admin/manager.
+    Phase 0: split_id optional — omitted keeps today's ticket-level behavior."""
     ticket = _get_ticket(db, ticket_id, user.tenant_id)
     if not reason.strip():
         raise HTTPException(400, "Reason is required")
-    ticket.status = "HELP_REQUESTED"
-    _log(db, ticket_id, user.id, "HELP_REQUESTED", reason.strip())
+    split = None
+    if split_id:
+        split = db.query(FMSTicketSplit).filter(
+            FMSTicketSplit.id == split_id, FMSTicketSplit.ticket_id == ticket_id,
+            FMSTicketSplit.is_deleted == False).first()
+    if split:
+        split.status = "HELP_REQUESTED"
+        split.updated_at = datetime.utcnow()
+        _sync_ticket_cache(db, ticket)
+        _log(db, ticket_id, user.id, "HELP_REQUESTED", f"[{split.split_label}] {reason.strip()}")
+    else:
+        ticket.status = "HELP_REQUESTED"
+        _log(db, ticket_id, user.id, "HELP_REQUESTED", reason.strip())
     # Notify all admins and managers
     admins = _admin_ids(db, user.tenant_id)
     mgrs   = _manager_ids_for(db, ticket.current_assignee_id)
@@ -3345,7 +4053,14 @@ async def fms_save_stage_data(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Save custom stage column data to the current open stage history row."""
+    """Save custom stage column data to a split's current open stage history row.
+
+    Phase 0: body may include split_id — omitted (today's caller) resolves
+    via _ensure_ticket_has_split, unchanged for single-split tickets. Without
+    this, a multi-split ticket would silently write into whichever open
+    history row the old ticket.current_stage_id cache happened to point at
+    (or an arbitrary "any open row" fallback) — the wrong split entirely
+    whenever the ticket has more than one active split."""
     from fastapi.responses import JSONResponse
     ticket = db.query(FMSTicket).filter(
         FMSTicket.id == ticket_id,
@@ -3354,43 +4069,36 @@ async def fms_save_stage_data(
     ).first()
     if not ticket:
         return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
-    history = (
-        db.query(FMSStageHistory)
-        .filter(
-            FMSStageHistory.ticket_id == ticket_id,
-            FMSStageHistory.stage_id == ticket.current_stage_id,
-            FMSStageHistory.exited_at == None,
-        )
-        .order_by(FMSStageHistory.entered_at.desc())
-        .first()
-    )
-    if not history:
-        # Fallback: find any open history row for this ticket
-        history = (
-            db.query(FMSStageHistory)
-            .filter(
-                FMSStageHistory.ticket_id == ticket_id,
-                FMSStageHistory.exited_at == None,
-            )
-            .order_by(FMSStageHistory.entered_at.desc())
-            .first()
-        )
-    if not history:
-        # Create one if truly missing (edge case for legacy tickets)
-        history = FMSStageHistory(
-            id=new_id(), ticket_id=ticket_id, tenant_id=ticket.tenant_id,
-            stage_id=ticket.current_stage_id, entered_at=datetime.utcnow(),
-        )
-        db.add(history)
     import json as _json
     body = await request.json()
     incoming = body.get("data", {})
+    req_split_id = (body.get("split_id") or "").strip()
+
+    if req_split_id:
+        split = db.query(FMSTicketSplit).filter(
+            FMSTicketSplit.id == req_split_id,
+            FMSTicketSplit.ticket_id == ticket_id,
+            FMSTicketSplit.is_deleted == False,
+        ).first()
+        if not split:
+            return JSONResponse({"ok": False, "error": "Split not found"}, status_code=404)
+    else:
+        split = _ensure_ticket_has_split(db, ticket)
+
+    history = _open_history(db, ticket_id, split_id=split.id)
+    if not history:
+        # Create one if truly missing (edge case for legacy tickets)
+        history = FMSStageHistory(
+            id=new_id(), ticket_id=ticket_id, split_id=split.id,
+            stage_id=split.current_stage_id, entered_at=datetime.utcnow(),
+        )
+        db.add(history)
     existing = _json.loads(history.custom_fields_data_json or "{}") if history.custom_fields_data_json else {}
     existing.update(incoming)
 
     # Evaluate formula columns using cross-stage values so references to prior
     # stage columns resolve (the client can only see current-stage inputs).
-    cur_stage = ticket.current_stage
+    cur_stage = split.current_stage
     if cur_stage and cur_stage.custom_fields_json:
         try:
             field_defs = _json.loads(cur_stage.custom_fields_json)
@@ -3407,7 +4115,7 @@ async def fms_save_stage_data(
                 pass
         formula_lookup = {
             **_tff,
-            **_cross_stage_cf(db, ticket.id, all_flow_stages, exclude_history_id=history.id),
+            **_cross_stage_cf(db, ticket.id, all_flow_stages, split_id=split.id, exclude_history_id=history.id),
             **existing,
         }
 

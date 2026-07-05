@@ -32,6 +32,8 @@
           <tr>
             <th>Name</th>
             <th>SKU</th>
+            <th>Category</th>
+            <th>Sub-Category</th>
             <th>Unit</th>
             <th>Description</th>
             <th>Status</th>
@@ -43,6 +45,8 @@
           <tr data-search="{{ (p.name ~ ' ' ~ (p.sku_code or ''))|lower }}">
             <td><strong>{{ p.name }}</strong></td>
             <td><code style="font-size:12px">{{ p.sku_code or '—' }}</code></td>
+            <td>{{ p.category_name or '—' }}</td>
+            <td>{{ p.sub_category_name or '—' }}</td>
             <td>{{ p.unit or '—' }}</td>
             <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.description or '—' }}</td>
             <td>
@@ -51,7 +55,7 @@
               </span>
             </td>
             <td>
-              <button data-obj='{{ p|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
+              <button data-obj='{{ {"id": p.id, "name": p.name, "sku_code": p.sku_code, "unit": p.unit, "description": p.description, "category_name": p.category_name, "sub_category_name": p.sub_category_name, "is_active": p.is_active}|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
               <form method="post" action="/setup/end-products/{{ p.id }}/delete" style="display:inline"
                     onsubmit="return confirm('Delete {{ p.name }}?')">
                 <button type="submit" class="btn btn-xs btn-red">Del</button>
@@ -59,7 +63,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">No end products yet.</td></tr>
+          <tr><td colspan="8" style="text-align:center;color:var(--text-faint);padding:32px">No end products yet.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -77,12 +81,32 @@
         <input name="name" class="form-input" required maxlength="200">
       </div>
       <div class="form-group">
+        <label class="form-label">Category</label>
+        <input name="category" class="form-input" placeholder="e.g. Textiles">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Sub-Category</label>
+        <input name="sub_category" class="form-input" placeholder="e.g. Cotton">
+      </div>
+      <div class="form-group">
         <label class="form-label">SKU Code <span style="font-size:11px;color:var(--text-faint)">(unique per tenant, no spaces)</span></label>
         <input name="sku_code" class="form-input" placeholder="e.g. SKU-001" pattern="[A-Za-z0-9\-_]+">
       </div>
       <div class="form-group">
-        <label class="form-label">Unit of Measure</label>
+        <label class="form-label">Variant Label</label>
+        <input name="variant_label" class="form-input" placeholder="defaults to name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Unit of Measure <span style="font-size:11px;color:var(--text-faint)">(must match Setup → Units)</span></label>
         <input name="unit" class="form-input" placeholder="e.g. pcs, kg, litres, box">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Low Stock Threshold</label>
+        <input name="low_stock_threshold" type="number" step="any" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Photo Drive Link</label>
+        <input name="photo_drive_link" class="form-input" placeholder="Google Drive share link">
       </div>
       <div class="form-group">
         <label class="form-label">Description</label>
@@ -106,12 +130,32 @@
         <input name="name" id="edit_name" class="form-input" required maxlength="200">
       </div>
       <div class="form-group">
+        <label class="form-label">Category</label>
+        <input name="category" id="edit_category" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Sub-Category</label>
+        <input name="sub_category" id="edit_sub_category" class="form-input">
+      </div>
+      <div class="form-group">
         <label class="form-label">SKU Code</label>
         <input name="sku_code" id="edit_sku" class="form-input" pattern="[A-Za-z0-9\-_]*">
       </div>
       <div class="form-group">
-        <label class="form-label">Unit</label>
+        <label class="form-label">Variant Label</label>
+        <input name="variant_label" id="edit_variant_label" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Unit <span style="font-size:11px;color:var(--text-faint)">(must match Setup → Units)</span></label>
         <input name="unit" id="edit_unit" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Low Stock Threshold</label>
+        <input name="low_stock_threshold" id="edit_low_stock" type="number" step="any" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Photo Drive Link</label>
+        <input name="photo_drive_link" id="edit_photo_link" class="form-input" placeholder="Google Drive share link">
       </div>
       <div class="form-group">
         <label class="form-label">Description</label>
@@ -158,8 +202,13 @@ function filterTable() {
 }
 function openEdit(p) {
   document.getElementById('edit_name').value = p.name || '';
+  document.getElementById('edit_category').value = p.category_name || '';
+  document.getElementById('edit_sub_category').value = p.sub_category_name || '';
   document.getElementById('edit_sku').value = p.sku_code || '';
+  document.getElementById('edit_variant_label').value = '';
   document.getElementById('edit_unit').value = p.unit || '';
+  document.getElementById('edit_low_stock').value = '';
+  document.getElementById('edit_photo_link').value = '';
   document.getElementById('edit_desc').value = p.description || '';
   document.getElementById('edit_is_active').value = p.is_active ? '1' : '0';
   document.getElementById('editForm').action = '/setup/end-products/' + p.id + '/edit';

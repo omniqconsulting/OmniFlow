@@ -31,7 +31,7 @@
           <td>{{ t.title[:40] }}{% if t.title|length > 40 %}…{% endif %}</td>
           <td>
             <span class="badge {{ 'badge-red' if t.priority == 'CRITICAL' else 'badge-amber' if t.priority == 'HIGH' else 'badge-gray' }}">
-              {{ t.priority }}
+              {{ t.priority | priority_label }}
             </span>
           </td>
           <td>

@@ -37,6 +37,7 @@
             <th>Contact Person</th>
             <th>Phone</th>
             <th>Email</th>
+            <th>Tier</th>
             <th>Status</th>
             <th style="width:120px">Actions</th>
           </tr>
@@ -48,13 +49,14 @@
             <td>{{ c.contact_person or '—' }}</td>
             <td>{{ c.phone or '—' }}</td>
             <td>{{ c.email or '—' }}</td>
+            <td>{{ c.customer_tier or 'UNRANKED' }}</td>
             <td>
               <span class="badge {{ 'badge-green' if c.is_active else 'badge-gray' }}">
                 {{ 'Active' if c.is_active else 'Inactive' }}
               </span>
             </td>
             <td>
-              <button data-obj='{{ c|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
+              <button data-obj='{{ {"id": c.id, "name": c.name, "contact_person": c.contact_person, "phone": c.phone, "email": c.email, "address": c.address, "notes": c.notes, "agent_email": c.assigned_agent.email if c.assigned_agent else "", "tier": c.customer_tier, "contact_freq_days": c.contact_freq_days, "credit_limit": c.credit_limit, "gstin": c.gstin, "billing_address": c.billing_address, "shipping_address": c.shipping_address, "default_payment_terms": c.default_payment_terms, "is_active": c.is_active}|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
               <form method="post" action="/setup/customers/{{ c.id }}/delete" style="display:inline"
                     onsubmit="return confirm('Delete {{ c.name }}? Existing linked references are retained.')">
                 <button type="submit" class="btn btn-xs btn-red">Del</button>
@@ -62,7 +64,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:32px">No customers yet. Add your first customer above.</td></tr>
+          <tr><td colspan="7" style="text-align:center;color:var(--text-faint);padding:32px">No customers yet. Add your first customer above.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -109,6 +111,43 @@
         <label class="form-label">Notes</label>
         <textarea name="notes" class="form-input" rows="2" placeholder="Any additional notes"></textarea>
       </div>
+      <div class="form-group">
+        <label class="form-label">Assigned Salesman Email <span style="font-size:11px;color:var(--text-faint)">(must have Sales access)</span></label>
+        <input name="agent_email" type="email" class="form-input" placeholder="Defaults to you">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tier</label>
+        <select name="tier" class="form-input">
+          <option value="">UNRANKED</option>
+          <option value="A">A</option>
+          <option value="B">B</option>
+          <option value="C">C</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contact Frequency (days)</label>
+        <input name="contact_freq_days" type="number" class="form-input" placeholder="30">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Credit Limit</label>
+        <input name="credit_limit" type="number" step="any" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">GSTIN</label>
+        <input name="gstin" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Billing Address</label>
+        <textarea name="billing_address" class="form-input" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Shipping Address</label>
+        <textarea name="shipping_address" class="form-input" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Default Payment Terms</label>
+        <input name="default_payment_terms" class="form-input" placeholder="e.g. Net 30">
+      </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
         <button type="button" onclick="document.getElementById('addModal').style.display='none'" class="btn btn-outline">Cancel</button>
         <button type="submit" class="btn btn-primary">Add Customer</button>
@@ -146,6 +185,43 @@
       <div class="form-group">
         <label class="form-label">Notes</label>
         <textarea name="notes" id="edit_notes" class="form-input" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Assigned Salesman Email <span style="font-size:11px;color:var(--text-faint)">(leave blank to keep current)</span></label>
+        <input name="agent_email" id="edit_agent_email" type="email" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tier</label>
+        <select name="tier" id="edit_tier" class="form-input">
+          <option value="">UNRANKED</option>
+          <option value="A">A</option>
+          <option value="B">B</option>
+          <option value="C">C</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contact Frequency (days)</label>
+        <input name="contact_freq_days" id="edit_contact_freq_days" type="number" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Credit Limit</label>
+        <input name="credit_limit" id="edit_credit_limit" type="number" step="any" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">GSTIN</label>
+        <input name="gstin" id="edit_gstin" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Billing Address</label>
+        <textarea name="billing_address" id="edit_billing_address" class="form-input" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Shipping Address</label>
+        <textarea name="shipping_address" id="edit_shipping_address" class="form-input" rows="2"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Default Payment Terms</label>
+        <input name="default_payment_terms" id="edit_default_payment_terms" class="form-input">
       </div>
       <div class="form-group">
         <label class="form-label">Status</label>
@@ -196,6 +272,15 @@ function openEdit(c) {
   document.getElementById('edit_email').value = c.email || '';
   document.getElementById('edit_address').value = c.address || '';
   document.getElementById('edit_notes').value = c.notes || '';
+  document.getElementById('edit_agent_email').value = '';
+  document.getElementById('edit_agent_email').placeholder = c.agent_email || '';
+  document.getElementById('edit_tier').value = (c.tier && c.tier !== 'UNRANKED') ? c.tier : '';
+  document.getElementById('edit_contact_freq_days').value = c.contact_freq_days || '';
+  document.getElementById('edit_credit_limit').value = c.credit_limit || '';
+  document.getElementById('edit_gstin').value = c.gstin || '';
+  document.getElementById('edit_billing_address').value = c.billing_address || '';
+  document.getElementById('edit_shipping_address').value = c.shipping_address || '';
+  document.getElementById('edit_default_payment_terms').value = c.default_payment_terms || '';
   document.getElementById('edit_is_active').value = c.is_active ? '1' : '0';
   document.getElementById('editForm').action = '/setup/customers/' + c.id + '/edit';
   document.getElementById('editModal').style.display = 'flex';

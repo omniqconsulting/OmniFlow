@@ -1003,6 +1003,22 @@ function _numericColsUpTo(stageIdx) {
   return cols;
 }
 
+// Closing rule can reference formula (calculated) columns too, not just
+// plain number fields — a calculated "Excess Quantity" column is exactly
+// the kind of thing a closing rule needs to check.
+function _closingRuleColsUpTo(stageIdx) {
+  var cols = [];
+  (tfbFields || []).forEach(function(c) {
+    if (c.field_type === 'number') cols.push({ col: c, stageName: 'Order Details' });
+  });
+  for (var si = 0; si <= stageIdx; si++) {
+    (stages[si].custom_fields || []).forEach(function(c) {
+      if (c.field_type === 'number' || c.field_type === 'formula') cols.push({ col: c, stageName: stages[si].name });
+    });
+  }
+  return cols;
+}
+
 function _renderFormulaBuilder() {
   var stageIdx = parseInt(document.getElementById('colEditStageIdx').value);
   _availNumericCols = _numericColsUpTo(stageIdx);
@@ -1208,7 +1224,7 @@ var CR_SAVED_RULE = {{ closing_rule_json | safe }};
 function _crRenderColOptions() {
   var sel = document.getElementById('crColSel');
   var prevVal = sel.value;
-  var cols = _numericColsUpTo(stages.length - 1);
+  var cols = _closingRuleColsUpTo(stages.length - 1);
   sel.innerHTML = '<option value="">— No rule —</option>';
   cols.forEach(function(item) {
     var opt = document.createElement('option');

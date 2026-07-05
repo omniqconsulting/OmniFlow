@@ -13,7 +13,8 @@
     </h2>
     <div class="muted">{{ order.customer.name if order.customer else '—' }}
       {% if order.customer %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(order.customer.customer_tier, '#94a3b8') }};margin-left:4px">{{ order.customer.customer_tier }}</span>{% endif %}
-      · Agent: {{ order.agent.name if order.agent else '—' }}</div>
+      · Salesman: {{ order.agent.name if order.agent else '—' }}
+      {% if order.branch %} · {{ L.Branch }}: {{ order.branch.name }}{% endif %}</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <a href="/sales/orders" class="btn btn-sm btn-outline">Back to Orders</a>
@@ -23,19 +24,33 @@
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-<div class="card" style="padding:16px;margin-bottom:18px">
+<div class="card" style="padding:16px;margin-bottom:16px">
+  <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">ORDER SUMMARY</h3>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;font-size:13px">
     <div><div class="muted">Payment Terms</div><div>{{ order.payment_terms or '—' }}</div></div>
-    <div><div class="muted">Expected Delivery</div><div>{{ order.expected_delivery_date.strftime('%d %b %Y') if order.expected_delivery_date else '—' }}</div></div>
     <div><div class="muted">Total Amount</div><div>₹{{ '%.0f'|format(order.total_amount or 0) }}</div></div>
     <div><div class="muted">Gross Margin</div><div>{{ '%.1f'|format(order.gross_margin_pct) ~ '%' if order.gross_margin_pct is not none else '—' }}</div></div>
   </div>
+</div>
+
+<div class="card" style="padding:16px;margin-bottom:16px">
+  <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">DELIVERY</h3>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;font-size:13px">
+    <div><div class="muted">Expected Delivery</div><div>{{ order.expected_delivery_date.strftime('%d %b %Y') if order.expected_delivery_date else '—' }}</div></div>
+    <div><div class="muted">{{ L.Branch }}</div><div>{{ order.branch.name if order.branch else '—' }}</div></div>
+  </div>
   <div style="margin-top:12px"><div class="muted" style="font-size:12px">Delivery Address</div><div>{{ order.delivery_address or '—' }}</div></div>
-  {% if order.notes %}<div style="margin-top:8px"><div class="muted" style="font-size:12px">Notes</div><div>{{ order.notes }}</div></div>{% endif %}
+</div>
+
+{% if order.notes or (order.status == 'CANCELLED' and order.cancellation_reason) %}
+<div class="card" style="padding:16px;margin-bottom:18px">
+  <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">NOTES</h3>
+  {% if order.notes %}<div style="font-size:13px">{{ order.notes }}</div>{% endif %}
   {% if order.status == 'CANCELLED' and order.cancellation_reason %}
   <div style="margin-top:8px"><div class="muted" style="font-size:12px">Cancellation Reason</div><div>{{ order.cancellation_reason }}</div></div>
   {% endif %}
 </div>
+{% endif %}
 
 <div class="card" style="padding:16px;margin-bottom:18px">
   <h3 style="margin-top:0">Line Items</h3>
@@ -46,14 +61,15 @@
         <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Qty</th>
         <th style="padding:6px 8px">Unit Price</th><th style="padding:6px 8px">Source</th>
         <th style="padding:6px 8px">Line Total</th><th style="padding:6px 8px">Stock Status</th>
+        <th style="padding:6px 8px">Reference</th>
         {% if can_edit %}<th style="padding:6px 8px"></th>{% endif %}
       </tr>
     </thead>
     <tbody>
       {% for item in order.items %}
       <tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:6px 8px">{{ item.product.name if item.product else '—' }}
-          {% if item.product %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(item.product.product_tier, '#94a3b8') }};margin-left:4px">{{ item.product.product_tier }}</span>{% endif %}
+        <td style="padding:6px 8px">{{ (item.variant.product.name + ' — ' + item.variant.sku_code) if item.variant and item.variant.product else (item.variant.sku_code if item.variant else '—') }}
+          {% if item.variant %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(item.variant.product_tier, '#94a3b8') }};margin-left:4px">{{ item.variant.product_tier }}</span>{% endif %}
         </td>
         <td style="padding:6px 8px">{{ item.qty_ordered }}{% if item.qty_dispatched %} <span class="muted" style="font-size:11px">({{ item.qty_dispatched }} dispatched)</span>{% endif %}</td>
         <td style="padding:6px 8px">₹{{ '%.2f'|format(item.unit_price) }}</td>
@@ -63,12 +79,33 @@
         </td>
         <td style="padding:6px 8px">₹{{ '%.2f'|format(item.line_total) }}</td>
         <td style="padding:6px 8px">
-          {% if item.stock_status %}
-          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ stock_colors.get(item.stock_status, '#94a3b8') }}">{{ item.stock_status }}</span>
-          {% if item.stock_status == 'UNAVAILABLE' and item.in_transit_arrival %}
+          {% if item.stock_status == 'UNAVAILABLE' %}
+          <span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:99px;color:#fff;background:#ef4444;box-shadow:0 0 0 2px rgba(239,68,68,.25)">⚠ OUT OF STOCK — ARRANGE SEPARATELY</span>
+          {% if item.in_transit_arrival %}
           <div class="muted" style="font-size:11px">Expected {{ item.in_transit_arrival.strftime('%d %b %Y') }}</div>
           {% endif %}
+          {% elif item.stock_status %}
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ stock_colors.get(item.stock_status, '#94a3b8') }}">{{ item.stock_status }}</span>
           {% else %}—{% endif %}
+        </td>
+        <td style="padding:6px 8px">
+          {% for m in item.media %}
+          <a href="{{ m.file_path }}" target="_blank" title="{{ m.file_name }}">
+            {% if m.file_type and m.file_type.startswith('image/') %}
+            <img src="{{ m.file_path }}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;border:1px solid var(--border-subtle);margin-right:2px">
+            {% else %}📎{% endif %}
+          </a>
+          {% if can_edit %}
+          <form method="post" action="/sales/orders/{{ order.id }}/item/{{ item.id }}/media/{{ m.id }}/delete" style="display:inline">
+            <button type="submit" class="btn btn-xs btn-outline" title="Remove" onclick="return confirm('Remove this reference file?')">✕</button>
+          </form>
+          {% endif %}
+          {% endfor %}
+          {% if can_edit %}
+          <form method="post" action="/sales/orders/{{ order.id }}/item/{{ item.id }}/upload-media" enctype="multipart/form-data" style="display:inline-block;margin-top:2px">
+            <input type="file" name="file" onchange="this.form.submit()" style="font-size:10px;max-width:110px">
+          </form>
+          {% endif %}
         </td>
         {% if can_edit %}
         <td style="padding:6px 8px">
@@ -88,16 +125,23 @@
   {% if can_edit %}
   <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border-subtle)">
     <h4 style="margin:0 0 10px 0;font-size:13px">Add Line Item</h4>
-    <form method="post" action="/sales/orders/{{ order.id }}/add-item" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+    <form method="post" action="/sales/orders/{{ order.id }}/add-item" enctype="multipart/form-data" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
       <div>
         <label style="font-size:11px;color:var(--text-muted);display:block">Product *</label>
-        <select name="product_id" id="product_select" required onchange="checkStock(this.value)" style="min-width:200px">
+        <select id="product_picker" required onchange="onProductChange(this.value)" style="min-width:200px">
           <option value="">— Select —</option>
           {% for p in products %}
-          <option value="{{ p.id }}">{{ p.name }} ({{ p.sku_code }})</option>
+          <option value="{{ p.id }}">{{ p.name }}</option>
           {% endfor %}
         </select>
       </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);display:block">Variant (SKU) *</label>
+        <select name="variant_id" id="variant_select" required onchange="checkStock(this.value)" style="min-width:180px" disabled>
+          <option value="">— Select a product first —</option>
+        </select>
+      </div>
+      <img id="variant_photo_preview" src="" style="display:none;width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle)">
       <div>
         <label style="font-size:11px;color:var(--text-muted);display:block">Qty *</label>
         <input type="number" name="qty_ordered" step="0.01" required style="width:90px">
@@ -109,6 +153,10 @@
       <div>
         <label style="font-size:11px;color:var(--text-muted);display:block">Override Reason</label>
         <input name="override_reason" style="width:160px">
+      </div>
+      <div id="photo_upload_field">
+        <label style="font-size:11px;color:var(--text-muted);display:block">Reference Photo <span style="font-weight:400">(no catalog photo on file)</span></label>
+        <input type="file" name="photo" style="width:150px">
       </div>
       <button type="submit" class="btn btn-sm btn-primary">+ Add Item</button>
     </form>
@@ -149,20 +197,60 @@
 </div>
 
 <script>
-async function checkStock(productId) {
+const productVariants = {
+  {% for p in products %}
+  "{{ p.id }}": [{% for v in p.variants if v.is_active and not v.is_deleted %}{id:"{{ v.id }}", label:"{{ (v.variant_label or v.sku_code)|e }} ({{ v.sku_code|e }})", photo:{{ (v.media_urls_json or '[]')|safe }}[0] || null},{% endfor %}],
+  {% endfor %}
+};
+
+function onProductChange(productId) {
+  const sel = document.getElementById('variant_select');
+  sel.innerHTML = '';
+  document.getElementById('stock-check-result').innerHTML = '';
+  document.getElementById('variant_photo_preview').style.display = 'none';
+  const variants = productVariants[productId] || [];
+  if (!variants.length) {
+    sel.innerHTML = '<option value="">No variants for this product</option>';
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  sel.innerHTML = '<option value="">— Select —</option>' + variants.map(v => `<option value="${v.id}" data-photo="${v.photo || ''}">${v.label}</option>`).join('');
+}
+
+function showVariantPhoto(variantId) {
+  const sel = document.getElementById('variant_select');
+  const opt = sel.querySelector(`option[value="${variantId}"]`);
+  const img = document.getElementById('variant_photo_preview');
+  const uploadField = document.getElementById('photo_upload_field');
+  const photo = opt ? opt.getAttribute('data-photo') : '';
+  if (photo) {
+    img.src = `/static/${photo}`;
+    img.style.display = 'inline-block';
+    uploadField.style.display = 'none';
+  } else {
+    img.style.display = 'none';
+    uploadField.style.display = '';
+  }
+}
+
+async function checkStock(variantId) {
+  showVariantPhoto(variantId);
   const out = document.getElementById('stock-check-result');
-  if (!productId) { out.innerHTML = ''; return; }
+  if (!variantId) { out.innerHTML = ''; return; }
   out.innerHTML = 'Checking stock…';
   try {
-    const res = await fetch(`/sales/orders/api/check-stock/${productId}`);
+    const res = await fetch(`/sales/orders/api/check-stock/${variantId}`);
     const d = await res.json();
-    if (d.available > 0) {
-      out.innerHTML = `✅ ${d.available} unit(s) available`;
-    } else if (d.in_transit > 0) {
-      out.innerHTML = `⚠ Out of stock. ${d.in_transit} arriving${d.in_transit_date ? ' ' + d.in_transit_date : ''}.`;
-    } else {
-      out.innerHTML = `❌ Out of stock. No stock expected.`;
+    // 1.6: always show all three numbers — available, already-booked, in-transit —
+    // so an agent doesn't get a false sense of availability from qty_available alone.
+    let html = `<span style="margin-right:12px">✅ <strong>${d.available}</strong> available</span>` +
+               `<span style="margin-right:12px">🔒 <strong>${d.reserved}</strong> already booked</span>` +
+               `<span>🚚 <strong>${d.in_transit}</strong> in transit${d.in_transit_date ? ' (exp. ' + d.in_transit_date + ')' : ''}</span>`;
+    if (d.available <= 0) {
+      html = `<div style="color:#ef4444;font-weight:600;margin-bottom:2px">⚠ Out of stock — can still be added, will be flagged for separate arrangement</div>` + html;
     }
+    out.innerHTML = html;
   } catch (e) {
     out.innerHTML = '';
   }

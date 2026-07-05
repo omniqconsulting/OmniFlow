@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from .database import get_db, new_id, Customer, CRMCallLog, User, Tenant, SalesOrder, PriceList
 from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
-from .setup_routes import _nav_ctx, _L, _unread
+from .setup_routes import _nav_ctx, _L, _unread, resolve_customer_agent, _CUSTOMER_TIERS
 from .constants import BULK_IMPORT_MAX_ROWS
 
 router = APIRouter()
@@ -269,8 +269,13 @@ def contact_create_form(
             User.is_deleted == False,
         ).all() if has_module(u, "SALES")]
 
+    price_lists = db.query(PriceList).filter(
+        PriceList.tenant_id == user.tenant_id, PriceList.is_deleted == False,
+        PriceList.is_active == True,
+    ).order_by(PriceList.name).all()
+
     return templates.TemplateResponse(request, "sales/contact_create.html", _ctx(
-        db, user, agents=agents, tier_choices=TIER_CHOICES,
+        db, user, agents=agents, tier_choices=TIER_CHOICES, price_lists=price_lists,
     ))
 
 
@@ -336,8 +341,10 @@ def contacts_list(
 # ══════════════════════════════════════════════════════════════════════════════
 
 _BULK_COLS = [
-    "name", "phone", "email", "agent_email", "contact_freq_days",
+    "name", "contact_person", "phone", "email", "address", "notes",
+    "agent_email", "employee_name", "contact_freq_days",
     "tier", "gstin", "credit_limit", "billing_address", "shipping_address",
+    "default_payment_terms",
 ]
 
 
@@ -367,6 +374,7 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
     name = (row.get("name") or "").strip()
     phone = (row.get("phone") or "").strip()
     agent_email = (row.get("agent_email") or "").strip()
+    employee_name = (row.get("employee_name") or "").strip()
     tier = (row.get("tier") or "").strip().upper()
     freq_raw = (row.get("contact_freq_days") or "").strip()
     credit_raw = (row.get("credit_limit") or "").strip()
@@ -391,8 +399,20 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
         ).first()
         if not agent or not has_module(agent, "SALES"):
             return None, f"agent_email {agent_email} not found or lacks SALES access"
+    elif employee_name:
+        # 2.2 — alternate match key so uploaders can work from names alone,
+        # without needing to know each agent's email address.
+        matches = [u for u in db.query(User).filter(
+            User.tenant_id == tenant_id, User.is_active == True, User.is_deleted == False,
+            func.lower(User.name) == employee_name.lower(),
+        ).all() if has_module(u, "SALES")]
+        if not matches:
+            return None, f"employee_name {employee_name} not found or lacks SALES access"
+        if len(matches) > 1:
+            return None, f"employee_name {employee_name} matches {len(matches)} agents — ambiguous, use agent_email instead"
+        agent = matches[0]
 
-    if tier and tier not in ("A", "B", "C"):
+    if tier and tier not in _CUSTOMER_TIERS:
         return None, "tier must be A, B, C or blank"
 
     freq = 30
@@ -415,6 +435,9 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
     return {
         "name": name, "phone": phone,
         "email": (row.get("email") or "").strip() or None,
+        "contact_person": (row.get("contact_person") or "").strip() or None,
+        "address": (row.get("address") or "").strip() or None,
+        "notes": (row.get("notes") or "").strip() or None,
         "agent_id": agent.id if agent else None,
         "contact_freq_days": freq,
         "tier": tier or "UNRANKED",
@@ -422,6 +445,7 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
         "credit_limit": credit,
         "billing_address": (row.get("billing_address") or "").strip() or None,
         "shipping_address": (row.get("shipping_address") or "").strip() or None,
+        "default_payment_terms": (row.get("default_payment_terms") or "").strip() or None,
     }, None
 
 
@@ -473,6 +497,9 @@ def bulk_upload_confirm(
         db.add(Customer(
             tenant_id=user.tenant_id,
             name=r["name"], phone=r["phone"], email=r.get("email"),
+            contact_person=r.get("contact_person"),
+            address=r.get("address"),
+            notes=r.get("notes"),
             created_by_id=user.id,
             assigned_agent_id=r.get("agent_id") or user.id,
             customer_tier=r.get("tier") or "UNRANKED",
@@ -481,6 +508,7 @@ def bulk_upload_confirm(
             credit_limit=r.get("credit_limit"),
             billing_address=r.get("billing_address"),
             shipping_address=r.get("shipping_address"),
+            default_payment_terms=r.get("default_payment_terms"),
         ))
         created += 1
     try:
@@ -510,18 +538,25 @@ def contacts_export(
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow([
-        "name", "phone", "email", "tier", "assigned_agent_name", "last_contacted_at",
-        "days_since_contact", "contact_freq_days", "credit_limit", "gstin", "billing_address",
+        "name", "contact_person", "phone", "email", "address", "notes",
+        "agent_email", "tier", "contact_freq_days", "gstin", "credit_limit",
+        "billing_address", "shipping_address", "default_payment_terms",
+        # Informational / derived — not accepted back on import.
+        "assigned_agent_name", "last_contacted_at", "days_since_contact",
     ])
     now = datetime.utcnow()
     for c in customers:
         days_since = (now - c.last_contacted_at).days if c.last_contacted_at else ""
         w.writerow([
-            c.name, c.phone or "", c.email or "", c.customer_tier or "UNRANKED",
+            c.name, c.contact_person or "", c.phone or "", c.email or "",
+            c.address or "", c.notes or "",
+            c.assigned_agent.email if c.assigned_agent else "",
+            c.customer_tier or "UNRANKED", c.contact_freq_days or 30,
+            c.gstin or "", c.credit_limit or "",
+            c.billing_address or "", c.shipping_address or "", c.default_payment_terms or "",
             c.assigned_agent.name if c.assigned_agent else "",
             c.last_contacted_at.isoformat() if c.last_contacted_at else "",
-            days_since, c.contact_freq_days or 30, c.credit_limit or "",
-            c.gstin or "", c.billing_address or "",
+            days_since,
         ])
     buf.seek(0)
     return StreamingResponse(
@@ -617,6 +652,7 @@ def contact_edit_save(
     credit_limit: str = Form(""),
     assigned_agent_id: str = Form(""),
     price_list_id: str = Form(""),
+    default_payment_terms: str = Form(""),
     is_active: str = Form("1"),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
@@ -641,6 +677,7 @@ def contact_edit_save(
         customer.gstin = gstin.strip() or None
         customer.assigned_agent_id = assigned_agent_id or None
         customer.price_list_id = price_list_id or None
+        customer.default_payment_terms = default_payment_terms.strip() or None
         customer.is_active = is_active == "1"
         try:
             customer.contact_freq_days = int(contact_freq_days) if contact_freq_days else 30
@@ -673,6 +710,8 @@ def contact_create(
     customer_tier: str = Form("UNRANKED"),
     contact_freq_days: str = Form("30"),
     assigned_agent_id: str = Form(""),
+    default_payment_terms: str = Form(""),
+    price_list_id: str = Form(""),
     notes: str = Form(""),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
@@ -706,6 +745,8 @@ def contact_create(
         credit_limit=credit,
         billing_address=billing_address.strip() or None,
         shipping_address=shipping_address.strip() or None,
+        default_payment_terms=default_payment_terms.strip() or None,
+        price_list_id=price_list_id or None,
     )
     db.add(c)
     db.commit()

@@ -11,8 +11,9 @@
 
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-<div class="card" style="padding:20px;max-width:760px">
-  <form method="post" action="/inventory-v2/purchase-orders/create" id="po-form">
+<form method="post" action="/inventory-v2/purchase-orders/create" id="po-form" style="max-width:760px">
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">VENDOR</h3>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
       <div>
         <label style="font-size:12px;color:var(--text-muted)">Vendor</label>
@@ -30,37 +31,41 @@
     </div>
 
     <label style="font-size:12px;color:var(--text-muted)">Expected Arrival Date</label>
-    <input type="date" name="expected_arrival_date" style="width:200px;margin-bottom:14px">
+    <input type="date" name="expected_arrival_date" style="width:200px">
+  </div>
 
-    <h4>Line Items</h4>
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">LINE ITEMS</h3>
     <table style="width:100%;font-size:13px;margin-bottom:10px" id="items-table">
       <thead>
         <tr style="text-align:left;color:var(--text-muted)">
-          <th>Product</th><th>Qty Ordered</th><th>Unit Cost</th><th>Unit</th><th></th>
+          <th>Variant (SKU)</th><th>Qty Ordered</th><th>Unit Cost</th><th>Unit</th><th></th>
         </tr>
       </thead>
       <tbody id="items-body"></tbody>
     </table>
     <button type="button" class="btn btn-sm btn-outline" onclick="addRow()">+ Add Line Item</button>
+  </div>
 
-    <label style="font-size:12px;color:var(--text-muted);display:block;margin-top:16px">Notes</label>
-    <textarea name="notes" rows="2" style="width:100%;margin-bottom:16px"></textarea>
+  <div class="card" style="padding:20px;margin-bottom:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">NOTES</h3>
+    <textarea name="notes" rows="2" style="width:100%"></textarea>
+  </div>
 
-    <button type="submit" class="btn btn-primary">Create PO</button>
-  </form>
-</div>
+  <button type="submit" class="btn btn-primary">Create PO</button>
+</form>
 
 <script>
-const products = [{% for p in products %}{id:"{{ p.id }}", name:"{{ p.name|e }} ({{ p.sku_code }})"},{% endfor %}];
+const variants = [{% for v in variants %}{id:"{{ v.id }}", name:"{{ (v.product.name if v.product else '')|e }} — {{ v.sku_code|e }}"},{% endfor %}];
 const units = [{% for u in units %}{id:"{{ u.id }}", abbr:"{{ u.abbreviation|e }}"},{% endfor %}];
 
 function addRow() {
   const tbody = document.getElementById('items-body');
   const tr = document.createElement('tr');
-  let productOpts = '<option value="">Select…</option>' + products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  let variantOpts = '<option value="">Select…</option>' + variants.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
   let unitOpts = '<option value="">—</option>' + units.map(u => `<option value="${u.id}">${u.abbr}</option>`).join('');
   tr.innerHTML = `
-    <td><select name="product_id[]" required style="width:100%">${productOpts}</select></td>
+    <td><select name="variant_id[]" required style="width:100%">${variantOpts}</select></td>
     <td><input type="number" name="qty_ordered[]" step="any" min="0.01" required style="width:90px"></td>
     <td><input type="number" name="unit_cost[]" step="any" min="0" style="width:90px"></td>
     <td><select name="unit_id[]" style="width:90px">${unitOpts}</select></td>

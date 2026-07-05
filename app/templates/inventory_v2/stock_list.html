@@ -38,17 +38,17 @@
     </tr>
   </thead>
   <tbody>
-    {% for p, s, label, color in rows %}
+    {% for v, s, label, color in rows %}
     <tr style="border-bottom:1px solid var(--border-subtle)">
-      <td style="padding:8px 12px"><a href="/sales/catalog/{{ p.id }}">{{ p.name }}</a></td>
-      <td style="padding:8px 12px;color:var(--text-faint)">{{ p.sku_code }}</td>
-      <td style="padding:8px 12px">{{ s.qty_available }} {{ p.base_unit.abbreviation if p.base_unit else '' }}</td>
+      <td style="padding:8px 12px"><a href="/sales/catalog/{{ v.product_id }}">{{ v.product.name if v.product else '' }}</a></td>
+      <td style="padding:8px 12px;color:var(--text-faint)">{{ v.sku_code }}</td>
+      <td style="padding:8px 12px">{{ s.qty_available }} {{ v.base_unit.abbreviation if v.base_unit else (v.product.base_unit.abbreviation if v.product and v.product.base_unit else '') }}</td>
       <td style="padding:8px 12px">{{ s.qty_reserved }}</td>
       <td style="padding:8px 12px">{{ s.qty_in_transit }}</td>
       <td style="padding:8px 12px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ badge_colors.get(color,'#94a3b8') }}">{{ label }}</span></td>
       {% if can_edit %}
       <td style="padding:8px 12px">
-        <button type="button" class="btn btn-xs btn-outline" onclick="openAdjust('{{ p.id }}','{{ p.name|e }}',{{ s.qty_available }})">Adjust</button>
+        <button type="button" class="btn btn-xs btn-outline" onclick="openAdjust('{{ v.id }}','{{ v.sku_code|e }}',{{ s.qty_available }})">Adjust</button>
       </td>
       {% endif %}
     </tr>

@@ -46,10 +46,16 @@
     {# P5-02: Category badge #}
     {% set cat = ticket.ticket_category if ticket.ticket_category is defined else 'NORMAL' %}
     <span class="badge {% if cat == 'HELP' %}badge-amber{% else %}badge-blue{% endif %}">{{ cat }}</span>
-    <span class="badge {% if ticket.priority=='CRITICAL' %}badge-red{% elif ticket.priority=='HIGH' %}badge-yellow{% elif ticket.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}">{{ ticket.priority }}</span>
+    <span class="badge {% if ticket.priority=='CRITICAL' %}badge-red{% elif ticket.priority=='HIGH' %}badge-yellow{% elif ticket.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}">{{ ticket.priority | priority_label }}</span>
     <span class="badge {% if ticket.status=='OPEN' %}badge-blue{% elif ticket.status=='IN_PROGRESS' %}badge-yellow{% elif ticket.status=='DONE' %}badge-green{% elif ticket.status=='CLOSED' %}badge-gray{% elif ticket.status=='HELP_REQUESTED' %}badge-red{% else %}badge-purple{% endif %}">{{ ticket.status.replace('_',' ') }}</span>
     {% if ticket.evidence_required is defined and ticket.evidence_required %}
     <span class="badge badge-amber">Evidence Required</span>
+    {% endif %}
+    {# Phase 3: Acknowledge — visible to current assignee, not yet acknowledged #}
+    {% if ticket.current_assignee_id == user.id and not ticket.acknowledged_at and ticket.status != 'CLOSED' %}
+    <form method="post" action="/tickets/{{ ticket.id }}/acknowledge" style="display:inline">
+      <button type="submit" class="btn btn-sm btn-green">✓ Acknowledge</button>
+    </form>
     {% endif %}
     {# P5-06: Send Reminder #}
     {% if user.role in ('ADMIN','MANAGER') and ticket.status not in ('DONE','CLOSED') %}
@@ -99,7 +105,7 @@
         <label class="form-label">Priority</label>
         <select name="priority" class="form-input">
           {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
-          <option value="{{ p }}" {% if p == ticket.priority %}selected{% endif %}>{{ p }}</option>
+          <option value="{{ p }}" {% if p == ticket.priority %}selected{% endif %}>{{ p | priority_label }}</option>
           {% endfor %}
         </select>
       </div>
@@ -239,6 +245,39 @@
       {% endif %}
     </div>
 
+    <!-- Knowledge Links (Phase 3: on close, link to relevant Knowledge/Training content) -->
+    <div class="card">
+      <h2>Linked Knowledge / Training</h2>
+      {% if ticket.knowledge_links %}
+      <div style="margin-bottom:10px">
+        {% for kl in ticket.knowledge_links %}
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-subtle)">
+          <a href="/knowledge?id={{ kl.knowledge_item.id }}" style="color:var(--text-primary);font-size:13px">📚 {{ kl.knowledge_item.title if kl.knowledge_item else '—' }}</a>
+          {% if user.role in ('ADMIN','MANAGER') %}
+          <form method="post" action="/tickets/{{ ticket.id }}/unlink-knowledge" style="margin:0">
+            <input type="hidden" name="link_id" value="{{ kl.id }}">
+            <button type="submit" class="btn-xs">Unlink</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p style="font-size:12px;color:var(--text-faint);margin-bottom:12px">No knowledge content linked yet.</p>
+      {% endif %}
+      {% if user.role in ('ADMIN','MANAGER') and knowledge_items %}
+      <form method="post" action="/tickets/{{ ticket.id }}/link-knowledge" style="display:flex;gap:8px">
+        <select name="knowledge_item_id" required style="flex:1;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
+          <option value="">Select knowledge item…</option>
+          {% for k in knowledge_items %}
+          <option value="{{ k.id }}">{{ k.title }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-outline">Link</button>
+      </form>
+      {% endif %}
+    </div>
+
     <!-- Actions -->
     <div class="card">
       <h2>Actions</h2>
@@ -266,11 +305,19 @@
           {% endif %}
         {% endif %}
 
-        {# Close — Admin only, on DONE tickets #}
-        {% if ticket.status == 'DONE' and user.role == 'ADMIN' %}
+        {# Close — Admin or Manager, on DONE tickets #}
+        {% if ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
         <form method="post" action="/tickets/{{ ticket.id }}/action">
           <input type="hidden" name="action" value="close">
           <button class="btn btn-sm btn-gray">Close {{ L.Ticket }}</button>
+        </form>
+        {% endif %}
+
+        {# Phase 3: Close Directly — Admin or Manager, skip stage-by-stage from OPEN or DONE #}
+        {% if ticket.status in ('OPEN','DONE') and user.role in ('ADMIN','MANAGER') %}
+        <form method="post" action="/tickets/{{ ticket.id }}/close-direct"
+              onsubmit="return confirm('Close this {{ L.ticket }} directly, skipping the Done stage?')">
+          <button class="btn btn-sm btn-red">⏭ Close Directly</button>
         </form>
         {% endif %}
 

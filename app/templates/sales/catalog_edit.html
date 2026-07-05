@@ -9,15 +9,12 @@
 
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-<form method="post" action="/sales/catalog/{{ product.id }}/edit" class="card" style="padding:20px;max-width:680px">
-  <h3 style="margin-top:0">Core Details</h3>
+<form method="post" action="/sales/catalog/{{ product.id }}/edit" style="max-width:680px">
+<div class="card" style="padding:20px;margin-bottom:16px">
+  <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CORE DETAILS</h3>
 
   <div class="form-group">
-    <label>SKU Code *</label>
-    <input name="sku_code" value="{{ product.sku_code }}" required>
-  </div>
-  <div class="form-group">
-    <label>Name *</label>
+    <label>Product Name *</label>
     <input name="name" value="{{ product.name }}" required>
   </div>
   <div class="form-group">
@@ -25,14 +22,18 @@
     <textarea name="description" rows="3">{{ product.description or '' }}</textarea>
   </div>
   <div class="form-group">
-    <label>Category</label>
-    <input name="category" list="category-list" value="{{ product.category or '' }}">
-    <datalist id="category-list">
-      {% for c in categories %}<option value="{{ c }}">{% endfor %}
-    </datalist>
+    <label>Sub-Category</label>
+    <select name="sub_category_id">
+      <option value="">— None —</option>
+      {% for cat in categories %}
+      {% for sc in subcats_by_cat.values() if sc.category_id == cat.id %}
+      <option value="{{ sc.id }}" {{ 'selected' if product.sub_category_id == sc.id else '' }}>{{ cat.name }} / {{ sc.name }}</option>
+      {% endfor %}
+      {% endfor %}
+    </select>
   </div>
   <div class="form-group">
-    <label>Base Unit</label>
+    <label>Default Base Unit</label>
     <select name="base_unit_id">
       <option value="">— None —</option>
       {% for u in units %}
@@ -41,18 +42,16 @@
     </select>
   </div>
   <div class="form-group">
-    <label>Low Stock Threshold</label>
-    <input type="number" step="any" name="low_stock_threshold" value="{{ product.low_stock_threshold if product.low_stock_threshold is not none else '' }}">
-  </div>
-  <div class="form-group">
     <label style="display:flex;align-items:center;gap:8px">
       <input type="checkbox" name="is_active" {{ 'checked' if product.is_active else '' }} style="width:auto">
       Active
     </label>
   </div>
+</div>
 
-  {% if schema_fields %}
-  <h3 style="margin-top:24px">Attributes</h3>
+{% if schema_fields %}
+<div class="card" style="padding:20px;margin-bottom:16px">
+  <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">SHARED ATTRIBUTES</h3>
   {% for field in schema_fields %}
   <div class="form-group">
     <label>{{ field.label }}{% if field.is_required %} *{% endif %}</label>
@@ -72,10 +71,11 @@
     {% endif %}
   </div>
   {% endfor %}
-  {% endif %}
+</div>
+{% endif %}
 
-  <div style="margin-top:20px">
-    <button type="submit" class="btn btn-primary">Save Changes</button>
-  </div>
+<div style="margin-top:20px">
+  <button type="submit" class="btn btn-primary">Save Changes</button>
+</div>
 </form>
 {% endblock %}

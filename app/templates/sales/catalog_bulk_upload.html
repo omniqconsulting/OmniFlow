@@ -10,8 +10,9 @@
 <div class="card" style="padding:20px;max-width:760px">
   <p style="font-size:13px;color:var(--text-muted)">
     1. Download the <a href="/sales/catalog/bulk-template">CSV template</a> (columns include your active attribute fields).<br>
-    2. Fill it in and upload below.<br>
-    3. Review the validation results, then confirm to import the valid rows.
+    2. One row = one Variant (SKU). Rows sharing the same category/sub_category/product_name are grouped onto the same Product.<br>
+    3. Optional: fill <code>photo_drive_link</code> with a Google Drive share link ("Anyone with the link can view") to auto-attach a photo — no manual upload needed.<br>
+    4. Fill it in and upload below, review the validation results, then confirm to import the valid rows.
   </p>
 
   <div style="display:flex;gap:10px;align-items:center;margin:16px 0">
@@ -56,8 +57,13 @@ async function confirmBulk() {
     body: JSON.stringify({ rows: _bulkRows }),
   });
   const data = await res.json();
-  document.getElementById('bulk-result').innerHTML =
-    `<div class="alert alert-green">${data.created} products created. ${data.skipped} rows skipped.</div>`;
+  let html = `<div class="alert alert-green">${data.created} variants created. ${data.skipped} rows skipped.</div>`;
+  if (data.photo_warnings && data.photo_warnings.length) {
+    html += '<div class="alert alert-red" style="margin-top:8px">Some photos could not be attached:<ul style="margin:6px 0 0 18px">';
+    data.photo_warnings.forEach(w => { html += `<li>${w.sku}: ${w.error}</li>`; });
+    html += '</ul></div>';
+  }
+  document.getElementById('bulk-result').innerHTML = html;
 }
 </script>
 {% endblock %}

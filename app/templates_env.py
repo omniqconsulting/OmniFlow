@@ -103,6 +103,12 @@ def _cond_format_style(fdef, value):
     return ""
 
 
+def _priority_label(p):
+    """Display label for a stored priority value — CRITICAL shows as TOP PRIORITY,
+    everything else is unchanged. The stored/compared value stays 'CRITICAL'."""
+    return "TOP PRIORITY" if p == "CRITICAL" else p
+
+
 def _format_tat(hours):
     """Format TAT hours as '30m', '2h', '1d', '1d 4h' etc. Returns '' for null/zero."""
     if not hours:
@@ -123,3 +129,4 @@ templates.env.filters["tojson"]     = _tojson
 templates.env.filters["ist"]        = _to_ist
 templates.env.filters["format_tat"] = _format_tat
 templates.env.filters["cond_format"] = _cond_format_style
+templates.env.filters["priority_label"] = _priority_label

@@ -32,10 +32,10 @@
       </tr>
     </thead>
     <tbody>
-      {% for p, s, label, color in stock_rows %}
-      <tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:6px 8px"><a href="/sales/catalog/{{ p.id }}">{{ p.name }}</a></td>
-        <td style="padding:6px 8px;color:var(--text-faint)">{{ p.sku_code }}</td>
+      {% for v, s, label, color in stock_rows %}
+      <tr style="border-bottom:1px solid var(--border-subtle);{{ 'background:rgba(239,68,68,.08)' if color == 'red' else ('background:rgba(245,158,11,.06)' if color == 'amber' else '') }}">
+        <td style="padding:6px 8px"><a href="/sales/catalog/{{ v.product_id }}">{{ v.product.name if v.product else '' }}</a></td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ v.sku_code }}</td>
         <td style="padding:6px 8px">{{ s.qty_available }}</td>
         <td style="padding:6px 8px">{{ s.qty_reserved }}</td>
         <td style="padding:6px 8px">{{ s.qty_in_transit }}</td>
@@ -125,7 +125,8 @@
         <td style="padding:6px 8px">{{ po.vendor_name_snapshot or '—' }}</td>
         <td style="padding:6px 8px">{{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</td>
         <td style="padding:6px 8px">{{ po.items|length }}</td>
-        <td style="padding:6px 8px">{{ po.status }}</td>
+        {% set po_status_colors = {'DRAFT':'#94a3b8','SUBMITTED':'#3b82f6','APPROVED':'#8b5cf6','PARTIALLY_RECEIVED':'#f59e0b','RECEIVED':'#22c55e','CANCELLED':'#ef4444'} %}
+        <td style="padding:6px 8px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ po_status_colors.get(po.status, '#94a3b8') }}">{{ po.status }}</span></td>
         <td style="padding:6px 8px"><a href="/inventory-v2/purchase-orders/{{ po.id }}" class="btn btn-xs btn-outline">View</a></td>
       </tr>
       {% endfor %}

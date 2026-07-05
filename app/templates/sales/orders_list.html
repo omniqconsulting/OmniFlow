@@ -10,6 +10,7 @@
     <div class="muted">{{ total }} order{{ '' if total == 1 else 's' }}</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/sales/orders/targets" class="btn btn-sm btn-outline">🎯 Targets</a>
     <a href="/sales/orders/export" class="btn btn-sm btn-outline">⬇ Export</a>
     <a href="/sales/orders/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
     <a href="/sales/orders/new" class="btn btn-sm btn-primary">+ New Order</a>
@@ -19,49 +20,74 @@
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px">
-  <a href="/sales/orders" class="btn btn-sm {{ 'btn-primary' if not status else 'btn-outline' }}">All</a>
-  {% for s in status_choices %}
-  <a href="/sales/orders?status={{ s }}" class="btn btn-sm {{ 'btn-primary' if status == s else 'btn-outline' }}">{{ s.title() }}</a>
-  {% endfor %}
-</div>
-
-{% if orders %}
-<table class="table" style="width:100%">
-  <thead><tr>
-    <th>Order</th><th>Customer</th><th>Agent</th><th>Status</th>
-    <th>Total</th><th>Items</th><th>Created</th><th></th>
-  </tr></thead>
-  <tbody>
-    {% for o in orders %}
-    <tr>
-      <td><a href="/sales/orders/{{ o.id }}">{{ o.display_id or o.id[:8] }}</a></td>
-      <td>{{ o.customer.name if o.customer else '—' }}
-        {% if o.customer %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(o.customer.customer_tier, '#94a3b8') }};margin-left:4px">{{ o.customer.customer_tier }}</span>{% endif %}
-      </td>
-      <td>{{ o.agent.name if o.agent else '—' }}</td>
-      <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(o.status, '#94a3b8') }}">{{ o.status }}</span></td>
-      <td>₹{{ '%.0f'|format(o.total_amount or 0) }}</td>
-      <td>{{ o.items|length }}</td>
-      <td style="color:var(--text-faint)">{{ o.created_at.strftime('%d %b %Y') if o.created_at else '—' }}</td>
-      <td><a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline">View</a></td>
-    </tr>
+<div style="display:grid;grid-template-columns:200px 1fr;gap:18px;align-items:start">
+  <!-- Status left-nav -->
+  <div class="card" style="padding:12px">
+    <div style="font-size:11px;font-weight:700;color:var(--text-faint);letter-spacing:.03em;margin-bottom:8px">STATUS</div>
+    <a href="/sales/orders" style="display:flex;align-items:center;gap:8px;padding:6px 6px;border-radius:6px;font-size:13px;text-decoration:none;color:inherit;{{ 'background:var(--bg-input);font-weight:600' if not status else '' }}">
+      <span style="width:8px;height:8px;border-radius:99px;background:var(--text-faint)"></span> All
+    </a>
+    {% for s in status_choices %}
+    <a href="/sales/orders?status={{ s }}" style="display:flex;align-items:center;gap:8px;padding:6px 6px;border-radius:6px;font-size:13px;text-decoration:none;color:inherit;{{ 'background:var(--bg-input);font-weight:600' if status == s else '' }}">
+      <span style="width:8px;height:8px;border-radius:99px;background:{{ status_colors.get(s, '#94a3b8') }}"></span> {{ s.title() }}
+    </a>
     {% endfor %}
-  </tbody>
-</table>
+  </div>
 
-{% if total > page_size %}
-<div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:24px;font-size:12px;color:var(--text-muted)">
-  {% if page > 1 %}<a href="?page={{ page-1 }}&status={{ status }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
-  <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
-  {% if page * page_size < total %}<a href="?page={{ page+1 }}&status={{ status }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
-</div>
-{% endif %}
+  <div>
+    <div class="filter-bar" style="margin-bottom:18px">
+      <input id="orderSearch" placeholder="Search order #, customer, or agent…" style="flex:1;min-width:220px" oninput="filterOrders()">
+    </div>
 
-{% else %}
-<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
-  <div style="font-size:40px;margin-bottom:12px">📦</div>
-  <div style="font-size:15px;font-weight:500">No orders found</div>
+    {% if orders %}
+    <div class="card" style="padding:0;overflow:hidden">
+    <table class="table" style="width:100%" id="ordersTable">
+      <thead><tr>
+        <th>Order</th><th>Customer</th><th>Agent</th><th>Status</th>
+        <th>Total</th><th>Items</th><th>Created</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for o in orders %}
+        <tr data-search="{{ (o.display_id or o.id) | lower }} {{ (o.customer.name if o.customer else '') | lower }} {{ (o.agent.name if o.agent else '') | lower }}">
+          <td><a href="/sales/orders/{{ o.id }}">{{ o.display_id or o.id[:8] }}</a></td>
+          <td>{{ o.customer.name if o.customer else '—' }}
+            {% if o.customer %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(o.customer.customer_tier, '#94a3b8') }};margin-left:4px">{{ o.customer.customer_tier }}</span>{% endif %}
+          </td>
+          <td><span style="font-weight:500">{{ o.agent.name if o.agent else '—' }}</span></td>
+          <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(o.status, '#94a3b8') }}">{{ o.status }}</span></td>
+          <td>₹{{ '%.0f'|format(o.total_amount or 0) }}</td>
+          <td>{{ o.items|length }}</td>
+          <td style="color:var(--text-faint)">{{ o.created_at.strftime('%d %b %Y') if o.created_at else '—' }}</td>
+          <td><a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline">View</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+
+    {% if total > page_size %}
+    <div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:24px;font-size:12px;color:var(--text-muted)">
+      {% if page > 1 %}<a href="?page={{ page-1 }}&status={{ status }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
+      <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+      {% if page * page_size < total %}<a href="?page={{ page+1 }}&status={{ status }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div style="text-align:center;padding:60px 0;color:var(--text-faint)">
+      <div style="font-size:40px;margin-bottom:12px">📦</div>
+      <div style="font-size:15px;font-weight:500">No orders found</div>
+    </div>
+    {% endif %}
+  </div>
 </div>
-{% endif %}
+
+<script>
+function filterOrders() {
+  const q = document.getElementById('orderSearch').value.toLowerCase().trim();
+  document.querySelectorAll('#ordersTable tbody tr').forEach(function(row) {
+    row.style.display = !q || row.dataset.search.includes(q) ? '' : 'none';
+  });
+}
+</script>
 {% endblock %}
