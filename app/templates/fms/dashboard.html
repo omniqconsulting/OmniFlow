@@ -2173,12 +2173,21 @@ const REF_LISTS = {{ ref_lists_json | safe }};
 
 // ── Stage data store: {ticketId: {fieldId: value, ...}} ──────────────────
 var stageDataStore = {};
+// Multi-split tickets have one "Enter Data" bucket PER SPLIT — sharing a
+// single ticket-keyed bucket meant saving data for one split silently
+// populated the "already entered" status for every other split on the same
+// ticket, letting Mark Done sail through unfilled on splits that never
+// actually got their own data.
+function _sdKey(ticketId, splitId) {
+  return splitId ? (ticketId + '::' + splitId) : ticketId;
+}
 // Pre-populate from server-rendered data so formula columns compute correctly on first open
 document.querySelectorAll('tr[data-ticket-id][data-cf]').forEach(function(tr) {
   var tid = tr.dataset.ticketId;
+  var sid = tr.dataset.splitId || '';
   try {
     var cf = JSON.parse(tr.dataset.cf || '{}');
-    if (tid && Object.keys(cf).length) stageDataStore[tid] = cf;
+    if (tid && Object.keys(cf).length) stageDataStore[_sdKey(tid, sid)] = cf;
   } catch(e) {}
 });
 var _sdCurrentTicketId = null;
@@ -2195,7 +2204,7 @@ function openStageDataModal(ticketId, displayId, stageName, stageId, splitId) {
   var container = document.getElementById('sdCustomFields');
   container.innerHTML = '';
   var cfDefs = (STAGE_CF_DEFS && stageId) ? (STAGE_CF_DEFS[stageId] || []) : [];
-  var saved  = stageDataStore[ticketId] || {};
+  var saved  = stageDataStore[_sdKey(ticketId, splitId)] || {};
 
   var INP_STYLE = 'width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box';
 
@@ -2259,7 +2268,7 @@ function openStageDataModal(ticketId, displayId, stageName, stageId, splitId) {
   // Formula recalculation — looks up col_id in the current modal inputs first,
   // then falls back to stageDataStore (cross-stage values) so formulas that
   // reference prior-stage columns resolve correctly.
-  var _crossStageVals = Object.assign({}, stageDataStore[ticketId] || {});
+  var _crossStageVals = Object.assign({}, stageDataStore[_sdKey(ticketId, splitId)] || {});
   function _sdRecalc() {
     cfDefs.forEach(function(f) {
       if (f.field_type !== 'formula' || !f.formula_steps || !f.formula_steps.length) return;
@@ -2333,7 +2342,8 @@ function saveStageData() {
 
   // Merge into existing store (not replace) so cross-stage values are preserved
   // for the bulk-transition dedup check that reads stageDataStore.
-  stageDataStore[_sdCurrentTicketId] = Object.assign({}, stageDataStore[_sdCurrentTicketId] || {}, data);
+  var _sdKeyCur = _sdKey(_sdCurrentTicketId, _sdCurrentSplitId);
+  stageDataStore[_sdKeyCur] = Object.assign({}, stageDataStore[_sdKeyCur] || {}, data);
 
   // Update visible table cells immediately (optimistic — don't wait for server)
   Object.keys(data).forEach(function(fieldId) {
@@ -2349,7 +2359,7 @@ function saveStageData() {
   }).then(function(r){ return r.json(); }).then(function(resp) {
     if (!resp || !resp.computed) return;
     // Merge server-computed formula values back into store and table cells
-    stageDataStore[_sdCurrentTicketId] = Object.assign(stageDataStore[_sdCurrentTicketId] || {}, resp.computed);
+    stageDataStore[_sdKeyCur] = Object.assign(stageDataStore[_sdKeyCur] || {}, resp.computed);
     Object.keys(resp.computed).forEach(function(fieldId) {
       var cell = document.querySelector('[data-cf-cell="' + _sdCurrentTicketId + '_' + fieldId + '"]');
       if (cell) { cell.textContent = resp.computed[fieldId]; cell.style.color = 'var(--text-primary)'; }
@@ -2436,36 +2446,14 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
     evFile.required = false;
   }
 
-  // Show saved-data status in place of inline form fields
+  // Show saved-data status in place of inline form fields — data is entered
+  // ahead of time via the ✏ Enter Data button (per-split, see _sdKey), not
+  // inline in this modal. Mark Done/Complete Ticket only confirms it's there.
   var cfContainer = document.getElementById('scCustomFields');
   cfContainer.innerHTML = '';
   var cfDefs = (STAGE_CF_DEFS && activeStageId) ? (STAGE_CF_DEFS[activeStageId] || []) : [];
-  if (cfDefs.length && splitId) {
-    // Splits don't share the ticket-level "Enter Data" pre-save flow (that
-    // store is keyed by ticket id only, not per-split) — ask for the
-    // column values directly here instead, same as the Split modal does.
-    var INP_STYLE_SC = 'width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box';
-    cfDefs.forEach(function(f) {
-      var grp = document.createElement('div');
-      grp.style.marginBottom = '14px';
-      var lbl = document.createElement('label');
-      lbl.style.cssText = 'display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px';
-      if (f.field_type === 'formula') {
-        lbl.innerHTML = f.label + ' <span style="font-size:10px;color:#a78bfa;font-weight:400;text-transform:none">(auto-calculated on submit)</span>';
-        grp.appendChild(lbl);
-      } else {
-        lbl.innerHTML = f.label + (f.required ? ' <span style="color:#f87171">*</span>' : '');
-        grp.appendChild(lbl);
-        var inp = document.createElement('input');
-        inp.type = 'text'; inp.name = 'cf__' + f.id; inp.className = 'sc-cf-live';
-        if (f.required) inp.required = true;
-        inp.style.cssText = INP_STYLE_SC;
-        grp.appendChild(inp);
-      }
-      cfContainer.appendChild(grp);
-    });
-  } else if (cfDefs.length) {
-    var saved = stageDataStore[ticketId] || {};
+  if (cfDefs.length) {
+    var saved = stageDataStore[_sdKey(ticketId, splitId)] || {};
     var hasSaved = Object.keys(saved).length > 0;
     var pill = document.createElement('div');
     pill.style.cssText = 'margin-bottom:14px;padding:10px 14px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:8px;' +
@@ -2488,19 +2476,20 @@ function closeSCModal() {
 }
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeSCModal(); });
 
-// Inject saved stage data as hidden cf__ inputs before the transition form submits
+// Inject saved stage data as hidden cf__ inputs before the transition form submits.
+// The transition endpoint rebuilds custom_fields_data_json purely from
+// submitted cf__ fields (it doesn't re-read the /stage-data pre-save), so
+// this injection is what actually commits whatever was entered via
+// ✏ Enter Data — per split, using the same _sdKey the pill check used.
 document.getElementById('scForm').addEventListener('submit', function() {
-  // Splits render live cf__ inputs directly (see openStageCompleteModal) —
-  // those submit as normal form fields, so skip the ticket-level
-  // stageDataStore injection entirely to avoid duplicate cf__ inputs.
-  if (document.getElementById('scSplitId').value) return;
   // Remove any previously injected cf__ hiddens to avoid duplicates
   this.querySelectorAll('.sc-cf-inject').forEach(function(el){ el.remove(); });
   // Find the ticket id from the form action: /fms/tickets/<id>/transition
   var match = this.action.match(/\/tickets\/([^\/]+)\/transition/);
   if (!match) return;
   var ticketId = match[1];
-  var saved = stageDataStore[ticketId] || {};
+  var splitId  = document.getElementById('scSplitId').value || '';
+  var saved = stageDataStore[_sdKey(ticketId, splitId)] || {};
   Object.keys(saved).forEach(function(fieldId) {
     var inp = document.createElement('input');
     inp.type = 'hidden'; inp.name = 'cf__' + fieldId; inp.value = saved[fieldId];
@@ -2644,6 +2633,15 @@ function openSplitsModal(ticketId, displayId, splits) {
     var right = document.createElement('div');
     right.style.cssText = 'display:flex;gap:6px;flex-shrink:0';
     if (s.status !== 'COMPLETED' && s.status !== 'CLOSED') {
+      var stageCfDefs = (typeof STAGE_CF_DEFS !== 'undefined') ? (STAGE_CF_DEFS[s.stage_id] || []) : [];
+      if (stageCfDefs.length) {
+        var dataBtn = document.createElement('button');
+        dataBtn.className = 'btn btn-sm'; dataBtn.style.cssText = 'font-size:11px;color:#a78bfa';
+        dataBtn.textContent = '✏ Data';
+        dataBtn.title = 'Fill stage data fields for ' + s.label;
+        dataBtn.onclick = function() { openStageDataModal(ticketId, displayId, s.stage_name, s.stage_id, s.id); };
+        right.appendChild(dataBtn);
+      }
       var ns = NEXT_STAGE_MAP[s.stage_id];
       if (ns) {
         var advBtn = document.createElement('button');
