@@ -175,6 +175,16 @@ def upgrade() -> None:
         if "sub_category_id" not in old_cols:
             op.add_column("products", sa.Column("sub_category_id", sa.String(), nullable=True))
 
+        # Downstream tables' product_id FK still points at products(id) at
+        # this point (the rename to variant_id happens in step 8, later) —
+        # Postgres enforces that FK, so it must be dropped before the old
+        # products rows can be deleted. SQLite doesn't enforce FKs by
+        # default, which is why this went unnoticed there.
+        if dialect != "sqlite":
+            for table in _RENAME_TABLES:
+                if table in existing_tables:
+                    _drop_stale_product_fk(conn, inspector, table)
+
         conn.execute(sa.text("DELETE FROM products"))
         for row in rows:
             key = (row["tenant_id"], (row["category"] or "").strip() or "Uncategorized")
