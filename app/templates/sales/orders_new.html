@@ -68,11 +68,11 @@
     </div>
 
     <div style="margin-bottom:12px">
-      <label style="font-size:12px;color:var(--text-muted)">Select Godown</label>
-      <select name="godown_id" style="width:100%">
+      <label style="font-size:12px;color:var(--text-muted)">Select {{ L.Branch }}</label>
+      <select name="branch_id" style="width:100%">
         <option value="">— Not specified —</option>
-        {% for g in godowns %}
-        <option value="{{ g.id }}">{{ g.name }}</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}">{{ b.name }}</option>
         {% endfor %}
       </select>
       <div class="muted" style="font-size:11px;margin-top:2px">Which location will dispatch this order — for reference only, doesn't affect stock.</div>

@@ -1388,6 +1388,19 @@ def _fms_dashboard_inner(
                 split_count = len(all_active_splits)
 
                 h = _open_history(db, t.id, split_id=row_split.id)
+                # Most recent evidence file uploaded on this split's lineage
+                # (evidence attaches to the history row of the stage it was
+                # required on exit from, so look across all of them).
+                latest_evidence = (
+                    db.query(FMSStageHistory)
+                    .filter(
+                        FMSStageHistory.ticket_id == t.id,
+                        FMSStageHistory.split_id == row_split.id,
+                        FMSStageHistory.evidence_url.isnot(None),
+                    )
+                    .order_by(FMSStageHistory.entered_at.desc())
+                    .first()
+                )
                 if h and active_stage.target_tat_hours:
                     pct = _tat_pct(h, active_stage)
                     tc = "green" if pct < 50 else "amber" if pct < 90 else "red"
@@ -1447,6 +1460,7 @@ def _fms_dashboard_inner(
                         "stage_name": s.current_stage.name if s.current_stage else "—",
                         "assignee_name": s.current_assignee.name if s.current_assignee else "—",
                         "status": s.status,
+                        "updated_at": s.updated_at.strftime("%d %b %Y, %H:%M") if s.updated_at else None,
                     }
                     for s in all_active_splits
                 ] if split_count > 1 else []
@@ -1462,6 +1476,8 @@ def _fms_dashboard_inner(
                     "split_id": row_split.id if row_split else None,
                     "split_count": split_count,
                     "splits_payload": splits_payload,
+                    "evidence_url": latest_evidence.evidence_url if latest_evidence else None,
+                    "evidence_filename": latest_evidence.evidence_filename if latest_evidence else None,
                 })
 
     # Next/prev stage maps (used by Mark Done and Move Backward modals)
@@ -2020,6 +2036,32 @@ def fms_ticket_notify(
     if stage_id: return_url += f"&stage_id={stage_id}"
     from urllib.parse import quote
     return _redirect(return_url + f"&msg=Notification+sent+to+{quote(assignee_name)}")
+
+
+@router.get("/tickets/{ticket_id}/events")
+def fms_ticket_events(
+    ticket_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Append-only audit trail for a ticket — every action (by whom, when,
+    what) across the ticket and all of its splits. Backs the History modal."""
+    from fastapi.responses import JSONResponse
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    events = db.query(FMSEvent).filter(
+        FMSEvent.ticket_id == ticket.id,
+    ).order_by(FMSEvent.created_at.desc()).all()
+    actor_ids = {e.actor_id for e in events if e.actor_id}
+    actors = {u.id: u.name for u in db.query(User).filter(User.id.in_(actor_ids)).all()} if actor_ids else {}
+    return JSONResponse({"events": [
+        {
+            "event_type": e.event_type,
+            "detail": e.detail or "",
+            "actor_name": actors.get(e.actor_id, "System"),
+            "created_at": e.created_at.strftime("%d %b %Y, %H:%M") if e.created_at else "",
+        }
+        for e in events
+    ]})
 
 
 # ── P7-07: Bulk upload FMS tickets ────────────────────────────────────────────

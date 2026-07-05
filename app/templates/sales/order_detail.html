@@ -14,7 +14,7 @@
     <div class="muted">{{ order.customer.name if order.customer else '—' }}
       {% if order.customer %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(order.customer.customer_tier, '#94a3b8') }};margin-left:4px">{{ order.customer.customer_tier }}</span>{% endif %}
       · Salesman: {{ order.agent.name if order.agent else '—' }}
-      {% if order.godown %} · Godown: {{ order.godown.name }}{% endif %}</div>
+      {% if order.branch %} · {{ L.Branch }}: {{ order.branch.name }}{% endif %}</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <a href="/sales/orders" class="btn btn-sm btn-outline">Back to Orders</a>
@@ -37,7 +37,7 @@
   <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">DELIVERY</h3>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;font-size:13px">
     <div><div class="muted">Expected Delivery</div><div>{{ order.expected_delivery_date.strftime('%d %b %Y') if order.expected_delivery_date else '—' }}</div></div>
-    <div><div class="muted">Godown</div><div>{{ order.godown.name if order.godown else '—' }}</div></div>
+    <div><div class="muted">{{ L.Branch }}</div><div>{{ order.branch.name if order.branch else '—' }}</div></div>
   </div>
   <div style="margin-top:12px"><div class="muted" style="font-size:12px">Delivery Address</div><div>{{ order.delivery_address or '—' }}</div></div>
 </div>
@@ -154,8 +154,8 @@
         <label style="font-size:11px;color:var(--text-muted);display:block">Override Reason</label>
         <input name="override_reason" style="width:160px">
       </div>
-      <div>
-        <label style="font-size:11px;color:var(--text-muted);display:block">Reference Photo</label>
+      <div id="photo_upload_field">
+        <label style="font-size:11px;color:var(--text-muted);display:block">Reference Photo <span style="font-weight:400">(no catalog photo on file)</span></label>
         <input type="file" name="photo" style="width:150px">
       </div>
       <button type="submit" class="btn btn-sm btn-primary">+ Add Item</button>
@@ -222,12 +222,15 @@ function showVariantPhoto(variantId) {
   const sel = document.getElementById('variant_select');
   const opt = sel.querySelector(`option[value="${variantId}"]`);
   const img = document.getElementById('variant_photo_preview');
+  const uploadField = document.getElementById('photo_upload_field');
   const photo = opt ? opt.getAttribute('data-photo') : '';
   if (photo) {
     img.src = `/static/${photo}`;
     img.style.display = 'inline-block';
+    uploadField.style.display = 'none';
   } else {
     img.style.display = 'none';
+    uploadField.style.display = '';
   }
 }
 

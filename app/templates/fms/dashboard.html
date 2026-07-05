@@ -579,6 +579,10 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           </span>
           {% if t.is_flagged %} 🚩{% endif %}
           {% if t.has_qty_discrepancy %} <span title="Quantity drift: split totals don't match target_qty">⚠</span>{% endif %}
+          {% if row.evidence_url %}
+          <a href="{{ row.evidence_url }}" target="_blank" title="{{ row.evidence_filename or 'Attachment' }}"
+             onclick="event.stopPropagation()" style="text-decoration:none;font-size:12px;margin-left:4px">📎</a>
+          {% endif %}
           {% if row.split_count and row.split_count > 1 %}
           <button type="button" data-splits='{{ row.splits_payload | tojson | replace("'", "&#39;") }}'
                   onclick="event.stopPropagation();openSplitsModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}',JSON.parse(this.dataset.splits))"
@@ -744,6 +748,12 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
                 🔔 Notify Assignee
               </button>
               {% endif %}
+
+              {# History — full audit trail of every action on this ticket #}
+              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openHistoryModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}')"
+                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:var(--text-primary);cursor:pointer;font-family:inherit">
+                🕘 History
+              </button>
 
               {# Acknowledge qty discrepancy — admin/manager, Phase 0 #}
               {% if user.role in ('ADMIN','MANAGER') and t.has_qty_discrepancy %}
@@ -1647,6 +1657,25 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
   </div>
 </div>
 
+<!-- ── History modal — full audit trail of every action on a ticket ── -->
+<div id="fmsHistoryModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:600px;max-width:95vw;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">🕘 History</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="fmsHistorySubtitle"></div>
+      </div>
+      <button onclick="closeHistoryModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <div id="fmsHistoryBody" style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:12px;color:var(--text-faint)">Loading…</div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <button type="button" onclick="closeHistoryModal()" class="btn btn-sm">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Phase 0: Split action modal — carve part of a split's qty to another stage ── -->
 <div id="fmsSplitActionModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:310;padding:16px">
   <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:420px;max-width:95vw">
@@ -2411,7 +2440,31 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
   var cfContainer = document.getElementById('scCustomFields');
   cfContainer.innerHTML = '';
   var cfDefs = (STAGE_CF_DEFS && activeStageId) ? (STAGE_CF_DEFS[activeStageId] || []) : [];
-  if (cfDefs.length) {
+  if (cfDefs.length && splitId) {
+    // Splits don't share the ticket-level "Enter Data" pre-save flow (that
+    // store is keyed by ticket id only, not per-split) — ask for the
+    // column values directly here instead, same as the Split modal does.
+    var INP_STYLE_SC = 'width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box';
+    cfDefs.forEach(function(f) {
+      var grp = document.createElement('div');
+      grp.style.marginBottom = '14px';
+      var lbl = document.createElement('label');
+      lbl.style.cssText = 'display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px';
+      if (f.field_type === 'formula') {
+        lbl.innerHTML = f.label + ' <span style="font-size:10px;color:#a78bfa;font-weight:400;text-transform:none">(auto-calculated on submit)</span>';
+        grp.appendChild(lbl);
+      } else {
+        lbl.innerHTML = f.label + (f.required ? ' <span style="color:#f87171">*</span>' : '');
+        grp.appendChild(lbl);
+        var inp = document.createElement('input');
+        inp.type = 'text'; inp.name = 'cf__' + f.id; inp.className = 'sc-cf-live';
+        if (f.required) inp.required = true;
+        inp.style.cssText = INP_STYLE_SC;
+        grp.appendChild(inp);
+      }
+      cfContainer.appendChild(grp);
+    });
+  } else if (cfDefs.length) {
     var saved = stageDataStore[ticketId] || {};
     var hasSaved = Object.keys(saved).length > 0;
     var pill = document.createElement('div');
@@ -2437,6 +2490,10 @@ document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeSCMo
 
 // Inject saved stage data as hidden cf__ inputs before the transition form submits
 document.getElementById('scForm').addEventListener('submit', function() {
+  // Splits render live cf__ inputs directly (see openStageCompleteModal) —
+  // those submit as normal form fields, so skip the ticket-level
+  // stageDataStore injection entirely to avoid duplicate cf__ inputs.
+  if (document.getElementById('scSplitId').value) return;
   // Remove any previously injected cf__ hiddens to avoid duplicates
   this.querySelectorAll('.sc-cf-inject').forEach(function(el){ el.remove(); });
   // Find the ticket id from the form action: /fms/tickets/<id>/transition
@@ -2580,8 +2637,10 @@ function openSplitsModal(ticketId, displayId, splits) {
     var row = document.createElement('div');
     row.style.cssText = 'border:1px solid var(--border-med);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px';
     var left = document.createElement('div');
-    left.innerHTML = '<div style="font-size:13px;font-weight:600;color:var(--text-primary)">' + s.label + ' — ' + (s.qty ?? '—') + ' units</div>' +
-      '<div style="font-size:11px;color:var(--text-faint);margin-top:2px">' + s.stage_name + ' · ' + s.assignee_name + ' · <span class="st-badge st-' + s.status + '">' + s.status.replace('_',' ') + '</span></div>';
+    var qtyLabel = (s.qty === null || s.qty === undefined) ? '' : (' — ' + s.qty + ' units');
+    left.innerHTML = '<div style="font-size:13px;font-weight:600;color:var(--text-primary)">' + s.label + qtyLabel + '</div>' +
+      '<div style="font-size:11px;color:var(--text-faint);margin-top:2px">' + s.stage_name + ' · ' + s.assignee_name + ' · <span class="st-badge st-' + s.status + '">' + s.status.replace('_',' ') + '</span></div>' +
+      (s.updated_at ? '<div style="font-size:10px;color:var(--text-faint);margin-top:2px">Last action: ' + s.updated_at + '</div>' : '');
     var right = document.createElement('div');
     right.style.cssText = 'display:flex;gap:6px;flex-shrink:0';
     if (s.status !== 'COMPLETED' && s.status !== 'CLOSED') {
@@ -2612,6 +2671,42 @@ function openSplitsModal(ticketId, displayId, splits) {
 }
 function closeSplitsModal() {
   document.getElementById('fmsSplitsModal').style.display = 'none';
+}
+
+/* ── History modal — full audit trail (FMSEvent) for a ticket ───────────── */
+function openHistoryModal(ticketId, displayId) {
+  document.getElementById('fmsHistorySubtitle').textContent = displayId;
+  var body = document.getElementById('fmsHistoryBody');
+  body.innerHTML = '<div style="font-size:12px;color:var(--text-faint)">Loading…</div>';
+  document.getElementById('fmsHistoryModal').style.display = 'flex';
+  fetch('/fms/tickets/' + ticketId + '/events')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      body.innerHTML = '';
+      var events = data.events || [];
+      if (!events.length) {
+        body.innerHTML = '<div style="font-size:12px;color:var(--text-faint)">No history recorded yet.</div>';
+        return;
+      }
+      events.forEach(function(e) {
+        var row = document.createElement('div');
+        row.style.cssText = 'border:1px solid var(--border-med);border-radius:8px;padding:10px 12px';
+        row.innerHTML =
+          '<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">' +
+            '<div style="font-size:12px;font-weight:600;color:var(--text-primary)">' + e.event_type.replace(/_/g,' ') + '</div>' +
+            '<div style="font-size:10px;color:var(--text-faint);white-space:nowrap">' + e.created_at + '</div>' +
+          '</div>' +
+          (e.detail ? '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">' + e.detail.replace(/</g,'&lt;') + '</div>' : '') +
+          '<div style="font-size:11px;color:var(--text-faint);margin-top:4px">by ' + e.actor_name + '</div>';
+        body.appendChild(row);
+      });
+    })
+    .catch(function() {
+      body.innerHTML = '<div style="font-size:12px;color:#f87171">Failed to load history.</div>';
+    });
+}
+function closeHistoryModal() {
+  document.getElementById('fmsHistoryModal').style.display = 'none';
 }
 
 /* ── Phase 0: Split action modal — carve qty off to another stage ───────── */
@@ -2686,6 +2781,7 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     closeMoveBackModal(); closeFlagModal(); closeAssigneeModal();
     closeHelpModal(); closeOverrideModal(); closeBulkTransitionModal();
+    closeHistoryModal(); closeSplitsModal(); closeSplitActionModal();
   }
 });
 

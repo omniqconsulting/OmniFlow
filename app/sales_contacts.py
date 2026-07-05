@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from .database import get_db, new_id, Customer, CRMCallLog, User, Tenant, SalesOrder, PriceList
 from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
-from .setup_routes import _nav_ctx, _L, _unread
+from .setup_routes import _nav_ctx, _L, _unread, resolve_customer_agent, _CUSTOMER_TIERS
 from .constants import BULK_IMPORT_MAX_ROWS
 
 router = APIRouter()
@@ -341,8 +341,10 @@ def contacts_list(
 # ══════════════════════════════════════════════════════════════════════════════
 
 _BULK_COLS = [
-    "name", "phone", "email", "agent_email", "employee_name", "contact_freq_days",
+    "name", "contact_person", "phone", "email", "address", "notes",
+    "agent_email", "employee_name", "contact_freq_days",
     "tier", "gstin", "credit_limit", "billing_address", "shipping_address",
+    "default_payment_terms",
 ]
 
 
@@ -410,7 +412,7 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
             return None, f"employee_name {employee_name} matches {len(matches)} agents — ambiguous, use agent_email instead"
         agent = matches[0]
 
-    if tier and tier not in ("A", "B", "C"):
+    if tier and tier not in _CUSTOMER_TIERS:
         return None, "tier must be A, B, C or blank"
 
     freq = 30
@@ -433,6 +435,9 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
     return {
         "name": name, "phone": phone,
         "email": (row.get("email") or "").strip() or None,
+        "contact_person": (row.get("contact_person") or "").strip() or None,
+        "address": (row.get("address") or "").strip() or None,
+        "notes": (row.get("notes") or "").strip() or None,
         "agent_id": agent.id if agent else None,
         "contact_freq_days": freq,
         "tier": tier or "UNRANKED",
@@ -440,6 +445,7 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
         "credit_limit": credit,
         "billing_address": (row.get("billing_address") or "").strip() or None,
         "shipping_address": (row.get("shipping_address") or "").strip() or None,
+        "default_payment_terms": (row.get("default_payment_terms") or "").strip() or None,
     }, None
 
 
@@ -491,6 +497,9 @@ def bulk_upload_confirm(
         db.add(Customer(
             tenant_id=user.tenant_id,
             name=r["name"], phone=r["phone"], email=r.get("email"),
+            contact_person=r.get("contact_person"),
+            address=r.get("address"),
+            notes=r.get("notes"),
             created_by_id=user.id,
             assigned_agent_id=r.get("agent_id") or user.id,
             customer_tier=r.get("tier") or "UNRANKED",
@@ -499,6 +508,7 @@ def bulk_upload_confirm(
             credit_limit=r.get("credit_limit"),
             billing_address=r.get("billing_address"),
             shipping_address=r.get("shipping_address"),
+            default_payment_terms=r.get("default_payment_terms"),
         ))
         created += 1
     try:
@@ -528,18 +538,25 @@ def contacts_export(
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow([
-        "name", "phone", "email", "tier", "assigned_agent_name", "last_contacted_at",
-        "days_since_contact", "contact_freq_days", "credit_limit", "gstin", "billing_address",
+        "name", "contact_person", "phone", "email", "address", "notes",
+        "agent_email", "tier", "contact_freq_days", "gstin", "credit_limit",
+        "billing_address", "shipping_address", "default_payment_terms",
+        # Informational / derived — not accepted back on import.
+        "assigned_agent_name", "last_contacted_at", "days_since_contact",
     ])
     now = datetime.utcnow()
     for c in customers:
         days_since = (now - c.last_contacted_at).days if c.last_contacted_at else ""
         w.writerow([
-            c.name, c.phone or "", c.email or "", c.customer_tier or "UNRANKED",
+            c.name, c.contact_person or "", c.phone or "", c.email or "",
+            c.address or "", c.notes or "",
+            c.assigned_agent.email if c.assigned_agent else "",
+            c.customer_tier or "UNRANKED", c.contact_freq_days or 30,
+            c.gstin or "", c.credit_limit or "",
+            c.billing_address or "", c.shipping_address or "", c.default_payment_terms or "",
             c.assigned_agent.name if c.assigned_agent else "",
             c.last_contacted_at.isoformat() if c.last_contacted_at else "",
-            days_since, c.contact_freq_days or 30, c.credit_limit or "",
-            c.gstin or "", c.billing_address or "",
+            days_since,
         ])
     buf.seek(0)
     return StreamingResponse(

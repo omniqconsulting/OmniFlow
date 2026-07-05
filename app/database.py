@@ -1102,21 +1102,31 @@ class CRMCallLog(Base):
 
 
 class EndProduct(Base):
+    """
+    Setup > End Products — mirrors Sales Catalog ProductVariant rows (matched
+    by sku_code, see app/sales_catalog_sync.py), used by FMS/Delegations
+    linked entities. category_id/sub_category_id mirror the linked variant's
+    Product.sub_category hierarchy so both lists share the same taxonomy.
+    """
     __tablename__ = "end_products"
-    id            = Column(String,  primary_key=True, default=new_id)
-    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
-    name          = Column(String,  nullable=False)
-    sku_code      = Column(String)
-    unit          = Column(String)
-    description   = Column(Text)
-    is_active     = Column(Boolean, default=True)
-    is_deleted    = Column(Boolean, default=False)
-    created_by_id = Column(String,  ForeignKey("users.id"))
-    created_at    = Column(DateTime, default=datetime.utcnow)
-    updated_at    = Column(DateTime, default=datetime.utcnow)
+    id               = Column(String,  primary_key=True, default=new_id)
+    tenant_id        = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name             = Column(String,  nullable=False)
+    sku_code         = Column(String)
+    unit             = Column(String)
+    description      = Column(Text)
+    category_id      = Column(String,  ForeignKey("categories.id"), nullable=True)
+    sub_category_id  = Column(String,  ForeignKey("sub_categories.id"), nullable=True)
+    is_active        = Column(Boolean, default=True)
+    is_deleted       = Column(Boolean, default=False)
+    created_by_id    = Column(String,  ForeignKey("users.id"))
+    created_at       = Column(DateTime, default=datetime.utcnow)
+    updated_at       = Column(DateTime, default=datetime.utcnow)
 
-    tenant     = relationship("Tenant")
-    created_by = relationship("User", foreign_keys=[created_by_id])
+    tenant       = relationship("Tenant")
+    created_by   = relationship("User", foreign_keys=[created_by_id])
+    category     = relationship("Category", foreign_keys=[category_id])
+    sub_category = relationship("SubCategory", foreign_keys=[sub_category_id])
 
 
 class CustomReferenceList(Base):
@@ -1646,24 +1656,6 @@ class CostEntry(Base):
     actor   = relationship("User", foreign_keys=[actor_id])
 
 
-class Godown(Base):
-    """
-    Lightweight dispatch-location label — Phase 2. NOT a stock partition;
-    stock quantities remain a single pool per tenant. Purely metadata for
-    "which location will dispatch this order" shown to the godown/dispatch team.
-    """
-    __tablename__ = "godowns"
-    id         = Column(String,  primary_key=True, default=new_id)
-    tenant_id  = Column(String,  ForeignKey("tenants.id"), nullable=False)
-    name       = Column(String,  nullable=False)
-    address    = Column(Text,    nullable=True)
-    is_active  = Column(Boolean, default=True)
-    is_deleted = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    tenant = relationship("Tenant")
-
-
 class SalesOrder(Base):
     """
     Order header — Brief 05.
@@ -1686,7 +1678,7 @@ class SalesOrder(Base):
     status                 = Column(String,  default="DRAFT")
     payment_terms          = Column(String,  nullable=True)
     delivery_address       = Column(Text,    nullable=True)
-    godown_id              = Column(String,  ForeignKey("godowns.id"), nullable=True)
+    branch_id              = Column(String,  ForeignKey("branches.id"), nullable=True)
     expected_delivery_date = Column(Date,    nullable=True)
     notes                  = Column(Text,    nullable=True)
     call_log_id            = Column(String,  nullable=True)
@@ -1706,7 +1698,7 @@ class SalesOrder(Base):
     tenant   = relationship("Tenant")
     customer = relationship("Customer",  foreign_keys=[customer_id])
     agent    = relationship("User",      foreign_keys=[agent_id])
-    godown   = relationship("Godown",    foreign_keys=[godown_id])
+    branch   = relationship("Branch",    foreign_keys=[branch_id])
     items    = relationship("SalesOrderItem", back_populates="order",
                             cascade="all, delete-orphan",
                             order_by="SalesOrderItem.created_at")
@@ -1918,16 +1910,7 @@ def _pg_add_columns():
             WHERE follow_up_done = FALSE""",
         # Phase 2 — Orders/Contacts/Pricing brief
         "ALTER TABLE customers ADD COLUMN IF NOT EXISTS default_payment_terms VARCHAR",
-        """CREATE TABLE IF NOT EXISTS godowns (
-            id VARCHAR PRIMARY KEY,
-            tenant_id VARCHAR NOT NULL REFERENCES tenants(id),
-            name VARCHAR NOT NULL,
-            address TEXT,
-            is_active BOOLEAN DEFAULT TRUE,
-            is_deleted BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT NOW()
-        )""",
-        "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS godown_id VARCHAR REFERENCES godowns(id)",
+        "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS branch_id VARCHAR REFERENCES branches(id)",
         """CREATE TABLE IF NOT EXISTS sales_targets (
             id VARCHAR PRIMARY KEY,
             tenant_id VARCHAR NOT NULL REFERENCES tenants(id),

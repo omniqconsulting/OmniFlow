@@ -6,12 +6,10 @@ sellable SKU). Product master, custom attribute schema, media, bulk import/expor
 import csv
 import io
 import json
-import re
 import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
 
-import httpx
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy import or_
@@ -26,7 +24,10 @@ from .auth import get_current_user, require_admin, require_manager, has_module, 
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 from .constants import BULK_IMPORT_MAX_ROWS
-from .sales_catalog_sync import sync_end_product_from_variant, remove_end_product_for_variant
+from .sales_catalog_sync import (
+    sync_end_product_from_variant, remove_end_product_for_variant,
+    resolve_or_create_hierarchy, attach_drive_photo,
+)
 
 router = APIRouter()
 
@@ -656,9 +657,6 @@ async def schema_reorder(request: Request, user: User = Depends(require_admin), 
 # product_name collapse onto the same parent Product.
 # ══════════════════════════════════════════════════════════════════════════════
 
-_DRIVE_LINK_RE = re.compile(r"/d/([a-zA-Z0-9_-]+)")
-
-
 @router.get("/sales/catalog/bulk-upload", response_class=HTMLResponse)
 def bulk_upload_page(request: Request, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "sales/catalog_bulk_upload.html", _ctx(db, user))
@@ -747,42 +745,6 @@ async def bulk_upload(
     })
 
 
-async def _attach_drive_photo(variant: ProductVariant, drive_link: str) -> Optional[str]:
-    """Extract FILE_ID from a Drive share link, download it, validate it's an
-    image, save alongside other variant photos. Returns an error string on
-    failure, or None on success."""
-    m = _DRIVE_LINK_RE.search(drive_link) or re.search(r"[?&]id=([a-zA-Z0-9_-]+)", drive_link)
-    if not m:
-        return f"Could not parse a Drive file id from '{drive_link}'"
-    file_id = m.group(1)
-    url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
-            resp = await client.get(url)
-    except Exception as e:
-        return f"Could not fetch Drive link: {e}"
-    if resp.status_code != 200:
-        return f"Drive file not accessible (HTTP {resp.status_code}) — check it's shared 'Anyone with the link'"
-    content_type = resp.headers.get("content-type", "")
-    if not content_type.startswith("image/"):
-        return f"Drive link did not return an image (got '{content_type}')"
-    content = resp.content
-    if len(content) > 5 * 1024 * 1024:
-        return "Drive image exceeds 5MB limit"
-    ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}.get(content_type.split(";")[0], "jpg")
-    filename = f"{_uuid.uuid4().hex}.{ext}"
-    rel_path = f"uploads/{variant.tenant_id}/products/{variant.id}/{filename}"
-    full_path = Path(__file__).parent / "static" / rel_path
-    full_path.parent.mkdir(parents=True, exist_ok=True)
-    full_path.write_bytes(content)
-
-    existing = json.loads(variant.media_urls_json or "[]")
-    if len(existing) < 8:
-        existing.append(rel_path)
-        variant.media_urls_json = json.dumps(existing)
-    return None
-
-
 @router.post("/sales/catalog/bulk-upload/confirm")
 async def bulk_upload_confirm(request: Request, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
     body = await request.json()
@@ -811,34 +773,10 @@ async def bulk_upload_confirm(request: Request, user: User = Depends(_require_sa
         key = (cat_name, sub_name, product_name)
 
         if key not in product_cache:
-            category = db.query(Category).filter(
-                Category.tenant_id == user.tenant_id, Category.name == cat_name, Category.is_deleted == False,
-            ).first()
-            if not category:
-                category = Category(id=new_id(), tenant_id=user.tenant_id, name=cat_name)
-                db.add(category)
-                db.flush()
-            sub_category = db.query(SubCategory).filter(
-                SubCategory.tenant_id == user.tenant_id, SubCategory.category_id == category.id,
-                SubCategory.name == sub_name, SubCategory.is_deleted == False,
-            ).first()
-            if not sub_category:
-                sub_category = SubCategory(id=new_id(), tenant_id=user.tenant_id, category_id=category.id, name=sub_name)
-                db.add(sub_category)
-                db.flush()
-            product = db.query(Product).filter(
-                Product.tenant_id == user.tenant_id, Product.sub_category_id == sub_category.id,
-                Product.name == product_name, Product.is_deleted == False,
-            ).first()
-            if not product:
-                product = Product(
-                    id=new_id(), tenant_id=user.tenant_id, name=product_name,
-                    description=(row.get("product_description") or "").strip() or None,
-                    sub_category_id=sub_category.id, created_by_id=user.id,
-                )
-                db.add(product)
-                db.flush()
-            product_cache[key] = product
+            product_cache[key] = resolve_or_create_hierarchy(
+                db, user.tenant_id, cat_name, sub_name, product_name,
+                row.get("product_description"), user.id,
+            )
         product = product_cache[key]
 
         unit_abbr = (row.get("unit_abbreviation") or "").strip()
@@ -866,7 +804,7 @@ async def bulk_upload_confirm(request: Request, user: User = Depends(_require_sa
 
         drive_link = (row.get("photo_drive_link") or "").strip()
         if drive_link:
-            err = await _attach_drive_photo(variant, drive_link)
+            err = await attach_drive_photo(variant, drive_link)
             if err:
                 photo_warnings.append({"sku": sku, "error": err})
 

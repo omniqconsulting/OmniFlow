@@ -21,7 +21,7 @@ from typing import Optional
 from .database import (
     get_db, new_id, User, Customer, Product, ProductVariant, UnitOfMeasure, ProductStock,
     InventoryPurchaseOrder, InventoryPOItem, SalesOrder, SalesOrderItem,
-    PriceList, PriceListItem, CustomerPriceOverride, Godown, MediaUpload, SalesTarget,
+    PriceList, PriceListItem, CustomerPriceOverride, Branch, MediaUpload, SalesTarget,
 )
 from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
@@ -80,10 +80,10 @@ def _sales_agents(db: Session, tenant_id: str) -> list:
     ).order_by(User.name).all() if has_module(u, "SALES")]
 
 
-def _active_godowns(db: Session, tenant_id: str) -> list:
-    return db.query(Godown).filter(
-        Godown.tenant_id == tenant_id, Godown.is_deleted == False, Godown.is_active == True,
-    ).order_by(Godown.name).all()
+def _active_branches(db: Session, tenant_id: str) -> list:
+    return db.query(Branch).filter(
+        Branch.tenant_id == tenant_id, Branch.is_deleted == False,
+    ).order_by(Branch.name).all()
 
 
 def resolve_price(db, customer_id: str, variant_id: str, tenant_id: str) -> dict:
@@ -165,60 +165,6 @@ def check_margin(sell_price: float, cost_snapshot: float) -> bool:
         return True  # Can't compute margin without cost; allow and flag
     margin = (sell_price - cost_snapshot) / sell_price * 100
     return margin >= SALES_MARGIN_FLOOR_PCT
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# GODOWNS — 1.2. Lightweight dispatch-location labels, Admin/Manager managed.
-# ══════════════════════════════════════════════════════════════════════════════
-
-@router.get("/sales/orders/godowns", response_class=HTMLResponse)
-def godowns_list(
-    request: Request,
-    user: User = Depends(_require_sales),
-    db: Session = Depends(get_db),
-):
-    godowns = db.query(Godown).filter(
-        Godown.tenant_id == user.tenant_id, Godown.is_deleted == False,
-    ).order_by(Godown.name).all()
-    return templates.TemplateResponse(request, "sales/orders_godowns.html", _ctx(
-        db, user, godowns=godowns, is_admin=user.role in ("ADMIN", "MANAGER"),
-        msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
-    ))
-
-
-@router.post("/sales/orders/godowns/create")
-def godown_create(
-    name: str = Form(...),
-    address: str = Form(""),
-    user: User = Depends(_require_sales),
-    db: Session = Depends(get_db),
-):
-    if user.role not in ("ADMIN", "MANAGER"):
-        raise HTTPException(403, "Admin/Manager only")
-    if not name.strip():
-        return _redir("/sales/orders/godowns?err=Name+is+required")
-    db.add(Godown(tenant_id=user.tenant_id, name=name.strip(), address=address.strip() or None))
-    db.commit()
-    return _redir("/sales/orders/godowns?msg=Godown+added")
-
-
-@router.post("/sales/orders/godowns/{godown_id}/toggle")
-def godown_toggle(
-    godown_id: str,
-    user: User = Depends(_require_sales),
-    db: Session = Depends(get_db),
-):
-    if user.role not in ("ADMIN", "MANAGER"):
-        raise HTTPException(403, "Admin/Manager only")
-    godown = db.query(Godown).filter(
-        Godown.id == godown_id, Godown.tenant_id == user.tenant_id, Godown.is_deleted == False,
-    ).first()
-    if not godown:
-        return _redir("/sales/orders/godowns?err=Godown+not+found")
-    godown.is_active = not godown.is_active
-    db.commit()
-    status = "activated" if godown.is_active else "deactivated"
-    return _redir(f"/sales/orders/godowns?msg=Godown+{status}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -413,7 +359,7 @@ def order_new_form(
 
     return templates.TemplateResponse(request, "sales/orders_new.html", _ctx(
         db, user, customer=customer, customers=customers, call_log_id=call_log_id,
-        agents=_sales_agents(db, user.tenant_id), godowns=_active_godowns(db, user.tenant_id),
+        agents=_sales_agents(db, user.tenant_id), branches=_active_branches(db, user.tenant_id),
     ))
 
 
@@ -472,7 +418,7 @@ def order_create(
     call_log_id: str = Form(""),
     payment_terms: str = Form(""),
     delivery_address: str = Form(""),
-    godown_id: str = Form(""),
+    branch_id: str = Form(""),
     expected_delivery_date: str = Form(""),
     notes: str = Form(""),
     user: User = Depends(_require_sales),
@@ -497,14 +443,14 @@ def order_create(
             return _redir("/sales/orders/new?err=Invalid+salesman")
         resolved_agent_id = agent.id
 
-    resolved_godown_id = None
-    if godown_id:
-        godown = db.query(Godown).filter(
-            Godown.id == godown_id, Godown.tenant_id == user.tenant_id, Godown.is_deleted == False,
+    resolved_branch_id = None
+    if branch_id:
+        branch = db.query(Branch).filter(
+            Branch.id == branch_id, Branch.tenant_id == user.tenant_id, Branch.is_deleted == False,
         ).first()
-        if not godown:
-            return _redir("/sales/orders/new?err=Invalid+godown")
-        resolved_godown_id = godown.id
+        if not branch:
+            return _redir("/sales/orders/new?err=Invalid+branch")
+        resolved_branch_id = branch.id
 
     edd = None
     if expected_delivery_date:
@@ -521,7 +467,7 @@ def order_create(
         status="DRAFT",
         payment_terms=payment_terms.strip() or customer.default_payment_terms,
         delivery_address=delivery_address.strip() or customer.shipping_address,
-        godown_id=resolved_godown_id,
+        branch_id=resolved_branch_id,
         expected_delivery_date=edd,
         notes=notes.strip() or None,
         call_log_id=call_log_id or None,
@@ -539,7 +485,7 @@ def order_create(
 
 _BULK_COLS = ["customer_phone", "product_sku", "qty", "unit_abbreviation",
               "manual_price", "expected_delivery_date", "notes",
-              "salesman_email", "godown_name"]
+              "salesman_email", "branch_name"]
 
 
 @router.get("/sales/orders/bulk-template")
@@ -1150,17 +1096,17 @@ async def bulk_upload(
                 continue
             agent_id = agent.id
 
-        godown_name = (row.get("godown_name") or "").strip()
-        godown_id = None
-        if godown_name:
-            godown = db.query(Godown).filter(
-                Godown.tenant_id == user.tenant_id, Godown.is_deleted == False,
-                func.lower(Godown.name) == godown_name.lower(),
+        branch_name = (row.get("branch_name") or "").strip()
+        branch_id = None
+        if branch_name:
+            branch = db.query(Branch).filter(
+                Branch.tenant_id == user.tenant_id, Branch.is_deleted == False,
+                func.lower(Branch.name) == branch_name.lower(),
             ).first()
-            if not godown:
-                errors.append({"row": i, "error": f"godown_name {godown_name} not found", "data": dict(row)})
+            if not branch:
+                errors.append({"row": i, "error": f"branch_name {branch_name} not found", "data": dict(row)})
                 continue
-            godown_id = godown.id
+            branch_id = branch.id
 
         stock = db.query(ProductStock).filter(ProductStock.variant_id == variant.id).first()
         available = stock.qty_available if stock else 0
@@ -1168,12 +1114,12 @@ async def bulk_upload(
         edd = (row.get("expected_delivery_date") or "").strip() or None
 
         group = rows_by_phone.setdefault(phone, {
-            "customer": customer, "items": [], "agent_id": None, "godown_id": None,
+            "customer": customer, "items": [], "agent_id": None, "branch_id": None,
         })
         if agent_id:
             group["agent_id"] = agent_id
-        if godown_id:
-            group["godown_id"] = godown_id
+        if branch_id:
+            group["branch_id"] = branch_id
         group["items"].append({
             "variant": variant, "qty": qty, "manual_price": manual_price,
             "available": available, "unavailable": available < qty,
@@ -1184,7 +1130,7 @@ async def bulk_upload(
     preview_orders = [
         {"customer_phone": phone, "customer_name": data["customer"].name,
          "customer_id": data["customer"].id, "items": data["items"],
-         "agent_id": data["agent_id"], "godown_id": data["godown_id"]}
+         "agent_id": data["agent_id"], "branch_id": data["branch_id"]}
         for phone, data in rows_by_phone.items()
     ]
     unavailable_count = sum(
@@ -1200,7 +1146,7 @@ async def bulk_upload(
                 "customer_name": o["customer_name"],
                 "customer_id": o["customer_id"],
                 "agent_id": o["agent_id"],
-                "godown_id": o["godown_id"],
+                "branch_id": o["branch_id"],
                 "items": [
                     {
                         "variant_id": it["variant"].id,
@@ -1239,7 +1185,7 @@ def bulk_upload_confirm(
             continue
 
         agent_id = o.get("agent_id") or customer.assigned_agent_id or user.id
-        godown_id = o.get("godown_id")
+        branch_id = o.get("branch_id")
 
         edd = None
         first_edd = next((it.get("expected_delivery_date") for it in o.get("items", []) if it.get("expected_delivery_date")), None)
@@ -1254,7 +1200,7 @@ def bulk_upload_confirm(
             tenant_id=user.tenant_id,
             customer_id=customer.id,
             agent_id=agent_id,
-            godown_id=godown_id,
+            branch_id=branch_id,
             status="DRAFT",
             payment_terms=customer.default_payment_terms,
             expected_delivery_date=edd,
