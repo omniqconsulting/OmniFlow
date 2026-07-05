@@ -3,7 +3,7 @@
 <div class="page-header">
   <h1 class="page-title">🔔 Notifications</h1>
   <div style="display:flex;gap:8px">
-    <button type="button" class="btn btn-sm btn-outline" onclick="enablePushNotifications(this)">📲 Enable push notifications</button>
+    <button type="button" class="btn btn-sm btn-outline" data-push-btn onclick="enablePushNotifications(this)">📲 Enable push notifications</button>
     <form method="post" action="/notifications/read-all">
       <button class="btn btn-sm btn-gray" type="submit">Mark all read</button>
     </form>

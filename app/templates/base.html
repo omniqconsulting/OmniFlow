@@ -900,12 +900,37 @@ window.enablePushNotifications = async function (btn) {
       auth_key: raw.keys.auth,
     });
     await fetch('/push/subscribe', { method: 'POST', body: body });
-    if (btn) { btn.textContent = '✓ Push enabled'; btn.disabled = true; }
+    setPushButtonEnabled(btn);
   } catch (err) {
     console.warn('Push subscribe failed', err);
     alert('Could not enable push notifications on this device.');
   }
 };
+
+function setPushButtonEnabled(btn) {
+  if (!btn) return;
+  btn.textContent = '✓ Push notifications enabled';
+  btn.disabled = true;
+}
+
+// P6-05: reflect the device's actual push subscription state on every page
+// load, instead of always showing "Enable push notifications" regardless
+// of whether this device already granted permission and subscribed.
+document.addEventListener('DOMContentLoaded', async function () {
+  var buttons = document.querySelectorAll('[data-push-btn]');
+  if (!buttons.length) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || typeof Notification === 'undefined') return;
+  try {
+    var reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return;
+    var sub = await reg.pushManager.getSubscription();
+    if (Notification.permission === 'granted' && sub) {
+      buttons.forEach(setPushButtonEnabled);
+    }
+  } catch (err) {
+    console.warn('Push status check failed', err);
+  }
+});
 </script>
 </body>
 </html>
