@@ -326,6 +326,8 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
 .jt-cur{background:none}
 .jt-future{opacity:.45}
 .jt-cell{text-align:center;color:var(--text-muted);font-size:11px}
+.jt-editable{cursor:pointer}
+.jt-editable:hover{outline:1px dashed #a78bfa;outline-offset:-1px}
 </style>
 
 <div class="jt-wrap">
@@ -368,7 +370,11 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
 {% if table_tickets %}
   {% for row in table_tickets %}{% set t = row.ticket %}
   <tr>
-    <td class="jt-s0" style="left:0"><span style="font-family:monospace;font-size:12px;color:#60a5fa;font-weight:600">{{ t.display_id or t.id[:8] }}</span>{% if t.is_flagged %} 🚩{% endif %}</td>
+    <td class="jt-s0" style="left:0">
+      <span style="font-family:monospace;font-size:12px;color:#60a5fa;font-weight:600">{{ t.display_id or t.id[:8] }}</span>{% if t.is_flagged %} 🚩{% endif %}
+      <button type="button" onclick="openHistoryModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}')"
+              title="View history" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 0 0 3px;color:var(--text-faint)">🕘</button>
+    </td>
     <td style="font-size:12px;color:var(--text-muted)">{{ row.assignee_name }}</td>
     <td class="jt-cell"><span class="pri-badge pri-{{ t.priority }}">{{ t.priority | priority_label }}</span></td>
     <td class="jt-cell"><span class="st-badge st-{{ t.status }}">{{ t.status.replace('_',' ') }}</span></td>
@@ -419,15 +425,25 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     </td>
     {% for fdef in ticket_form_fields %}
     {% set cfval = si.cf.get(fdef.id, '—') if (si.visited or si.is_current) else '' %}
-    <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
-      {{ cfval }}
+    {% set editable = user.role in ('ADMIN','MANAGER') and (si.visited or si.is_current) and fdef.field_type != 'formula' %}
+    {% set ei = row.edit_info.get(fdef.id) %}
+    <td class="jt-cell {{ state_cls }}{% if editable %} jt-editable{% endif %}"
+        {% if si.is_current %}style="background:{{ hex }}12"{% endif %}
+        {% if editable %}data-field-id="{{ fdef.id }}" data-stage-id="" data-field-label="{{ fdef.label | replace('"','&quot;') }}" data-ticket-id="{{ t.id }}" onclick="openCellEditModal(this)"{% endif %}
+        {% if ei %}title="Edited by {{ ei.edited_by.name if ei.edited_by else 'System' }} on {{ ei.edited_at.strftime('%d %b %Y, %H:%M') }}: {{ ei.reason }}"{% endif %}>
+      {{ cfval }}{% if ei %} <span style="font-size:9px;color:#a78bfa">✎</span>{% endif %}
     </td>
     {% endfor %}
     {% for fdef in jt_cf_defs %}
     {% set cfval = si.cf.get(fdef.id, si.cf.get(fdef.label, '—')) if (si.visited or si.is_current) else '' %}
     {% set cfstyle = fdef | cond_format(cfval) %}
-    <td class="jt-cell {{ state_cls }}" {% if cfstyle %}style="{{ cfstyle }}"{% elif si.is_current %}style="background:{{ hex }}12"{% endif %}>
-      {{ cfval }}
+    {% set editable = user.role in ('ADMIN','MANAGER') and (si.visited or si.is_current) and fdef.field_type != 'formula' %}
+    {% set ei = si.edit_info.get(fdef.id) %}
+    <td class="jt-cell {{ state_cls }}{% if editable %} jt-editable{% endif %}"
+        {% if cfstyle %}style="{{ cfstyle }}"{% elif si.is_current %}style="background:{{ hex }}12"{% endif %}
+        {% if editable %}data-field-id="{{ fdef.id }}" data-stage-id="{{ si.stage.id }}" data-field-label="{{ fdef.label | replace('"','&quot;') }}" data-ticket-id="{{ t.id }}" onclick="openCellEditModal(this)"{% endif %}
+        {% if ei %}title="Edited by {{ ei.edited_by.name if ei.edited_by else 'System' }} on {{ ei.edited_at.strftime('%d %b %Y, %H:%M') }}: {{ ei.reason }}"{% endif %}>
+      {{ cfval }}{% if ei %} <span style="font-size:9px;color:#a78bfa">✎</span>{% endif %}
     </td>
     {% endfor %}
     {% endfor %}
@@ -1640,6 +1656,36 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
   </div>
 </div>
 
+<!-- ── Table view: manual cell edit modal ── -->
+<div id="fmsCellEditModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:320;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:420px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">Edit Value</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="ceFieldLabel"></div>
+      </div>
+      <button onclick="closeCellEditModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <form id="ceForm" onsubmit="return submitCellEdit(event)">
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">New Value</label>
+        <input type="text" id="ceValue" required
+               style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box">
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Reason for edit <span style="color:#f87171">*</span></label>
+        <textarea id="ceReason" required rows="3" placeholder="Why is this correction needed?"
+                  style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box;resize:vertical"></textarea>
+      </div>
+      <div id="ceStatus" style="display:none;font-size:12px;margin-bottom:10px"></div>
+      <div style="display:flex;justify-content:flex-end;gap:10px">
+        <button type="button" onclick="closeCellEditModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">Save Edit</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ── Phase 0: Splits list modal — shown when a ticket has >1 active split ── -->
 <div id="fmsSplitsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
   <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:560px;max-width:95vw;max-height:85vh;overflow-y:auto">
@@ -2707,6 +2753,68 @@ function closeHistoryModal() {
   document.getElementById('fmsHistoryModal').style.display = 'none';
 }
 
+/* ── Table view: manual cell edit ────────────────────────────────────────── */
+var _ceCell = null;
+function openCellEditModal(cellEl) {
+  _ceCell = cellEl;
+  var label = cellEl.dataset.fieldLabel || 'Value';
+  document.getElementById('ceFieldLabel').textContent = label;
+  // Strip the trailing "✎" edited-marker (if present) to get the raw current value
+  var raw = cellEl.textContent.replace('✎', '').trim();
+  if (raw === '—') raw = '';
+  document.getElementById('ceValue').value = raw;
+  document.getElementById('ceReason').value = '';
+  var st = document.getElementById('ceStatus'); st.style.display = 'none';
+  document.getElementById('fmsCellEditModal').style.display = 'flex';
+}
+function closeCellEditModal() {
+  document.getElementById('fmsCellEditModal').style.display = 'none';
+  _ceCell = null;
+}
+function submitCellEdit(evt) {
+  evt.preventDefault();
+  if (!_ceCell) return false;
+  var ticketId = _ceCell.dataset.ticketId;
+  var payload = {
+    field_id: _ceCell.dataset.fieldId,
+    stage_id: _ceCell.dataset.stageId || '',
+    value: document.getElementById('ceValue').value,
+    reason: document.getElementById('ceReason').value,
+  };
+  var st = document.getElementById('ceStatus');
+  fetch('/fms/tickets/' + ticketId + '/cell-edit', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  }).then(function(r) { return r.json().then(function(data) { return {ok: r.ok, data: data}; }); })
+    .then(function(res) {
+      if (!res.ok) {
+        st.style.display = 'block'; st.style.color = '#f87171';
+        st.textContent = (res.data && res.data.detail) || 'Failed to save edit.';
+        return;
+      }
+      var tooltip = 'Edited by ' + res.data.edited_by + ' on ' + res.data.edited_at + ': ' + res.data.reason;
+      _applyCellEditResult(ticketId, res.data.field_id, res.data.stage_id, res.data.value, tooltip);
+      (res.data.cascaded || []).forEach(function(c) {
+        var cTooltip = 'Edited by ' + res.data.edited_by + ' on ' + res.data.edited_at + ': Auto-recalculated after "' + (_ceCell.dataset.fieldLabel || 'a related column') + '" was edited';
+        _applyCellEditResult(ticketId, c.field_id, c.stage_id, c.value, cTooltip);
+      });
+      closeCellEditModal();
+    })
+    .catch(function() {
+      st.style.display = 'block'; st.style.color = '#f87171';
+      st.textContent = 'Network error — edit not saved.';
+    });
+  return false;
+}
+function _applyCellEditResult(ticketId, fieldId, stageId, value, tooltip) {
+  var sel = '[data-ticket-id="' + ticketId + '"][data-field-id="' + fieldId + '"][data-stage-id="' + (stageId || '') + '"]';
+  document.querySelectorAll(sel).forEach(function(cell) {
+    cell.innerHTML = (value || '—') + ' <span style="font-size:9px;color:#a78bfa">✎</span>';
+    cell.title = tooltip;
+  });
+}
+
 /* ── Phase 0: Split action modal — carve qty off to another stage ───────── */
 function openSplitActionModal(ticketId, displayId, splitId, currentStageId, hasQty) {
   document.getElementById('fmsSplitActionForm').action = '/fms/tickets/' + ticketId + '/splits/' + splitId + '/split';
@@ -2780,6 +2888,7 @@ document.addEventListener('keydown', function(e) {
     closeMoveBackModal(); closeFlagModal(); closeAssigneeModal();
     closeHelpModal(); closeOverrideModal(); closeBulkTransitionModal();
     closeHistoryModal(); closeSplitsModal(); closeSplitActionModal();
+    closeCellEditModal();
   }
 });
 

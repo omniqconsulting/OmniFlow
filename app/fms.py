@@ -17,7 +17,7 @@ from .database import (
     get_db, new_id,
     Tenant, User, Department, Branch,
     FMSFlow, FMSStage, FMSTicket, FMSStageHistory, FMSEvent, FMSTicketHelper,
-    FMSTicketSplit,
+    FMSTicketSplit, FMSFieldEditLog,
     LibrarySubmoduleDefinition, TenantDeployedItem,
     Notification, MediaUpload,
     PMSDailyLog, DispatchRecord, InvoiceRecord,
@@ -1528,6 +1528,18 @@ def _fms_dashboard_inner(
             for h in all_hist:
                 visit_map[h.stage_id] = h  # last assignment wins (most recent visit)
 
+            # Manual-edit audit trail, keyed by (stage_id or "" for ticket-level
+            # fields) -> field_id -> latest FMSFieldEditLog row, so cell
+            # tooltips ("who edited, when, why") persist across page loads.
+            edit_info_by_stage: dict = {}
+            for el in (
+                db.query(FMSFieldEditLog)
+                .filter(FMSFieldEditLog.ticket_id == t.id)
+                .order_by(FMSFieldEditLog.edited_at)
+                .all()
+            ):
+                edit_info_by_stage.setdefault(el.stage_id or "", {})[el.field_id] = el
+
             # Build cumulative cf_all across all history entries (UUID + label keyed)
             cf_cumulative: dict = {}
             if t.ticket_custom_fields_json:
@@ -1583,6 +1595,7 @@ def _fms_dashboard_inner(
                     "visited":        h is not None,
                     "cf":             cf_cumulative,
                     "assignee_name":  assignee_name,
+                    "edit_info":      edit_info_by_stage.get(s.id, {}),
                 })
 
             _t_active_splits = _active_splits(db, t.id)
@@ -1590,6 +1603,7 @@ def _fms_dashboard_inner(
                 "ticket":        t,
                 "assignee_name": t.current_assignee.name if t.current_assignee else "—",
                 "stages":        stages_info,
+                "edit_info":     edit_info_by_stage.get("", {}),
                 # Phase 0 §6: stage-distribution badge for multi-split tickets
                 "split_count":   len(_t_active_splits),
                 "split_stage_names": [s.current_stage.name for s in _t_active_splits
@@ -4148,6 +4162,191 @@ async def fms_save_stage_data(
     history.custom_fields_data_json = _json.dumps(existing)
     db.commit()
     return JSONResponse({"ok": True, "computed": {k: v for k, v in existing.items()}})
+
+
+@router.post("/tickets/{ticket_id}/cell-edit")
+async def fms_table_cell_edit(
+    ticket_id: str,
+    request: Request,
+    user: User = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """Manual edit of a ticket/stage custom-column value directly from the
+    Table view. Requires a reason (audit trail via FMSFieldEditLog). Any
+    formula columns (any stage, or ticket-level) that reference the edited
+    field are recalculated and persisted too, so dependent columns never go
+    stale after a manual correction."""
+    from fastapi.responses import JSONResponse
+    import json as _json
+    ticket = db.query(FMSTicket).filter(
+        FMSTicket.id == ticket_id, FMSTicket.tenant_id == user.tenant_id,
+        FMSTicket.is_deleted == False,
+    ).first()
+    if not ticket:
+        raise HTTPException(404, "Ticket not found")
+
+    body = await request.json()
+    stage_id = (body.get("stage_id") or "").strip()
+    field_id = (body.get("field_id") or "").strip()
+    new_value = str(body.get("value", "")).strip()
+    reason = (body.get("reason") or "").strip()
+    if not field_id:
+        raise HTTPException(400, "field_id is required")
+    if not reason:
+        raise HTTPException(400, "A reason is required for this edit")
+
+    all_stages = db.query(FMSStage).filter(
+        FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False,
+    ).all()
+
+    def _field_defs_for(sid):
+        if not sid:
+            return (_json.loads(ticket.flow.ticket_form_fields_json)
+                    if ticket.flow and ticket.flow.ticket_form_fields_json else [])
+        st = next((s for s in all_stages if s.id == sid), None)
+        if not st or not st.custom_fields_json:
+            return []
+        try:
+            return _json.loads(st.custom_fields_json)
+        except Exception:
+            return []
+
+    fdef = next((f for f in _field_defs_for(stage_id) if f.get("id") == field_id), None)
+    if not fdef:
+        raise HTTPException(404, "Column not found on this ticket/stage")
+    if fdef.get("field_type") == "formula":
+        raise HTTPException(400, "Calculated columns can't be edited directly — edit one of the columns it's built from")
+
+    def _latest_history_for_stage(sid):
+        return (
+            db.query(FMSStageHistory)
+            .filter(FMSStageHistory.ticket_id == ticket_id, FMSStageHistory.stage_id == sid)
+            .order_by(FMSStageHistory.entered_at.desc())
+            .first()
+        )
+
+    # 1. Apply the direct edit.
+    if not stage_id:
+        try:
+            tff = _json.loads(ticket.ticket_custom_fields_json or "{}")
+        except Exception:
+            tff = {}
+        old_value = tff.get(field_id)
+        tff[field_id] = new_value
+        ticket.ticket_custom_fields_json = _json.dumps(tff)
+    else:
+        history = _latest_history_for_stage(stage_id)
+        if not history:
+            raise HTTPException(400, "This stage hasn't been visited yet — nothing to edit")
+        try:
+            hdata = _json.loads(history.custom_fields_data_json or "{}")
+        except Exception:
+            hdata = {}
+        old_value = hdata.get(field_id)
+        hdata[field_id] = new_value
+        history.custom_fields_data_json = _json.dumps(hdata)
+
+    db.add(FMSFieldEditLog(
+        tenant_id=user.tenant_id, ticket_id=ticket_id, stage_id=stage_id or None,
+        field_id=field_id, field_label=fdef.get("label", field_id),
+        old_value=old_value, new_value=new_value, reason=reason,
+        edited_by_id=user.id,
+    ))
+    _log(db, ticket_id, user.id, "FIELD_EDITED",
+         f"{fdef.get('label', field_id)}: {old_value or '—'} → {new_value or '—'} ({reason})")
+
+    # 2. Cascade: recompute every formula column (any stage, plus ticket-level
+    # fields feed them too) against the fresh merged value set, fixed-point
+    # iterating so multi-step chains (A -> B -> C) settle. Only persist+log
+    # the ones whose value actually changed.
+    def _merged_cf():
+        merged = {}
+        try:
+            merged.update(_json.loads(ticket.ticket_custom_fields_json or "{}"))
+        except Exception:
+            pass
+        for s in all_stages:
+            h = _latest_history_for_stage(s.id)
+            if h and h.custom_fields_data_json:
+                try:
+                    merged.update(_json.loads(h.custom_fields_data_json))
+                except Exception:
+                    pass
+        return merged
+
+    def _eval_formula(steps, lookup):
+        result = None
+        for i, step in enumerate(steps):
+            raw = lookup.get(step.get("col_id", ""), "")
+            try:
+                val = float(raw)
+            except (ValueError, TypeError):
+                return None
+            if i == 0:
+                result = val
+                continue
+            op = step.get("op", "+")
+            if op == "+":   result += val
+            elif op == "-": result -= val
+            elif op == "*": result *= val
+            elif op == "/":
+                if val == 0: return None
+                result /= val
+        if result is None:
+            return None
+        return str(int(result)) if result == int(result) else f"{result:.4f}".rstrip("0")
+
+    cascaded = []
+    for _pass in range(5):
+        changed_this_pass = False
+        lookup = _merged_cf()
+        for s in all_stages:
+            try:
+                defs = _json.loads(s.custom_fields_json or "[]")
+            except Exception:
+                defs = []
+            formula_defs = [f for f in defs if f.get("field_type") == "formula"]
+            if not formula_defs:
+                continue
+            h = _latest_history_for_stage(s.id)
+            if not h:
+                continue
+            try:
+                hdata = _json.loads(h.custom_fields_data_json or "{}")
+            except Exception:
+                hdata = {}
+            row_changed = False
+            for f in formula_defs:
+                fid = f.get("id", "")
+                computed = _eval_formula(f.get("formula_steps") or [], lookup)
+                if computed is None:
+                    continue
+                if hdata.get(fid) != computed:
+                    old = hdata.get(fid)
+                    hdata[fid] = computed
+                    row_changed = True
+                    changed_this_pass = True
+                    cascaded.append({"field_id": fid, "stage_id": s.id, "value": computed})
+                    db.add(FMSFieldEditLog(
+                        tenant_id=user.tenant_id, ticket_id=ticket_id, stage_id=s.id,
+                        field_id=fid, field_label=f.get("label", fid),
+                        old_value=old, new_value=computed,
+                        reason=f"Auto-recalculated after '{fdef.get('label', field_id)}' was edited",
+                        is_cascade=True, edited_by_id=user.id,
+                    ))
+            if row_changed:
+                h.custom_fields_data_json = _json.dumps(hdata)
+        if not changed_this_pass:
+            break
+
+    db.commit()
+    return JSONResponse({
+        "ok": True,
+        "field_id": field_id, "stage_id": stage_id or None, "value": new_value,
+        "edited_by": user.name, "edited_at": datetime.utcnow().strftime("%d %b %Y, %H:%M"),
+        "reason": reason,
+        "cascaded": cascaded,
+    })
 
 
 @router.get("/tickets/{ticket_id}/cf-carry-forward")

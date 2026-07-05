@@ -873,6 +873,31 @@ class FMSEvent(Base):
     actor  = relationship("User",      foreign_keys=[actor_id])
 
 
+class FMSFieldEditLog(Base):
+    """Audit trail for manual edits to a ticket/stage custom-column value made
+    directly from the Table view (as opposed to values captured through the
+    normal stage-transition flow). Every edit requires a reason; cascaded
+    formula recalculations triggered by an edit get their own row here too,
+    so the full "what changed and why" chain is reconstructable."""
+    __tablename__ = "fms_field_edit_log"
+    id           = Column(String,  primary_key=True, default=new_id)
+    tenant_id    = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    ticket_id    = Column(String,  ForeignKey("fms_tickets.id"), nullable=False)
+    stage_id     = Column(String,  ForeignKey("fms_stages.id"), nullable=True)  # null = ticket-level field
+    field_id     = Column(String,  nullable=False)
+    field_label  = Column(String,  nullable=True)
+    old_value    = Column(String,  nullable=True)
+    new_value    = Column(String,  nullable=True)
+    reason       = Column(Text,    nullable=False)
+    is_cascade   = Column(Boolean, default=False)  # auto-recalculated formula, not the direct edit
+    edited_by_id = Column(String,  ForeignKey("users.id"), nullable=True)
+    edited_at    = Column(DateTime, default=datetime.utcnow)
+
+    ticket    = relationship("FMSTicket", foreign_keys=[ticket_id])
+    stage     = relationship("FMSStage",  foreign_keys=[stage_id])
+    edited_by = relationship("User",      foreign_keys=[edited_by_id])
+
+
 class FMSTicketHelper(Base):
     """
     Additional helpers on an FMS ticket — reuses Phase 0-C pattern (2-D-3).
