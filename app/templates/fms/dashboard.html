@@ -141,6 +141,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=table"    class="{{ 'active' if view == 'table'    else '' }}">Table</a>
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=stage"    class="{{ 'active' if view == 'stage'    else '' }}">Stage</a>
       <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=timeline" class="{{ 'active' if view == 'timeline' else '' }}">Timeline</a>
+      <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=log"      class="{{ 'active' if view == 'log'      else '' }}">Log</a>
     </div>
   </div>
 </div>
@@ -1158,6 +1159,8 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
   {% for tr in item.tickets %}{% set t = tr.ticket %}
   <div class="tl-ticket-row">
     <span style="font-family:monospace;font-size:11px;color:#60a5fa;font-weight:600;white-space:nowrap">{{ t.display_id or t.id[:8] }}</span>
+    <button type="button" onclick="openHistoryModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}')"
+            title="View history" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 4px;color:var(--text-faint);flex-shrink:0">🕘</button>
     <span style="flex:1;font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
       {{ t.title[:50] }}{% if t.title|length > 50 %}…{% endif %}
       {% if t.is_flagged %} 🚩{% endif %}
@@ -1186,6 +1189,81 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
   <div style="font-size:12px;color:#374151">Select a flow to view the pipeline.</div>
 </div>
 {% endif %}
+{% endif %}
+
+<!-- ═══ LOG VIEW — consolidated audit trail across all visible tickets ═══ -->
+{% if view == 'log' %}
+<style>
+.log-filter-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding:12px 14px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-subtle)}
+.log-filter-bar select,.log-filter-bar input{background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none}
+.log-filter-bar label{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:3px}
+.log-row{border-bottom:1px solid var(--border-subtle)}
+.log-row:hover{background:var(--row-hover)}
+</style>
+
+<form method="get" action="/fms/dashboard" class="log-filter-bar">
+  <input type="hidden" name="view" value="log">
+  <input type="hidden" name="flow_id" value="{{ active_flow.id if active_flow else '' }}">
+  <div>
+    <label>Search ticket</label>
+    <input type="text" name="log_search" value="{{ f_log_search }}" placeholder="ID or title…">
+  </div>
+  <div>
+    <label>Event type</label>
+    <select name="log_event_type" multiple size="1" style="min-width:150px" onchange="this.size=Math.min(6,this.options.length+1)" onblur="this.size=1">
+      {% for et in log_event_types %}
+      <option value="{{ et }}" {% if et in f_log_event_type %}selected{% endif %}>{{ et.replace('_',' ')|title }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>User</label>
+    <select name="log_actor_id">
+      <option value="">Anyone</option>
+      {% for e in employees %}
+      <option value="{{ e.id }}" {% if f_log_actor_id == e.id %}selected{% endif %}>{{ e.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>From</label>
+    <input type="date" name="date_from" value="{{ f_date_from }}">
+  </div>
+  <div>
+    <label>To</label>
+    <input type="date" name="date_to" value="{{ f_date_to }}">
+  </div>
+  <div style="display:flex;gap:6px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=log" class="btn btn-gray btn-sm">Clear</a>
+  </div>
+</form>
+
+<div class="card" style="padding:0;overflow:hidden">
+<table class="table">
+  <thead>
+    <tr><th>Date</th><th>Ticket</th><th>Event</th><th>Detail</th><th>User</th></tr>
+  </thead>
+  <tbody>
+    {% if log_rows %}
+    {% for r in log_rows %}
+    <tr class="log-row">
+      <td style="white-space:nowrap;font-size:11px;color:var(--text-faint)">{{ r.at.strftime('%d %b %Y, %H:%M') }}</td>
+      <td style="white-space:nowrap">
+        <a href="/fms/dashboard?flow_id={{ r.ticket.flow_id }}&view=stage" style="color:#60a5fa;font-size:12px;font-weight:600">{{ r.ticket.display_id or r.ticket.id[:8] }}</a>
+        <div style="font-size:11px;color:var(--text-muted)">{{ r.ticket.title[:40] }}{% if r.ticket.title|length > 40 %}…{% endif %}</div>
+      </td>
+      <td><span class="badge badge-gray" style="font-size:10px;white-space:nowrap">{{ r.event_type.replace('_',' ')|title }}</span></td>
+      <td style="font-size:12px;color:var(--text-muted);max-width:420px">{{ r.detail or '—' }}</td>
+      <td style="font-size:12px;color:var(--text-muted);white-space:nowrap">{{ r.actor_name }}</td>
+    </tr>
+    {% endfor %}
+    {% else %}
+    <tr><td colspan="5" style="text-align:center;color:var(--text-faint);padding:40px">No log entries found for this filter.</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+</div>
 {% endif %}
 
 

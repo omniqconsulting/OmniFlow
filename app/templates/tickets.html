@@ -209,7 +209,7 @@
       <th style="width:32px"><input type="checkbox" id="chk-all" title="Select all" onclick="toggleAllTickets(this)"></th>
       {% endif %}
       <th>ID</th><th>Title</th><th>Status</th><th>Priority</th>
-      <th>Assignee</th><th>Due</th><th style="text-align:center">Actions</th>
+      <th>Assignee</th><th>Due</th><th>Attachment</th><th style="text-align:center">Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -257,6 +257,14 @@
     <td {% if t.due_at and t.due_at < now and t.status not in ('CLOSED','DONE') %}style="color:#f87171;font-size:12px"{% else %}style="color:var(--text-muted);font-size:12px"{% endif %}>
       {{ t.due_at.strftime('%d %b %y') if t.due_at else '—' }}
     </td>
+    <td onclick="event.stopPropagation()" style="white-space:nowrap">
+      {% if t.evidence_url %}
+      <a href="{{ t.evidence_url }}" target="_blank" title="{{ t.evidence_filename or 'View attachment' }}"
+         class="btn btn-xs btn-outline">📎 View</a>
+      {% else %}
+      <span style="color:var(--text-xfaint);font-size:11px">—</span>
+      {% endif %}
+    </td>
     <td onclick="event.stopPropagation()" style="white-space:nowrap;text-align:center">
       {% if next_info %}
         {% set btn_label = next_info[0] %}
@@ -302,7 +310,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="{% if user.role in ('ADMIN','MANAGER') %}8{% else %}7{% endif %}" style="text-align:center;color:var(--text-faint);padding:40px">No {{ L.tickets }} found.</td></tr>
+  <tr><td colspan="{% if user.role in ('ADMIN','MANAGER') %}9{% else %}8{% endif %}" style="text-align:center;color:var(--text-faint);padding:40px">No {{ L.tickets }} found.</td></tr>
   {% endfor %}
   </tbody>
 </table>

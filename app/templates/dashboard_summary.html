@@ -314,6 +314,30 @@ html.light .preset-btn.active { background:rgba(29,78,216,0.12); color:#1d4ed8; 
 
     </div>
 
+    <!-- Priority Tasks -->
+    {% if hot_tasks %}
+    <div class="card" style="padding:0;margin-bottom:16px;border-color:rgba(239,68,68,0.2)">
+      <div class="module-header" style="border-bottom:1px solid rgba(239,68,68,0.15)">
+        <span class="module-icon">🔥</span>
+        <span class="module-title" style="color:#f87171">Priority Tasks</span>
+        <span style="margin-left:auto;background:rgba(239,68,68,0.2);color:#f87171;border-radius:99px;padding:1px 8px;font-size:10px;font-weight:700">{{ hot_tasks_count }}</span>
+      </div>
+      <table class="dt" style="margin:0">
+        <thead><tr><th style="padding-left:16px">Title</th><th>Priority</th><th>Assignee</th><th>Due</th><th style="padding-right:16px"></th></tr></thead>
+        <tbody>{% for t in hot_tasks %}
+        <tr>
+          <td style="padding-left:16px"><a href="/tickets/{{ t.id }}" style="color:var(--text-primary);font-weight:500">{{ t.title }}</a></td>
+          <td><span class="badge {{ 'badge-red' if t.priority=='CRITICAL' else 'badge-yellow' }}" style="font-size:10px">{{ t.priority | priority_label }}</span></td>
+          <td>{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
+          <td style="{% if t.due_at and t.due_at < now %}color:#f87171{% endif %}">{{ t.due_at.strftime('%d %b') if t.due_at else '—' }}</td>
+          <td style="padding-right:16px;text-align:right"><a href="/tickets/{{ t.id }}" style="font-size:11px;color:#60a5fa">View →</a></td>
+        </tr>{% endfor %}
+        </tbody>
+      </table>
+      <div style="padding:10px 16px"><a href="/tickets?status=OPEN&priority=CRITICAL" class="btn-xs">View all critical tickets →</a></div>
+    </div>
+    {% endif %}
+
     <!-- Department Health Strip -->
     <div class="card" style="padding:14px;margin-bottom:0">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-faint);margin-bottom:10px">
