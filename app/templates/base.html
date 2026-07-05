@@ -336,6 +336,16 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
   table.mobile-cards td[colspan]{display:block !important;text-align:center}
 }
 
+/* ── P6-04: mobile-only nav — stack vertically instead of horizontal overflow ── */
+@media (max-width: 700px) {
+  html, body{overflow-x:hidden}
+  .nav{flex-wrap:wrap;height:auto;padding:10px 14px;row-gap:6px;column-gap:4px}
+  .nav .logo{margin-right:auto}
+  .nav .spacer{flex-basis:100%;height:0;flex-grow:0}
+  .nav a, .nav-group{font-size:12px}
+  .nav .logout{margin-left:auto}
+}
+
 /* ── WS TOAST (Phase 1) ── */
 .ws-toast{position:fixed;bottom:24px;right:24px;background:var(--bg-elevated);border:1px solid var(--border-med);border-left:3px solid #3b82f6;border-radius:8px;padding:12px 16px;min-width:260px;max-width:360px;font-size:13px;color:var(--text-primary);box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:9999;transform:translateX(120%);transition:transform 0.25s ease;pointer-events:none}
 .ws-toast.show{transform:translateX(0)}
@@ -630,6 +640,13 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
 .help-fab{position:fixed;bottom:28px;right:28px;z-index:900;background:#ef4444;color:#fff;border:none;border-radius:99px;padding:12px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(239,68,68,0.45);display:flex;align-items:center;gap:7px;transition:background .15s,transform .15s;animation:help-pulse 2.4s infinite}
 .help-fab:hover{background:#dc2626;transform:scale(1.05);animation:none}
 @keyframes help-pulse{0%,100%{box-shadow:0 4px 16px rgba(239,68,68,0.45)}50%{box-shadow:0 4px 28px rgba(239,68,68,0.75)}}
+/* P6-04: mobile-only — shrink to an icon-only FAB and give scrollable content
+   clearance at the bottom so the last card/row is never hidden underneath it. */
+@media (max-width: 700px) {
+  .help-fab{bottom:16px;right:16px;padding:12px;border-radius:50%;width:46px;height:46px;justify-content:center}
+  .help-fab .help-fab-label{display:none}
+  .container{padding-bottom:76px}
+}
 #help-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:1000}
 #help-modal-bg.open{display:flex}
 #help-modal{background:var(--bg-modal,#131c2e);border:1px solid var(--border-med,rgba(255,255,255,0.12));border-radius:14px;padding:28px;width:440px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6)}
@@ -649,7 +666,7 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
 .help-success .help-success-sub{font-size:13px;color:var(--text-faint,#64748b)}
 </style>
 
-<button class="help-fab" onclick="openHelpModal()">🆘 Need Help</button>
+<button class="help-fab" onclick="openHelpModal()">🆘 <span class="help-fab-label">Need Help</span></button>
 
 <div id="help-modal-bg" onclick="if(event.target===this)closeHelpModal()">
   <div id="help-modal">
@@ -883,12 +900,37 @@ window.enablePushNotifications = async function (btn) {
       auth_key: raw.keys.auth,
     });
     await fetch('/push/subscribe', { method: 'POST', body: body });
-    if (btn) { btn.textContent = '✓ Push enabled'; btn.disabled = true; }
+    setPushButtonEnabled(btn);
   } catch (err) {
     console.warn('Push subscribe failed', err);
     alert('Could not enable push notifications on this device.');
   }
 };
+
+function setPushButtonEnabled(btn) {
+  if (!btn) return;
+  btn.textContent = '✓ Push notifications enabled';
+  btn.disabled = true;
+}
+
+// P6-05: reflect the device's actual push subscription state on every page
+// load, instead of always showing "Enable push notifications" regardless
+// of whether this device already granted permission and subscribed.
+document.addEventListener('DOMContentLoaded', async function () {
+  var buttons = document.querySelectorAll('[data-push-btn]');
+  if (!buttons.length) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || typeof Notification === 'undefined') return;
+  try {
+    var reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return;
+    var sub = await reg.pushManager.getSubscription();
+    if (Notification.permission === 'granted' && sub) {
+      buttons.forEach(setPushButtonEnabled);
+    }
+  } catch (err) {
+    console.warn('Push status check failed', err);
+  }
+});
 </script>
 </body>
 </html>
