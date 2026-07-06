@@ -179,16 +179,18 @@ function togglePwVisibility(btn) {
 // via Jinja's {% if user %}.
 if (document.body.classList.contains('is-authed')) (function(){
   const wsDot  = document.getElementById('ws-dot');
-  const badge  = document.getElementById('notif-badge');
   let ws       = null;
   let pollTimer = null;
   let lastPoll  = new Date().toISOString();
 
   // ── Badge helper ───────────────────────────────────────────────────────────
+  // Updates every badge on the page — the desktop nav's #notif-badge and the
+  // mobile top bar's badge both carry the .js-notif-badge class.
   function setBadge(n){
-    if(!badge) return;
-    if(n > 0){ badge.textContent = n > 99 ? '99+' : n; badge.style.display='inline-block'; }
-    else       { badge.style.display='none'; }
+    document.querySelectorAll('.js-notif-badge').forEach(function(el){
+      if(n > 0){ el.textContent = n > 99 ? '99+' : n; el.style.display='inline-block'; }
+      else      { el.style.display='none'; }
+    });
   }
 
   // ── P10-03: Web Audio API chime ──────────────────────────────────────────
@@ -363,10 +365,14 @@ if (document.body.classList.contains('is-authed')) (function(){
   };
 
   // ── Sound mute toggle ────────────────────────────────────────────────────
-  const soundBtn = document.getElementById('sound-btn');
+  // Updates every mute button on the page — the desktop nav's #sound-btn and
+  // the mobile top bar's mute icon both carry the .js-sound-btn class.
   function applyMute(){
     const muted = localStorage.getItem('sound_muted') === '1';
-    if(soundBtn){ soundBtn.textContent = muted ? '🔕' : '🔔'; soundBtn.title = muted ? 'Sounds muted — click to enable' : 'Notification sounds on — click to mute'; }
+    document.querySelectorAll('.js-sound-btn').forEach(function(btn){
+      btn.textContent = muted ? '🔕' : '🔔';
+      btn.title = muted ? 'Sounds muted — click to enable' : 'Notification sounds on — click to mute';
+    });
   }
   applyMute();
   window.toggleSound = function(){
@@ -494,4 +500,20 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 document.addEventListener('keydown', function(e){
   if(e.key === 'Escape') toggleOthersSheet(false);
+});
+
+// Mobile top bar's account menu (base.html): same open/close pattern as the
+// Others sheet above, tap the account icon to open, backdrop/Escape to close.
+window.toggleAccountMenu = function(force){
+  const bd = document.getElementById('account-menu-backdrop');
+  if(!bd) return;
+  const willOpen = typeof force === 'boolean' ? force : !bd.classList.contains('open');
+  bd.classList.toggle('open', willOpen);
+};
+document.addEventListener('DOMContentLoaded', function(){
+  const bd = document.getElementById('account-menu-backdrop');
+  if(bd) bd.addEventListener('click', function(e){ if(e.target === bd) toggleAccountMenu(false); });
+});
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape') toggleAccountMenu(false);
 });

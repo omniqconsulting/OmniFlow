@@ -27,6 +27,29 @@
 </head>
 <body class="{% if user %}is-authed{% endif %}">
 {% if user %}
+{# Native-Feel UI Brief follow-up: mobile/standalone-only top bar. Replaces
+   the desktop .nav's branding + bell/mute/account controls on small
+   screens, since .nav is hidden there (app-shell.css). Notifications/theme/
+   profile/logout live here instead of the "Others" bottom-sheet now. #}
+<header class="mobile-topbar">
+  <span class="mt-logo">OmniFlow</span>
+  <div class="mt-actions">
+    <a href="/notifications" class="mt-icon-btn" title="Notifications">
+      🔔
+      <span class="mt-badge js-notif-badge" style="{% if not unread is defined or unread == 0 %}display:none{% endif %}">{{ unread if unread is defined else 0 }}</span>
+    </a>
+    <button type="button" class="mt-icon-btn js-sound-btn" onclick="toggleSound()" title="Notification sounds: on">🔔</button>
+    <button type="button" class="mt-icon-btn" onclick="toggleAccountMenu()" title="Account">👤</button>
+  </div>
+</header>
+<div class="account-menu-backdrop" id="account-menu-backdrop">
+  <div class="account-menu">
+    <div class="am-user">{{ user.name }} · {{ user.role }}</div>
+    <button type="button" class="am-item" onclick="toggleTheme()"><span class="am-icon">🌙</span>Switch theme</button>
+    <a href="/profile" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">👤</span>Profile</a>
+    <a href="/logout" class="am-item"><span class="am-icon">↪️</span>Logout</a>
+  </div>
+</div>
 <nav class="nav">
   <span class="logo">OmniFlow</span>
   <a href="/dashboard" {% if request.url.path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
@@ -73,12 +96,12 @@
   <!-- Phase 1: WS connection status dot -->
   <span id="ws-dot" title="Real-time sync: disconnected"></span>
   <!-- P10-03: Sound mute toggle -->
-  <button id="sound-btn" class="nav-icon-btn" onclick="toggleSound()" title="Notification sounds: on" style="margin-right:4px">🔔</button>
+  <button id="sound-btn" class="nav-icon-btn js-sound-btn" onclick="toggleSound()" title="Notification sounds: on" style="margin-right:4px">🔔</button>
   <!-- P10-02: Theme toggle -->
   <button id="theme-btn" class="nav-icon-btn" onclick="toggleTheme()" title="Switch theme" style="margin-right:8px">🌙</button>
   <a href="/notifications" style="position:relative;padding:6px 9px" title="Notifications">
     🔔
-    <span id="notif-badge" style="position:absolute;top:2px;right:2px;background:#ef4444;color:#fff;font-size:9px;font-weight:700;border-radius:99px;padding:1px 5px;min-width:16px;text-align:center;{% if not unread is defined or unread == 0 %}display:none{% endif %}">{{ unread if unread is defined else 0 }}</span>
+    <span id="notif-badge" class="js-notif-badge" style="position:absolute;top:2px;right:2px;background:#ef4444;color:#fff;font-size:9px;font-weight:700;border-radius:99px;padding:1px 5px;min-width:16px;text-align:center;{% if not unread is defined or unread == 0 %}display:none{% endif %}">{{ unread if unread is defined else 0 }}</span>
   </a>
   <a href="/profile" style="font-size:12px;color:var(--text-muted);margin-right:4px;padding:5px 8px;border-radius:6px;transition:all 0.12s" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">{{ user.name }} · {{ user.role }}</a>
   <a href="/logout" class="logout">Logout</a>
