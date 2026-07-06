@@ -22,10 +22,25 @@
       </div>
     </div>
 
-    <div style="margin-bottom:12px">
-      <input type="text" id="searchInput" placeholder="Search by name…" oninput="filterTable()"
-             style="width:100%;max-width:320px;padding:8px 12px;border-radius:6px;border:1px solid var(--border-med);background:var(--border-subtle);color:inherit;font-size:13px">
-    </div>
+    <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding:12px 14px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-subtle)">
+      <div>
+        <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:3px">Search</label>
+        <input type="text" id="searchInput" placeholder="Search by name…" oninput="filterTable()"
+               style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-med);background:var(--bg-modal);color:var(--text-primary);font-size:12px">
+      </div>
+      <div>
+        <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:3px">Status</label>
+        <select name="status" onchange="this.form.submit()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-med);background:var(--bg-modal);color:var(--text-primary);font-size:12px">
+          <option value="" {% if not status_filter %}selected{% endif %}>All</option>
+          <option value="active" {% if status_filter=='active' %}selected{% endif %}>Active</option>
+          <option value="inactive" {% if status_filter=='inactive' %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);padding-bottom:7px;cursor:pointer">
+        <input type="checkbox" name="pending" value="1" {% if pending_filter=='1' %}checked{% endif %} onchange="this.form.submit()">
+        Pending approval only
+      </label>
+    </form>
 
     <div class="card" style="padding:0;overflow:hidden">
       <table class="table" id="rmTable">
@@ -50,8 +65,16 @@
               <span class="badge {{ 'badge-green' if m.is_active else 'badge-gray' }}">
                 {{ 'Active' if m.is_active else 'Inactive' }}
               </span>
+              {% if m.approval_status == 'PENDING' %}
+              <span class="badge badge-amber" title="Added from a ticket's new-entry field; edit and save to complete/approve it">Pending Approval</span>
+              {% endif %}
             </td>
             <td>
+              {% if m.approval_status == 'PENDING' %}
+              <form method="post" action="/setup/raw-materials/{{ m.id }}/approve" style="display:inline">
+                <button type="submit" class="btn btn-xs btn-green" style="margin-right:4px" title="Approve">✓ Approve</button>
+              </form>
+              {% endif %}
               <button data-obj='{{ m|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
               <form method="post" action="/setup/raw-materials/{{ m.id }}/delete" style="display:inline"
                     onsubmit="return confirm('Delete {{ m.name }}?')">
@@ -66,11 +89,12 @@
       </table>
     </div>
 
+    {% set qs = "&status=" + status_filter + "&pending=" + pending_filter %}
     {% if total > page_size %}
     <div style="margin-top:12px;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-faint)">
-      {% if page > 1 %}<a href="?page={{ page-1 }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
+      {% if page > 1 %}<a href="?page={{ page-1 }}{{ qs }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
       <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
-      {% if page * page_size < total %}<a href="?page={{ page+1 }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
+      {% if page * page_size < total %}<a href="?page={{ page+1 }}{{ qs }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
     </div>
     {% endif %}
 
@@ -80,7 +104,10 @@
 <!-- Add Raw Material Modal -->
 <div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:440px;width:100%;max-height:92vh;overflow-y:auto">
-    <div class="modal-title">Add Raw Material</div>
+    <div class="modal-hdr">
+      <div class="modal-title">Add Raw Material</div>
+      <button type="button" class="modal-close" onclick="document.getElementById('addModal').style.display='none'">×</button>
+    </div>
     <form method="post" action="/setup/raw-materials/add">
       <div class="form-group">
         <label class="form-label">Name <span style="color:#f87171">*</span></label>
@@ -113,7 +140,10 @@
 <!-- Edit Raw Material Modal -->
 <div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:440px;width:100%;max-height:92vh;overflow-y:auto">
-    <div class="modal-title">Edit Raw Material</div>
+    <div class="modal-hdr">
+      <div class="modal-title">Edit Raw Material</div>
+      <button type="button" class="modal-close" onclick="document.getElementById('editModal').style.display='none'">×</button>
+    </div>
     <form method="post" id="editForm">
       <div class="form-group">
         <label class="form-label">Name <span style="color:#f87171">*</span></label>
@@ -153,7 +183,10 @@
 <!-- Import CSV Modal -->
 <div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:440px;width:100%">
-    <div class="modal-title">Import Raw Materials via CSV</div>
+    <div class="modal-hdr">
+      <div class="modal-title">Import Raw Materials via CSV</div>
+      <button type="button" class="modal-close" onclick="document.getElementById('importModal').style.display='none'">×</button>
+    </div>
     <p style="font-size:13px;color:var(--text-muted);margin-bottom:8px">
       Download the template, fill it in, then upload. Rows with errors are skipped and shown in a downloadable report.
     </p>

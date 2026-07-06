@@ -33,9 +33,13 @@
     </div>
 
     {% if lists %}
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);margin-bottom:12px;cursor:pointer">
+      <input type="checkbox" id="pendingOnly" onchange="filterPending()">
+      Show pending approval items only
+    </label>
     <div style="display:flex;flex-direction:column;gap:12px">
       {% for lst in lists %}
-      <div class="card" style="padding:14px">
+      <div class="card" style="padding:14px" data-list-card>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
           <div>
             <strong style="font-size:15px">{{ lst.list_name }}</strong>
@@ -56,8 +60,15 @@
         <div style="display:flex;flex-wrap:wrap;gap:6px">
           {% for item in lst.items %}
           {% if not item.is_deleted %}
-          <div style="display:flex;align-items:center;gap:4px;background:var(--hover-bg);border-radius:6px;padding:4px 8px;font-size:12px">
+          <div data-item-chip data-pending="{{ '1' if item.approval_status == 'PENDING' else '0' }}"
+               style="display:flex;align-items:center;gap:4px;background:var(--hover-bg);border-radius:6px;padding:4px 8px;font-size:12px">
             <span>{{ item.value }}</span>
+            {% if item.approval_status == 'PENDING' %}
+            <span class="badge badge-amber" style="font-size:9px" title="Added from a ticket's new-entry field">Pending</span>
+            <form method="post" action="/setup/custom-lists/items/{{ item.id }}/approve" style="display:inline">
+              <button type="submit" title="Approve" style="background:none;border:none;color:#10b981;cursor:pointer;padding:0;line-height:1;font-size:11px">✓</button>
+            </form>
+            {% endif %}
             <form method="post" action="/setup/custom-lists/items/{{ item.id }}/delete" style="display:inline">
               <button type="submit" title="Remove item" style="background:none;border:none;color:#ef4444;cursor:pointer;padding:0;line-height:1;font-size:11px">✕</button>
             </form>
@@ -82,7 +93,10 @@
 <!-- Add List Modal -->
 <div id="addListModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:400px;width:100%">
-    <div class="modal-title">Create Custom List</div>
+    <div class="modal-hdr">
+      <div class="modal-title">Create Custom List</div>
+      <button type="button" class="modal-close" onclick="document.getElementById('addListModal').style.display='none'">×</button>
+    </div>
     <form method="post" action="/setup/custom-lists/add">
       <div class="form-group">
         <label class="form-label">List Name <span style="color:#f87171">*</span></label>
@@ -99,7 +113,10 @@
 <!-- Rename List Modal -->
 <div id="editListModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:400px;width:100%">
-    <div class="modal-title">Rename List</div>
+    <div class="modal-hdr">
+      <div class="modal-title">Rename List</div>
+      <button type="button" class="modal-close" onclick="document.getElementById('editListModal').style.display='none'">×</button>
+    </div>
     <form method="post" id="editListForm">
       <div class="form-group">
         <label class="form-label">List Name <span style="color:#f87171">*</span></label>
@@ -116,7 +133,10 @@
 <!-- Add Item Modal -->
 <div id="addItemModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:380px;width:100%">
-    <div class="modal-title">Add Item to <span id="addItemListName"></span></div>
+    <div class="modal-hdr">
+      <div class="modal-title">Add Item to <span id="addItemListName"></span></div>
+      <button type="button" class="modal-close" onclick="document.getElementById('addItemModal').style.display='none'">×</button>
+    </div>
     <form method="post" id="addItemForm">
       <div class="form-group">
         <label class="form-label">Item Value <span style="color:#f87171">*</span></label>
@@ -137,7 +157,10 @@
 <!-- Import Items Modal -->
 <div id="importItemsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:400px;width:100%">
-    <div class="modal-title">Import Items into <span id="importListName"></span></div>
+    <div class="modal-hdr">
+      <div class="modal-title">Import Items into <span id="importListName"></span></div>
+      <button type="button" class="modal-close" onclick="document.getElementById('importItemsModal').style.display='none'">×</button>
+    </div>
     <a href="/setup/custom-lists/items/template" class="btn btn-sm btn-outline" style="margin-bottom:12px;display:inline-block">⬇ Download Template</a>
     <form method="post" action="/setup/custom-lists/items/import" enctype="multipart/form-data">
       <input type="hidden" name="list_id" id="importListId">
@@ -167,6 +190,18 @@ function openImportItems(listId, listName) {
   document.getElementById('importListName').textContent = listName;
   document.getElementById('importListId').value = listId;
   document.getElementById('importItemsModal').style.display = 'flex';
+}
+function filterPending() {
+  const pendingOnly = document.getElementById('pendingOnly').checked;
+  document.querySelectorAll('[data-list-card]').forEach(card => {
+    let anyVisible = false;
+    card.querySelectorAll('[data-item-chip]').forEach(chip => {
+      const show = !pendingOnly || chip.dataset.pending === '1';
+      chip.style.display = show ? '' : 'none';
+      if (show) anyVisible = true;
+    });
+    card.style.display = (pendingOnly && !anyVisible) ? 'none' : '';
+  });
 }
 </script>
 {% endblock %}

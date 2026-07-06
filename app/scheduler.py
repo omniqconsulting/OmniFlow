@@ -142,13 +142,16 @@ def generate_recurring_checklists():
 
 
 def mark_overdue_checklists():
-    """Phase 0-B-2: mark pending/in-progress assignments as OVERDUE every 15 min."""
+    """Phase 0-B-2: mark pending/in-progress assignments as OVERDUE every 15 min.
+    Overdue is a date concept, not a time-of-day one — a checklist due later today
+    isn't overdue just because its due time passed; only a past calendar day counts."""
     from .database import SessionLocal, ChecklistAssignment
     db = SessionLocal()
     try:
         now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         overdue = db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.due_at < now,
+            ChecklistAssignment.due_at < today_start,
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
         ).all()
         for a in overdue:
@@ -661,13 +664,14 @@ def send_unacknowledged_ticket_notifications():
 
 
 def checklist_eod_overdue():
-    """Mark past-due assignments OVERDUE at end of day."""
+    """Mark past-due assignments OVERDUE at end of day (catch-all backup to mark_overdue_checklists)."""
     from .database import SessionLocal, ChecklistAssignment
     db = SessionLocal()
     try:
         now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         past_due = db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.due_at < now,
+            ChecklistAssignment.due_at < today_start,
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
             ChecklistAssignment.is_deleted == False,
         ).all()

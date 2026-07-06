@@ -41,6 +41,7 @@ def get_linked_entity_options(db: Session, tenant_id: str) -> dict:
         Customer.tenant_id == tenant_id,
         Customer.is_deleted == False,
         Customer.is_active == True,
+        (Customer.approval_status != "PENDING") | (Customer.approval_status.is_(None)),
     ).order_by(Customer.name).all()
     if customers:
         options["CUSTOMER"] = [
@@ -55,6 +56,7 @@ def get_linked_entity_options(db: Session, tenant_id: str) -> dict:
         EndProduct.tenant_id == tenant_id,
         EndProduct.is_deleted == False,
         EndProduct.is_active == True,
+        (EndProduct.approval_status != "PENDING") | (EndProduct.approval_status.is_(None)),
     ).order_by(EndProduct.name).all()
     if products:
         options["END_PRODUCT"] = [
@@ -69,6 +71,7 @@ def get_linked_entity_options(db: Session, tenant_id: str) -> dict:
         RawMaterial.tenant_id == tenant_id,
         RawMaterial.is_deleted == False,
         RawMaterial.is_active == True,
+        (RawMaterial.approval_status != "PENDING") | (RawMaterial.approval_status.is_(None)),
     ).order_by(RawMaterial.name).all()
     if raw_materials:
         options["MATERIAL"] = [
@@ -83,6 +86,7 @@ def get_linked_entity_options(db: Session, tenant_id: str) -> dict:
         Vendor.tenant_id == tenant_id,
         Vendor.is_deleted == False,
         Vendor.is_active == True,
+        (Vendor.approval_status != "PENDING") | (Vendor.approval_status.is_(None)),
     ).order_by(Vendor.name).all()
     if vendors:
         options["VENDOR"] = [
@@ -99,7 +103,7 @@ def get_linked_entity_options(db: Session, tenant_id: str) -> dict:
         CustomReferenceList.is_active == True,
     ).order_by(CustomReferenceList.list_name).all()
     for lst in custom_lists:
-        active_items = [i for i in lst.items if not i.is_deleted and i.is_active]
+        active_items = [i for i in lst.items if not i.is_deleted and i.is_active and i.approval_status != "PENDING"]
         if active_items:
             options[f"CUSTOM_LIST:{lst.id}:{lst.list_name}"] = [
                 {"id": item.id, "label": item.value, "detail": ""}
@@ -111,6 +115,45 @@ def get_linked_entity_options(db: Session, tenant_id: str) -> dict:
 
 def _fmt(parts: list) -> str:
     return " · ".join(p for p in parts if p)
+
+
+# entity_type → (Model, extra kwargs beyond name/tenant_id/created_by_id/approval_status)
+_PENDING_MODELS = {
+    "CUSTOMER": Customer,
+    "END_PRODUCT": EndProduct,
+    "MATERIAL": RawMaterial,
+    "VENDOR": Vendor,
+}
+
+
+def create_pending_entity(db: Session, tenant_id: str, user_id: str,
+                           list_type: str, name: str, list_id: str = "") -> dict:
+    """
+    Create a minimal, approval-pending row in the matching Setup list so it can be
+    linked to a ticket immediately. An Admin/Manager later fills in the remaining
+    columns from Setup (any edit save there flips approval_status back to APPROVED).
+    """
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("name is required")
+
+    if list_type == "CUSTOM_LIST":
+        if not list_id:
+            raise ValueError("list_id is required for CUSTOM_LIST")
+        item = CustomReferenceItem(
+            list_id=list_id, tenant_id=tenant_id, value=name, approval_status="PENDING",
+        )
+        db.add(item)
+        db.flush()
+        return {"id": item.id, "label": item.value, "list_type": "CUSTOM_LIST"}
+
+    model = _PENDING_MODELS.get(list_type)
+    if not model:
+        raise ValueError(f"Unknown list_type: {list_type}")
+    row = model(tenant_id=tenant_id, name=name, created_by_id=user_id, approval_status="PENDING")
+    db.add(row)
+    db.flush()
+    return {"id": row.id, "label": row.name, "list_type": list_type}
 
 
 def save_linked_entities_from_form(
@@ -232,6 +275,28 @@ async def add_linked_entity(
     db.commit()
     db.refresh(ref)
     return JSONResponse({"id": ref.id, "entity_label": ref.entity_label, "entity_type": ref.entity_type})
+
+
+@router.post("/api/linked-entities/create-pending")
+async def create_pending_linked_entity(
+    list_type: str = Form(...),
+    name: str = Form(...),
+    list_id: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Called from the create-ticket/checklist/FMS-ticket form when the user types a
+    name that isn't in the picked Setup list yet. Creates the record right away
+    (approval_status='PENDING') so it can be linked to this item immediately;
+    Admin/Manager reviews and completes it later from Setup.
+    """
+    try:
+        result = create_pending_entity(db, user.tenant_id, user.id, list_type.upper(), name, list_id)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    db.commit()
+    return JSONResponse(result)
 
 
 @router.get("/api/linked-entities/{parent_type}/{parent_id}")

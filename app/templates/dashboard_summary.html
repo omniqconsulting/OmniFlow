@@ -9,6 +9,11 @@
   border-right:1px solid var(--border-subtle);
   padding:16px 14px; display:flex; flex-direction:column; gap:14px;
   position:sticky; top:52px; height:calc(100vh - 52px); overflow-y:auto;
+  scrollbar-width:thin;
+}
+.filter-group:has(> .filter-label + label) {
+  max-height:220px; overflow-y:auto; overflow-x:hidden; padding-right:4px;
+  scrollbar-width:thin;
 }
 .sum-content { flex:1; padding:20px 24px; min-width:0; overflow-x:hidden; }
 .sum-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:8px; }
@@ -242,6 +247,21 @@ html.light .preset-btn.active { background:rgba(29,78,216,0.12); color:#1d4ed8; 
         </div>
       </div>
 
+      <!-- ── Top Priority Scoreboard ─────────────────────────────────── -->
+      <div class="module-section">
+        <div class="module-header" style="border-bottom:1px solid rgba(239,68,68,0.15)">
+          <span class="module-icon">🔥</span>
+          <span class="module-title" style="color:#f87171">Top Priority</span>
+        </div>
+        <div class="module-kpis" style="grid-template-columns:1fr">
+          <div class="kpi-cell" style="border-right:none;border-bottom:none;text-align:center">
+            <div class="kpi-cell-label">Open Top Priority Tickets</div>
+            <div class="kpi-cell-value {{ 'bad' if hot_tasks_count > 0 else 'good' }}">{{ hot_tasks_count }}</div>
+            <div class="kpi-cell-sub">not yet closed</div>
+          </div>
+        </div>
+      </div>
+
       <!-- ── Checklists ──────────────────────────────────────────────── -->
       {% if has_checklists %}
       <div class="module-section">
@@ -315,19 +335,19 @@ html.light .preset-btn.active { background:rgba(29,78,216,0.12); color:#1d4ed8; 
     </div>
 
     <!-- Priority Tasks -->
-    {% if hot_tasks %}
     <div class="card" style="padding:0;margin-bottom:16px;border-color:rgba(239,68,68,0.2)">
       <div class="module-header" style="border-bottom:1px solid rgba(239,68,68,0.15)">
         <span class="module-icon">🔥</span>
         <span class="module-title" style="color:#f87171">Priority Tasks</span>
         <span style="margin-left:auto;background:rgba(239,68,68,0.2);color:#f87171;border-radius:99px;padding:1px 8px;font-size:10px;font-weight:700">{{ hot_tasks_count }}</span>
       </div>
+      {% if hot_tasks %}
       <table class="dt" style="margin:0">
         <thead><tr><th style="padding-left:16px">Title</th><th>Priority</th><th>Assignee</th><th>Due</th><th style="padding-right:16px"></th></tr></thead>
         <tbody>{% for t in hot_tasks %}
         <tr>
           <td style="padding-left:16px"><a href="/tickets/{{ t.id }}" style="color:var(--text-primary);font-weight:500">{{ t.title }}</a></td>
-          <td><span class="badge {{ 'badge-red' if t.priority=='CRITICAL' else 'badge-yellow' }}" style="font-size:10px">{{ t.priority | priority_label }}</span></td>
+          <td><span class="badge badge-red" style="font-size:10px">{{ t.priority | priority_label }}</span></td>
           <td>{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
           <td style="{% if t.due_at and t.due_at < now %}color:#f87171{% endif %}">{{ t.due_at.strftime('%d %b') if t.due_at else '—' }}</td>
           <td style="padding-right:16px;text-align:right"><a href="/tickets/{{ t.id }}" style="font-size:11px;color:#60a5fa">View →</a></td>
@@ -335,8 +355,10 @@ html.light .preset-btn.active { background:rgba(29,78,216,0.12); color:#1d4ed8; 
         </tbody>
       </table>
       <div style="padding:10px 16px"><a href="/tickets?status=OPEN&priority=CRITICAL" class="btn-xs">View all critical tickets →</a></div>
+      {% else %}
+      <div style="padding:20px 16px;color:var(--text-faint);font-size:13px;text-align:center">No Top Priority tickets right now.</div>
+      {% endif %}
     </div>
-    {% endif %}
 
     <!-- Department Health Strip -->
     <div class="card" style="padding:14px;margin-bottom:0">

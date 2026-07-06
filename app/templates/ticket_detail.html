@@ -14,6 +14,18 @@
 .timeline-detail{font-size:11px;color:var(--text-faint);font-style:italic}
 .ev-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:200;align-items:center;justify-content:center}
 .ev-modal-bg.open{display:flex}
+.tk-stepper{display:flex;align-items:center;margin-bottom:16px}
+.tk-step{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.tk-step-dot{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;border:2px solid var(--border-med)}
+.tk-step.done .tk-step-dot{background:#10b981;border-color:#10b981;color:#fff}
+.tk-step.current .tk-step-dot{background:#3b82f6;border-color:#3b82f6;color:#fff}
+.tk-step.skipped .tk-step-dot{background:none;border-color:#f59e0b;border-style:dashed;color:#f59e0b}
+.tk-step.pending .tk-step-dot{background:none;color:var(--text-faint)}
+.tk-step-label{font-size:12px;font-weight:600;color:var(--text-faint);white-space:nowrap}
+.tk-step.done .tk-step-label,.tk-step.current .tk-step-label{color:var(--text-strong)}
+.tk-step.skipped .tk-step-label{color:#f59e0b}
+.tk-step-line{flex:1;height:2px;background:var(--border-med);margin:0 8px;min-width:20px}
+.tk-step-line.done{background:#10b981}
 </style>
 
 <a href="/tickets?status={{ ticket.status }}" style="font-size:13px;color:var(--text-faint)">← Back to {{ L.Tickets }}</a>
@@ -52,7 +64,7 @@
     <span class="badge badge-amber">Evidence Required</span>
     {% endif %}
     {# Phase 3: Acknowledge — visible to current assignee, not yet acknowledged #}
-    {% if ticket.current_assignee_id == user.id and not ticket.acknowledged_at and ticket.status != 'CLOSED' %}
+    {% if (ticket.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER')) and not ticket.acknowledged_at and ticket.status != 'CLOSED' %}
     <form method="post" action="/tickets/{{ ticket.id }}/acknowledge" style="display:inline">
       <button type="submit" class="btn btn-sm btn-green">✓ Acknowledge</button>
     </form>
@@ -74,6 +86,33 @@
       <button type="submit" class="btn btn-sm btn-red">Delete</button>
     </form>
     {% endif %}
+  </div>
+</div>
+
+{# Stage tracker — Acknowledge is an optional checkpoint, not a hard gate:
+   some clients want Open→Acknowledge→Done→Closed, others just Open→Done→Closed. #}
+{% set _ack_state = 'done' if ticket.acknowledged_at else ('skipped' if ticket.status in ('DONE','CLOSED') else 'pending') %}
+{% set _done_state = 'done' if ticket.status in ('DONE','CLOSED') else ('current' if _ack_state != 'pending' else 'pending') %}
+{% set _closed_state = 'done' if ticket.status == 'CLOSED' else ('current' if ticket.status == 'DONE' else 'pending') %}
+<div class="tk-stepper">
+  <div class="tk-step done">
+    <div class="tk-step-dot">✓</div>
+    <div class="tk-step-label">Open</div>
+  </div>
+  <div class="tk-step-line {{ 'done' if _ack_state == 'done' else '' }}"></div>
+  <div class="tk-step {{ _ack_state }}">
+    <div class="tk-step-dot">{% if _ack_state == 'done' %}✓{% elif _ack_state == 'skipped' %}–{% else %}2{% endif %}</div>
+    <div class="tk-step-label">Acknowledged{% if _ack_state == 'skipped' %} (skipped){% endif %}</div>
+  </div>
+  <div class="tk-step-line {{ 'done' if _done_state == 'done' else '' }}"></div>
+  <div class="tk-step {{ _done_state }}">
+    <div class="tk-step-dot">{% if _done_state == 'done' %}✓{% else %}3{% endif %}</div>
+    <div class="tk-step-label">Done</div>
+  </div>
+  <div class="tk-step-line {{ 'done' if _closed_state == 'done' else '' }}"></div>
+  <div class="tk-step {{ _closed_state }}">
+    <div class="tk-step-dot">{% if _closed_state == 'done' %}✓{% else %}4{% endif %}</div>
+    <div class="tk-step-label">Closed</div>
   </div>
 </div>
 
@@ -150,7 +189,7 @@
   <div>
     <div class="card">
       <h2>Description</h2>
-      <p style="font-size:13px;color:#cbd5e1;line-height:1.7;margin:0">{{ ticket.description }}</p>
+      <p style="font-size:13px;color:var(--text-primary);line-height:1.7;margin:0">{{ ticket.description }}</p>
     </div>
 
     {# P5-10: Linked entities display #}
@@ -214,7 +253,8 @@
       {% if media %}
       <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
         {% for m in media %}
-        <div style="background:var(--bg-elevated);border-radius:8px;padding:8px 12px;font-size:12px">
+        <a href="{{ m.file_path }}" target="_blank" title="{{ m.file_name or 'View attachment' }}"
+           style="background:var(--bg-elevated);border-radius:8px;padding:8px 12px;font-size:12px;text-decoration:none;color:inherit;display:block">
           {% if m.file_type and 'image' in m.file_type %}
           <img src="{{ m.file_path }}" style="max-width:120px;max-height:90px;border-radius:4px;display:block;margin-bottom:6px">
           {% else %}
@@ -222,7 +262,7 @@
           {% endif %}
           <div style="color:var(--text-muted)">{{ m.file_name }}</div>
           <div style="color:var(--text-xfaint);font-size:11px">{{ m.uploaded_by.name if m.uploaded_by else '' }}</div>
-        </div>
+        </a>
         {% endfor %}
       </div>
       {% else %}
@@ -284,7 +324,7 @@
       <div style="display:flex;flex-wrap:wrap;gap:8px">
         {# E-01: Simplified delegation status flow #}
         {% if ticket.status == 'OPEN' %}
-          {# Mark as Done — assignee, manager, or admin #}
+          {# Mark as Done — assignee, manager, or admin; requires acknowledgement first #}
           {% if ticket.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER') %}
             {% if ticket.evidence_required is defined and ticket.evidence_required %}
             <button onclick="document.getElementById('evidence-modal').classList.add('open')" class="btn btn-sm btn-green">📎 Submit with Evidence → Done</button>
@@ -313,8 +353,9 @@
         </form>
         {% endif %}
 
-        {# Phase 3: Close Directly — Admin or Manager, skip stage-by-stage from OPEN or DONE #}
-        {% if ticket.status in ('OPEN','DONE') and user.role in ('ADMIN','MANAGER') %}
+        {# Phase 3: Close Directly — Admin or Manager, DONE tickets only.
+           On OPEN tickets, "Mark as Done" above already covers moving it forward. #}
+        {% if ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
         <form method="post" action="/tickets/{{ ticket.id }}/close-direct"
               onsubmit="return confirm('Close this {{ L.ticket }} directly, skipping the Done stage?')">
           <button class="btn btn-sm btn-red">⏭ Close Directly</button>

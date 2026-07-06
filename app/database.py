@@ -1057,6 +1057,7 @@ class Vendor(Base):
     notes          = Column(Text)
     is_active      = Column(Boolean, default=True)
     is_deleted     = Column(Boolean, default=False)
+    approval_status= Column(String, default="APPROVED")  # APPROVED | PENDING — pending entries were auto-created from a ticket's "new entry" field
     created_by_id  = Column(String,  ForeignKey("users.id"))
     created_at     = Column(DateTime, default=datetime.utcnow)
     updated_at     = Column(DateTime, default=datetime.utcnow)
@@ -1076,6 +1077,7 @@ class RawMaterial(Base):
     notes          = Column(Text)
     is_active     = Column(Boolean, default=True)
     is_deleted    = Column(Boolean, default=False)
+    approval_status = Column(String, default="APPROVED")  # APPROVED | PENDING
     created_by_id = Column(String,  ForeignKey("users.id"))
     created_at    = Column(DateTime, default=datetime.utcnow)
     updated_at    = Column(DateTime, default=datetime.utcnow)
@@ -1096,6 +1098,7 @@ class Customer(Base):
     notes          = Column(Text)
     is_active      = Column(Boolean, default=True)
     is_deleted     = Column(Boolean, default=False)
+    approval_status= Column(String, default="APPROVED")  # APPROVED | PENDING
     created_by_id  = Column(String,  ForeignKey("users.id"))
     created_at     = Column(DateTime, default=datetime.utcnow)
     updated_at     = Column(DateTime, default=datetime.utcnow)
@@ -1159,6 +1162,7 @@ class EndProduct(Base):
     sub_category_id  = Column(String,  ForeignKey("sub_categories.id"), nullable=True)
     is_active        = Column(Boolean, default=True)
     is_deleted       = Column(Boolean, default=False)
+    approval_status  = Column(String, default="APPROVED")  # APPROVED | PENDING
     created_by_id    = Column(String,  ForeignKey("users.id"))
     created_at       = Column(DateTime, default=datetime.utcnow)
     updated_at       = Column(DateTime, default=datetime.utcnow)
@@ -1195,6 +1199,7 @@ class CustomReferenceItem(Base):
     sort_order = Column(Integer, default=0)
     is_active  = Column(Boolean, default=True)
     is_deleted = Column(Boolean, default=False)
+    approval_status = Column(String, default="APPROVED")  # APPROVED | PENDING
     created_at = Column(DateTime, default=datetime.utcnow)
 
     ref_list = relationship("CustomReferenceList", back_populates="items")

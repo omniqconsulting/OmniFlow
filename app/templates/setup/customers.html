@@ -22,11 +22,36 @@
       </div>
     </div>
 
-    <!-- Search -->
-    <div style="margin-bottom:12px">
-      <input type="text" id="searchInput" placeholder="Search by name…" oninput="filterTable()"
-             style="width:100%;max-width:320px;padding:8px 12px;border-radius:6px;border:1px solid var(--border-med);background:var(--border-subtle);color:inherit;font-size:13px">
-    </div>
+    <!-- Search + Filters -->
+    <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding:12px 14px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-subtle)">
+      <div>
+        <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:3px">Search</label>
+        <input type="text" id="searchInput" placeholder="Search by name…" oninput="filterTable()"
+               style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-med);background:var(--bg-modal);color:var(--text-primary);font-size:12px">
+      </div>
+      <div>
+        <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:3px">Status</label>
+        <select name="status" onchange="this.form.submit()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-med);background:var(--bg-modal);color:var(--text-primary);font-size:12px">
+          <option value="" {% if not status_filter %}selected{% endif %}>All</option>
+          <option value="active" {% if status_filter=='active' %}selected{% endif %}>Active</option>
+          <option value="inactive" {% if status_filter=='inactive' %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:3px">Tier</label>
+        <select name="tier" onchange="this.form.submit()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-med);background:var(--bg-modal);color:var(--text-primary);font-size:12px">
+          <option value="" {% if not tier_filter %}selected{% endif %}>All</option>
+          <option value="A" {% if tier_filter=='A' %}selected{% endif %}>A</option>
+          <option value="B" {% if tier_filter=='B' %}selected{% endif %}>B</option>
+          <option value="C" {% if tier_filter=='C' %}selected{% endif %}>C</option>
+          <option value="UNRANKED" {% if tier_filter=='UNRANKED' %}selected{% endif %}>Unranked</option>
+        </select>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);padding-bottom:7px;cursor:pointer">
+        <input type="checkbox" name="pending" value="1" {% if pending_filter=='1' %}checked{% endif %} onchange="this.form.submit()">
+        Pending approval only
+      </label>
+    </form>
 
     <!-- Table -->
     <div class="card" style="padding:0;overflow:hidden">
@@ -54,8 +79,16 @@
               <span class="badge {{ 'badge-green' if c.is_active else 'badge-gray' }}">
                 {{ 'Active' if c.is_active else 'Inactive' }}
               </span>
+              {% if c.approval_status == 'PENDING' %}
+              <span class="badge badge-amber" title="Added from a ticket's new-entry field; edit and save to complete/approve it">Pending Approval</span>
+              {% endif %}
             </td>
             <td>
+              {% if c.approval_status == 'PENDING' %}
+              <form method="post" action="/setup/customers/{{ c.id }}/approve" style="display:inline">
+                <button type="submit" class="btn btn-xs btn-green" style="margin-right:4px" title="Approve">✓ Approve</button>
+              </form>
+              {% endif %}
               <button data-obj='{{ {"id": c.id, "name": c.name, "contact_person": c.contact_person, "phone": c.phone, "email": c.email, "address": c.address, "notes": c.notes, "agent_email": c.assigned_agent.email if c.assigned_agent else "", "tier": c.customer_tier, "contact_freq_days": c.contact_freq_days, "credit_limit": c.credit_limit, "gstin": c.gstin, "billing_address": c.billing_address, "shipping_address": c.shipping_address, "default_payment_terms": c.default_payment_terms, "is_active": c.is_active}|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
               <form method="post" action="/setup/customers/{{ c.id }}/delete" style="display:inline"
                     onsubmit="return confirm('Delete {{ c.name }}? Existing linked references are retained.')">
@@ -70,11 +103,12 @@
       </table>
     </div>
 
+    {% set qs = "&status=" + status_filter + "&tier=" + tier_filter + "&pending=" + pending_filter %}
     {% if total > page_size %}
     <div style="margin-top:12px;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-faint)">
-      {% if page > 1 %}<a href="?page={{ page-1 }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
+      {% if page > 1 %}<a href="?page={{ page-1 }}{{ qs }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
       <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
-      {% if page * page_size < total %}<a href="?page={{ page+1 }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
+      {% if page * page_size < total %}<a href="?page={{ page+1 }}{{ qs }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
     </div>
     {% endif %}
 
@@ -84,7 +118,10 @@
 <!-- Add Customer Modal -->
 <div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:480px;width:100%">
-    <div class="modal-title">Add Customer</div>
+    <div class="modal-hdr">
+      <div class="modal-title">Add Customer</div>
+      <button type="button" class="modal-close" onclick="document.getElementById('addModal').style.display='none'">×</button>
+    </div>
     <form method="post" action="/setup/customers/add">
       <div class="form-group">
         <label class="form-label">Name <span style="color:#f87171">*</span></label>
@@ -159,7 +196,10 @@
 <!-- Edit Customer Modal -->
 <div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:480px;width:100%">
-    <div class="modal-title">Edit Customer</div>
+    <div class="modal-hdr">
+      <div class="modal-title">Edit Customer</div>
+      <button type="button" class="modal-close" onclick="document.getElementById('editModal').style.display='none'">×</button>
+    </div>
     <form method="post" id="editForm">
       <div class="form-group">
         <label class="form-label">Name <span style="color:#f87171">*</span></label>
@@ -241,7 +281,10 @@
 <!-- Import CSV Modal -->
 <div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
   <div class="modal-box" style="max-width:420px;width:100%">
-    <div class="modal-title">Import Customers via CSV</div>
+    <div class="modal-hdr">
+      <div class="modal-title">Import Customers via CSV</div>
+      <button type="button" class="modal-close" onclick="document.getElementById('importModal').style.display='none'">×</button>
+    </div>
     <p style="font-size:13px;color:var(--text-muted);margin-bottom:8px">
       Download the template, fill it in, then upload. Rows with errors are skipped and shown in a downloadable report.
     </p>
