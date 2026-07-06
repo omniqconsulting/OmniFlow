@@ -48,6 +48,7 @@ def _build_ref_lists_json(tenant_id: str, db) -> str:
         ("__system_endproduct__",  "EndProduct",    None,        "name"),
         ("__system_department__",  "Departments",   Department,  "name"),
         ("__system_branch__",      "Branches",      Branch,      "name"),
+        ("__system_employee__",    "Employees",     User,        "name"),
     ]
     # import EndProduct locally to avoid re-importing at module level
     from .database import EndProduct as _EP
@@ -2440,6 +2441,7 @@ def fms_api_flow_defaults(
                     "__system_customer__": (Customer, "name"),
                     "__system_vendor__": (Vendor, "name"),
                     "__system_rawmaterial__": (RawMaterial, "name"),
+                    "__system_employee__": (User, "name"),
                 }
                 model, col = _sys_map.get(rid, (None, None))
                 if model:

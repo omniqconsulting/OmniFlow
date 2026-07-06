@@ -3,15 +3,18 @@
    Visibility is CSS-only (see .bottom-nav in app-shell.css, shown below
    768px or in display-mode: standalone) — this partial always renders in
    the DOM so it degrades gracefully if that CSS feature isn't supported.
+   On mobile/standalone the top .nav is hidden entirely (app-shell.css) so
+   this partial is the sole nav surface there — anything not promoted to a
+   primary tab lives in the "Others" sheet below, using the exact same
+   has_*/user.role conditionals as the desktop nav in base.html.
 
-   Module list + active-route matching intentionally mirror the desktop nav
-   in base.html exactly: same has_* boolean flags, same request.url.path
-   substring checks. Note: the brief's example module list ("Delegations,
-   Checklists, FMS, Inventory") assumes a has_feature() flag and a
-   standalone "Delegations" module that don't exist in this codebase —
-   delegation tickets are a filtered view within Tickets, not a separate
-   route/flag. Dashboard + Tickets substitute here since those are the
-   real top-level flags/routes already used by base.html's nav. #}
+   Note: the brief's example module list ("Delegations, Checklists, FMS,
+   Inventory") assumes a has_feature() flag and a standalone "Delegations"
+   module that don't exist in this codebase — delegation tickets are a
+   filtered view within Tickets (and "Delegations" is often just this
+   tenant's configured label for Tickets, via L.Tickets), not a separate
+   route/flag. Inventory is real but demoted to the Others sheet here to
+   keep the primary tab bar to 4 destinations + Others. #}
 <nav class="bottom-nav">
   <div class="bottom-nav-inner">
     <a href="/dashboard" {% if request.url.path=='/dashboard' %}class="active"{% endif %}>
@@ -32,10 +35,50 @@
       <span class="bn-icon">🔀</span>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}
     </a>
     {% endif %}
-    {% if has_inventory_module %}
-    <a href="/inventory-v2" {% if '/inventory-v2' in request.url.path %}class="active"{% endif %}>
-      <span class="bn-icon">📦</span>Inventory
-    </a>
-    {% endif %}
+    <button type="button" class="bn-others" onclick="toggleOthersSheet()">
+      <span class="bn-icon">⋯</span>Others
+    </button>
   </div>
 </nav>
+
+{# Overflow sheet — everything else the desktop nav shows, same conditionals #}
+<div class="others-backdrop" id="others-backdrop">
+  <div class="others-sheet">
+    <div class="others-sheet-handle"></div>
+
+    <div class="os-section-label">Modules</div>
+    {% if has_knowledge_repo %}
+    <a href="/knowledge" onclick="toggleOthersSheet(false)"><span class="os-icon">🎓</span>Training</a>
+    {% endif %}
+    {% if has_inventory_module %}
+    <a href="/inventory-v2" onclick="toggleOthersSheet(false)"><span class="os-icon">📦</span>Inventory</a>
+    {% endif %}
+    {% if has_sales %}
+    <a href="/sales/contacts" onclick="toggleOthersSheet(false)"><span class="os-icon">🧑‍💼</span>Sales · Contacts</a>
+    <a href="/sales/catalog" onclick="toggleOthersSheet(false)"><span class="os-icon">📚</span>Sales · Catalog</a>
+    <a href="/sales/orders" onclick="toggleOthersSheet(false)"><span class="os-icon">🧾</span>Sales · Orders</a>
+    <a href="/sales/pricing" onclick="toggleOthersSheet(false)"><span class="os-icon">💰</span>Sales · Pricing &amp; Margin</a>
+    {% if has_sales_analytics %}
+    <a href="/sales/analytics" onclick="toggleOthersSheet(false)"><span class="os-icon">📈</span>Sales · Insights</a>
+    {% endif %}
+    {% endif %}
+    {% if user.role in ('ADMIN','MANAGER') %}
+    <a href="/employees" onclick="toggleOthersSheet(false)"><span class="os-icon">👥</span>{{ L.Employees if L is defined else 'Employees' }}</a>
+    {% endif %}
+    {% if user.role == 'ADMIN' %}
+    <a href="/setup" onclick="toggleOthersSheet(false)"><span class="os-icon">⚙️</span>Setup</a>
+    <a href="/plan" onclick="toggleOthersSheet(false)"><span class="os-icon">✉️</span>Contact Us</a>
+    <a href="/ai" onclick="toggleOthersSheet(false)"><span class="os-icon">✦</span>Ask AI</a>
+    {% endif %}
+
+    <div class="os-section-label">Account</div>
+    <a href="/notifications" onclick="toggleOthersSheet(false)">
+      <span class="os-icon">🔔</span>Notifications
+      {% if unread is defined and unread > 0 %}<span class="os-badge">{{ unread if unread <= 99 else '99+' }}</span>{% endif %}
+    </a>
+    <button type="button" class="os-item" onclick="toggleTheme()"><span class="os-icon">🌙</span>Switch theme</button>
+    <button type="button" class="os-item" onclick="toggleSound()"><span class="os-icon">🔔</span>Mute/unmute sounds</button>
+    <a href="/profile" onclick="toggleOthersSheet(false)"><span class="os-icon">👤</span>{{ user.name }} · {{ user.role }}</a>
+    <a href="/logout"><span class="os-icon">↪️</span>Logout</a>
+  </div>
+</div>
