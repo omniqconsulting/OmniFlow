@@ -17,7 +17,7 @@ from .database import (
     TicketStatus, Priority, ChecklistStatus, new_id,
     LoginEvent, PerformanceFormula,
     EmployeeDocument, EmployeeGadget, EmployeeGadgetDocument,
-    KnowledgeItem, TicketKnowledgeLink,
+    KnowledgeItem, TicketKnowledgeLink, ChecklistKnowledgeLink,
 )
 from .auth import (
     hash_password, verify_password, create_token,
@@ -1809,7 +1809,8 @@ def move_ticket(ticket_id: str, new_status: str = Form(...),
 
 
 @app.post("/tickets/{ticket_id}/close-direct")
-def ticket_close_direct(ticket_id: str,
+async def ticket_close_direct(ticket_id: str,
+                        closing_file: UploadFile = File(None),
                         user: User = Depends(get_current_user),
                         db: Session = Depends(get_db)):
     """Phase 3: close a delegation ticket directly from OPEN or DONE, skipping the
@@ -1834,6 +1835,13 @@ def ticket_close_direct(ticket_id: str,
     ticket.status = "CLOSED"
     ticket.closed_at = now
     log_event(db, ticket_id, user.id, "STATUS_CHANGED", f"{old_status} → CLOSED (direct)")
+    if closing_file and closing_file.filename:
+        info = await save_upload(closing_file, user.tenant_id)
+        db.add(MediaUpload(
+            tenant_id=user.tenant_id, entity_type="ticket", entity_id=ticket_id,
+            uploaded_by_id=user.id, **info,
+        ))
+        log_event(db, ticket_id, user.id, "PROOF_UPLOADED", info["file_name"])
     admins = _admin_ids(db, user.tenant_id)
     managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
     notify_ticket_status_changed(db, ticket, user.id, old_status, "CLOSED", admins, managers)
@@ -2202,10 +2210,11 @@ async def tickets_bulk_upload(file: UploadFile = File(...),
 
 
 @app.post("/tickets/{ticket_id}/action")
-def ticket_action(ticket_id: str, action: str = Form(...),
+async def ticket_action(ticket_id: str, action: str = Form(...),
                   comment: str = Form(""), new_assignee_id: str = Form(""),
                   flag_reason: str = Form(""), what_completed: str = Form(""),
                   why_reassigning: str = Form(""),
+                  closing_file: UploadFile = File(None),
                   user: User = Depends(get_current_user),
                   db: Session = Depends(get_db)):
     ticket = db.query(Ticket).filter(
@@ -2233,6 +2242,13 @@ def ticket_action(ticket_id: str, action: str = Form(...),
         ticket.status = "CLOSED"
         ticket.closed_at = datetime.utcnow()
         log_event(db, ticket_id, user.id, "CLOSED")
+        if closing_file and closing_file.filename:
+            info = await save_upload(closing_file, user.tenant_id)
+            db.add(MediaUpload(
+                tenant_id=user.tenant_id, entity_type="ticket", entity_id=ticket_id,
+                uploaded_by_id=user.id, **info,
+            ))
+            log_event(db, ticket_id, user.id, "PROOF_UPLOADED", info["file_name"])
         notify_ticket_status_changed(db, ticket, user.id, old_status, "CLOSED", admins, managers)
     elif action == "comment" and comment.strip():
         db.add(TicketComment(ticket_id=ticket_id, user_id=user.id, body=comment.strip()))
@@ -2790,6 +2806,9 @@ def checklists(request: Request, user: User = Depends(get_current_user),
 
     from .linked_entities import get_linked_entity_options as _geo
     entity_options = _geo(db, user.tenant_id)
+    knowledge_items = db.query(KnowledgeItem).filter(
+        KnowledgeItem.tenant_id == tid, KnowledgeItem.is_deleted == False,
+    ).order_by(KnowledgeItem.title).all()
     return templates.TemplateResponse(request, "checklists.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -2811,6 +2830,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         "now": now,
         "checklist_notif_hours": getattr(user.tenant, "checklist_notif_hours", None) or "8,13,18",
         "checklist_overdue_hour": getattr(user.tenant, "checklist_overdue_hour", None) or "",
+        "knowledge_items": knowledge_items,
     })
 
 @app.post("/checklists/templates/create")
@@ -2831,6 +2851,7 @@ async def create_template(
     reminder_hours_before: int = Form(2),
     reminder_repeat_hours: int = Form(4),
     is_recurring: bool = Form(True),
+    knowledge_item_ids: List[str] = Form([]),
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
     import json as _json
@@ -2860,6 +2881,14 @@ async def create_template(
     from .linked_entities import save_linked_entities_from_form as _slf
     form_data = dict(await request.form())
     _slf(db, form_data, "CHECKLIST_TEMPLATE", tmpl.id, user.tenant_id, user.id)
+    for kid in knowledge_item_ids:
+        if kid:
+            db.add(ChecklistKnowledgeLink(
+                tenant_id=user.tenant_id, template_id=tmpl.id,
+                knowledge_item_id=kid, linked_by_id=user.id,
+            ))
+    if knowledge_item_ids:
+        db.commit()
     return redirect("/checklists")
 
 @app.post("/checklists/assign/{template_id}")
@@ -3152,6 +3181,45 @@ def checklist_comment(assignment_id: str, body: str = Form(...),
         raise HTTPException(404)
     db.add(ChecklistComment(assignment_id=assignment_id,
                              user_id=user.id, body=body.strip()))
+    db.commit()
+    return redirect("/checklists")
+
+@app.post("/checklists/flag/{assignment_id}")
+def checklist_flag(assignment_id: str, flag_reason: str = Form(...),
+                    user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """Flag a checklist assignment for admin/manager attention."""
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403)
+    a = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.id == assignment_id,
+        ChecklistAssignment.tenant_id == user.tenant_id,
+    ).first()
+    if not a:
+        raise HTTPException(404)
+    a.is_flagged = True
+    a.flagged_reason = flag_reason.strip()
+    db.add(ChecklistComment(assignment_id=assignment_id, user_id=user.id,
+                             body=f"🚩 Flagged: {flag_reason.strip()}"))
+    db.commit()
+    return redirect("/checklists")
+
+@app.post("/checklists/unflag/{assignment_id}")
+def checklist_unflag(assignment_id: str,
+                      user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403)
+    a = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.id == assignment_id,
+        ChecklistAssignment.tenant_id == user.tenant_id,
+    ).first()
+    if not a:
+        raise HTTPException(404)
+    a.is_flagged = False
+    a.flagged_reason = None
+    db.add(ChecklistComment(assignment_id=assignment_id, user_id=user.id,
+                             body="Flag removed"))
     db.commit()
     return redirect("/checklists")
 
@@ -3462,6 +3530,42 @@ def repair_checklist_schedules(user: User = Depends(require_admin), db: Session 
             synced += 1
     db.commit()
     return redirect(f"/checklists?msg=Synced+{synced}+checklists")
+
+
+@app.post("/checklists/templates/{template_id}/link-knowledge")
+def link_checklist_knowledge(template_id: str, knowledge_item_id: str = Form(...),
+                              user: User = Depends(require_manager),
+                              db: Session = Depends(get_db)):
+    """Link a checklist template to a Knowledge/Training item for quick reference."""
+    tmpl = db.query(ChecklistTemplate).filter(
+        ChecklistTemplate.id == template_id, ChecklistTemplate.tenant_id == user.tenant_id).first()
+    if not tmpl:
+        raise HTTPException(404)
+    item = db.query(KnowledgeItem).filter(
+        KnowledgeItem.id == knowledge_item_id, KnowledgeItem.tenant_id == user.tenant_id,
+        KnowledgeItem.is_deleted == False).first()
+    if not item:
+        raise HTTPException(404, "Knowledge item not found")
+    already = db.query(ChecklistKnowledgeLink).filter(
+        ChecklistKnowledgeLink.template_id == template_id,
+        ChecklistKnowledgeLink.knowledge_item_id == knowledge_item_id).first()
+    if not already:
+        db.add(ChecklistKnowledgeLink(
+            tenant_id=user.tenant_id, template_id=template_id,
+            knowledge_item_id=knowledge_item_id, linked_by_id=user.id,
+        ))
+        db.commit()
+    return redirect("/checklists")
+
+@app.post("/checklists/templates/{template_id}/unlink-knowledge")
+def unlink_checklist_knowledge(template_id: str, link_id: str = Form(...),
+                                user: User = Depends(require_manager),
+                                db: Session = Depends(get_db)):
+    db.query(ChecklistKnowledgeLink).filter(
+        ChecklistKnowledgeLink.id == link_id, ChecklistKnowledgeLink.tenant_id == user.tenant_id,
+        ChecklistKnowledgeLink.template_id == template_id).delete()
+    db.commit()
+    return redirect("/checklists")
 
 
 @app.post("/checklists/assignments/{assignment_id}/edit")

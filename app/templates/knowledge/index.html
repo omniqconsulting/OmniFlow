@@ -132,8 +132,12 @@
             <div class="kr-title">
               {% if it.media_kind == 'video' and it.file_url %}
               <a href="#" class="kr-video-play" data-video-url="{{ it.file_url }}" data-video-title="{{ it.title }}">{{ it.title }}</a>
+              {% elif it.media_kind == 'audio' and it.file_url %}
+              <a href="#" class="kr-audio-play" data-audio-url="{{ it.file_url }}" data-audio-title="{{ it.title }}">{{ it.title }}</a>
+              {% elif it.media_kind == 'image' and it.file_url %}
+              <a href="#" class="kr-image-view" data-image-url="{{ it.file_url }}" data-image-title="{{ it.title }}">{{ it.title }}</a>
               {% elif it.file_url %}
-              <a href="{{ it.file_url }}" target="_blank" rel="noopener">{{ it.title }}</a>
+              <a href="#" class="kr-doc-view" data-doc-url="{{ it.file_url }}" data-doc-title="{{ it.title }}">{{ it.title }}</a>
               {% elif it.external_url %}
               <a href="{{ it.external_url }}" target="_blank" rel="noopener">{{ it.title }}</a>
               {% else %}
@@ -288,6 +292,39 @@
   </div>
 </div>
 
+<!-- ── Audio Player Modal (in-app playback, no download link) ── -->
+<div id="audioModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1100;align-items:center;justify-content:center;padding:16px">
+  <div style="width:100%;max-width:520px;background:var(--bg-card);border-radius:10px;padding:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h2 id="audioModalTitle" style="font-size:14px;font-weight:600;margin:0;color:var(--text-primary)"></h2>
+      <button onclick="closeAudioModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <audio id="audioModalPlayer" controls autoplay controlsList="nodownload" oncontextmenu="return false;" style="width:100%"></audio>
+  </div>
+</div>
+
+<!-- ── Image Viewer Modal (in-app, no download link) ── -->
+<div id="imageModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1100;align-items:center;justify-content:center;padding:16px">
+  <div style="width:100%;max-width:860px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 id="imageModalTitle" style="font-size:14px;font-weight:600;margin:0;color:#fff"></h2>
+      <button onclick="closeImageModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#fff">✕</button>
+    </div>
+    <img id="imageModalViewer" oncontextmenu="return false;" style="width:100%;max-height:80vh;object-fit:contain;border-radius:8px">
+  </div>
+</div>
+
+<!-- ── Document Viewer Modal (in-app, no download link) ── -->
+<div id="docModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1100;align-items:center;justify-content:center;padding:16px">
+  <div style="width:100%;max-width:900px;height:85vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 id="docModalTitle" style="font-size:14px;font-weight:600;margin:0;color:#fff"></h2>
+      <button onclick="closeDocModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#fff">✕</button>
+    </div>
+    <iframe id="docModalFrame" style="flex:1;width:100%;border:none;border-radius:8px;background:#fff"></iframe>
+  </div>
+</div>
+
 <script>
 function playVideo(url, title) {
   var player = document.getElementById('videoModalPlayer');
@@ -309,6 +346,67 @@ document.querySelectorAll('.kr-video-play').forEach(function(a) {
   a.addEventListener('click', function(e) {
     e.preventDefault();
     playVideo(a.getAttribute('data-video-url'), a.getAttribute('data-video-title'));
+  });
+});
+
+function playAudio(url, title) {
+  var player = document.getElementById('audioModalPlayer');
+  player.src = url;
+  document.getElementById('audioModalTitle').textContent = title;
+  document.getElementById('audioModal').style.display = 'flex';
+}
+function closeAudioModal() {
+  var player = document.getElementById('audioModalPlayer');
+  player.pause();
+  player.removeAttribute('src');
+  player.load();
+  document.getElementById('audioModal').style.display = 'none';
+}
+document.getElementById('audioModal').addEventListener('click', function(e) {
+  if (e.target === this) closeAudioModal();
+});
+document.querySelectorAll('.kr-audio-play').forEach(function(a) {
+  a.addEventListener('click', function(e) {
+    e.preventDefault();
+    playAudio(a.getAttribute('data-audio-url'), a.getAttribute('data-audio-title'));
+  });
+});
+
+function viewImage(url, title) {
+  document.getElementById('imageModalViewer').src = url;
+  document.getElementById('imageModalTitle').textContent = title;
+  document.getElementById('imageModal').style.display = 'flex';
+}
+function closeImageModal() {
+  document.getElementById('imageModalViewer').removeAttribute('src');
+  document.getElementById('imageModal').style.display = 'none';
+}
+document.getElementById('imageModal').addEventListener('click', function(e) {
+  if (e.target === this) closeImageModal();
+});
+document.querySelectorAll('.kr-image-view').forEach(function(a) {
+  a.addEventListener('click', function(e) {
+    e.preventDefault();
+    viewImage(a.getAttribute('data-image-url'), a.getAttribute('data-image-title'));
+  });
+});
+
+function viewDoc(url, title) {
+  document.getElementById('docModalFrame').src = url;
+  document.getElementById('docModalTitle').textContent = title;
+  document.getElementById('docModal').style.display = 'flex';
+}
+function closeDocModal() {
+  document.getElementById('docModalFrame').removeAttribute('src');
+  document.getElementById('docModal').style.display = 'none';
+}
+document.getElementById('docModal').addEventListener('click', function(e) {
+  if (e.target === this) closeDocModal();
+});
+document.querySelectorAll('.kr-doc-view').forEach(function(a) {
+  a.addEventListener('click', function(e) {
+    e.preventDefault();
+    viewDoc(a.getAttribute('data-doc-url'), a.getAttribute('data-doc-title'));
   });
 });
 

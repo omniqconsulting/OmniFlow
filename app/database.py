@@ -350,6 +350,8 @@ class ChecklistAssignment(Base):
     delay_reason      = Column(Text)              # mandatory when OVERDUE completion
     evidence_required = Column(Boolean)           # inherited from template at assignment creation
     is_deleted        = Column(Boolean, default=False)  # P6-03: soft delete
+    is_flagged        = Column(Boolean, default=False)
+    flagged_reason    = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     template = relationship("ChecklistTemplate", back_populates="assignments")
@@ -1329,6 +1331,41 @@ class TicketKnowledgeLink(Base):
     ticket         = relationship("Ticket", backref="knowledge_links")
     knowledge_item = relationship("KnowledgeItem")
     linked_by      = relationship("User", foreign_keys=[linked_by_id])
+
+
+class ChecklistKnowledgeLink(Base):
+    """Links a checklist template to a KnowledgeItem for quick reference at
+    creation and at completion time."""
+    __tablename__ = "checklist_knowledge_links"
+    id                 = Column(String, primary_key=True, default=new_id)
+    tenant_id          = Column(String, ForeignKey("tenants.id"), nullable=False)
+    template_id        = Column(String, ForeignKey("checklist_templates.id"), nullable=False)
+    knowledge_item_id  = Column(String, ForeignKey("knowledge_items.id"), nullable=False)
+    linked_by_id       = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at         = Column(DateTime, default=datetime.utcnow)
+
+    tenant         = relationship("Tenant")
+    template       = relationship("ChecklistTemplate", backref="knowledge_links")
+    knowledge_item = relationship("KnowledgeItem")
+    linked_by      = relationship("User", foreign_keys=[linked_by_id])
+
+
+class FMSTicketKnowledgeLink(Base):
+    """Links an FMS ticket to a KnowledgeItem for quick reference at creation
+    and at close time."""
+    __tablename__ = "fms_ticket_knowledge_links"
+    id                 = Column(String, primary_key=True, default=new_id)
+    tenant_id          = Column(String, ForeignKey("tenants.id"), nullable=False)
+    ticket_id          = Column(String, ForeignKey("fms_tickets.id"), nullable=False)
+    knowledge_item_id  = Column(String, ForeignKey("knowledge_items.id"), nullable=False)
+    linked_by_id       = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at         = Column(DateTime, default=datetime.utcnow)
+
+    tenant         = relationship("Tenant")
+    ticket         = relationship("FMSTicket", backref="knowledge_links")
+    knowledge_item = relationship("KnowledgeItem")
+    linked_by      = relationship("User", foreign_keys=[linked_by_id])
+
 
 _DEFAULT_UOMS = [
     {"name": "Piece",    "abbreviation": "pcs"},
