@@ -296,10 +296,7 @@
       {# Direct close — Admin/Manager only, skips the Done stage. Only offered for DONE tickets;
          for OPEN tickets the plain "Mark Done" action above already covers moving it forward. #}
       {% if user.role in ('ADMIN','MANAGER') and t.status == 'DONE' %}
-      <form method="post" action="/tickets/{{ t.id }}/close-direct" style="display:inline"
-            onsubmit="return confirm('Close this ticket directly, skipping the Done stage?')">
-        <button type="submit" class="btn btn-xs btn-red" title="Close Directly">⏭ Close</button>
-      </form>
+      <button type="button" onclick="openCloseModal('{{ t.id }}')" class="btn btn-xs btn-red" title="Close Directly">⏭ Close</button>
       {% endif %}
       {# Send Reminder (Admin/Manager only, for open tickets) #}
       {% if user.role in ('ADMIN','MANAGER') and t.status not in ('DONE','CLOSED') %}
@@ -352,6 +349,24 @@
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
         <button type="button" onclick="document.getElementById('evidence-modal').classList.remove('open')" class="btn btn-outline">Cancel</button>
         <button type="submit" class="btn btn-primary">Submit & Mark Done</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Close Ticket Modal (with optional supporting document) ──────────────── -->
+<div id="close-modal" class="ev-modal-bg">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:12px;padding:24px;width:420px;max-width:95vw">
+    <div style="font-size:15px;font-weight:600;color:var(--text-strong);margin-bottom:16px">Close {{ L.Ticket }} Directly</div>
+    <form method="post" id="close-form" enctype="multipart/form-data">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">This closes the {{ L.ticket }} directly, skipping the Done stage.</p>
+      <div class="form-group">
+        <label class="form-label">Attach supporting document (optional, for future reference)</label>
+        <input type="file" name="closing_file" class="form-input" accept="image/*,.pdf,.doc,.docx">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button type="button" onclick="document.getElementById('close-modal').classList.remove('open')" class="btn btn-outline">Cancel</button>
+        <button type="submit" class="btn btn-red">Confirm Close</button>
       </div>
     </form>
   </div>
@@ -507,6 +522,12 @@ function showToast(msg) {
 function openEvidenceModal(ticketId) {
   document.getElementById('evidence-form').action = '/tickets/' + ticketId + '/advance';
   document.getElementById('evidence-modal').classList.add('open');
+}
+
+/* Close modal */
+function openCloseModal(ticketId) {
+  document.getElementById('close-form').action = '/tickets/' + ticketId + '/close-direct';
+  document.getElementById('close-modal').classList.add('open');
 }
 
 /* Auto-show toast on page load if redirected after advance */

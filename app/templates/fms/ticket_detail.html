@@ -573,9 +573,10 @@ select option{background:var(--bg-card)}
 
       <button onclick="togglePanel('closePanel')" class="btn-xs" style="text-align:left">✕ Close Ticket</button>
       <div id="closePanel" class="action-panel">
-        <form method="post" action="/fms/tickets/{{ ticket.id }}/action">
+        <form method="post" action="/fms/tickets/{{ ticket.id }}/action" enctype="multipart/form-data">
           <input type="hidden" name="action" value="close">
           <div class="form-group"><label>Reason</label><input type="text" name="reason" placeholder="Optional reason"></div>
+          <div class="form-group"><label>Attach supporting document (optional, for future reference)</label><input type="file" name="closing_file"></div>
           <button type="submit" class="btn-sm-danger" onclick="return confirm('Close ticket?')">Close</button>
         </form>
       </div>
@@ -628,6 +629,50 @@ select option{background:var(--bg-card)}
     </div>
     {% endif %}
   </div>
+
+  <!-- Knowledge Links: link relevant Knowledge/Training content for quick reference -->
+  <div style="margin-bottom:16px">
+    <div style="font-size:10px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.09em;margin-bottom:8px">Linked Knowledge / Training</div>
+    {% if ticket.knowledge_links %}
+    {% for kl in ticket.knowledge_links %}
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">
+      <a href="/knowledge?search={{ kl.knowledge_item.title if kl.knowledge_item else '' }}" style="color:var(--text-primary)">📚 {{ kl.knowledge_item.title if kl.knowledge_item else '—' }}</a>
+      {% if can_manage %}
+      <form method="post" action="/fms/tickets/{{ ticket.id }}/unlink-knowledge" style="margin:0">
+        <input type="hidden" name="link_id" value="{{ kl.id }}">
+        <button type="submit" class="btn-xs">Unlink</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <div style="font-size:11px;color:#374151;margin-bottom:8px">No knowledge content linked yet.</div>
+    {% endif %}
+    {% if knowledge_items %}
+    <form method="post" action="/fms/tickets/{{ ticket.id }}/link-knowledge" style="display:flex;gap:6px;margin-top:8px">
+      <select name="knowledge_item_id" required style="flex:1;font-size:12px">
+        <option value="">Select knowledge item…</option>
+        {% for k in knowledge_items %}
+        <option value="{{ k.id }}">{{ k.title }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn-xs">Link</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <!-- Closing attachments -->
+  {% if closing_media %}
+  <div style="margin-bottom:16px">
+    <div style="font-size:10px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.09em;margin-bottom:8px">Supporting Documents</div>
+    {% for m in closing_media %}
+    <div style="padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">
+      <a href="{{ m.file_path }}" target="_blank" rel="noopener" style="color:var(--text-primary)">📎 {{ m.file_name }}</a>
+      <div style="color:#374151;font-size:10px">{{ m.uploaded_by.name if m.uploaded_by else '' }} · {{ m.created_at.strftime('%d %b %Y') if m.created_at else '' }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   {# P7-08: Linked Entities #}
   {% if entity_options %}

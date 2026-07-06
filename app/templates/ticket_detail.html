@@ -347,19 +347,13 @@
 
         {# Close — Admin or Manager, on DONE tickets #}
         {% if ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
-        <form method="post" action="/tickets/{{ ticket.id }}/action">
-          <input type="hidden" name="action" value="close">
-          <button class="btn btn-sm btn-gray">Close {{ L.Ticket }}</button>
-        </form>
+        <button onclick="show('close-form')" class="btn btn-sm btn-gray">Close {{ L.Ticket }}</button>
         {% endif %}
 
         {# Phase 3: Close Directly — Admin or Manager, DONE tickets only.
            On OPEN tickets, "Mark as Done" above already covers moving it forward. #}
         {% if ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
-        <form method="post" action="/tickets/{{ ticket.id }}/close-direct"
-              onsubmit="return confirm('Close this {{ L.ticket }} directly, skipping the Done stage?')">
-          <button class="btn btn-sm btn-red">⏭ Close Directly</button>
-        </form>
+        <button onclick="show('close-direct-form')" class="btn btn-sm btn-red">⏭ Close Directly</button>
         {% endif %}
 
         {% if ticket.status == 'CLOSED' and user.role == 'ADMIN' %}
@@ -379,6 +373,38 @@
           </form>
           {% endif %}
         {% endif %}
+      </div>
+
+      <!-- Close form (with optional supporting document) -->
+      <div id="close-form" class="form-panel" style="display:none">
+        <p style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">Close {{ L.Ticket }}</p>
+        <form method="post" action="/tickets/{{ ticket.id }}/action" enctype="multipart/form-data">
+          <input type="hidden" name="action" value="close">
+          <div class="form-group" style="margin-bottom:10px">
+            <label>Attach supporting document (optional, for future reference)</label>
+            <input type="file" name="closing_file" style="padding:6px">
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="submit" class="btn btn-sm btn-gray">Confirm Close</button>
+            <button type="button" onclick="hide('close-form')" class="btn btn-sm btn-outline">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Close Directly form (with optional supporting document) -->
+      <div id="close-direct-form" class="form-panel" style="display:none">
+        <p style="font-size:11px;font-weight:700;color:var(--text-faint);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">Close {{ L.Ticket }} Directly</p>
+        <form method="post" action="/tickets/{{ ticket.id }}/close-direct" enctype="multipart/form-data"
+              onsubmit="return confirm('Close this {{ L.ticket }} directly, skipping the Done stage?')">
+          <div class="form-group" style="margin-bottom:10px">
+            <label>Attach supporting document (optional, for future reference)</label>
+            <input type="file" name="closing_file" style="padding:6px">
+          </div>
+          <div style="display:flex;gap:8px">
+            <button type="submit" class="btn btn-sm btn-red">Confirm Close Directly</button>
+            <button type="button" onclick="hide('close-direct-form')" class="btn btn-sm btn-outline">Cancel</button>
+          </div>
+        </form>
       </div>
 
       <!-- Log a Delay form (E-01) -->

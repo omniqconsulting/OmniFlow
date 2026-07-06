@@ -815,6 +815,12 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
                 🕘 History
               </button>
 
+              {# Knowledge / Training — link reference content for this ticket #}
+              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openKnowledgeModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}')"
+                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#818cf8;cursor:pointer;font-family:inherit">
+                📚 Knowledge / Training
+              </button>
+
               {# Acknowledge qty discrepancy — admin/manager, Phase 0 #}
               {% if user.role in ('ADMIN','MANAGER') and t.has_qty_discrepancy %}
               <form method="post" action="/fms/tickets/{{ t.id }}/discrepancy/acknowledge" style="margin:0">
@@ -1546,7 +1552,7 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
 
       <!-- Evidence upload (shown when evidence_required) -->
       <div class="fm-group" id="scEvidenceGroup" style="display:none">
-        <label>Evidence File <span style="color:#f87171">*</span></label>
+        <label id="scEvidenceLabel">Evidence File <span style="color:#f87171">*</span></label>
         <input type="file" name="evidence_file" id="scEvidenceFile"
                accept="image/*,.pdf,.doc,.docx"
                style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
@@ -1876,6 +1882,31 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
     </div>
     <div style="display:flex;justify-content:flex-end;margin-top:16px">
       <button type="button" onclick="closeHistoryModal()" class="btn btn-sm">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Knowledge / Training modal — link reference content for a ticket, usable at creation and at close ── -->
+<div id="fmsKnowledgeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:460px;max-width:95vw;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">📚 Linked Knowledge / Training</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="fmsKnowledgeSubtitle"></div>
+      </div>
+      <button onclick="closeKnowledgeModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <div id="fmsKnowledgeBody" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+      <div style="font-size:12px;color:var(--text-faint)">Loading…</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <select id="fmsKnowledgeSelect" style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 11px;font-size:12px;color:var(--text-primary)">
+        <option value="">Select knowledge item…</option>
+      </select>
+      <button type="button" onclick="fmsLinkKnowledge()" class="btn btn-sm btn-primary">Link</button>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <button type="button" onclick="closeKnowledgeModal()" class="btn btn-sm">Close</button>
     </div>
   </div>
 </div>
@@ -2656,9 +2687,16 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
 
   var evGroup = document.getElementById('scEvidenceGroup');
   var evFile  = document.getElementById('scEvidenceFile');
+  var evLabel = document.getElementById('scEvidenceLabel');
   if (evidenceRequired === 'true') {
     evGroup.style.display = '';
     evFile.required = true;
+    evLabel.innerHTML = 'Evidence File <span style="color:#f87171">*</span>';
+  } else if (!ns) {
+    // Terminal stage (Complete Ticket) — offer an optional supporting document for future reference
+    evGroup.style.display = '';
+    evFile.required = false;
+    evLabel.textContent = 'Attach supporting document (optional, for future reference)';
   } else {
     evGroup.style.display = 'none';
     evFile.required = false;
@@ -2987,6 +3025,65 @@ function openHistoryModal(ticketId, displayId) {
 }
 function closeHistoryModal() {
   document.getElementById('fmsHistoryModal').style.display = 'none';
+}
+
+/* ── Knowledge / Training modal ──────────────────────────────────────────── */
+var FMS_CAN_MANAGE = {{ 'true' if user.role in ('ADMIN','MANAGER') else 'false' }};
+var _fmsKnowledgeTicketId = null;
+function openKnowledgeModal(ticketId, displayId) {
+  _fmsKnowledgeTicketId = ticketId;
+  document.getElementById('fmsKnowledgeSubtitle').textContent = displayId;
+  document.getElementById('fmsKnowledgeModal').style.display = 'flex';
+  fmsLoadKnowledgeLinks();
+}
+function closeKnowledgeModal() {
+  document.getElementById('fmsKnowledgeModal').style.display = 'none';
+  _fmsKnowledgeTicketId = null;
+}
+function fmsLoadKnowledgeLinks() {
+  var body = document.getElementById('fmsKnowledgeBody');
+  var sel  = document.getElementById('fmsKnowledgeSelect');
+  body.innerHTML = '<div style="font-size:12px;color:var(--text-faint)">Loading…</div>';
+  fetch('/fms/tickets/' + _fmsKnowledgeTicketId + '/knowledge-links')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      body.innerHTML = '';
+      var links = data.links || [];
+      if (!links.length) {
+        body.innerHTML = '<div style="font-size:12px;color:var(--text-faint)">No knowledge content linked yet.</div>';
+      }
+      links.forEach(function(l) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:12px';
+        row.innerHTML = '<span style="color:var(--text-primary)">📚 ' + l.title.replace(/</g,'&lt;') + '</span>' +
+          (FMS_CAN_MANAGE ? '<button type="button" class="btn-xs" onclick="fmsUnlinkKnowledge(\'' + l.id + '\')">Unlink</button>' : '');
+        body.appendChild(row);
+      });
+      sel.innerHTML = '<option value="">Select knowledge item…</option>';
+      (data.available || []).forEach(function(k) {
+        var opt = document.createElement('option');
+        opt.value = k.id;
+        opt.textContent = k.title;
+        sel.appendChild(opt);
+      });
+    })
+    .catch(function() {
+      body.innerHTML = '<div style="font-size:12px;color:#f87171">Failed to load linked content.</div>';
+    });
+}
+function fmsLinkKnowledge() {
+  var sel = document.getElementById('fmsKnowledgeSelect');
+  if (!sel.value) return;
+  var fd = new FormData();
+  fd.append('knowledge_item_id', sel.value);
+  fetch('/fms/tickets/' + _fmsKnowledgeTicketId + '/link-knowledge', { method: 'POST', body: fd })
+    .then(function() { fmsLoadKnowledgeLinks(); });
+}
+function fmsUnlinkKnowledge(linkId) {
+  var fd = new FormData();
+  fd.append('link_id', linkId);
+  fetch('/fms/tickets/' + _fmsKnowledgeTicketId + '/unlink-knowledge', { method: 'POST', body: fd })
+    .then(function() { fmsLoadKnowledgeLinks(); });
 }
 
 /* ── Table view: manual cell edit ────────────────────────────────────────── */

@@ -23,6 +23,7 @@ from .database import (
     PMSDailyLog, DispatchRecord, InvoiceRecord,
     Customer, Vendor, RawMaterial,
     CustomReferenceList, CustomReferenceItem,
+    KnowledgeItem, FMSTicketKnowledgeLink,
 )
 from .auth import get_current_user, require_admin, require_manager, get_nav_flags
 from .labels import get_labels, DEFAULT_L
@@ -3184,6 +3185,15 @@ def fms_ticket_detail(
             "employee": [{"id": e.id, "name": e.name} for e in employees],
         }
 
+    knowledge_items = db.query(KnowledgeItem).filter(
+        KnowledgeItem.tenant_id == user.tenant_id, KnowledgeItem.is_deleted == False,
+    ).order_by(KnowledgeItem.title).all()
+    closing_media = db.query(MediaUpload).filter(
+        MediaUpload.tenant_id == user.tenant_id,
+        MediaUpload.entity_type == "fms_ticket",
+        MediaUpload.entity_id == ticket_id,
+    ).order_by(MediaUpload.created_at).all()
+
     return templates.TemplateResponse(request, "fms/ticket_detail.html", _ctx(
         request, user, db,
         ticket=ticket, flow=flow, stages=stages,
@@ -3200,6 +3210,8 @@ def fms_ticket_detail(
         stage_assignees=stage_assignees,
         stage_schedule=stage_schedule,
         all_events=list(reversed(all_events)),
+        knowledge_items=knowledge_items,
+        closing_media=closing_media,
     ))
 
 
@@ -4017,8 +4029,62 @@ async def fms_bulk_action(
     return _redirect("/fms/dashboard?view=stage")
 
 
+@router.get("/tickets/{ticket_id}/knowledge-links")
+def fms_ticket_knowledge_links(ticket_id: str,
+                                user: User = Depends(get_current_user),
+                                db: Session = Depends(get_db)):
+    """Backs the Knowledge/Training modal — current links + all available items."""
+    from fastapi.responses import JSONResponse
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    links = db.query(FMSTicketKnowledgeLink).filter(
+        FMSTicketKnowledgeLink.ticket_id == ticket.id).all()
+    available = db.query(KnowledgeItem).filter(
+        KnowledgeItem.tenant_id == user.tenant_id, KnowledgeItem.is_deleted == False,
+    ).order_by(KnowledgeItem.title).all()
+    return JSONResponse({
+        "links": [{"id": l.id, "knowledge_item_id": l.knowledge_item_id,
+                   "title": l.knowledge_item.title if l.knowledge_item else "—"} for l in links],
+        "available": [{"id": k.id, "title": k.title} for k in available],
+    })
+
+@router.post("/tickets/{ticket_id}/link-knowledge")
+def fms_link_knowledge(ticket_id: str, knowledge_item_id: str = Form(...),
+                        user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Link an FMS ticket to a Knowledge/Training item for quick reference."""
+    from fastapi.responses import JSONResponse
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    item = db.query(KnowledgeItem).filter(
+        KnowledgeItem.id == knowledge_item_id, KnowledgeItem.tenant_id == user.tenant_id,
+        KnowledgeItem.is_deleted == False).first()
+    if not item:
+        raise HTTPException(404, "Knowledge item not found")
+    already = db.query(FMSTicketKnowledgeLink).filter(
+        FMSTicketKnowledgeLink.ticket_id == ticket_id,
+        FMSTicketKnowledgeLink.knowledge_item_id == knowledge_item_id).first()
+    if not already:
+        db.add(FMSTicketKnowledgeLink(
+            tenant_id=user.tenant_id, ticket_id=ticket_id,
+            knowledge_item_id=knowledge_item_id, linked_by_id=user.id,
+        ))
+        _log(db, ticket_id, user.id, "KNOWLEDGE_LINKED", item.title)
+        db.commit()
+    return JSONResponse({"ok": True})
+
+@router.post("/tickets/{ticket_id}/unlink-knowledge")
+def fms_unlink_knowledge(ticket_id: str, link_id: str = Form(...),
+                          user: User = Depends(require_manager),
+                          db: Session = Depends(get_db)):
+    from fastapi.responses import JSONResponse
+    db.query(FMSTicketKnowledgeLink).filter(
+        FMSTicketKnowledgeLink.id == link_id, FMSTicketKnowledgeLink.tenant_id == user.tenant_id,
+        FMSTicketKnowledgeLink.ticket_id == ticket_id).delete()
+    db.commit()
+    return JSONResponse({"ok": True})
+
+
 @router.post("/tickets/{ticket_id}/action")
-def fms_action(
+async def fms_action(
     ticket_id: str,
     action: str = Form(...),
     comment: str = Form(""),
@@ -4027,6 +4093,7 @@ def fms_action(
     helper_id: str = Form(""),
     flag_reason: str = Form(""),
     split_id: str = Form(""),
+    closing_file: UploadFile = File(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -4166,6 +4233,14 @@ def fms_action(
         ticket.status    = "CLOSED"
         ticket.closed_at = datetime.utcnow()
         _log(db, ticket_id, user.id, "CLOSED", reason)
+        if closing_file and closing_file.filename:
+            from .uploads import save_upload as _save_upload_close
+            info = await _save_upload_close(closing_file, user.tenant_id)
+            db.add(MediaUpload(
+                tenant_id=user.tenant_id, entity_type="fms_ticket", entity_id=ticket_id,
+                uploaded_by_id=user.id, **info,
+            ))
+            _log(db, ticket_id, user.id, "PROOF_UPLOADED", info["file_name"])
 
     elif action == "close_split":
         # Close a single split without touching the others — the ticket's
