@@ -476,3 +476,22 @@ window.addEventListener('beforeinstallprompt', function(e){
 window.omniVibrate = function(pattern){
   try{ if(navigator.vibrate) navigator.vibrate(pattern || 15); }catch(e){}
 };
+
+// 5.1 — "Others" overflow sheet (bottom_nav.html): tap the tab to open, tap
+// the backdrop or any item to close. Kept simple — no focus trap/animation
+// library, just a CSS transform toggle scoped to mobile/standalone widths.
+window.toggleOthersSheet = function(force){
+  const bd = document.getElementById('others-backdrop');
+  if(!bd) return;
+  const willOpen = typeof force === 'boolean' ? force : !bd.classList.contains('open');
+  bd.classList.toggle('open', willOpen);
+  const tab = document.querySelector('.bn-others');
+  if(tab) tab.classList.toggle('open', willOpen);
+};
+document.addEventListener('DOMContentLoaded', function(){
+  const bd = document.getElementById('others-backdrop');
+  if(bd) bd.addEventListener('click', function(e){ if(e.target === bd) toggleOthersSheet(false); });
+});
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape') toggleOthersSheet(false);
+});

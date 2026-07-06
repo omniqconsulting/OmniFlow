@@ -49,6 +49,7 @@ def _build_ref_lists_json(tenant_id: str, db) -> str:
         ("__system_endproduct__",  "End Products",   EndProduct,   "name"),
         ("__system_department__",  "Departments",    Department,   "name"),
         ("__system_branch__",      "Branches",       Branch,       "name"),
+        ("__system_employee__",    "Employees",      User,         "name"),
     ]
     for sys_id, sys_name, model, name_col in _sys:
         rows = db.query(model).filter(
@@ -1354,6 +1355,7 @@ def _parse_closing_rule(raw: str | None) -> dict | None:
 @router.get("/setup/flows", response_class=HTMLResponse)
 def setup_flows_list(
     request: Request,
+    status: str = "active",
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -1362,14 +1364,24 @@ def setup_flows_list(
     if not has_feature(tenant, "FMS", db):
         return _redir("/setup?err=FMS+not+enabled")
 
-    flows = db.query(FMSFlow).filter(
+    if status not in ("active", "deleted", "all"):
+        status = "active"
+
+    q = db.query(FMSFlow).filter(FMSFlow.tenant_id == user.tenant_id)
+    if status == "active":
+        q = q.filter(FMSFlow.is_deleted == False)
+    elif status == "deleted":
+        q = q.filter(FMSFlow.is_deleted == True)
+    flows = q.order_by(FMSFlow.created_at).all()
+
+    # Plan limit is based on active (non-deleted) flow count only.
+    active_count = db.query(FMSFlow).filter(
         FMSFlow.tenant_id == user.tenant_id,
         FMSFlow.is_deleted == False,
-    ).order_by(FMSFlow.created_at).all()
-
+    ).count()
     plan = tenant.plan or "STARTER"
     max_flows = PLAN_LIMITS.get(plan, {}).get("max_fms_flows")
-    at_limit = max_flows is not None and len(flows) >= max_flows
+    at_limit = max_flows is not None and active_count >= max_flows
 
     flow_info = []
     for f in flows:
@@ -1393,6 +1405,7 @@ def setup_flows_list(
         "at_limit": at_limit,
         "max_flows": max_flows,
         "active_section": "flows",
+        "status_filter": status,
     })
 
 
@@ -1731,4 +1744,35 @@ def setup_flow_delete(
     flow.is_deleted = True
     db.commit()
     return _redir("/setup/flows?msg=Flow+deleted")
+
+
+@router.post("/setup/flows/{flow_id}/restore")
+def setup_flow_restore(
+    flow_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    flow = db.query(FMSFlow).filter(
+        FMSFlow.id == flow_id,
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == True,
+    ).first()
+    if not flow:
+        return _redir("/setup/flows?status=deleted&err=Flow+not+found")
+
+    from .constants import has_feature, PLAN_LIMITS
+    tenant = db.query(Tenant).get(user.tenant_id)
+    plan = tenant.plan or "STARTER"
+    max_flows = PLAN_LIMITS.get(plan, {}).get("max_fms_flows")
+    if max_flows is not None:
+        active_count = db.query(FMSFlow).filter(
+            FMSFlow.tenant_id == user.tenant_id,
+            FMSFlow.is_deleted == False,
+        ).count()
+        if active_count >= max_flows:
+            return _redir("/setup/flows?status=deleted&err=Flow+limit+reached+on+your+plan")
+
+    flow.is_deleted = False
+    db.commit()
+    return _redir("/setup/flows?msg=Flow+restored")
 
