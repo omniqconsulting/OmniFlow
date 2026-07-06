@@ -373,11 +373,11 @@ select option{background:var(--bg-card)}
             <option value="">Choose stage…</option>
             {% set cur_ord = ticket.current_stage.order if ticket.current_stage else -1 %}
             {% for s in stages %}
-            {% set is_valid = s.order == cur_ord + 1 or s.order == cur_ord - 1 %}
+            {% set is_valid = s.order == cur_ord + 1 or s.order < cur_ord %}
             {% if is_valid %}
             <option value="{{ s.id }}" data-order="{{ s.order }}">
               {{ s.order + 1 }}. {{ s.name }}{% if s.is_terminal %} ✓{% endif %}
-              {% if s.order == cur_ord - 1 %} (← back){% endif %}
+              {% if s.order < cur_ord %} (← back){% endif %}
             </option>
             {% endif %}
             {% endfor %}
@@ -479,7 +479,7 @@ select option{background:var(--bg-card)}
 
       <div id="returnReasonRow" style="display:none" class="form-group">
         <label style="color:#f59e0b">Return reason *</label>
-        <input type="text" name="return_reason" placeholder="Why is this being returned?">
+        <input type="text" name="return_reason" minlength="5" placeholder="Why is this being returned? (min. 5 characters)">
       </div>
       {% if can_override %}
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
@@ -762,14 +762,17 @@ function checkDirection() {
   const opt = sel.options[sel.selectedIndex];
   const nextOrder = parseInt(opt.dataset.order || 0);
   const rrow = document.getElementById('returnReasonRow');
+  const reasonInput = rrow.querySelector('input[name="return_reason"]');
   const btn  = document.getElementById('transBtn');
-  if (!sel.value) { rrow.style.display = 'none'; return; }
+  if (!sel.value) { rrow.style.display = 'none'; reasonInput.required = false; return; }
   if (nextOrder < curStageOrder) {
     rrow.style.display = 'block';
+    reasonInput.required = true;
     btn.textContent = '↩ Return to Stage';
     btn.className = 'btn-sm-warn';
   } else {
     rrow.style.display = 'none';
+    reasonInput.required = false;
     btn.textContent = '↗ Move Ticket';
     btn.className = 'btn-sm-primary';
   }

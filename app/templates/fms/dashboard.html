@@ -147,8 +147,11 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 </div>
 {% endif %}
 
-<!-- ── Board-level filter bar (all views) ────────────────────────────────────── -->
-{% if user.role in ('ADMIN','MANAGER') %}
+<!-- ── Board-level filter bar (all views). Employees don't get the
+     branch/dept/manager/priority/assignee board filters, but the Log tab's
+     search/event-type/actor filters live in this same consolidated panel, so
+     employees still get those when viewing the Log tab. ────────────────── -->
+{% if user.role in ('ADMIN','MANAGER') or view == 'log' %}
 <form method="get" action="/fms/dashboard" class="filter-bar" id="fmsBoardFilter">
   <input type="hidden" name="view" value="{{ view }}">
   {% if active_flow %}<input type="hidden" name="flow_id" value="{{ active_flow.id }}">{% endif %}
@@ -237,6 +240,36 @@ select option{background:var(--bg-card);color:var(--text-primary)}
   </div>
   {% endif %}
 
+  {% if view == 'log' %}
+  <div class="filter-group">
+    <label>Search Ticket</label>
+    <input type="text" name="log_search" value="{{ f_log_search }}" placeholder="ID or title…">
+  </div>
+  <div class="ms-wrap" data-name="log_event_type" data-placeholder="All Events">
+    <div class="ms-label">Event Type</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All Events</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for et in log_event_types %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ et }}" onchange="onMsChange(this)" {% if et in f_log_event_type %}checked{% endif %}>
+        {{ et.replace('_',' ')|title }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="filter-group">
+    <label>Event Actor</label>
+    <select name="log_actor_id">
+      <option value="">Anyone</option>
+      {% for e in employees %}
+      <option value="{{ e.id }}" {% if f_log_actor_id == e.id %}selected{% endif %}>{{ e.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+
   <div class="filter-group">
     <label>From</label>
     <input type="date" name="date_from" value="{{ f_date_from }}">
@@ -248,7 +281,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 
   <div style="align-self:flex-end;display:flex;gap:6px">
     <button type="submit" class="btn btn-primary btn-sm">Apply</button>
-    {% if f_branch_id or f_dept_id or f_manager_id or f_priority or f_assignee_id or f_date_from or f_date_to %}
+    {% if f_branch_id or f_dept_id or f_manager_id or f_priority or f_assignee_id or f_date_from or f_date_to or f_log_search or f_log_event_type or f_log_actor_id %}
     <a href="/fms/dashboard?view={{ view }}{% if active_flow %}&flow_id={{ active_flow.id }}{% endif %}" class="btn btn-gray btn-sm">Clear</a>
     {% endif %}
   </div>
@@ -329,7 +362,15 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
 .jt-cell{text-align:center;color:var(--text-muted);font-size:11px}
 .jt-editable{cursor:pointer}
 .jt-editable:hover{outline:1px dashed #a78bfa;outline-offset:-1px}
+.st-badge.st-OVERDUE{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#f87171}
 </style>
+
+<div style="display:flex;gap:6px;margin-bottom:12px">
+  {% for key, label in [('', 'All'), ('active','Active'), ('overdue','Overdue'), ('closed','Closed')] %}
+  <a href="/fms/dashboard?view=table&flow_id={{ active_flow.id }}{% if key %}&status_filter={{ key }}{% endif %}"
+     class="btn btn-sm {% if f_status == key %}btn-primary{% else %}btn-outline{% endif %}">{{ label }}</a>
+  {% endfor %}
+</div>
 
 <div class="jt-wrap">
 <table class="jt" id="journeyTable">
@@ -378,7 +419,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     </td>
     <td style="font-size:12px;color:var(--text-muted)">{{ row.assignee_name }}</td>
     <td class="jt-cell"><span class="pri-badge pri-{{ t.priority }}">{{ t.priority | priority_label }}</span></td>
-    <td class="jt-cell"><span class="st-badge st-{{ t.status }}">{{ t.status.replace('_',' ') }}</span></td>
+    <td class="jt-cell"><span class="st-badge st-{{ row.display_status }}" title="Raw status: {{ t.status.replace('_',' ') }}">{{ row.display_status | title }}</span></td>
     <td style="font-size:12px">
       {% if row.split_count and row.split_count > 1 %}
         {# Phase 0 §6: a ticket with multiple active splits isn't at a single stage — show a compact distribution badge instead #}
@@ -505,6 +546,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     {% if next_stage_for_bulk %}
     <script>window._bulkNextStageName = {{ next_stage_for_bulk.name | tojson }};</script>
     {% endif %}
+    {% set earlier_stages = stage_table_stages | selectattr('order', 'lt', active_stage.order) | list %}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <div>
         <div style="font-size:14px;font-weight:600;color:var(--text-strong)">{{ active_stage.name }}</div>
@@ -695,26 +737,27 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           </button>
           {% endif %}
 
+          {# Mark Done / move to next stage — surfaced as a visible button
+             rather than buried in the 3-dot menu, same placement as Enter Data #}
+          {% if can_act and not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
+          {% set ns = next_stage_map.get(active_stage.id) %}
+          <button onclick="event.stopPropagation();openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ 'true' if active_stage.evidence_required else 'false' }}','{{ 'true' if active_stage.completion_note_required else 'false' }}','{{ active_stage.id }}','{{ row.split_id or "" }}')"
+                  class="btn btn-sm" style="font-size:11px;border-color:rgba(52,211,153,.5);color:#34d399" title="Mark this stage done and move on">
+            ✓ Mark Done{% if ns %} → {{ ns.name[:20] }}{% endif %}
+          </button>
+          {% endif %}
+
           {# Three-dot menu — visible to all roles, options depend on role/assignee #}
           <div style="position:relative;display:inline-block" class="fms-dot-menu-wrap">
             <button onclick="toggleDotMenu(this)" style="background:none;border:1px solid var(--border-med);border-radius:6px;width:28px;height:28px;cursor:pointer;color:var(--text-faint);font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center">⋮</button>
             <div class="fms-dot-menu" style="display:none;position:absolute;right:0;top:32px;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:8px;z-index:50;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,.5);overflow:hidden">
 
-              {# Mark Done — assignee or admin/manager, non-terminal, non-completed #}
-              {% if can_act and not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
-              {% set ns = next_stage_map.get(active_stage.id) %}
-              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ 'true' if active_stage.evidence_required else 'false' }}','{{ 'true' if active_stage.completion_note_required else 'false' }}','{{ active_stage.id }}','{{ row.split_id or "" }}')"
-                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:var(--text-primary);cursor:pointer;font-family:inherit">
-                ✓ Mark Done{% if ns %} → {{ ns.name[:20] }}{% endif %}
-              </button>
-              {% endif %}
-
-              {# Move Backward — assignee or admin/manager, not the first stage #}
-              {% set prev_s = prev_stage_map.get(active_stage.id) %}
-              {% if can_act and prev_s and t.status not in ('COMPLETED','CLOSED') %}
-              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openMoveBackwardModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ prev_s.id }}','{{ prev_s.name }}','{{ t.current_assignee_id or '' }}','{{ row.split_id or "" }}')"
+              {# Move Backward — assignee or admin/manager, any earlier stage
+                 (not just the adjacent one) — single action, stage picked in modal #}
+              {% if can_act and earlier_stages and t.status not in ('COMPLETED','CLOSED') %}
+              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openMoveBackwardModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ t.current_assignee_id or '' }}','{{ row.split_id or "" }}','{{ active_stage.id }}')"
                       style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#fbbf24;cursor:pointer;font-family:inherit">
-                ← Return to {{ prev_s.name[:20] }}
+                ← Return to earlier stage
               </button>
               {% endif %}
 
@@ -1194,55 +1237,19 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
 <!-- ═══ LOG VIEW — consolidated audit trail across all visible tickets ═══ -->
 {% if view == 'log' %}
 <style>
-.log-filter-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding:12px 14px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-subtle)}
-.log-filter-bar select,.log-filter-bar input{background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none}
-.log-filter-bar label{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);display:block;margin-bottom:3px}
 .log-row{border-bottom:1px solid var(--border-subtle)}
 .log-row:hover{background:var(--row-hover)}
 </style>
 
-<form method="get" action="/fms/dashboard" class="log-filter-bar">
-  <input type="hidden" name="view" value="log">
-  <input type="hidden" name="flow_id" value="{{ active_flow.id if active_flow else '' }}">
-  <div>
-    <label>Search ticket</label>
-    <input type="text" name="log_search" value="{{ f_log_search }}" placeholder="ID or title…">
-  </div>
-  <div>
-    <label>Event type</label>
-    <select name="log_event_type" multiple size="1" style="min-width:150px" onchange="this.size=Math.min(6,this.options.length+1)" onblur="this.size=1">
-      {% for et in log_event_types %}
-      <option value="{{ et }}" {% if et in f_log_event_type %}selected{% endif %}>{{ et.replace('_',' ')|title }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div>
-    <label>User</label>
-    <select name="log_actor_id">
-      <option value="">Anyone</option>
-      {% for e in employees %}
-      <option value="{{ e.id }}" {% if f_log_actor_id == e.id %}selected{% endif %}>{{ e.name }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div>
-    <label>From</label>
-    <input type="date" name="date_from" value="{{ f_date_from }}">
-  </div>
-  <div>
-    <label>To</label>
-    <input type="date" name="date_to" value="{{ f_date_to }}">
-  </div>
-  <div style="display:flex;gap:6px">
-    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
-    <a href="/fms/dashboard?flow_id={{ active_flow.id if active_flow else '' }}&view=log" class="btn btn-gray btn-sm">Clear</a>
-  </div>
-</form>
-
-<div class="card" style="padding:0;overflow:hidden">
+<div class="card" style="padding:0;overflow:auto">
 <table class="table">
   <thead>
-    <tr><th>Date</th><th>Ticket</th><th>Event</th><th>Detail</th><th>User</th></tr>
+    <tr>
+      <th>Date</th><th>Ticket</th><th>Event</th><th>Stage</th><th>Assignee</th>
+      <th>Reason / Note</th><th>TAT Window</th><th>Qty</th>
+      {% for col in log_columns %}<th style="white-space:nowrap">{{ col }}</th>{% endfor %}
+      <th>Detail</th><th>User</th>
+    </tr>
   </thead>
   <tbody>
     {% if log_rows %}
@@ -1254,12 +1261,20 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
         <div style="font-size:11px;color:var(--text-muted)">{{ r.ticket.title[:40] }}{% if r.ticket.title|length > 40 %}…{% endif %}</div>
       </td>
       <td><span class="badge badge-gray" style="font-size:10px;white-space:nowrap">{{ r.event_type.replace('_',' ')|title }}</span></td>
-      <td style="font-size:12px;color:var(--text-muted);max-width:420px">{{ r.detail or '—' }}</td>
+      <td style="font-size:12px;color:var(--text-muted);white-space:nowrap">{{ r.stage_name or '—' }}</td>
+      <td style="font-size:12px;color:var(--text-muted);white-space:nowrap">{{ r.assignee_name or '—' }}</td>
+      <td style="font-size:12px;color:var(--text-muted);max-width:220px">{{ r.reason_note or '—' }}</td>
+      <td style="font-size:11px;color:var(--text-faint);white-space:nowrap">{{ r.tat_window or '—' }}</td>
+      <td style="font-size:12px;color:var(--text-muted)">{{ r.qty if r.qty is not none else '—' }}</td>
+      {% for col in log_columns %}
+      <td style="font-size:12px;color:var(--text-muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.cols.get(col, '—') }}</td>
+      {% endfor %}
+      <td style="font-size:11px;color:var(--text-faint);max-width:260px">{{ r.detail or '—' }}</td>
       <td style="font-size:12px;color:var(--text-muted);white-space:nowrap">{{ r.actor_name }}</td>
     </tr>
     {% endfor %}
     {% else %}
-    <tr><td colspan="5" style="text-align:center;color:var(--text-faint);padding:40px">No log entries found for this filter.</td></tr>
+    <tr><td colspan="{{ 10 + log_columns|length }}" style="text-align:center;color:var(--text-faint);padding:40px">No log entries found for this filter.</td></tr>
     {% endif %}
   </tbody>
 </table>
@@ -1619,13 +1634,16 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
       <button onclick="closeMoveBackModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
     </div>
     <form id="fmsMoveBackForm" method="post">
-      <input type="hidden" name="next_stage_id"    id="fmsMoveBackStageId">
       <input type="hidden" name="new_assignee_id"  id="fmsMoveBackAssigneeId">
       <input type="hidden" name="split_id"         id="fmsMoveBackSplitId" value="">
       <input type="hidden" name="is_override"      value="false">
       <input type="hidden" name="qty_completed"    value="0">
       <input type="hidden" name="completion_note"  value="">
-      <div style="margin-bottom:14px;padding:10px 14px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:8px;font-size:12px;color:#fbbf24" id="fmsMoveBackTarget"></div>
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Return to stage <span style="color:#f87171">*</span></label>
+        <select name="next_stage_id" id="fmsMoveBackStageId" required
+                style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;box-sizing:border-box"></select>
+      </div>
       <div style="margin-bottom:16px">
         <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Reason for returning <span style="color:#f87171">*</span></label>
         <textarea name="return_reason" id="fmsMoveBackReason" required rows="3"
@@ -1764,9 +1782,12 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
   </div>
 </div>
 
-<!-- ── Phase 0: Splits list modal — shown when a ticket has >1 active split ── -->
+<!-- ── Phase 0: Splits list modal — shown when a ticket has >1 active split.
+     Each split gets the same action set as a main ticket row (Mark Done,
+     Return to earlier stage, Reassign, Help, Flag, Enter Data, Split, Close),
+     plus a checkbox to select 2+ splits and merge them back into one. ── -->
 <div id="fmsSplitsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
-  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:560px;max-width:95vw;max-height:85vh;overflow-y:auto">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:900px;max-width:96vw;max-height:88vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div>
         <div style="font-size:15px;font-weight:600;color:var(--text-strong)">⑂ Active Splits</div>
@@ -1774,10 +1795,69 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
       </div>
       <button onclick="closeSplitsModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
     </div>
-    <div id="fmsSplitsBody" style="display:flex;flex-direction:column;gap:8px"></div>
-    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+    <div style="overflow-x:auto">
+    <table class="table" style="font-size:12px">
+      <thead>
+        <tr>
+          <th style="width:28px"></th>
+          <th>Split</th><th>Stage</th><th>Assignee</th><th>Status</th><th>Qty</th><th>Last action</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="fmsSplitsBody"></tbody>
+    </table>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px">
+      <button type="button" id="fmsSplitsMergeBtn" onclick="openMergeSplitsModal()" class="btn btn-sm" style="display:none;border-color:rgba(96,165,250,.5);color:#60a5fa">
+        ⑂ Merge Selected (<span id="fmsSplitsMergeCount">0</span>)
+      </button>
       <button type="button" onclick="closeSplitsModal()" class="btn btn-sm">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- ── Merge Splits modal ──────────────────────────────────────────────────── -->
+<div id="fmsMergeSplitsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);align-items:center;justify-content:center;z-index:310;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:420px;max-width:95vw">
+    <div style="font-size:15px;font-weight:600;color:var(--text-strong);margin-bottom:4px">⑂ Merge Splits</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-bottom:16px" id="fmsMergeSplitsSubtitle"></div>
+    <form id="fmsMergeSplitsForm" method="post">
+      <div id="fmsMergeSplitsIds"></div>
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Reason for merging <span style="color:#f87171">*</span></label>
+        <textarea name="reason" id="fmsMergeSplitsReason" required rows="3"
+                  style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
+                  placeholder="Why are these splits being merged back together?"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="closeMergeSplitsModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm" style="background:#60a5fa;border-color:#60a5fa;color:#000">Merge</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Close Split modal ───────────────────────────────────────────────────── -->
+<div id="fmsCloseSplitModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);align-items:center;justify-content:center;z-index:310;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:420px;max-width:95vw">
+    <div style="font-size:15px;font-weight:600;color:var(--text-strong);margin-bottom:4px">Close this Split</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-bottom:16px" id="fmsCloseSplitSubtitle"></div>
+    <form id="fmsCloseSplitForm" method="post">
+      <input type="hidden" name="action" value="close_split">
+      <input type="hidden" name="split_id" id="fmsCloseSplitId">
+      <div style="margin-bottom:14px;padding:10px 14px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;font-size:12px;color:#f87171">
+        This split's quantity stops counting toward the ticket's active total — if that leaves the ticket short of its target quantity, the existing qty-discrepancy flag will surface it.
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Reason for closing <span style="color:#f87171">*</span></label>
+        <textarea name="reason" id="fmsCloseSplitReason" required rows="3"
+                  style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
+                  placeholder="Why is this split being closed?"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="closeCloseSplitModal()" class="btn btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-sm" style="background:#f59e0b;border-color:#f59e0b;color:#000">Close Split</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -2287,6 +2367,20 @@ const NEXT_STAGE_MAP = {
   {% endfor %}
 };
 
+// Every stage of the active flow, ordered — used to compute "earlier stages"
+// for any given current stage (main ticket rows and split rows alike),
+// independent of whichever stage the board happens to be showing.
+const ALL_STAGES_ORDERED = [
+  {% for s in stage_table_stages %}
+  { id: {{ s.id | tojson }}, name: {{ s.name | tojson }}, order: {{ s.order }} }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+function earlierStagesFor(stageId) {
+  const cur = ALL_STAGES_ORDERED.find(s => s.id === stageId);
+  if (!cur) return [];
+  return ALL_STAGES_ORDERED.filter(s => s.order < cur.order).sort((a, b) => b.order - a.order);
+}
+
 const STAGE_CF_DEFS = {
   {% for s in stage_table_stages %}
   {% set cf = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
@@ -2691,13 +2785,18 @@ function submitNotify(ticketId, flowId, stageId) {
 }
 
 /* ── Move Backward modal ─────────────────────────────────────────────────── */
-function openMoveBackwardModal(ticketId, displayId, prevStageId, prevStageName, currentAssigneeId, splitId) {
+function openMoveBackwardModal(ticketId, displayId, currentAssigneeId, splitId, currentStageId) {
   document.getElementById('fmsMoveBackForm').action = '/fms/tickets/' + ticketId + '/transition';
-  document.getElementById('fmsMoveBackStageId').value = prevStageId;
   document.getElementById('fmsMoveBackAssigneeId').value = currentAssigneeId;
   document.getElementById('fmsMoveBackSplitId').value = splitId || '';
   document.getElementById('fmsMoveBackSubtitle').textContent = displayId;
-  document.getElementById('fmsMoveBackTarget').textContent = '→ Return to: ' + prevStageName;
+  const sel = document.getElementById('fmsMoveBackStageId');
+  sel.innerHTML = '';
+  earlierStagesFor(currentStageId).forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id; opt.textContent = s.name;
+    sel.appendChild(opt);
+  });
   document.getElementById('fmsMoveBackReason').value = '';
   document.getElementById('fmsMoveBackModal').style.display = 'flex';
 }
@@ -2741,58 +2840,117 @@ function closeHelpModal() {
   document.getElementById('fmsHelpModal').style.display = 'none';
 }
 
-/* ── Phase 0: Splits list modal ──────────────────────────────────────────── */
+/* ── Phase 0/A5: Splits list modal — full ticket-row action parity per split,
+   plus multi-select + merge back into one split. ─────────────────────────── */
+var _fmsSplitsTicketId = null;
 function openSplitsModal(ticketId, displayId, splits) {
+  _fmsSplitsTicketId = ticketId;
   document.getElementById('fmsSplitsSubtitle').textContent = displayId;
   var body = document.getElementById('fmsSplitsBody');
   body.innerHTML = '';
   splits.forEach(function(s) {
-    var row = document.createElement('div');
-    row.style.cssText = 'border:1px solid var(--border-med);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px';
-    var left = document.createElement('div');
-    var qtyLabel = (s.qty === null || s.qty === undefined) ? '' : (' — ' + s.qty + ' units');
-    left.innerHTML = '<div style="font-size:13px;font-weight:600;color:var(--text-primary)">' + s.label + qtyLabel + '</div>' +
-      '<div style="font-size:11px;color:var(--text-faint);margin-top:2px">' + s.stage_name + ' · ' + s.assignee_name + ' · <span class="st-badge st-' + s.status + '">' + s.status.replace('_',' ') + '</span></div>' +
-      (s.updated_at ? '<div style="font-size:10px;color:var(--text-faint);margin-top:2px">Last action: ' + s.updated_at + '</div>' : '');
-    var right = document.createElement('div');
-    right.style.cssText = 'display:flex;gap:6px;flex-shrink:0';
-    if (s.status !== 'COMPLETED' && s.status !== 'CLOSED') {
+    var tr = document.createElement('tr');
+    var isOpen = (s.status !== 'COMPLETED' && s.status !== 'CLOSED');
+
+    var tdCb = document.createElement('td');
+    if (isOpen) {
+      var cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.className = 'fms-split-cb'; cb.value = s.id;
+      cb.style.cssText = 'cursor:pointer;width:14px;height:14px';
+      cb.onchange = updateMergeSelectedCount;
+      tdCb.appendChild(cb);
+    }
+    tr.appendChild(tdCb);
+
+    var tdLabel = document.createElement('td');
+    tdLabel.innerHTML = '<span style="font-weight:600;color:var(--text-primary)">' + s.label + '</span>';
+    tr.appendChild(tdLabel);
+
+    var tdStage = document.createElement('td'); tdStage.textContent = s.stage_name; tr.appendChild(tdStage);
+    var tdAssignee = document.createElement('td'); tdAssignee.textContent = s.assignee_name; tr.appendChild(tdAssignee);
+    var tdStatus = document.createElement('td');
+    tdStatus.innerHTML = '<span class="st-badge st-' + s.status + '">' + s.status.replace(/_/g,' ') + '</span>';
+    tr.appendChild(tdStatus);
+    var tdQty = document.createElement('td'); tdQty.textContent = (s.qty === null || s.qty === undefined) ? '—' : s.qty; tr.appendChild(tdQty);
+    var tdUpdated = document.createElement('td'); tdUpdated.style.cssText = 'font-size:11px;color:var(--text-faint);white-space:nowrap';
+    tdUpdated.textContent = s.updated_at || '—'; tr.appendChild(tdUpdated);
+
+    var tdActions = document.createElement('td');
+    var actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap';
+    if (isOpen) {
       var stageCfDefs = (typeof STAGE_CF_DEFS !== 'undefined') ? (STAGE_CF_DEFS[s.stage_id] || []) : [];
       if (stageCfDefs.length) {
-        var dataBtn = document.createElement('button');
-        dataBtn.className = 'btn btn-sm'; dataBtn.style.cssText = 'font-size:11px;color:#a78bfa';
-        dataBtn.textContent = '✏ Data';
-        dataBtn.title = 'Fill stage data fields for ' + s.label;
-        dataBtn.onclick = function() { openStageDataModal(ticketId, displayId, s.stage_name, s.stage_id, s.id); };
-        right.appendChild(dataBtn);
+        actions.appendChild(mkBtn('✏ Data', '#a78bfa', function() { openStageDataModal(ticketId, displayId, s.stage_name, s.stage_id, s.id); }));
       }
       var ns = NEXT_STAGE_MAP[s.stage_id];
       if (ns) {
-        var advBtn = document.createElement('button');
-        advBtn.className = 'btn btn-sm'; advBtn.style.fontSize = '11px';
-        advBtn.textContent = '→ ' + ns.name;
-        advBtn.onclick = function() { openStageCompleteModal(ticketId, displayId, s.stage_name, 'false', 'false', s.stage_id, s.id); closeSplitsModal(); };
-        right.appendChild(advBtn);
+        actions.appendChild(mkBtn('→ ' + ns.name, null, function() { openStageCompleteModal(ticketId, displayId, s.stage_name, 'false', 'false', s.stage_id, s.id); closeSplitsModal(); }));
       }
-      var splitBtn = document.createElement('button');
-      splitBtn.className = 'btn btn-sm'; splitBtn.style.cssText = 'font-size:11px;color:#60a5fa';
-      splitBtn.textContent = '✂ Split';
-      splitBtn.onclick = function() { openSplitActionModal(ticketId, displayId, s.id, s.stage_id, s.qty !== null && s.qty !== undefined); closeSplitsModal(); };
-      right.appendChild(splitBtn);
-      var flagBtn = document.createElement('button');
-      flagBtn.className = 'btn btn-sm'; flagBtn.style.cssText = 'font-size:11px;color:#f87171';
-      flagBtn.textContent = '🚩';
-      flagBtn.title = 'Flag this split';
-      flagBtn.onclick = function() { openFlagModal(ticketId, displayId, s.id); closeSplitsModal(); };
-      right.appendChild(flagBtn);
+      if (earlierStagesFor(s.stage_id).length) {
+        actions.appendChild(mkBtn('← Return', '#fbbf24', function() { openMoveBackwardModal(ticketId, displayId, s.assignee_id, s.id, s.stage_id); closeSplitsModal(); }));
+      }
+      actions.appendChild(mkBtn('👤 Reassign', null, function() { openAssigneeModal(ticketId, displayId, s.assignee_id, s.id); closeSplitsModal(); }));
+      actions.appendChild(mkBtn('🆘 Help', '#a78bfa', function() { openHelpModal(ticketId, displayId, s.id); closeSplitsModal(); }));
+      actions.appendChild(mkBtn('✂ Split', '#60a5fa', function() { openSplitActionModal(ticketId, displayId, s.id, s.stage_id, s.qty !== null && s.qty !== undefined); closeSplitsModal(); }));
+      actions.appendChild(mkBtn('🚩 Flag', '#f87171', function() { openFlagModal(ticketId, displayId, s.id); closeSplitsModal(); }));
+      actions.appendChild(mkBtn('Close', '#f59e0b', function() { openCloseSplitModal(ticketId, displayId, s.id, s.label); }));
     }
-    row.appendChild(left); row.appendChild(right);
-    body.appendChild(row);
+    tdActions.appendChild(actions);
+    tr.appendChild(tdActions);
+
+    body.appendChild(tr);
   });
+  updateMergeSelectedCount();
   document.getElementById('fmsSplitsModal').style.display = 'flex';
+}
+function mkBtn(label, color, onclick) {
+  var b = document.createElement('button');
+  b.type = 'button'; b.className = 'btn btn-sm';
+  b.style.cssText = 'font-size:11px;white-space:nowrap' + (color ? (';color:' + color) : '');
+  b.textContent = label;
+  b.onclick = onclick;
+  return b;
 }
 function closeSplitsModal() {
   document.getElementById('fmsSplitsModal').style.display = 'none';
+}
+function updateMergeSelectedCount() {
+  var n = document.querySelectorAll('.fms-split-cb:checked').length;
+  document.getElementById('fmsSplitsMergeCount').textContent = n;
+  document.getElementById('fmsSplitsMergeBtn').style.display = n >= 2 ? 'inline-block' : 'none';
+}
+
+/* ── Merge Splits modal ──────────────────────────────────────────────────── */
+function openMergeSplitsModal() {
+  var ids = Array.from(document.querySelectorAll('.fms-split-cb:checked')).map(function(cb) { return cb.value; });
+  if (ids.length < 2) return;
+  document.getElementById('fmsMergeSplitsForm').action = '/fms/tickets/' + _fmsSplitsTicketId + '/splits/merge';
+  document.getElementById('fmsMergeSplitsSubtitle').textContent = ids.length + ' splits selected — the split furthest along the flow survives and absorbs the rest.';
+  var idsDiv = document.getElementById('fmsMergeSplitsIds');
+  idsDiv.innerHTML = '';
+  ids.forEach(function(id) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'split_ids'; inp.value = id;
+    idsDiv.appendChild(inp);
+  });
+  document.getElementById('fmsMergeSplitsReason').value = '';
+  document.getElementById('fmsMergeSplitsModal').style.display = 'flex';
+}
+function closeMergeSplitsModal() {
+  document.getElementById('fmsMergeSplitsModal').style.display = 'none';
+}
+
+/* ── Close Split modal ───────────────────────────────────────────────────── */
+function openCloseSplitModal(ticketId, displayId, splitId, splitLabel) {
+  document.getElementById('fmsCloseSplitForm').action = '/fms/tickets/' + ticketId + '/action';
+  document.getElementById('fmsCloseSplitId').value = splitId;
+  document.getElementById('fmsCloseSplitSubtitle').textContent = displayId + ' — ' + splitLabel;
+  document.getElementById('fmsCloseSplitReason').value = '';
+  document.getElementById('fmsCloseSplitModal').style.display = 'flex';
+}
+function closeCloseSplitModal() {
+  document.getElementById('fmsCloseSplitModal').style.display = 'none';
 }
 
 /* ── History modal — full audit trail (FMSEvent) for a ticket ───────────── */

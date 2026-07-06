@@ -147,9 +147,51 @@ def _ctx(request, user, db, **kw):
             **get_nav_flags(db, user, tenant),
             **kw}
 
-def _log(db: Session, ticket_id: str, actor_id: str, event_type: str, detail: str = ""):
+_LOG_META_SEP = "\x1f"  # unit separator — never appears in normal text/JSON values
+
+def _log(db: Session, ticket_id: str, actor_id: str, event_type: str, detail: str = "", meta: dict | None = None):
+    """meta (optional) carries structured data — stage name, assignee, TAT window,
+    custom-field values keyed by label, etc. — appended after a control-char
+    separator so the Log view can render real columns instead of parsing free
+    text, with zero schema change and full backward-compat for old rows."""
+    stored = detail
+    if meta:
+        import json as _json_meta
+        stored = f"{detail}{_LOG_META_SEP}{_json_meta.dumps(meta)}"
     db.add(FMSEvent(ticket_id=ticket_id, actor_id=actor_id,
-                    event_type=event_type, detail=detail))
+                    event_type=event_type, detail=stored))
+
+def _split_log_meta(detail: str) -> tuple[str, dict]:
+    """Inverse of _log's meta encoding. Returns (display_text, meta_dict)."""
+    if not detail or _LOG_META_SEP not in detail:
+        return detail or "", {}
+    text, _, raw_meta = detail.partition(_LOG_META_SEP)
+    import json as _json_meta
+    try:
+        return text, _json_meta.loads(raw_meta)
+    except Exception:
+        return text, {}
+
+def _fmt_cf(values: dict) -> str:
+    """Render a custom-field value dict (ticket or stage columns) for log detail text."""
+    if not values:
+        return "—"
+    return ", ".join(f"{k}={v}" for k, v in values.items())
+
+def _cf_by_label(values: dict, field_defs: list) -> dict:
+    """Translate a fid-keyed custom-field value dict to label-keyed, using the
+    field definitions (each {'id':..., 'label':...}) — for structured log meta."""
+    if not values:
+        return {}
+    label_by_id = {fd.get("id", ""): fd.get("label") or fd.get("id", "") for fd in (field_defs or [])}
+    return {label_by_id.get(fid, fid): val for fid, val in values.items()}
+
+def _fmt_window(start, end) -> str:
+    if not start and not end:
+        return "—"
+    s = start.strftime("%d %b %H:%M") if start else "?"
+    e = end.strftime("%d %b %H:%M") if end else "?"
+    return f"{s} → {e}"
 
 def _admin_ids(db, tenant_id):
     return [u.id for u in db.query(User).filter(
@@ -1316,13 +1358,41 @@ def _fms_dashboard_inner(
 
     # ── Log view — consolidated audit trail (all events + field edits) across
     # every ticket the user can see, filterable by event type / user / date /
-    # ticket search. Reuses base_q, which is already role- and filter-bar-scoped.
+    # ticket search / flow. Reuses base_q, which is already role- and
+    # filter-bar-scoped, and (when a flow tab is selected) flow-scoped too —
+    # so log_columns below reflects that one flow's actual custom columns.
     log_rows = []
     log_event_types = []
+    log_columns = []
     if view == "log":
         log_event_types = sorted({
             r[0] for r in db.query(FMSEvent.event_type).distinct().all()
         } | {"FIELD_EDITED", "FIELD_RECALCULATED"})
+
+        # Dynamic columns — every custom-field label defined on the selected
+        # flow (ticket-creation fields + every stage's own columns), so the
+        # log table's columns always match what that specific flow captures.
+        if active_flow:
+            seen_labels = set()
+            if active_flow.ticket_form_fields_json:
+                try:
+                    for fd in _json.loads(active_flow.ticket_form_fields_json):
+                        lbl = fd.get("label")
+                        if lbl and lbl not in seen_labels and fd.get("field_type") not in ("__priority__", "__due_date__"):
+                            seen_labels.add(lbl); log_columns.append(lbl)
+                except Exception:
+                    pass
+            for s in sorted([s for s in active_flow.stages if not s.is_deleted], key=lambda s: s.order):
+                if not s.custom_fields_json:
+                    continue
+                try:
+                    for fd in _json.loads(s.custom_fields_json):
+                        lbl = fd.get("label")
+                        if lbl and lbl not in seen_labels:
+                            seen_labels.add(lbl); log_columns.append(lbl)
+                except Exception:
+                    pass
+
         log_tids = [row[0] for row in base_q.with_entities(FMSTicket.id).all()]
         if log_tids:
             tickets_by_id = {t.id: t for t in db.query(FMSTicket).filter(FMSTicket.id.in_(log_tids)).all()}
@@ -1361,9 +1431,21 @@ def _fms_dashboard_inner(
                 t = tickets_by_id.get(e.ticket_id)
                 if not t or not _matches_search(t):
                     continue
+                text, meta = _split_log_meta(e.detail)
+                row_cols = {lbl: v for lbl, v in (meta.get("custom_fields") or {}).items() if lbl in log_columns}
+                if meta.get("from_stage_name") and meta.get("stage_name"):
+                    stage_display = f"{meta['from_stage_name']} → {meta['stage_name']}"
+                else:
+                    stage_display = meta.get("stage_name")
                 log_rows.append({
                     "at": e.created_at, "ticket": t, "event_type": e.event_type,
-                    "detail": e.detail, "actor_name": e.actor.name if e.actor else "System",
+                    "detail": text, "actor_name": e.actor.name if e.actor else "System",
+                    "stage_name": stage_display,
+                    "assignee_name": meta.get("assignee_name"),
+                    "reason_note": meta.get("reason") or meta.get("note"),
+                    "tat_window": meta.get("tat_window"),
+                    "qty": meta.get("qty"),
+                    "cols": row_cols,
                 })
 
             if not log_event_type or "FIELD_EDITED" in log_event_type or "FIELD_RECALCULATED" in log_event_type:
@@ -1374,11 +1456,19 @@ def _fms_dashboard_inner(
                     t = tickets_by_id.get(ed.ticket_id)
                     if not t or not _matches_search(t):
                         continue
+                    row_cols = {}
+                    if ed.field_label in log_columns:
+                        row_cols[ed.field_label] = f"{ed.old_value or '—'} → {ed.new_value or '—'}"
                     log_rows.append({
                         "at": ed.edited_at, "ticket": t, "event_type": ev_type,
-                        "detail": f"{ed.field_label or ed.field_id}: {ed.old_value or '—'} → {ed.new_value or '—'}"
-                                  + (f" ({ed.reason})" if ed.reason else ""),
+                        "detail": f"{ed.field_label or ed.field_id}: {ed.old_value or '—'} → {ed.new_value or '—'}",
                         "actor_name": ed.edited_by.name if ed.edited_by else "System",
+                        "stage_name": ed.stage.name if ed.stage else None,
+                        "assignee_name": None,
+                        "reason_note": ed.reason,
+                        "tat_window": None,
+                        "qty": None,
+                        "cols": row_cols,
                     })
 
             log_rows.sort(key=lambda r: r["at"], reverse=True)
@@ -1533,7 +1623,9 @@ def _fms_dashboard_inner(
                     {
                         "id": s.id, "label": s.split_label, "qty": s.qty,
                         "stage_id": s.current_stage_id,
+                        "stage_order": s.current_stage.order if s.current_stage else -1,
                         "stage_name": s.current_stage.name if s.current_stage else "—",
+                        "assignee_id": s.current_assignee_id or "",
                         "assignee_name": s.current_assignee.name if s.current_assignee else "—",
                         "status": s.status,
                         "updated_at": s.updated_at.strftime("%d %b %Y, %H:%M") if s.updated_at else None,
@@ -1675,16 +1767,31 @@ def _fms_dashboard_inner(
                 })
 
             _t_active_splits = _active_splits(db, t.id)
+
+            # Simplified 3-way status for the Table view's quick filter:
+            # CLOSED (terminal), OVERDUE (still open but past its due date or
+            # its current stage's planned end), else ACTIVE.
+            if t.status in ("COMPLETED", "CLOSED"):
+                display_status = "CLOSED"
+            else:
+                cur_planned_end = pd.get(t.current_stage_id, (None, None))[1] if t.current_stage_id else None
+                is_overdue = (t.due_at and t.due_at < now) or (cur_planned_end and cur_planned_end < now)
+                display_status = "OVERDUE" if is_overdue else "ACTIVE"
+
             table_tickets.append({
                 "ticket":        t,
                 "assignee_name": t.current_assignee.name if t.current_assignee else "—",
                 "stages":        stages_info,
                 "edit_info":     edit_info_by_stage.get("", {}),
+                "display_status": display_status,
                 # Phase 0 §6: stage-distribution badge for multi-split tickets
                 "split_count":   len(_t_active_splits),
                 "split_stage_names": [s.current_stage.name for s in _t_active_splits
                                        if s.current_stage and s.status not in ("COMPLETED", "CLOSED")],
             })
+
+        if status_filter and status_filter.upper() in ("ACTIVE", "OVERDUE", "CLOSED"):
+            table_tickets = [r for r in table_tickets if r["display_status"] == status_filter.upper()]
 
     # ── Timeline view ─────────────────────────────────────────────────────────
     timeline_data = []
@@ -1830,6 +1937,7 @@ def _fms_dashboard_inner(
         timeline_data=timeline_data,
         # Log view — consolidated audit trail
         log_rows=log_rows,
+        log_columns=log_columns,
         log_event_types=log_event_types,
         f_log_event_type=list(log_event_type),
         f_log_actor_id=log_actor_id or "",
@@ -2010,8 +2118,25 @@ async def fms_ticket_create(
         planned_start=first_ps,
         planned_end=first_pe,
     ))
-    _log(db, ticket.id, user.id, "CREATED", title)
-    _log(db, ticket.id, user.id, "STAGE_ENTERED", stage.name)
+    _assignee_obj = db.query(User).filter(User.id == assignee_id).first() if assignee_id else None
+    _created_detail = (
+        f"Title: {title} | Priority: {priority or '—'} | Qty: {target_qty or '—'} {qty_unit or ''} | "
+        f"Due: {ticket.due_at.strftime('%d %b %Y') if ticket.due_at else '—'} | "
+        f"Assignee: {_assignee_obj.name if _assignee_obj else '—'} | "
+        f"Custom fields: {_fmt_cf(ticket_custom_fields)}"
+    )
+    _log(db, ticket.id, user.id, "CREATED", _created_detail, meta={
+        "priority": priority, "qty": target_qty, "qty_unit": qty_unit,
+        "due_at": ticket.due_at.isoformat() if ticket.due_at else None,
+        "assignee_name": _assignee_obj.name if _assignee_obj else None,
+        "custom_fields": _cf_by_label(ticket_custom_fields, ticket_form_fields),
+    })
+    _log(db, ticket.id, user.id, "STAGE_ENTERED",
+         f"Stage: {stage.name} | TAT window: {_fmt_window(first_ps, first_pe)} | "
+         f"Target TAT: {stage.target_tat_hours or '—'}h", meta={
+             "stage_name": stage.name, "assignee_name": _assignee_obj.name if _assignee_obj else None,
+             "tat_window": _fmt_window(first_ps, first_pe), "target_tat_hours": stage.target_tat_hours,
+         })
     db.commit()
     db.refresh(ticket)
 
@@ -3145,12 +3270,13 @@ async def fms_transition(
         next_order = next_stage.order
         direction  = "BACKWARD" if next_order < cur_order else "FORWARD"
 
-    # A1-5: Enforce linear stage movement (skip for terminal-complete)
+    # A1-5: Enforce linear stage movement (skip for terminal-complete).
+    # BACKWARD moves are allowed to any earlier stage in the flow (not just the
+    # adjacent one) — gated below by a mandatory return_reason instead of the
+    # one-step-only restriction, which only applies to FORWARD movement.
     if not is_override and not terminal_complete:
         if direction == "FORWARD" and next_order != cur_order + 1:
             raise HTTPException(400, "Tickets can only move to the next stage in sequence")
-        if direction == "BACKWARD" and next_order != cur_order - 1:
-            raise HTTPException(400, "Tickets can only move to the previous stage in sequence")
 
     if is_override:
         # 2-C-7: manager override
@@ -3158,18 +3284,24 @@ async def fms_transition(
             raise HTTPException(403, "Only managers/admins can override")
         direction = "MANAGER_OVERRIDE"
 
-    # 2-C-4: backward requires reason
-    if direction == "BACKWARD" and not return_reason.strip():
-        raise HTTPException(400, "Return reason is required for backward movement")
+    # 2-C-4: backward requires a valid (non-trivial) reason — required regardless
+    # of how many stages the ticket is being moved back.
+    if direction == "BACKWARD" and len(return_reason.strip()) < 5:
+        raise HTTPException(400, "A valid return reason (at least 5 characters) is required to move a ticket back")
 
-    # Stage requires completion note
-    if cur_stage and cur_stage.completion_note_required and not completion_note.strip():
+    # Stage requires completion note — only enforced when actually completing
+    # the stage's work (FORWARD/terminal). A BACKWARD return or manager
+    # override isn't "finishing" the stage, so it's exempt (same rule already
+    # applied to required custom fields below).
+    if (cur_stage and cur_stage.completion_note_required and not completion_note.strip()
+            and direction not in ("BACKWARD", "MANAGER_OVERRIDE")):
         raise HTTPException(400, f"Stage '{cur_stage.name}' requires a completion note")
 
-    # Stage requires evidence upload
+    # Stage requires evidence upload — same BACKWARD/override exemption as above.
     evidence_url = None
     evidence_filename = None
-    if cur_stage and getattr(cur_stage, "evidence_required", False):
+    if (cur_stage and getattr(cur_stage, "evidence_required", False)
+            and direction not in ("BACKWARD", "MANAGER_OVERRIDE")):
         has_file = (evidence_file is not None
                     and evidence_file.filename
                     and evidence_file.filename.strip())
@@ -3203,8 +3335,9 @@ async def fms_transition(
                 continue  # evaluated in second pass
             key = f"cf__{fid}"
             val = str(form_data.get(key, "") or "").strip()
-            # Required-field enforcement only applies on FORWARD moves
-            if fdef.get("required") and not val and direction != "BACKWARD":
+            # Required-field enforcement only applies on FORWARD moves — a
+            # BACKWARD return or manager override isn't "finishing" the stage.
+            if fdef.get("required") and not val and direction not in ("BACKWARD", "MANAGER_OVERRIDE"):
                 missing_required.append(fdef.get("label", fid))
             if val:
                 custom_fields_data[fid] = val
@@ -3273,8 +3406,16 @@ async def fms_transition(
         open_h.evidence_filename      = evidence_filename
         open_h.custom_fields_data_json = _json.dumps(custom_fields_data) if custom_fields_data else None
         _log(db, ticket_id, user.id, "STAGE_EXITED",
-             f"From: {cur_stage.name if cur_stage else '?'}{split_label_suffix} | "
-             f"note: {completion_note[:80]}" if completion_note else "")
+             f"Stage: {cur_stage.name if cur_stage else '?'}{split_label_suffix} | "
+             f"Entered: {open_h.entered_at.strftime('%d %b %H:%M') if open_h.entered_at else '—'} | "
+             f"Qty completed: {qty} | Note: {completion_note[:80] or '—'} | "
+             f"Evidence: {evidence_filename or '—'} | "
+             f"Custom fields: {_fmt_cf(custom_fields_data)}", meta={
+                 "stage_name": cur_stage.name if cur_stage else None,
+                 "qty": qty, "note": completion_note.strip() or None,
+                 "evidence_filename": evidence_filename,
+                 "custom_fields": _cf_by_label(custom_fields_data, field_defs if cur_stage else []),
+             })
 
     ticket.updated_at = datetime.utcnow()
     split.updated_at = datetime.utcnow()
@@ -3305,7 +3446,11 @@ async def fms_transition(
         _sync_ticket_cache(db, ticket)
         _check_qty_discrepancy(db, ticket, user.id)
         _log(db, ticket_id, user.id, "COMPLETED",
-             f"Completed terminal stage: {cur_stage.name if cur_stage else '?'}{split_label_suffix}")
+             f"Completed terminal stage: {cur_stage.name if cur_stage else '?'}{split_label_suffix} | "
+             f"Qty: {qty} | Custom fields: {_fmt_cf(custom_fields_data)}", meta={
+                 "stage_name": cur_stage.name if cur_stage else None, "qty": qty,
+                 "custom_fields": _cf_by_label(custom_fields_data, field_defs if cur_stage else []),
+             })
         db.commit()
         admins = _admin_ids(db, user.tenant_id)
         broadcast_sync(user.tenant_id, admins, FMS_STAGE_TRANSITION, {
@@ -3318,13 +3463,36 @@ async def fms_transition(
             f"{'&flow_id=' + ticket.flow_id if ticket.flow_id else ''}"
         )
 
-    # Look up planned dates for next stage from ticket schedule
+    # Look up planned dates for next stage from ticket schedule.
+    # BACKWARD moves reset the TAT clock: the target stage and every stage
+    # after it (in flow order) get a fresh planned_start/planned_end chain
+    # starting now, based on each stage's own target_tat_hours — the old
+    # schedule (computed under the original timeline) no longer applies once
+    # the ticket has been sent back.
     import json as _json2
     _sched: dict = {}
     try:
         _sched = _json2.loads(ticket.stage_schedule_json or "{}")
     except Exception:
         _sched = {}
+
+    if direction == "BACKWARD":
+        _flow_stages_sched = sorted(
+            [s for s in ticket.flow.stages if not s.is_deleted], key=lambda s: s.order
+        )
+        _cursor = datetime.utcnow()
+        _reached = False
+        for _fs in _flow_stages_sched:
+            if _fs.id == next_stage_id:
+                _reached = True
+            if not _reached:
+                continue
+            _tat_h = _fs.target_tat_hours or 24
+            _p_end = _cursor + timedelta(hours=_tat_h)
+            _sched[_fs.id] = {"planned_start": _cursor.isoformat(), "planned_end": _p_end.isoformat()}
+            _cursor = _p_end
+        ticket.stage_schedule_json = _json2.dumps(_sched)
+
     _ns = _sched.get(next_stage_id, {})
     _nps = datetime.fromisoformat(_ns["planned_start"]) if _ns.get("planned_start") else None
     _npe = datetime.fromisoformat(_ns["planned_end"])   if _ns.get("planned_end")   else None
@@ -3363,7 +3531,8 @@ async def fms_transition(
                     raise HTTPException(400, err)
         split.status = "COMPLETED"
         _log(db, ticket_id, user.id, "COMPLETED",
-             f"Reached terminal stage: {next_stage.name}{split_label_suffix}")
+             f"Reached terminal stage: {next_stage.name}{split_label_suffix}",
+             meta={"stage_name": next_stage.name})
     else:
         split.status = "ACTIVE"
 
@@ -3372,9 +3541,22 @@ async def fms_transition(
 
     event_type = "RETURNED" if direction == "BACKWARD" else (
         "MANAGER_OVERRIDE" if direction == "MANAGER_OVERRIDE" else "STAGE_ENTERED")
-    detail_parts = [f"To: {next_stage.name}{split_label_suffix}"]
+    new_assignee_obj = db.query(User).filter(User.id == new_assignee_id).first()
+    detail_parts = [
+        f"From: {cur_stage.name if cur_stage else '—'} → To: {next_stage.name}{split_label_suffix}",
+        f"Assignee: {new_assignee_obj.name if new_assignee_obj else '—'}",
+        f"TAT window: {_fmt_window(_nps, _npe)} (target {next_stage.target_tat_hours or '—'}h)",
+    ]
+    if direction == "BACKWARD":
+        detail_parts.append(f"Stages skipped back: {cur_order - next_order}")
     if return_reason: detail_parts.append(f"Reason: {return_reason}")
-    _log(db, ticket_id, user.id, event_type, " | ".join(detail_parts))
+    _log(db, ticket_id, user.id, event_type, " | ".join(detail_parts), meta={
+        "stage_name": next_stage.name,
+        "from_stage_name": cur_stage.name if cur_stage else None,
+        "assignee_name": new_assignee_obj.name if new_assignee_obj else None,
+        "tat_window": _fmt_window(_nps, _npe), "target_tat_hours": next_stage.target_tat_hours,
+        "reason": return_reason.strip() or None,
+    })
 
     db.commit()
 
@@ -3384,7 +3566,6 @@ async def fms_transition(
     notify_fms_stage_transition(
         user.tenant_id, ticket_id, f"{ticket.title}{split_label_suffix}",
         next_stage.name, user.id, admins, managers, new_assignee_id)
-    new_assignee_obj = db.query(User).filter(User.id == new_assignee_id).first()
     if new_assignee_obj:
         send_whatsapp_for_fms_stage_transition(
             db, user.tenant_id, ticket_id, f"{ticket.title}{split_label_suffix}",
@@ -3692,6 +3873,73 @@ async def fms_split_ticket(
     )
 
 
+@router.post("/tickets/{ticket_id}/splits/merge")
+def fms_merge_splits(
+    ticket_id: str,
+    split_ids: List[str] = Form(...),
+    reason: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Merge two or more of a ticket's active splits back into one — the
+    inverse of 'Split This Ticket'. The split furthest along the flow
+    (highest current_stage.order, ties broken by most recent updated_at)
+    survives and absorbs the others' qty; the rest are retired
+    (is_deleted=True, status=CLOSED) with their open history rows closed,
+    mirroring how fms_split_ticket already retires a fully-carved-off split."""
+    ticket = _get_ticket(db, ticket_id, user.tenant_id)
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403, "Managers only")
+    if not reason.strip():
+        raise HTTPException(400, "A reason is required to merge splits")
+
+    splits = db.query(FMSTicketSplit).filter(
+        FMSTicketSplit.id.in_(split_ids),
+        FMSTicketSplit.ticket_id == ticket_id,
+        FMSTicketSplit.is_deleted == False,
+    ).all()
+    if len(splits) < 2:
+        raise HTTPException(400, "Select at least 2 active splits to merge")
+
+    splits_sorted = sorted(
+        splits,
+        key=lambda s: ((s.current_stage.order if s.current_stage else -1), s.updated_at),
+        reverse=True,
+    )
+    primary = splits_sorted[0]
+    others = splits_sorted[1:]
+
+    total_qty = sum((s.qty or 0) for s in splits)
+    primary.qty = total_qty if any(s.qty is not None for s in splits) else None
+    primary.updated_at = datetime.utcnow()
+
+    merged_labels = [s.split_label for s in others]
+    for s in others:
+        open_h = _open_history(db, ticket_id, split_id=s.id)
+        if open_h:
+            open_h.exited_at = datetime.utcnow()
+            open_h.completion_note = f"Merged into {primary.split_label}. {reason.strip()}"
+        s.status = "CLOSED"
+        s.is_deleted = True
+        s.updated_at = datetime.utcnow()
+
+    _sync_ticket_cache(db, ticket)
+    _check_qty_discrepancy(db, ticket, user.id)
+    ticket.updated_at = datetime.utcnow()
+    stage_name = primary.current_stage.name if primary.current_stage else None
+    _log(db, ticket_id, user.id, "SPLITS_MERGED",
+         f"Merged {', '.join(merged_labels)} into {primary.split_label} at {stage_name or '?'} | "
+         f"Combined qty: {total_qty} | Reason: {reason.strip()}",
+         meta={"stage_name": stage_name, "qty": total_qty, "reason": reason.strip()})
+    db.commit()
+
+    return _redirect(
+        f"/fms/dashboard?view=stage"
+        f"{'&flow_id=' + ticket.flow_id if ticket.flow_id else ''}"
+        f"{'&stage_id=' + ticket.current_stage_id if ticket.current_stage_id else ''}"
+    )
+
+
 @router.post("/tickets/{ticket_id}/discrepancy/acknowledge")
 def fms_discrepancy_acknowledge(
     ticket_id: str,
@@ -3918,6 +4166,31 @@ def fms_action(
         ticket.status    = "CLOSED"
         ticket.closed_at = datetime.utcnow()
         _log(db, ticket_id, user.id, "CLOSED", reason)
+
+    elif action == "close_split":
+        # Close a single split without touching the others — the ticket's
+        # target_qty vs. remaining-active-splits qty may no longer match once
+        # this split's qty drops out of the active pool; that's surfaced via
+        # the existing qty-discrepancy flag rather than blocked here.
+        if not split:
+            raise HTTPException(400, "split_id is required to close a split")
+        if user.role not in ("ADMIN", "MANAGER") and split.current_assignee_id != user.id:
+            raise HTTPException(403, "Not authorised to close this split")
+        if not reason.strip():
+            raise HTTPException(400, "A reason is required to close a split")
+        open_h = _open_history(db, ticket_id, split_id=split.id)
+        if open_h:
+            open_h.exited_at = datetime.utcnow()
+            open_h.completion_note = reason.strip()
+        stage_name = split.current_stage.name if split.current_stage else None
+        split.status = "CLOSED"
+        split.is_deleted = True
+        split.updated_at = datetime.utcnow()
+        _sync_ticket_cache(db, ticket)
+        _check_qty_discrepancy(db, ticket, user.id)
+        _log(db, ticket_id, user.id, "SPLIT_CLOSED",
+             f"[{split.split_label}] Closed at {stage_name or '?'} | Qty: {split.qty or 0} | Reason: {reason.strip()}",
+             meta={"stage_name": stage_name, "qty": split.qty, "reason": reason.strip()})
 
     elif action == "mark_stage_complete":
         if not _can_transition(user, ticket, split):
