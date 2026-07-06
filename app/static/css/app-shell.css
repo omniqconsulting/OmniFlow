@@ -1,0 +1,384 @@
+/* ── app-shell.css ─────────────────────────────────────────────────────────
+ * Loaded after theme-tokens.css on every page (base.html).
+ *
+ * Section A below is the site's general CSS, moved here verbatim from the
+ * inline <style> block that used to live in base.html (July 2026 Native-Feel
+ * PWA refactor) so it can be cached as a static asset by the service worker
+ * (see Section 6.2 of the Native-Feel UI Brief — inline <style> blocks can't
+ * be cached independently of the HTML they live in).
+ *
+ * Section B is the new native-feel layer: bottom nav, tap states, safe-area,
+ * motion. Every rule in Section B must reference the tokens in
+ * theme-tokens.css only — never hardcode a hex value or font name.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SECTION A — general site styles (moved from base.html, unchanged)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Light mode card depth — subtle shadow so white cards lift off the gray base */
+html.light .card { box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04); }
+html.light .nav  { box-shadow: 0 1px 2px rgba(0,0,0,0.10); border-bottom-color: rgba(0,0,0,0.12); }
+html.light table th { color: #475569; }
+html.light a { color: #2563eb; }
+html.light a:hover { color: #1d4ed8; }
+/* ── Light mode nav overrides ── */
+html.light .nav a { color: #334155; font-weight:500; }
+html.light .nav a:hover { background: rgba(0,0,0,0.06); color: #0f172a; }
+html.light .nav a.active { background: #2563eb; color: #fff; font-weight:600; }
+html.light .nav .user-info { color: #475569; }
+html.light .nav .logout { color: #475569; border-color: rgba(0,0,0,0.18); }
+html.light .nav .logout:hover { color: #0f172a; background: rgba(0,0,0,0.06); border-color: rgba(0,0,0,0.28); }
+html.light .nav-icon-btn { border-color: rgba(0,0,0,0.18); color: #64748b; }
+html.light .nav-icon-btn:hover { border-color: rgba(0,0,0,0.28); color: #1e293b; background: rgba(0,0,0,0.05); }
+/* ── Light mode status/color tokens ── */
+html.light .badge-blue   { background:rgba(37,99,235,0.12);  color:#1d4ed8; }
+html.light .badge-green  { background:rgba(5,150,105,0.12);   color:#065f46; }
+html.light .badge-red    { background:rgba(220,38,38,0.12);   color:#991b1b; }
+html.light .badge-yellow { background:rgba(180,83,9,0.12);    color:#92400e; }
+html.light .badge-purple { background:rgba(109,40,217,0.12);  color:#5b21b6; }
+html.light .badge-amber  { background:rgba(180,83,9,0.12);    color:#92400e; }
+/* ── Light mode button overrides — fix invisible text on white bg ── */
+html.light .btn { color: #1e293b; background: #f1f5f9; border-color: rgba(0,0,0,0.18); }
+html.light .btn:hover { color: #0f172a; background: #e2e8f0; border-color: rgba(0,0,0,0.25); }
+html.light .btn-primary { background: #2563eb !important; color: #fff !important; border-color: transparent !important; }
+html.light .btn-primary:hover { background: #1d4ed8 !important; color: #fff !important; }
+html.light .btn-outline { background: transparent; color: #334155; border-color: rgba(0,0,0,0.22); }
+html.light .btn-outline:hover { background: rgba(0,0,0,0.04); color: #0f172a; border-color: rgba(0,0,0,0.32); }
+html.light .btn-gray { color: #475569; background: #e2e8f0; border-color: rgba(0,0,0,0.15); }
+html.light .btn-gray:hover { color: #1e293b; background: #d1dae8; }
+html.light .btn-red { background: #dc2626 !important; color: #fff !important; border-color: transparent !important; }
+html.light .btn-red:hover { background: #b91c1c !important; }
+html.light .btn-green { background: #059669 !important; color: #fff !important; border-color: transparent !important; }
+html.light .btn-purple { background: #7c3aed !important; color: #fff !important; border-color: transparent !important; }
+html.light .btn-sm { font-size: 11px; }
+/* E-03: Inactive stage nodes in FMS flow progress bar */
+html.light .hpb-step.is-future .hpb-label { color: #4B5563; }
+html.light .hpb-step:hover .hpb-node { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.2); }
+html.light .hpb-step.is-current:hover .hpb-node { background: color-mix(in srgb,var(--sc) 20%,rgba(255,255,255,0.8)); }
+html.light .hpb-dot-future { background: rgba(0,0,0,0.18); }
+html.light .hpb-meta-done { color: #059669; }
+/* E-03: Stage accordion visit rows — dark bg wrong in light mode */
+html.light .visit-row { background: #f1f5f9; border: 1px solid var(--border-subtle); }
+/* E-03: Non-active status tab labels */
+html.light .status-tab { color: #4B5563; }
+/* view-toggle buttons (List / Org Chart) */
+html.light .view-btn { color: #475569; background: transparent; border-color: rgba(0,0,0,0.18); }
+html.light .view-btn:hover { color: #1e293b; background: rgba(0,0,0,0.04); }
+html.light .view-btn.active { background: #2563eb; color: #fff !important; border-color: transparent; }
+/* preset period buttons used across pages */
+html.light .preset-btn { color: #475569; }
+html.light .preset-btn.active, html.light .preset-btn:hover { background: rgba(37,99,235,0.12); color: #1d4ed8; }
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-family);background:var(--bg-base);color:var(--text-primary);font-size:14px;line-height:1.5;min-height:100vh;transition:background .2s,color .2s;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+a{color:#60a5fa;text-decoration:none}
+a:hover{color:#93c5fd}
+
+/* ── NAV ── */
+.nav{background:var(--bg-card);border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;padding:0 24px;height:52px;gap:4px;position:sticky;top:0;z-index:50}
+.nav .logo{font-size:16px;font-weight:700;color:var(--text-strong);margin-right:20px;letter-spacing:-0.3px}
+.nav a{color:var(--text-muted);padding:6px 11px;border-radius:6px;font-size:13px;font-weight:500;transition:all 0.12s}
+.nav a:hover{background:var(--hover-bg);color:var(--text-primary)}
+.nav a.active{background:#2563eb;color:#fff;font-weight:600}
+.nav .spacer{flex:1}
+.nav .user-info{font-size:12px;color:var(--text-muted);margin-right:4px}
+.nav .logout{font-size:12px;color:var(--text-muted);padding:5px 10px;border:1px solid var(--border-med);border-radius:6px}
+.nav .logout:hover{color:var(--text-primary);border-color:var(--border-strong);background:var(--hover-bg)}
+/* ── AI nav pill ── */
+.nav a.ai-pill{background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);color:#fff;border-radius:20px;padding:5px 13px;font-size:12px;font-weight:700;letter-spacing:0.3px;box-shadow:0 0 12px rgba(99,102,241,0.35)}
+.nav a.ai-pill:hover{box-shadow:0 0 20px rgba(99,102,241,0.55);transform:translateY(-1px);color:#fff}
+.nav a.ai-pill.active{background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);box-shadow:0 0 22px rgba(99,102,241,0.65)}
+/* ── Nav icon buttons (theme toggle, mute) ── */
+.nav-icon-btn{background:none;border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-faint);font-size:14px;padding:4px 8px;cursor:pointer;transition:all .12s;line-height:1;display:flex;align-items:center}
+/* ── Nav dropdown (Sales) ── */
+.nav-group{position:relative;display:inline-flex;align-items:center}
+.nav-dropdown{display:none;position:absolute;top:100%;left:0;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;min-width:180px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.15);padding:4px 0}
+.nav-group:hover .nav-dropdown{display:block}
+.nav-dropdown a{display:block;padding:8px 14px;color:var(--text-muted);text-decoration:none;white-space:nowrap;font-size:13px;transition:background 0.1s}
+.nav-dropdown a:hover{background:var(--hover-bg);color:var(--text-primary)}
+.nav-caret{font-size:10px;margin-left:3px;opacity:0.6}
+.nav-icon-btn:hover{border-color:var(--border-strong);color:var(--text-primary);background:var(--hover-bg)}
+
+/* ── WS status dot ── */
+#ws-dot{width:7px;height:7px;border-radius:50%;background:#ef4444;display:none;margin-right:6px;vertical-align:middle;transition:background 0.4s;flex-shrink:0}
+#ws-dot.connected{background:#10b981}
+
+/* ── CONTAINER ── */
+.container{max-width:1600px;margin:0 auto;padding:28px 36px}
+.container.full-width{max-width:100%;padding:0}
+
+/* ── CARDS ── */
+.card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:22px 24px;margin-bottom:16px}
+.card h2{font-size:14px;font-weight:600;color:var(--text-strong);margin-bottom:14px}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--border-strong);background:var(--bg-elevated);color:var(--text-primary);text-decoration:none;transition:all 0.12s;font-family:inherit;white-space:nowrap}
+.btn:hover{background:var(--bg-elevated);color:var(--text-strong);border-color:var(--border-strong)}
+.btn-primary{background:#3b82f6;border-color:transparent;color:#fff}
+.btn-primary:hover{background:var(--accent-hover);color:#fff}
+.btn-sm{padding:5px 12px;font-size:12px;border-radius:6px}
+.btn-xs{padding:4px 10px;font-size:12px;border-radius:5px}
+.btn-green{background:#059669;border-color:transparent;color:#fff}
+.btn-green:hover{background:#047857;color:#fff}
+.btn-red{background:#dc2626;border-color:transparent;color:#fff}
+.btn-red:hover{background:#b91c1c;color:#fff}
+.btn-gray{background:var(--bg-elevated);border-color:var(--border-med);color:var(--text-muted)}
+.btn-gray:hover{background:var(--bg-elevated);color:var(--text-primary)}
+.btn-outline{background:transparent;border:1px solid var(--border-strong);color:var(--text-muted)}
+.btn-outline:hover{background:var(--hover-bg);color:var(--text-primary)}
+.btn-purple{background:#7c3aed;border-color:transparent;color:#fff}
+.btn-purple:hover{background:#6d28d9;color:#fff}
+.btn-orange{background:#ea580c;border-color:transparent;color:#fff}
+.btn-orange:hover{background:#c2410c;color:#fff}
+.btn-cyan{background:#0891b2;border-color:transparent;color:#fff}
+.btn-cyan:hover{background:#0e7490;color:#fff}
+.btn-amber{background:#d97706;border-color:transparent;color:#fff}
+.btn-amber:hover{background:#b45309;color:#fff}
+
+/* ── FORMS ── */
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:11px;font-weight:600;margin-bottom:6px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em}
+.form-group input,.form-group select,.form-group textarea{width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:9px 12px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;transition:border-color 0.12s}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,0.12)}
+.form-group select{cursor:pointer}
+.form-group textarea{height:80px;resize:none;line-height:1.6}
+.form-group input::placeholder,.form-group textarea::placeholder{color:var(--text-faint)}
+select option{background:var(--bg-card);color:var(--text-primary)}
+select{scrollbar-width:thin}
+/* Filter bar wraps on narrow screens; overflow must stay visible so dropdowns aren't clipped */
+.filter-bar{overflow:visible;flex-wrap:wrap}
+/* ── Multi-select dropdown widget ── */
+.ms-wrap{position:relative;min-width:130px}
+.ms-label{font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+.ms-btn{width:100%;text-align:left;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);cursor:pointer;font-family:inherit;display:flex;justify-content:space-between;align-items:center;gap:6px;white-space:nowrap;transition:border-color .12s}
+.ms-btn:hover,.ms-wrap.open .ms-btn{border-color:var(--accent)}
+.ms-btn-text{overflow:hidden;text-overflow:ellipsis;flex:1}
+.ms-caret{font-size:9px;opacity:.5;flex-shrink:0;transition:transform .15s}
+.ms-wrap.open .ms-caret{transform:rotate(180deg)}
+.ms-panel{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:100%;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:8px;z-index:300;max-height:195px;overflow-y:auto;scrollbar-width:thin;padding:4px 0;box-shadow:0 8px 24px rgba(0,0,0,0.4)}
+.ms-wrap.open .ms-panel{display:block}
+.ms-item{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12px;color:var(--text-primary);cursor:pointer;transition:background .1s;user-select:none}
+.ms-item:hover{background:var(--hover-bg)}
+.ms-item input[type=checkbox]{flex-shrink:0;width:13px;height:13px}
+html.light .ms-panel{background:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.12)}
+html.light .ms-item:hover{background:rgba(0,0,0,0.04)}
+input[type="checkbox"]{width:auto;accent-color:#3b82f6;cursor:pointer}
+input[type="datetime-local"]{color-scheme:dark}
+html.light input[type="datetime-local"]{color-scheme:light}
+/* P10-04: validation state */
+.form-group input:invalid:not(:placeholder-shown){border-color:#ef4444}
+
+/* ── Password visibility toggle ── */
+.pw-field{position:relative}
+.pw-field input{padding-right:36px !important}
+.pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;opacity:.6;color:var(--text-muted);z-index:2}
+.pw-toggle:hover{opacity:1}
+/* Suppress native browser password-reveal/credential icons so they don't sit on top of
+   our custom toggle and swallow the click (Edge/IE reveal+clear, Safari/Chrome credentials button). */
+.pw-field input[type="password"]::-ms-reveal,
+.pw-field input[type="password"]::-ms-clear{display:none}
+.pw-field input[type="password"]::-webkit-textfield-decoration-container{display:none}
+.pw-field input[type="password"]::-webkit-credentials-auto-fill-button{visibility:hidden;display:none !important;pointer-events:none;position:absolute;right:0}
+
+/* ── TABLES ── */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;padding:13px 16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)}
+td{padding:15px 16px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;color:var(--text-primary);font-size:13.5px}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--row-hover)}
+
+/* ── BADGES ── */
+.badge{display:inline-block;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:600;letter-spacing:0.02em}
+.badge-blue{background:rgba(59,130,246,0.22);color:#93c5fd}
+.badge-green{background:rgba(16,185,129,0.22);color:#6ee7b7}
+.badge-red{background:rgba(239,68,68,0.22);color:#fca5a5}
+.badge-yellow{background:rgba(245,158,11,0.22);color:#fcd34d}
+.badge-purple{background:rgba(139,92,246,0.22);color:#c4b5fd}
+.badge-gray{background:var(--hover-bg);color:var(--text-primary)}
+.badge-amber{background:rgba(217,119,6,0.22);color:#fcd34d}
+
+/* ── ALERTS ── */
+.alert{padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px}
+.alert-red{background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.25)}
+.alert-green{background:rgba(16,185,129,0.12);color:#6ee7b7;border:1px solid rgba(16,185,129,0.25)}
+html.light .alert-green{color:#065f46;background:rgba(16,185,129,0.10);border-color:rgba(16,185,129,0.3)}
+html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.3)}
+
+/* ── LAYOUT HELPERS ── */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.overdue{color:#f87171!important}
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px}
+.page-title{font-size:22px;font-weight:700;color:var(--text-strong)}
+.muted{color:var(--text-faint);font-size:13px}
+
+/* ── KPI GRID (for dashboard) ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+.kpi-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:20px 22px}
+.kpi-card .label{font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em}
+.kpi-card .value{font-size:30px;font-weight:700;margin-top:10px;color:var(--text-strong)}
+.kpi-card .sub{font-size:12px;color:var(--text-muted);margin-top:5px}
+
+/* ── LOAD BARS ── */
+.load-bar{height:5px;border-radius:3px;background:var(--hover-bg);overflow:hidden;margin-top:7px}
+.load-fill{height:100%;border-radius:3px;transition:width 0.3s}
+.load-green{background:#10b981}
+.load-amber{background:#f59e0b}
+.load-red{background:#ef4444}
+
+/* ── MODAL OVERLAY ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100}
+.modal-box{background:var(--bg-modal);border:1px solid var(--border-subtle);border-radius:14px;padding:28px;width:480px;max-width:95vw;max-height:85vh;overflow-y:auto;box-shadow:0 24px 48px rgba(0,0,0,0.6)}
+.modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;position:sticky;top:0;background:var(--bg-modal);z-index:1}
+.modal-title{font-size:15px;font-weight:600;color:var(--text-strong)}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1;transition:color 0.12s;padding:0}
+.modal-close:hover{color:var(--text-primary)}
+.modal-footer{display:flex;gap:10px;margin-top:20px}
+
+/* ── INLINE FORM PANELS ── */
+.form-panel{background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:8px;padding:16px;margin-top:14px}
+
+/* ── TIMELINE ── */
+.timeline-dot{position:absolute;left:-20px;top:5px;width:8px;height:8px;border-radius:50%;background:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,0.3)}
+.timeline-meta{font-size:11px;color:var(--text-faint);line-height:1.5}
+.timeline-meta strong{color:var(--text-primary)}
+.timeline-body{font-size:13px;color:var(--text-primary);margin-top:4px;background:var(--bg-elevated);border-radius:6px;padding:8px 12px;line-height:1.6}
+.timeline-detail{font-size:12px;color:var(--text-faint);margin-top:3px}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:var(--scrollbar-hover)}
+
+/* ── P6-03: mobile card layout for opted-in tables (Tickets/Checklists/Dashboard) ── */
+@media (max-width: 700px) {
+  table.mobile-cards thead{display:none}
+  table.mobile-cards, table.mobile-cards tbody, table.mobile-cards tr, table.mobile-cards td{display:block;width:100%;white-space:normal}
+  table.mobile-cards tr{border:1px solid var(--border-subtle);border-radius:10px;margin-bottom:10px;overflow:hidden}
+  table.mobile-cards tr:last-child{margin-bottom:0}
+  table.mobile-cards td{border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:right}
+  table.mobile-cards tr:last-child td:last-child, table.mobile-cards td:last-child{border-bottom:none}
+  table.mobile-cards td[data-label]::before{content:attr(data-label);font-weight:700;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;text-align:left;flex-shrink:0}
+  table.mobile-cards td:not([data-label]):not([colspan]){display:none}
+  table.mobile-cards td[colspan]{display:block !important;text-align:center}
+}
+
+/* ── P6-04: mobile-only nav — stack vertically instead of horizontal overflow ── */
+@media (max-width: 700px) {
+  html, body{overflow-x:hidden}
+  .nav{flex-wrap:wrap;height:auto;padding:10px 14px;row-gap:6px;column-gap:4px}
+  .nav .logo{margin-right:auto}
+  .nav .spacer{flex-basis:100%;height:0;flex-grow:0}
+  .nav a, .nav-group{font-size:12px}
+  .nav .logout{margin-left:auto}
+}
+
+/* ── WS TOAST (Phase 1) ── */
+.ws-toast{position:fixed;bottom:24px;right:24px;background:var(--bg-elevated);border:1px solid var(--border-med);border-left:3px solid #3b82f6;border-radius:8px;padding:12px 16px;min-width:260px;max-width:360px;font-size:13px;color:var(--text-primary);box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:9999;transform:translateX(120%);transition:transform 0.25s ease;pointer-events:none}
+.ws-toast.show{transform:translateX(0)}
+.ws-toast strong{display:block;margin-bottom:3px;color:var(--text-strong);font-size:13px}
+.ws-toast span{color:var(--text-muted);font-size:12px}
+.ws-toast.toast-green{border-left-color:#10b981}
+.ws-toast.toast-amber{border-left-color:#f59e0b}
+.ws-toast.toast-red{border-left-color:#ef4444}
+
+/* ── Floating "Need Help" button ── */
+.help-fab{position:fixed;bottom:28px;right:28px;z-index:900;background:#ef4444;color:#fff;border:none;border-radius:99px;padding:12px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(239,68,68,0.45);display:flex;align-items:center;gap:7px;transition:background .15s,transform .15s;animation:help-pulse 2.4s infinite}
+.help-fab:hover{background:#dc2626;transform:scale(1.05);animation:none}
+@keyframes help-pulse{0%,100%{box-shadow:0 4px 16px rgba(239,68,68,0.45)}50%{box-shadow:0 4px 28px rgba(239,68,68,0.75)}}
+/* P6-04: mobile-only — shrink to an icon-only FAB and give scrollable content
+   clearance at the bottom so the last card/row is never hidden underneath it. */
+@media (max-width: 700px) {
+  .help-fab{bottom:16px;right:16px;padding:12px;border-radius:50%;width:46px;height:46px;justify-content:center}
+  .help-fab .help-fab-label{display:none}
+  .container{padding-bottom:76px}
+}
+#help-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:1000}
+#help-modal-bg.open{display:flex}
+#help-modal{background:var(--bg-modal,#131c2e);border:1px solid var(--border-med,rgba(255,255,255,0.12));border-radius:14px;padding:28px;width:440px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6)}
+.help-modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.help-modal-hdr h3{font-size:16px;font-weight:700;color:var(--text-strong,#f1f5f9);margin:0}
+.help-modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint,#64748b);line-height:1;padding:0}
+.help-modal-sub{font-size:12px;color:var(--text-faint,#64748b);margin-bottom:20px}
+.help-field{margin-bottom:14px}
+.help-field label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted,#94a3b8);margin-bottom:5px}
+.help-field input,.help-field textarea{width:100%;background:var(--bg-input,#0d1424);border:1px solid var(--border-med,rgba(255,255,255,0.12));border-radius:8px;padding:10px 12px;font-size:14px;color:var(--text-primary,#e2e8f0);font-family:inherit;outline:none;box-sizing:border-box;transition:border-color .12s}
+.help-field input:focus,.help-field textarea:focus{border-color:var(--accent,#3b82f6);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+.help-field textarea{resize:vertical;min-height:90px}
+.help-modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
+.help-success{display:none;text-align:center;padding:12px 0}
+.help-success .help-success-icon{font-size:42px;margin-bottom:10px}
+.help-success .help-success-title{font-size:16px;font-weight:700;color:var(--text-strong,#f1f5f9);margin-bottom:4px}
+.help-success .help-success-sub{font-size:13px;color:var(--text-faint,#64748b)}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SECTION B — native-feel layer (Native-Feel UI Brief, Section 5)
+   Scoped to standalone PWA + narrow viewports only; desktop browser is
+   untouched above the 768px / non-standalone threshold.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 5.2 — remove default mobile tap highlight globally (harmless on desktop) */
+html{-webkit-tap-highlight-color:transparent}
+
+/* 5.4 — standalone/mobile detection query, reused by every rule below */
+@media (display-mode: standalone), (max-width: 767px) {
+
+  /* 5.2 — kill browser bounce / pull-to-refresh feel inside standalone mode */
+  body{overscroll-behavior-y:contain}
+
+  /* 5.2 — pressed/active feedback on buttons and tappable rows */
+  .btn:active, .nav a:active, .view-btn:active, table tr:active td,
+  .help-fab:active, .bottom-nav a:active{
+    transform:scale(0.97);
+    opacity:0.85;
+    transition:transform 0.08s ease,opacity 0.08s ease;
+  }
+
+  /* 5.2 — minimum 44x44 touch target for buttons/interactive rows */
+  .btn, .nav-icon-btn, .bottom-nav a{min-height:44px}
+  .btn-sm, .btn-xs{min-height:40px}
+
+  /* 5.2 — hide scrollbars on internal scrollable containers (desktop keeps them) */
+  .ms-panel, .modal-box, [data-scroll-hide]{
+    scrollbar-width:none;
+    -ms-overflow-style:none;
+  }
+  .ms-panel::-webkit-scrollbar, .modal-box::-webkit-scrollbar,
+  [data-scroll-hide]::-webkit-scrollbar{display:none}
+
+  /* Room for the bottom tab bar so content/FAB never sit underneath it */
+  body.has-bottom-nav .container{padding-bottom:calc(64px + env(safe-area-inset-bottom) + 16px)}
+  body.has-bottom-nav .help-fab{bottom:calc(76px + env(safe-area-inset-bottom))}
+}
+
+/* 5.1 — Bottom tab navigation (standalone + mobile web only) */
+.bottom-nav{
+  display:none;
+  position:fixed;
+  left:0; right:0; bottom:0;
+  z-index:80;
+  background:var(--bg-card);
+  border-top:1px solid var(--border-subtle);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+@media (display-mode: standalone), (max-width: 767px) {
+  .bottom-nav{display:flex}
+}
+.bottom-nav-inner{display:flex;width:100%}
+.bottom-nav a{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  padding:8px 4px 6px;
+  color:var(--text-muted);
+  font-size:10px;
+  font-weight:600;
+  text-decoration:none;
+}
+.bottom-nav a .bn-icon{font-size:19px;line-height:1}
+.bottom-nav a.active{color:var(--color-primary)}
+html.light .bottom-nav{box-shadow:0 -1px 2px rgba(0,0,0,0.08)}

@@ -1,0 +1,96 @@
+/* ── theme-tokens.css ──────────────────────────────────────────────────────
+ * Single source of truth for colour + font custom properties.
+ * Must be loaded on every page, before any other stylesheet (see base.html).
+ *
+ * SYNC RULE: --color-primary / --color-bg below must always match
+ * theme_color / background_color in app/static/manifest.json (and vice
+ * versa) so the desktop UI, Android/iOS status bar, and splash colour never
+ * drift apart. If you change one, change the other in the same commit.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* DM Sans — self-hosted so font loads identically on all environments */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/static/fonts/dm-sans-normal-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02AF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/static/fonts/dm-sans-normal-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/fonts/dm-sans-italic-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02AF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'DM Sans';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/fonts/dm-sans-italic-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* ── P10-02: CSS custom properties — dark theme (default) ── */
+:root {
+  --bg-base:       #0b0f1a;
+  --bg-card:       #111827;
+  --bg-input:      #0d1424;
+  --bg-elevated:   #1e293b;
+  --bg-modal:      #131c2e;
+  --text-primary:  #e2e8f0;
+  --text-strong:   #f1f5f9;
+  --text-muted:    #94a3b8;
+  --text-faint:    #64748b;
+  --text-xfaint:   #475569;
+  --border-subtle: rgba(255,255,255,0.08);
+  --border-med:    rgba(255,255,255,0.12);
+  --border-strong: rgba(255,255,255,0.14);
+  --hover-bg:      rgba(255,255,255,0.06);
+  --row-hover:     rgba(255,255,255,0.025);
+  --accent:        #3b82f6;
+  --accent-hover:  #2563eb;
+  --scrollbar:     #1e293b;
+  --scrollbar-hover:#273549;
+
+  /* Native-feel aliases (Section 4 of the Native-Feel UI Brief) — these are
+     the canonical names app-shell.css must reference. They point at the
+     existing tokens above so nothing is duplicated. */
+  --color-primary: var(--accent);
+  --color-accent:  var(--accent);
+  --color-bg:      var(--bg-base);
+  --font-family:   'DM Sans', system-ui, sans-serif;
+  --radius-base:   8px;
+}
+/* ── P10-02: Light theme overrides ── */
+html.light {
+  --bg-base:       #eef2f7;
+  --bg-card:       #ffffff;
+  --bg-input:      #f4f7fb;
+  --bg-elevated:   #dde3ed;
+  --bg-modal:      #ffffff;
+  --text-primary:  #1e293b;
+  --text-strong:   #0f172a;
+  --text-muted:    #374151;
+  --text-faint:    #374151;
+  --text-xfaint:   #4B5563;
+  --border-subtle: rgba(0,0,0,0.09);
+  --border-med:    rgba(0,0,0,0.14);
+  --border-strong: rgba(0,0,0,0.20);
+  --hover-bg:      rgba(0,0,0,0.04);
+  --row-hover:     rgba(0,0,0,0.025);
+  --scrollbar:     #cbd5e1;
+  --scrollbar-hover:#94a3b8;
+  /* --color-bg follows --bg-base automatically via the var() alias above */
+}
