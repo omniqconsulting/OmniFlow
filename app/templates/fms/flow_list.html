@@ -80,6 +80,9 @@
             {% if stage.completion_note_required %}
             <span>📝 Note required</span>
             {% endif %}
+            {% if stage.evidence_required %}
+            <span>📎 Evidence required</span>
+            {% endif %}
           </div>
         </div>
         {% endfor %}

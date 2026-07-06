@@ -1477,6 +1477,7 @@ def setup_flow_edit_get(
             "target_tat_hours": s.target_tat_hours,
             "target_tat_unit": s.target_tat_unit or "hours",
             "completion_note_required": s.completion_note_required,
+            "evidence_required": s.evidence_required,
             "is_terminal": s.is_terminal,
             "custom_fields": cf,
         })
@@ -1582,6 +1583,7 @@ async def setup_flow_create(
             target_tat_hours=tat,
             target_tat_unit=tat_unit,
             completion_note_required=bool(s.get("completion_note_required")),
+            evidence_required=bool(s.get("evidence_required")),
             is_terminal=bool(s.get("is_terminal")),
             custom_fields_json=_jf.dumps(cf),
         ))
@@ -1667,6 +1669,7 @@ async def setup_flow_update(
             stage.target_tat_hours = tat
             stage.target_tat_unit = tat_unit
             stage.completion_note_required = bool(s.get("completion_note_required"))
+            stage.evidence_required = bool(s.get("evidence_required"))
             stage.color = (s.get("color") or "#3b82f6").strip()
             stage.is_terminal = bool(s.get("is_terminal"))
             stage.custom_fields_json = _jf.dumps(cf)
@@ -1682,6 +1685,7 @@ async def setup_flow_update(
                 target_tat_hours=tat,
                 target_tat_unit=tat_unit,
                 completion_note_required=bool(s.get("completion_note_required")),
+                evidence_required=bool(s.get("evidence_required")),
                 is_terminal=bool(s.get("is_terminal")),
                 custom_fields_json=_jf.dumps(cf),
             ))
