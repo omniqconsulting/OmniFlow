@@ -353,8 +353,9 @@
         </form>
         {% endif %}
 
-        {# Phase 3: Close Directly — Admin or Manager, skip stage-by-stage from OPEN or DONE #}
-        {% if ticket.status in ('OPEN','DONE') and user.role in ('ADMIN','MANAGER') %}
+        {# Phase 3: Close Directly — Admin or Manager, DONE tickets only.
+           On OPEN tickets, "Mark as Done" above already covers moving it forward. #}
+        {% if ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
         <form method="post" action="/tickets/{{ ticket.id }}/close-direct"
               onsubmit="return confirm('Close this {{ L.ticket }} directly, skipping the Done stage?')">
           <button class="btn btn-sm btn-red">⏭ Close Directly</button>

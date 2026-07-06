@@ -261,8 +261,8 @@
       {% if t.evidence_url %}
       <a href="{{ t.evidence_url }}" target="_blank" title="{{ t.evidence_filename or 'View attachment' }}"
          class="btn btn-xs btn-outline">📎 View</a>
-      {% elif t.id in ticket_ids_with_media %}
-      <a href="/tickets/{{ t.id }}" title="View attachment" class="btn btn-xs btn-outline">📎 View</a>
+      {% elif ticket_media_path.get(t.id) %}
+      <a href="{{ ticket_media_path[t.id] }}" target="_blank" title="View attachment" class="btn btn-xs btn-outline">📎 View</a>
       {% else %}
       <span style="color:var(--text-xfaint);font-size:11px">—</span>
       {% endif %}
@@ -313,6 +313,11 @@
         <button type="submit" class="btn btn-xs btn-gray" title="Move back to {{ prev_label }}">← {{ prev_label }}</button>
       </form>
       {% endif %}
+      {# Edit due date — Admin/Manager only, requires a comment #}
+      {% if user.role in ('ADMIN','MANAGER') and t.status != 'CLOSED' %}
+      <button type="button" class="btn btn-xs btn-outline" title="Edit due date"
+              onclick="openReschedule('{{ t.id }}', '{{ t.due_at.strftime('%Y-%m-%dT%H:%M') if t.due_at else '' }}')">✏ Edit</button>
+      {% endif %}
     </div>
     </td>
   </tr>
@@ -351,6 +356,39 @@
     </form>
   </div>
 </div>
+
+<!-- ── Reschedule (Edit Due Date) Modal ─────────────────────────────────────── -->
+{% if user.role in ('ADMIN','MANAGER') %}
+<div id="reschedule-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:420px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Edit Due Date</h3>
+      <button type="button" onclick="document.getElementById('reschedule-modal').style.display='none'" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
+    </div>
+    <form method="post" id="reschedule-form">
+      <div class="form-group">
+        <label class="form-label">New Due Date & Time <span style="color:#f87171">*</span></label>
+        <input type="datetime-local" name="due_at" id="reschedule-due-at" class="form-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Comment <span style="color:#f87171">*</span> <span style="font-size:11px;color:var(--text-faint)">(required — explain why the due date is changing)</span></label>
+        <textarea name="comment" class="form-input" rows="3" required placeholder="Reason for the change…"></textarea>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button type="button" onclick="document.getElementById('reschedule-modal').style.display='none'" class="btn btn-outline" style="flex:1">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="flex:1">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+function openReschedule(ticketId, dueAt) {
+  document.getElementById('reschedule-form').action = '/tickets/' + ticketId + '/reschedule';
+  document.getElementById('reschedule-due-at').value = dueAt || '';
+  document.getElementById('reschedule-modal').style.display = 'flex';
+}
+</script>
+{% endif %}
 
 <!-- ── Create Ticket Modal ───────────────────────────────────────────────────── -->
 {% if user.role in ('ADMIN','MANAGER','EMPLOYEE') %}

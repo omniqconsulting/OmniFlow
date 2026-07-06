@@ -1541,14 +1541,13 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
     from .linked_entities import get_linked_entity_options
     entity_options = get_linked_entity_options(db, tid)
 
-    ticket_ids_with_media = set()
+    ticket_media_path = {}
     if tickets:
-        ticket_ids_with_media = {
-            row.entity_id for row in db.query(MediaUpload.entity_id).filter(
-                MediaUpload.entity_type == "ticket",
-                MediaUpload.entity_id.in_([t.id for t in tickets]),
-            ).all()
-        }
+        for row in db.query(MediaUpload).filter(
+            MediaUpload.entity_type == "ticket",
+            MediaUpload.entity_id.in_([t.id for t in tickets]),
+        ).order_by(MediaUpload.created_at.desc()).all():
+            ticket_media_path.setdefault(row.entity_id, row.file_path)
 
     return templates.TemplateResponse(request, "tickets.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
@@ -1562,7 +1561,7 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
         "priority": priority, "ticket_category": ticket_category,
         "assignee_id": assignee_id, "date_from": date_from, "date_to": date_to,
         "entity_options": entity_options,
-        "ticket_ids_with_media": ticket_ids_with_media,
+        "ticket_media_path": ticket_media_path,
         "now": datetime.utcnow(),
     })
 
@@ -2075,6 +2074,33 @@ def ticket_edit(ticket_id: str, title: str = Form(...), description: str = Form(
     return redirect(f"/tickets/{ticket_id}")
 
 
+@app.post("/tickets/{ticket_id}/reschedule")
+def ticket_reschedule(ticket_id: str, due_at: str = Form(...), comment: str = Form(...),
+                      user: User = Depends(require_manager), db: Session = Depends(get_db)):
+    """Change a ticket's due date from the list/detail view — Admin/Manager only,
+    requires a comment explaining the change."""
+    if not comment.strip():
+        raise HTTPException(400, "A comment is required to change the due date")
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id,
+        Ticket.is_deleted == False, Ticket.status != "CLOSED").first()
+    if not ticket:
+        raise HTTPException(404)
+    try:
+        new_due = datetime.fromisoformat(due_at)
+    except Exception:
+        raise HTTPException(400, "Invalid due date")
+    old_due = ticket.due_at
+    ticket.due_at = new_due
+    old_str = old_due.strftime("%d %b %Y, %I:%M %p") if old_due else "—"
+    new_str = new_due.strftime("%d %b %Y, %I:%M %p")
+    log_event(db, ticket_id, user.id, "DUE_DATE_CHANGED", f"{old_str} → {new_str} | {comment.strip()}")
+    db.add(TicketComment(ticket_id=ticket_id, user_id=user.id,
+                         body=f"Due date changed to {new_str}: {comment.strip()}"))
+    db.commit()
+    return redirect(f"/tickets/{ticket_id}")
+
+
 @app.post("/tickets/{ticket_id}/delete")
 def ticket_delete(ticket_id: str, user: User = Depends(require_admin),
                   db: Session = Depends(get_db)):
@@ -2511,12 +2537,16 @@ def checklists(request: Request, user: User = Depends(get_current_user),
                next_days: int = 0, frequency: str = Query(default="")):
     tid = user.tenant_id
     now = datetime.utcnow()
+    # Overdue is a date concept, not a time-of-day one — a checklist due later today
+    # isn't overdue just because its due time has passed. Anything due today or later
+    # counts as "upcoming"; only assignments whose due date is a past calendar day are overdue.
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # My overdue: date already gone, not done — one per checklist template (earliest)
+    # My overdue: due date already gone, not done — one per checklist template (earliest)
     _my_od_raw = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.tenant_id == tid,
         ChecklistAssignment.user_id == user.id,
-        ChecklistAssignment.due_at < now,
+        ChecklistAssignment.due_at < today_start,
         ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
         ChecklistAssignment.is_deleted == False,
     ).order_by(ChecklistAssignment.due_at).all()
@@ -2526,11 +2556,11 @@ def checklists(request: Request, user: User = Depends(get_current_user),
             _seen_my_od[_a.template_id] = _a
     my_overdue = list(_seen_my_od.values())
 
-    # My upcoming: due in the future, not done — one per checklist template (earliest)
+    # My upcoming: due today or later, not done — one per checklist template (earliest)
     _my_up_raw = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.tenant_id == tid,
         ChecklistAssignment.user_id == user.id,
-        ChecklistAssignment.due_at >= now,
+        ChecklistAssignment.due_at >= today_start,
         ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
         ChecklistAssignment.is_deleted == False,
     ).order_by(ChecklistAssignment.due_at).all()
@@ -2596,7 +2626,6 @@ def checklists(request: Request, user: User = Depends(get_current_user),
     # Upcoming + overdue assignments — for all roles
     # next_days=0 means "today only"; use today_start as lower bound so earlier-today
     # assignments are still visible even if their time has already passed
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     if next_days == 0:
         upcoming_lower = today_start
         upcoming_upper = today_start + timedelta(days=1)
@@ -2629,7 +2658,7 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         )
         overdue_q = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.tenant_id == tid,
-            ChecklistAssignment.due_at < now,
+            ChecklistAssignment.due_at < today_start,
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
             ChecklistAssignment.is_deleted == False,
             ChecklistAssignment.template_id.in_(_active_tmpl_ids),
@@ -2640,23 +2669,27 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         if employee_id:
             upcoming_q = upcoming_q.filter(ChecklistAssignment.user_id.in_(employee_id))
             overdue_q = overdue_q.filter(ChecklistAssignment.user_id.in_(employee_id))
-        # Deduplicate upcoming: one row per template — earliest due_at wins
+        # Deduplicate upcoming: one row per (template, assignee) — same checklist
+        # assigned to several people must show each of them, each at their own
+        # next immediate occurrence
         _all_upcoming = upcoming_q.order_by(ChecklistAssignment.due_at).all()
         _seen_tmpl = {}
         for _a in _all_upcoming:
-            if _a.template_id not in _seen_tmpl:
-                _seen_tmpl[_a.template_id] = _a
+            _key = (_a.template_id, _a.user_id)
+            if _key not in _seen_tmpl:
+                _seen_tmpl[_key] = _a
         upcoming = list(_seen_tmpl.values())
 
-        # Deduplicate overdue: one row per template — earliest due_at wins
+        # Deduplicate overdue: one row per (template, assignee) — earliest due_at wins
         _all_overdue = overdue_q.order_by(ChecklistAssignment.due_at).all()
         _seen_od = {}
         for _a in _all_overdue:
-            if _a.template_id not in _seen_od:
-                _seen_od[_a.template_id] = _a
+            _key = (_a.template_id, _a.user_id)
+            if _key not in _seen_od:
+                _seen_od[_key] = _a
         overdue_team = list(_seen_od.values())
 
-        # Explicitly failed assignments only — one per template (most recent failure)
+        # Explicitly failed assignments only — one per (template, assignee), most recent failure
         failed_q = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.tenant_id == tid,
             ChecklistAssignment.status == "FAILED",
@@ -2670,8 +2703,9 @@ def checklists(request: Request, user: User = Depends(get_current_user),
         _failed_raw = failed_q.order_by(ChecklistAssignment.due_at.desc()).all()
         _seen_f: dict = {}
         for _a in _failed_raw:
-            if _a.template_id not in _seen_f:
-                _seen_f[_a.template_id] = _a
+            _key = (_a.template_id, _a.user_id)
+            if _key not in _seen_f:
+                _seen_f[_key] = _a
         failed_team = list(_seen_f.values())
 
     templates_list = []
@@ -2875,16 +2909,26 @@ async def checklists_bulk_start(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Bulk mark selected checklist assignments as IN_PROGRESS."""
+    """Bulk mark selected checklist assignments as IN_PROGRESS.
+    Admin/Manager may act on their team's assignments; everyone else only their own."""
     form = await request.form()
     ids = form.getlist("assignment_ids")
     if ids:
-        assignments = db.query(ChecklistAssignment).filter(
+        q = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.id.in_(ids),
-            ChecklistAssignment.user_id == user.id,
             ChecklistAssignment.status == "PENDING",
-        ).all()
-        for a in assignments:
+        )
+        if user.role == "ADMIN":
+            q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id)
+        elif user.role == "MANAGER":
+            team_ids = [u.id for u in db.query(User).filter(
+                User.manager_id == user.id, User.is_deleted == False).all()]
+            team_ids.append(user.id)
+            q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id,
+                        ChecklistAssignment.user_id.in_(team_ids))
+        else:
+            q = q.filter(ChecklistAssignment.user_id == user.id)
+        for a in q.all():
             a.status = "IN_PROGRESS"
         db.commit()
     return redirect("/checklists")
@@ -2896,16 +2940,34 @@ async def checklists_bulk_complete(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Bulk mark selected checklist assignments as DONE (no evidence gate)."""
+    """Bulk mark selected checklist assignments as DONE (no evidence gate).
+    Admin/Manager may act on their team's assignments; everyone else only their own.
+    Any assignment whose due date (not just due time) has passed needs a delay reason."""
     form = await request.form()
     ids = form.getlist("assignment_ids")
+    delay_reason = (form.get("delay_reason") or "").strip()
     if ids:
-        assignments = db.query(ChecklistAssignment).filter(
+        q = db.query(ChecklistAssignment).filter(
             ChecklistAssignment.id.in_(ids),
-            ChecklistAssignment.user_id == user.id,
             ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
-        ).all()
+        )
+        if user.role == "ADMIN":
+            q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id)
+        elif user.role == "MANAGER":
+            team_ids = [u.id for u in db.query(User).filter(
+                User.manager_id == user.id, User.is_deleted == False).all()]
+            team_ids.append(user.id)
+            q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id,
+                        ChecklistAssignment.user_id.in_(team_ids))
+        else:
+            q = q.filter(ChecklistAssignment.user_id == user.id)
+        assignments = q.all()
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        if any((a.due_at and a.due_at < today_start) for a in assignments) and not delay_reason:
+            return redirect("/checklists?err=Delay+reason+is+required+to+bulk-complete+overdue+checklists")
         for a in assignments:
+            if a.due_at and a.due_at < today_start:
+                a.delay_reason = delay_reason
             a.status = "DONE"
             a.completed_at = datetime.utcnow()
             # auto-schedule next occurrence
@@ -2967,8 +3029,10 @@ async def complete_checklist(assignment_id: str, request: Request,
     a = q.first()
     if not a:
         raise HTTPException(404)
-    # P6-01: delay_reason required for OVERDUE
-    if a.status == "OVERDUE" and not delay_reason.strip():
+    # P6-01: delay_reason required once the due date (not just due time) has passed
+    _today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    is_overdue = a.status == "OVERDUE" or (a.due_at and a.due_at < _today_start)
+    if is_overdue and not delay_reason.strip():
         return redirect("/checklists?err=Delay+reason+is+required+for+overdue+assignments")
     # P6-06: evidence required gate
     ev_required = bool(a.evidence_required or (a.template and a.template.evidence_required))
