@@ -1176,10 +1176,10 @@ def dashboard(request: Request, user: User = Depends(get_current_user),
             }
             sum_perf_score, sum_perf_components = _compute_perf_score(_kpis_v, _formula_w)
 
-            # ── Priority tasks — CRITICAL/HIGH priority, not closed ──────────
+            # ── Priority tasks — Top Priority (CRITICAL) only, not closed ────
             hot_q = db.query(Ticket).filter(
                 Ticket.tenant_id == tid, Ticket.is_deleted == False,
-                Ticket.priority.in_(["CRITICAL", "HIGH"]), Ticket.status != "CLOSED")
+                Ticket.priority == "CRITICAL", Ticket.status != "CLOSED")
             if user.role == "MANAGER":
                 mgr_team_ids = [u.id for u in db.query(User).filter(
                     User.manager_id == user.id, User.is_deleted == False).all()]
@@ -1464,8 +1464,14 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
         involved_ids = get_involved_ticket_ids(user, db)
         q = q.filter(Ticket.id.in_(involved_ids))
 
-    # Status tab filter — default OPEN
-    if status:
+    # Status tab filter — default OPEN.
+    # "ACKNOWLEDGED" is a pseudo-status: still OPEN but already acknowledged by
+    # the assignee. Splitting it out of the OPEN tab keeps the two mutually exclusive.
+    if status == "ACKNOWLEDGED":
+        q = q.filter(Ticket.status == "OPEN", Ticket.acknowledged_at.isnot(None))
+    elif status == "OPEN":
+        q = q.filter(Ticket.status == "OPEN", Ticket.acknowledged_at.is_(None))
+    elif status:
         q = q.filter(Ticket.status == status)
 
     # Extended filters — all params are now List[str]
@@ -1512,8 +1518,13 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
         base_q = base_q.filter(Ticket.id.in_(all_team_tids))
     elif user.role == "EMPLOYEE":
         base_q = base_q.filter(Ticket.id.in_(involved_ids))
-    tab_statuses = ["OPEN", "DONE", "CLOSED"]
-    status_counts = {s: base_q.filter(Ticket.status == s).count() for s in tab_statuses}
+    tab_statuses = ["OPEN", "ACKNOWLEDGED", "DONE", "CLOSED"]
+    status_counts = {
+        "OPEN": base_q.filter(Ticket.status == "OPEN", Ticket.acknowledged_at.is_(None)).count(),
+        "ACKNOWLEDGED": base_q.filter(Ticket.status == "OPEN", Ticket.acknowledged_at.isnot(None)).count(),
+        "DONE": base_q.filter(Ticket.status == "DONE").count(),
+        "CLOSED": base_q.filter(Ticket.status == "CLOSED").count(),
+    }
 
     employees = db.query(User).filter(
         User.tenant_id == tid, User.is_deleted == False,
@@ -1530,6 +1541,15 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
     from .linked_entities import get_linked_entity_options
     entity_options = get_linked_entity_options(db, tid)
 
+    ticket_ids_with_media = set()
+    if tickets:
+        ticket_ids_with_media = {
+            row.entity_id for row in db.query(MediaUpload.entity_id).filter(
+                MediaUpload.entity_type == "ticket",
+                MediaUpload.entity_id.in_([t.id for t in tickets]),
+            ).all()
+        }
+
     return templates.TemplateResponse(request, "tickets.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -1542,6 +1562,7 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
         "priority": priority, "ticket_category": ticket_category,
         "assignee_id": assignee_id, "date_from": date_from, "date_to": date_to,
         "entity_options": entity_options,
+        "ticket_ids_with_media": ticket_ids_with_media,
         "now": datetime.utcnow(),
     })
 
@@ -1805,8 +1826,14 @@ def ticket_close_direct(ticket_id: str,
     if ticket.status not in ("OPEN", "DONE"):
         raise HTTPException(400, "Ticket must be OPEN or DONE to close directly")
     old_status = ticket.status
+    now = datetime.utcnow()
+    if old_status == "OPEN":
+        if not ticket.acknowledged_at:
+            ticket.acknowledged_at = now
+        ticket.status = "DONE"
+        log_event(db, ticket_id, user.id, "STATUS_CHANGED", "OPEN → DONE (direct)")
     ticket.status = "CLOSED"
-    ticket.closed_at = datetime.utcnow()
+    ticket.closed_at = now
     log_event(db, ticket_id, user.id, "STATUS_CHANGED", f"{old_status} → CLOSED (direct)")
     admins = _admin_ids(db, user.tenant_id)
     managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
@@ -1829,8 +1856,8 @@ def acknowledge_ticket(ticket_id: str,
         Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id).first()
     if not ticket:
         raise HTTPException(404)
-    if ticket.current_assignee_id != user.id:
-        raise HTTPException(403, "Only the assignee can acknowledge this ticket")
+    if ticket.current_assignee_id != user.id and user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403, "Only the assignee or a manager/admin can acknowledge this ticket")
     if not ticket.acknowledged_at:
         ticket.acknowledged_at = datetime.utcnow()
         log_event(db, ticket_id, user.id, "ACKNOWLEDGED", "")

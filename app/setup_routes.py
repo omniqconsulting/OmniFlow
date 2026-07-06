@@ -221,13 +221,25 @@ PAGE_SIZE = 20
 def customers_page(
     request: Request,
     page: int = 1,
+    status: str = "",
+    pending: str = "",
+    tier: str = "",
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     q = db.query(Customer).filter(
         Customer.tenant_id == user.tenant_id,
         Customer.is_deleted == False,
-    ).order_by(Customer.name)
+    )
+    if status == "active":
+        q = q.filter(Customer.is_active == True)
+    elif status == "inactive":
+        q = q.filter(Customer.is_active == False)
+    if pending == "1":
+        q = q.filter(Customer.approval_status == "PENDING")
+    if tier:
+        q = q.filter(Customer.customer_tier == tier)
+    q = q.order_by(Customer.name)
     total = q.count()
     customers = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
     msg = request.query_params.get("msg", "")
@@ -237,8 +249,18 @@ def customers_page(
         **_nav_ctx(db, user),
         "customers": customers, "total": total,
         "page": page, "page_size": PAGE_SIZE,
+        "status_filter": status, "pending_filter": pending, "tier_filter": tier,
         "msg": msg, "err": err,
     })
+
+
+@router.post("/setup/customers/{cust_id}/approve")
+def approve_customer(cust_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    c = db.query(Customer).filter(Customer.id == cust_id, Customer.tenant_id == user.tenant_id).first()
+    if c:
+        c.approval_status = "APPROVED"
+        db.commit()
+    return _redir("/setup/customers?msg=Customer+approved")
 
 
 @router.post("/setup/customers/add")
@@ -344,6 +366,7 @@ def edit_customer(
     c.shipping_address = shipping_address.strip() or None
     c.default_payment_terms = default_payment_terms.strip() or None
     c.is_active = is_active == "1"
+    c.approval_status = "APPROVED"
     c.updated_at = datetime.utcnow()
     db.commit()
     return _redir("/setup/customers?msg=Customer+updated")
@@ -468,13 +491,22 @@ def _end_product_unit_or_error(db: Session, tenant_id: str, unit_abbr: str):
 def end_products_page(
     request: Request,
     page: int = 1,
+    status: str = "",
+    pending: str = "",
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     q = db.query(EndProduct).filter(
         EndProduct.tenant_id == user.tenant_id,
         EndProduct.is_deleted == False,
-    ).order_by(EndProduct.name)
+    )
+    if status == "active":
+        q = q.filter(EndProduct.is_active == True)
+    elif status == "inactive":
+        q = q.filter(EndProduct.is_active == False)
+    if pending == "1":
+        q = q.filter(EndProduct.approval_status == "PENDING")
+    q = q.order_by(EndProduct.name)
     total = q.count()
     products = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
     for p in products:
@@ -485,6 +517,7 @@ def end_products_page(
         **_nav_ctx(db, user),
         "products": products, "total": total,
         "page": page, "page_size": PAGE_SIZE,
+        "status_filter": status, "pending_filter": pending,
         "msg": request.query_params.get("msg", ""),
         "err": request.query_params.get("err", ""),
     })
@@ -584,6 +617,7 @@ async def edit_end_product(
     p.unit = unit_abbr or None
     p.description = description.strip() or None
     p.is_active = is_active == "1"
+    p.approval_status = "APPROVED"
     p.updated_at = datetime.utcnow()
     if category.strip() or sub_category.strip():
         p.category_id, p.sub_category_id = _resolve_end_product_category(
@@ -608,6 +642,14 @@ def _resolve_end_product_category(db: Session, tenant_id: str, category_name: st
     sub = resolve_or_create_category_pair(db, tenant_id, category_name, sub_category_name)
     return sub.category_id, sub.id
 
+
+@router.post("/setup/end-products/{prod_id}/approve")
+def approve_end_product(prod_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    p = db.query(EndProduct).filter(EndProduct.id == prod_id, EndProduct.tenant_id == user.tenant_id).first()
+    if p:
+        p.approval_status = "APPROVED"
+        db.commit()
+    return _redir("/setup/end-products?msg=Product+approved")
 
 @router.post("/setup/end-products/{prod_id}/delete")
 def delete_end_product(
@@ -801,6 +843,23 @@ def add_list_item(
     return _redir("/setup/custom-lists?msg=Item+added")
 
 
+@router.post("/setup/custom-lists/items/{item_id}/approve")
+def approve_list_item(
+    item_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    item = db.query(CustomReferenceItem).filter(
+        CustomReferenceItem.id == item_id,
+        CustomReferenceItem.tenant_id == user.tenant_id,
+        CustomReferenceItem.is_deleted == False,
+    ).first()
+    if item:
+        item.approval_status = "APPROVED"
+        db.commit()
+    return _redir("/setup/custom-lists?msg=Item+approved")
+
+
 @router.post("/setup/custom-lists/items/{item_id}/delete")
 def delete_list_item(
     item_id: str,
@@ -923,15 +982,23 @@ def deployed_config_page(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/setup/vendors", response_class=HTMLResponse)
-def vendors_page(request: Request, page: int = 1,
+def vendors_page(request: Request, page: int = 1, status: str = "", pending: str = "",
                  user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    q = db.query(Vendor).filter(Vendor.tenant_id == user.tenant_id, Vendor.is_deleted == False).order_by(Vendor.name)
+    q = db.query(Vendor).filter(Vendor.tenant_id == user.tenant_id, Vendor.is_deleted == False)
+    if status == "active":
+        q = q.filter(Vendor.is_active == True)
+    elif status == "inactive":
+        q = q.filter(Vendor.is_active == False)
+    if pending == "1":
+        q = q.filter(Vendor.approval_status == "PENDING")
+    q = q.order_by(Vendor.name)
     total = q.count()
     vendors = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
     return templates.TemplateResponse(request, "setup/vendors.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "vendors": vendors, "total": total, "page": page, "page_size": PAGE_SIZE,
+        "status_filter": status, "pending_filter": pending,
         "msg": request.query_params.get("msg", ""),
         "err": request.query_params.get("err", ""),
     })
@@ -973,8 +1040,17 @@ def edit_vendor(vendor_id: str, name: str = Form(...), contact_person: str = For
     v.parts_supplied = parts_supplied.strip() or None
     v.notes = notes.strip() or None
     v.is_active = (is_active == "1"); v.updated_at = datetime.utcnow()
+    v.approval_status = "APPROVED"
     db.commit()
     return _redir("/setup/vendors?msg=Vendor+updated")
+
+@router.post("/setup/vendors/{vendor_id}/approve")
+def approve_vendor(vendor_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    v = db.query(Vendor).filter(Vendor.id == vendor_id, Vendor.tenant_id == user.tenant_id).first()
+    if v:
+        v.approval_status = "APPROVED"
+        db.commit()
+    return _redir("/setup/vendors?msg=Vendor+approved")
 
 @router.post("/setup/vendors/{vendor_id}/delete")
 def delete_vendor(vendor_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
@@ -1037,15 +1113,23 @@ async def import_vendors(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/setup/raw-materials", response_class=HTMLResponse)
-def raw_materials_page(request: Request, page: int = 1,
+def raw_materials_page(request: Request, page: int = 1, status: str = "", pending: str = "",
                        user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    q = db.query(RawMaterial).filter(RawMaterial.tenant_id == user.tenant_id, RawMaterial.is_deleted == False).order_by(RawMaterial.name)
+    q = db.query(RawMaterial).filter(RawMaterial.tenant_id == user.tenant_id, RawMaterial.is_deleted == False)
+    if status == "active":
+        q = q.filter(RawMaterial.is_active == True)
+    elif status == "inactive":
+        q = q.filter(RawMaterial.is_active == False)
+    if pending == "1":
+        q = q.filter(RawMaterial.approval_status == "PENDING")
+    q = q.order_by(RawMaterial.name)
     total = q.count()
     items = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
     return templates.TemplateResponse(request, "setup/raw_materials.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "items": items, "total": total, "page": page, "page_size": PAGE_SIZE,
+        "status_filter": status, "pending_filter": pending,
         "msg": request.query_params.get("msg", ""),
         "err": request.query_params.get("err", ""),
     })
@@ -1076,8 +1160,17 @@ def edit_raw_material(item_id: str, name: str = Form(...), unit: str = Form(""),
     m.major_supplier = major_supplier.strip() or None
     m.notes = notes.strip() or None
     m.is_active = (is_active == "1"); m.updated_at = datetime.utcnow()
+    m.approval_status = "APPROVED"
     db.commit()
     return _redir("/setup/raw-materials?msg=Raw+material+updated")
+
+@router.post("/setup/raw-materials/{item_id}/approve")
+def approve_raw_material(item_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    m = db.query(RawMaterial).filter(RawMaterial.id == item_id, RawMaterial.tenant_id == user.tenant_id).first()
+    if m:
+        m.approval_status = "APPROVED"
+        db.commit()
+    return _redir("/setup/raw-materials?msg=Raw+material+approved")
 
 @router.post("/setup/raw-materials/{item_id}/delete")
 def delete_raw_material(item_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):

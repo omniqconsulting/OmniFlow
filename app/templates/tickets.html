@@ -209,7 +209,7 @@
       <th style="width:32px"><input type="checkbox" id="chk-all" title="Select all" onclick="toggleAllTickets(this)"></th>
       {% endif %}
       <th>ID</th><th>Title</th><th>Status</th><th>Priority</th>
-      <th>Assignee</th><th>Due</th><th>Attachment</th><th style="text-align:center">Actions</th>
+      <th>Assignee</th><th>Due</th><th>Attachment</th><th>Actions</th>
     </tr>
   </thead>
   <tbody>
@@ -261,15 +261,20 @@
       {% if t.evidence_url %}
       <a href="{{ t.evidence_url }}" target="_blank" title="{{ t.evidence_filename or 'View attachment' }}"
          class="btn btn-xs btn-outline">📎 View</a>
+      {% elif t.id in ticket_ids_with_media %}
+      <a href="/tickets/{{ t.id }}" title="View attachment" class="btn btn-xs btn-outline">📎 View</a>
       {% else %}
       <span style="color:var(--text-xfaint);font-size:11px">—</span>
       {% endif %}
     </td>
-    <td onclick="event.stopPropagation()" style="white-space:nowrap;text-align:center">
+    <td onclick="event.stopPropagation()" style="white-space:nowrap">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
       {% if next_info %}
         {% set btn_label = next_info[0] %}
         {% set btn_cls   = next_info[1] %}
-        {% if t.status == 'OPEN' and t.evidence_required is defined and t.evidence_required %}
+        {% if t.status == 'DONE' and user.role not in ('ADMIN','MANAGER') %}
+        <span style="font-size:11px;color:var(--text-xfaint)">Awaiting manager close</span>
+        {% elif t.status == 'OPEN' and t.evidence_required is defined and t.evidence_required %}
         <button onclick="openEvidenceModal('{{ t.id }}')"
                 class="btn btn-xs btn-amber">
           📎 Submit Evidence → Done
@@ -282,31 +287,33 @@
       {% elif t.status == 'CLOSED' %}
       <span style="font-size:11px;color:var(--text-xfaint)">Closed</span>
       {% endif %}
-      {# Acknowledge — assignee only, before it's been acknowledged, not yet closed #}
-      {% if t.current_assignee_id == user.id and not t.acknowledged_at and t.status != 'CLOSED' %}
+      {# Acknowledge — assignee only, optional (does not gate Done); not yet closed #}
+      {% if (t.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER')) and not t.acknowledged_at and t.status != 'CLOSED' %}
       <form method="post" action="/tickets/{{ t.id }}/acknowledge" style="display:inline">
-        <button type="submit" class="btn btn-xs btn-green" style="margin-left:4px">✓ Acknowledge</button>
+        <button type="submit" class="btn btn-xs btn-green">✓ Acknowledge</button>
       </form>
       {% endif %}
-      {# Direct close — Admin/Manager only, skips the Done stage #}
-      {% if user.role in ('ADMIN','MANAGER') and t.status in ('OPEN','DONE') %}
+      {# Direct close — Admin/Manager only, skips the Done stage. Only offered for DONE tickets;
+         for OPEN tickets the plain "Mark Done" action above already covers moving it forward. #}
+      {% if user.role in ('ADMIN','MANAGER') and t.status == 'DONE' %}
       <form method="post" action="/tickets/{{ t.id }}/close-direct" style="display:inline"
             onsubmit="return confirm('Close this ticket directly, skipping the Done stage?')">
-        <button type="submit" class="btn btn-xs btn-red" title="Close Directly" style="margin-left:4px">⏭ Close</button>
+        <button type="submit" class="btn btn-xs btn-red" title="Close Directly">⏭ Close</button>
       </form>
       {% endif %}
       {# Send Reminder (Admin/Manager only, for open tickets) #}
       {% if user.role in ('ADMIN','MANAGER') and t.status not in ('DONE','CLOSED') %}
       <form method="post" action="/tickets/{{ t.id }}/remind" style="display:inline">
-        <button type="submit" class="btn btn-xs" title="Send Reminder" style="margin-left:4px">🔔</button>
+        <button type="submit" class="btn btn-xs" title="Send Reminder">🔔</button>
       </form>
       {% endif %}
       {# Prev stage button (Admin/Manager only) #}
       {% if user.role in ('ADMIN','MANAGER') and prev_label %}
       <form method="post" action="/tickets/{{ t.id }}/revert" style="display:inline">
-        <button type="submit" class="btn btn-xs btn-gray" title="Move back to {{ prev_label }}" style="margin-left:4px">← {{ prev_label }}</button>
+        <button type="submit" class="btn btn-xs btn-gray" title="Move back to {{ prev_label }}">← {{ prev_label }}</button>
       </form>
       {% endif %}
+    </div>
     </td>
   </tr>
   {% else %}

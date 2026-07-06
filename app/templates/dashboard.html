@@ -25,8 +25,12 @@
 .sc-val.red{color:#f87171}.sc-val.green{color:#10b981}.sc-val.amber{color:#fbbf24}
 .sc-sub{font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.4}
 .sc-sub .better{color:#10b981}.sc-sub .worse{color:#f87171}
-.sc-click{position:absolute;top:10px;right:10px;background:rgba(245,158,11,0.2);border:1px solid rgba(245,158,11,0.35);border-radius:99px;font-size:10px;color:#fbbf24;padding:3px 9px;cursor:pointer;display:flex;align-items:center;gap:3px}
+.sc-click{position:absolute;top:10px;right:10px;background:rgba(245,158,11,0.2);border:1px solid rgba(245,158,11,0.35);border-radius:99px;font-size:10px;font-weight:700;color:#fbbf24;padding:3px 9px;cursor:pointer;display:flex;align-items:center;gap:3px}
 .sc-click:hover{background:rgba(245,158,11,0.32)}
+html.light .sc-click{color:#92400e !important;font-weight:700}
+html.light .sc-click-green{color:#065f46 !important}
+html.light .sc-click-purple{color:#5b21b6 !important}
+.db-sidebar .filter-scroll{max-height:220px;overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-width:thin}
 .card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:9px;padding:16px 18px;margin-bottom:10px}
 .card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .card-title{font-size:13px;font-weight:500;color:var(--text-strong)}
@@ -57,7 +61,9 @@
 .modal-title{font-size:14px;font-weight:600;color:var(--text-strong)}
 .modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1}
 .modal-close:hover{color:var(--text-primary)}
-.flow-expand{background:#0d1829;border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:14px 16px;margin-top:4px}
+.flow-expand{background:var(--bg-card);border:1px solid var(--border-subtle);border-left:3px solid #3b82f6;border-radius:0 8px 8px 0;padding:14px 16px;margin-top:4px}
+.flow-expand .dt td span[style*="374151"]{color:var(--text-faint) !important}
+.th-help{cursor:help;border-bottom:1px dotted var(--text-faint)}
 .stage-pill{background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:5px;padding:4px 10px;font-size:11px;color:var(--text-muted);white-space:nowrap}
 .stage-pill.breach{border-color:rgba(239,68,68,0.3);color:#f87171}
 .stage-pill.ok{border-color:rgba(16,185,129,0.3);color:#6ee7b7}
@@ -113,6 +119,7 @@
     </div>
     {% if departments %}
     <div style="padding:4px 0 3px;font-size:10px;color:#4b5568;text-transform:uppercase;letter-spacing:.05em">{{ L.Department }}</div>
+    <div class="filter-scroll">
     {% for d in departments %}
     <label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;cursor:pointer;color:var(--text-primary)">
       <input type="checkbox" name="dept_ids" value="{{ d.id }}"
@@ -121,9 +128,11 @@
       {{ d.name[:24] }}
     </label>
     {% endfor %}
+    </div>
     {% endif %}
     {% if user.role=='ADMIN' and managers %}
     <div style="padding:6px 0 3px;font-size:10px;color:#4b5568;text-transform:uppercase;letter-spacing:.05em">Manager</div>
+    <div class="filter-scroll">
     {% for m in managers %}
     <label style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:11px;cursor:pointer;color:var(--text-primary)">
       <input type="checkbox" name="manager_ids" value="{{ m.id }}"
@@ -132,6 +141,7 @@
       {{ m.name[:24] }}
     </label>
     {% endfor %}
+    </div>
     {% endif %}
     <button type="submit"
             style="width:100%;background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:8px">
@@ -233,8 +243,8 @@
       </div>
     </div>
 
-    <div class="grid2">
-      <div class="card">
+    <div class="grid2" style="align-items:stretch">
+      <div class="card" style="display:flex;flex-direction:column">
         <div class="card-hdr">
           <span class="card-title">Open vs closed — 8 weeks</span>
           <div class="legend-row">
@@ -244,9 +254,10 @@
         </div>
         <div class="chart-wrap"><canvas id="delegWkChart"></canvas></div>
       </div>
-      <div class="card">
+      <div class="card" style="display:flex;flex-direction:column">
         <div class="card-hdr"><span class="card-title">Avg TaT by employee</span></div>
         {% if emp_tat %}
+        <div class="chart-wrap" style="overflow-y:auto;overflow-x:hidden;scrollbar-width:thin">
         <table class="dt mobile-cards">
           <thead><tr><th>{{ L.Employee }}</th><th>Dept</th><th>Closed</th><th>Avg TaT</th><th>vs org</th></tr></thead>
           <tbody>{% for r in emp_tat %}
@@ -259,6 +270,7 @@
           </tr>{% endfor %}
           </tbody>
         </table>
+        </div>
         {% else %}<p style="color:#374151;font-size:12px">No data yet.</p>{% endif %}
       </div>
     </div>
@@ -384,7 +396,7 @@
         <div class="sc-label">Due in 24h</div>
         <div class="sc-val {% if cl_sc.due_24h_count > 0 %}amber{% else %}green{% endif %}">{{ cl_sc.due_24h_count }}</div>
         <div class="sc-sub">click to view list</div>
-        <div class="sc-click" style="background:rgba(16,185,129,0.15);border-color:rgba(16,185,129,0.3);color:#6ee7b7"><i class="ti ti-clock"></i> View</div>
+        <div class="sc-click sc-click-green" style="background:rgba(16,185,129,0.15);border-color:rgba(16,185,129,0.3);color:#6ee7b7"><i class="ti ti-clock"></i> View</div>
       </div>
     </div>
 
@@ -467,7 +479,7 @@
         <div class="sc-label">Due in 24h</div>
         <div class="sc-val {% if fms_sc.due_24h_count > 0 %}red{% else %}green{% endif %}">{{ fms_sc.due_24h_count }}</div>
         <div class="sc-sub">click to view list</div>
-        <div class="sc-click" style="background:rgba(139,92,246,0.15);border-color:rgba(139,92,246,0.3);color:#c4b5fd"><i class="ti ti-clock"></i> View</div>
+        <div class="sc-click sc-click-purple" style="background:rgba(139,92,246,0.15);border-color:rgba(139,92,246,0.3);color:#c4b5fd"><i class="ti ti-clock"></i> View</div>
       </div>
     </div>
 
@@ -504,7 +516,7 @@
           <td>{{ flow.avg_stage_tat }}h</td>
           <td style="color:{% if flow.breaches > 0 %}#f87171{% else %}#10b981{% endif %}">{{ flow.breaches }}</td>
           <td>
-            <a href="?date_from={{ date_from }}&date_to={{ date_to }}{% for did in dept_ids %}&dept_ids={{ did }}{% endfor %}{% for mid in manager_ids %}&manager_ids={{ mid }}{% endfor %}&expand_flow={% if expand_flow==flow.id %}{% else %}{{ flow.id }}{% endif %}#fms"
+            <a href="?view=detailed&date_from={{ date_from }}&date_to={{ date_to }}{% for did in dept_ids %}&dept_ids={{ did }}{% endfor %}{% for mid in manager_ids %}&manager_ids={{ mid }}{% endfor %}&expand_flow={% if expand_flow==flow.id %}{% else %}{{ flow.id }}{% endif %}#fms"
                class="btn-xs {% if expand_flow==flow.id %}on{% endif %}">
               {% if expand_flow==flow.id %}Collapse ↑{% else %}Expand ↓{% endif %}
             </a>
@@ -520,14 +532,20 @@
                 <span class="badge b-blue">{{ flow.active }} active tickets</span>
               </div>
               <table class="dt mobile-cards">
-                <thead><tr><th>Stage</th><th>Tickets here</th><th>Avg time at stage</th><th>TaT target</th><th>Breaches</th><th>Oldest ticket</th></tr></thead>
+                <thead><tr><th>Stage</th><th>Tickets here</th><th>Avg time at stage</th><th>TaT target</th><th><span class="th-help" title="Tickets that stayed in this stage longer than its TaT target">Breaches</span></th><th>Oldest ticket</th></tr></thead>
                 <tbody>{% for s in fms_stage_bd %}
                 <tr>
                   <td><span class="stage-pill {% if s.breaches > 0 %}breach{% elif s.avg_time_hrs is not none %}ok{% endif %}">{{ s.name }}</span></td>
                   <td>{{ s.ticket_count }}</td>
                   <td>{% if s.avg_time_hrs is not none %}{{ s.avg_time_hrs }}h{% else %}<span style="color:#374151">—</span>{% endif %}</td>
-                  <td>{% if s.target_tat %}{{ s.target_tat }}h{% else %}<span style="color:#374151">—</span>{% endif %}</td>
-                  <td style="color:{% if s.breaches > 0 %}#f87171{% else %}#10b981{% endif %}">{{ s.breaches }}</td>
+                  <td>{% if s.target_tat %}{{ s.target_tat }}h{% else %}<span style="color:var(--text-faint)">no target set</span>{% endif %}</td>
+                  <td>
+                    {% if s.target_tat %}
+                    <span class="badge {{ 'b-red' if s.breaches > 0 else 'b-green' }}">{{ s.breaches }}</span>
+                    {% else %}
+                    <span style="color:var(--text-faint)" title="Set a TaT target on this stage to track breaches">—</span>
+                    {% endif %}
+                  </td>
                   <td>{% if s.oldest_hrs is not none %}<span style="color:{% if s.target_tat and s.oldest_hrs > s.target_tat %}#f87171{% else %}var(--text-muted){% endif %}">{{ s.oldest_hrs }}h ago</span>{% else %}<span style="color:#374151">—</span>{% endif %}</td>
                 </tr>{% endfor %}
                 </tbody>
