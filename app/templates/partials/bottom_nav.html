@@ -70,15 +70,7 @@
     <a href="/plan" onclick="toggleOthersSheet(false)"><span class="os-icon">✉️</span>Contact Us</a>
     <a href="/ai" onclick="toggleOthersSheet(false)"><span class="os-icon">✦</span>Ask AI</a>
     {% endif %}
-
-    <div class="os-section-label">Account</div>
-    <a href="/notifications" onclick="toggleOthersSheet(false)">
-      <span class="os-icon">🔔</span>Notifications
-      {% if unread is defined and unread > 0 %}<span class="os-badge">{{ unread if unread <= 99 else '99+' }}</span>{% endif %}
-    </a>
-    <button type="button" class="os-item" onclick="toggleTheme()"><span class="os-icon">🌙</span>Switch theme</button>
-    <button type="button" class="os-item" onclick="toggleSound()"><span class="os-icon">🔔</span>Mute/unmute sounds</button>
-    <a href="/profile" onclick="toggleOthersSheet(false)"><span class="os-icon">👤</span>{{ user.name }} · {{ user.role }}</a>
-    <a href="/logout"><span class="os-icon">↪️</span>Logout</a>
+    {# Notifications/theme/sound/profile/logout now live in the mobile-topbar's
+       account menu (base.html) instead of duplicating them here. #}
   </div>
 </div>

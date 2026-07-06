@@ -350,6 +350,9 @@ html{-webkit-tap-highlight-color:transparent}
   /* Room for the bottom tab bar so content/FAB never sit underneath it */
   body.has-bottom-nav .container{padding-bottom:calc(64px + env(safe-area-inset-bottom) + 16px)}
   body.has-bottom-nav .help-fab{bottom:calc(76px + env(safe-area-inset-bottom))}
+
+  /* Room for the fixed mobile top bar so content doesn't render underneath it */
+  body.has-bottom-nav .container{padding-top:calc(54px + env(safe-area-inset-top) + 12px)}
 }
 
 /* 5.1 — Bottom tab navigation (standalone + mobile web only). The desktop
@@ -358,6 +361,13 @@ html{-webkit-tap-highlight-color:transparent}
    duplicated/wrapped nav clutter on small screens (see bottom_nav.html). */
 @media (display-mode: standalone), (max-width: 767px) {
   .nav{display:none}
+}
+/* Safety net: force these overlays closed at desktop widths, in case one
+   was left open when the viewport crossed 768px (e.g. resizing a resizable
+   browser window) — their trigger buttons are hidden there, but the .open
+   state alone shouldn't be enough to show them past this point. */
+@media (min-width: 768px) {
+  .others-backdrop, .account-menu-backdrop{display:none !important}
 }
 
 .bottom-nav{
@@ -439,3 +449,66 @@ html.light .bottom-nav{box-shadow:0 -1px 2px rgba(0,0,0,0.08)}
 .others-sheet a:active, .others-sheet button.os-item:active{background:var(--hover-bg)}
 .others-sheet .os-icon{font-size:17px;width:22px;text-align:center;flex-shrink:0}
 .others-sheet .os-badge{margin-left:auto;background:#ef4444;color:#fff;font-size:11px;font-weight:700;border-radius:99px;padding:1px 7px}
+
+/* Mobile/standalone-only top bar: branding (left) + notifications/mute/
+   account (right). Replaces the desktop .nav's branding+controls there,
+   since .nav is hidden at this breakpoint (see above). */
+.mobile-topbar{
+  display:none;
+  position:fixed; top:0; left:0; right:0;
+  z-index:80;
+  background:var(--bg-card);
+  border-bottom:1px solid var(--border-subtle);
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 14px;
+  padding-top:calc(10px + env(safe-area-inset-top));
+}
+@media (display-mode: standalone), (max-width: 767px) {
+  .mobile-topbar{display:flex}
+}
+.mt-logo{font-size:16px;font-weight:700;color:var(--text-strong);letter-spacing:-0.3px}
+.mt-actions{display:flex;align-items:center;gap:8px}
+.mt-icon-btn{
+  position:relative;
+  background:none;
+  border:1px solid var(--border-subtle);
+  border-radius:8px;
+  width:38px; height:38px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:16px;
+  color:var(--text-primary);
+  text-decoration:none;
+  cursor:pointer;
+  font-family:inherit;
+}
+.mt-badge{position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;font-size:9px;font-weight:700;border-radius:99px;padding:1px 5px;min-width:16px;text-align:center;line-height:1.4}
+
+/* Account menu: small dropdown anchored under the top bar's account icon */
+.account-menu-backdrop{display:none;position:fixed;inset:0;z-index:150}
+.account-menu-backdrop.open{display:block}
+.account-menu{
+  position:absolute;
+  top:calc(54px + env(safe-area-inset-top));
+  right:14px;
+  background:var(--bg-card);
+  border:1px solid var(--border-med);
+  border-radius:12px;
+  min-width:200px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.4);
+  overflow:hidden;
+}
+.account-menu .am-user{padding:12px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)}
+.account-menu .am-item{
+  display:flex; align-items:center; gap:10px;
+  width:100%; text-align:left;
+  background:none; border:none; font-family:inherit;
+  padding:12px 16px;
+  font-size:14px;
+  color:var(--text-primary);
+  text-decoration:none;
+  cursor:pointer;
+  min-height:44px;
+}
+.account-menu .am-item:active{background:var(--hover-bg)}
+.am-icon{font-size:16px;width:20px;text-align:center;flex-shrink:0}
