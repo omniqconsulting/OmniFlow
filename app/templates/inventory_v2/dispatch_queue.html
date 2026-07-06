@@ -27,7 +27,12 @@
       </div>
       <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#f59e0b">{{ o.items|length }} item{{ '' if o.items|length == 1 else 's' }}</span>
     </div>
-    <div style="font-size:12px;color:var(--text-faint);margin-bottom:12px">Expected {{ o.expected_delivery_date.strftime('%d %b %Y') if o.expected_delivery_date else '—' }}</div>
+    <div style="font-size:12px;color:var(--text-faint);margin-bottom:8px">Expected {{ o.expected_delivery_date.strftime('%d %b %Y') if o.expected_delivery_date else '—' }}</div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">
+      {% for item in o.items %}
+      {% with variant=item.variant, thumb_size=28 %}{% include "components/product_thumb.html" %}{% endwith %}
+      {% endfor %}
+    </div>
     <div style="display:flex;gap:6px">
       <a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline" style="flex:1;text-align:center">View</a>
       <form method="post" action="/sales/orders/{{ o.id }}/dispatch" style="flex:1">

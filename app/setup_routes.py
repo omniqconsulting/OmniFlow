@@ -21,6 +21,7 @@ from .database import (
     Customer, EndProduct, Vendor, RawMaterial, UnitOfMeasure,
     CustomReferenceList, CustomReferenceItem,
     FMSFlow, FMSStage, FMSTicket, FMSStageHistory,
+    ProductVariant,
 )
 from .auth import require_admin, get_nav_flags, has_module
 from .labels import get_labels
@@ -510,9 +511,22 @@ def end_products_page(
     q = q.order_by(EndProduct.name)
     total = q.count()
     products = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    # Setup <-> Sales cross-link (Phase 5 of the UX redesign): EndProduct and
+    # ProductVariant already sync bidirectionally on sku_code (sales_catalog_sync.py)
+    # — read that same key here, don't recompute a new matching rule.
+    skus = [p.sku_code for p in products if p.sku_code]
+    variants_by_sku = {
+        v.sku_code: v for v in db.query(ProductVariant).filter(
+            ProductVariant.tenant_id == user.tenant_id,
+            ProductVariant.sku_code.in_(skus),
+            ProductVariant.is_deleted == False,
+        ).all()
+    } if skus else {}
     for p in products:
         p.category_name = p.category.name if p.category else ""
         p.sub_category_name = p.sub_category.name if p.sub_category else ""
+        matching_variant = variants_by_sku.get(p.sku_code) if p.sku_code else None
+        p.catalog_product_id = matching_variant.product_id if matching_variant else None
     return templates.TemplateResponse(request, "setup/end_products.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),

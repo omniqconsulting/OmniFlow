@@ -5,7 +5,8 @@
       "name": "OmniFlow",
       "runtimeExecutable": "python",
       "runtimeArgs": ["run.py"],
-      "port": 8000
+      "port": 8000,
+      "autoPort": true
     }
   ]
 }

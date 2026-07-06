@@ -11,6 +11,8 @@ from app.database import create_tables
 if __name__ == "__main__":
     create_tables()
 
+    port = int(os.getenv("PORT", "8000"))
+
     # ── Startup banner ────────────────────────────────────────────────────────
     ai_key = os.getenv("ANTHROPIC_API_KEY", "")
     ai_status = "enabled" if ai_key else "NOT configured (set ANTHROPIC_API_KEY in .env)"
@@ -18,10 +20,10 @@ if __name__ == "__main__":
     print("\n============================================")
     print("  OmniFlow is starting...")
     print("============================================")
-    print(f"  URL      : http://localhost:8000")
-    print(f"  Register : http://localhost:8000/register")
+    print(f"  URL      : http://localhost:{port}")
+    print(f"  Register : http://localhost:{port}/register")
     print(f"  AI status: {ai_status}")
     print("  Press Ctrl+C to stop")
     print("============================================\n")
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)

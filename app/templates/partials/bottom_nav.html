@@ -54,12 +54,14 @@
     <a href="/inventory-v2" onclick="toggleOthersSheet(false)"><span class="os-icon">📦</span>Inventory</a>
     {% endif %}
     {% if has_sales %}
-    <a href="/sales/contacts" onclick="toggleOthersSheet(false)"><span class="os-icon">🧑‍💼</span>Sales · Contacts</a>
+    <a href="/sales/contacts" onclick="toggleOthersSheet(false)"><span class="os-icon">🧑‍💼</span>Customers</a>
+    <a href="/sales/orders" onclick="toggleOthersSheet(false)"><span class="os-icon">🧾</span>Sell</a>
+    {% if user.role in ('ADMIN', 'MANAGER') %}
     <a href="/sales/catalog" onclick="toggleOthersSheet(false)"><span class="os-icon">📚</span>Sales · Catalog</a>
-    <a href="/sales/orders" onclick="toggleOthersSheet(false)"><span class="os-icon">🧾</span>Sales · Orders</a>
     <a href="/sales/pricing" onclick="toggleOthersSheet(false)"><span class="os-icon">💰</span>Sales · Pricing &amp; Margin</a>
     {% if has_sales_analytics %}
     <a href="/sales/analytics" onclick="toggleOthersSheet(false)"><span class="os-icon">📈</span>Sales · Insights</a>
+    {% endif %}
     {% endif %}
     {% endif %}
     {% if user.role in ('ADMIN','MANAGER') %}

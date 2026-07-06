@@ -6,14 +6,14 @@ follow-up reminder scheduler job.
 import csv
 import io
 import re
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
-from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .database import get_db, new_id, Customer, CRMCallLog, User, Tenant, SalesOrder, PriceList
+from .database import get_db, new_id, Customer, CRMCallLog, User, Tenant, SalesOrder, PriceList, SalesOrderItem, ProductVariant
 from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread, resolve_customer_agent, _CUSTOMER_TIERS
@@ -63,8 +63,39 @@ def _can_edit_customer(user: User, customer: Customer) -> bool:
 # PRIORITY QUEUE
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_agent_queue(db: Session, agent_id: str, tenant_id: str) -> dict:
+def _order_aggregates(db: Session, tenant_id: str, customer_ids: list) -> dict:
+    """customer_id -> {count, total, last_at} from non-cancelled sales orders."""
+    if not customer_ids:
+        return {}
+    rows = (
+        db.query(
+            SalesOrder.customer_id,
+            func.count(SalesOrder.id).label("cnt"),
+            func.sum(SalesOrder.total_amount).label("total"),
+            func.max(SalesOrder.created_at).label("last_at"),
+        )
+        .filter(
+            SalesOrder.tenant_id == tenant_id,
+            SalesOrder.customer_id.in_(customer_ids),
+            SalesOrder.status != "CANCELLED",
+        )
+        .group_by(SalesOrder.customer_id)
+        .all()
+    )
+    return {
+        r.customer_id: {"count": r.cnt, "total": r.total or 0.0, "last_at": r.last_at}
+        for r in rows
+    }
+
+
+def get_agent_queue(
+    db: Session, agent_id: str, tenant_id: str, tier: list = None, search: str = "",
+    price_list_id: list = None, date_from: str = "", date_to: str = "", horizon: int = 0,
+) -> dict:
+    tier = tier or []
+    price_list_id = price_list_id or []
     today = date.today()
+    horizon_date = today + timedelta(days=horizon) if horizon else today
 
     last_log_sq = (
         db.query(
@@ -104,8 +135,29 @@ def get_agent_queue(db: Session, agent_id: str, tenant_id: str) -> dict:
             Customer.is_deleted == False,
             Customer.is_active == True,
         )
-        .all()
     )
+
+    if tier:
+        rows = rows.filter(Customer.customer_tier.in_(tier))
+    if search:
+        like = f"%{search}%"
+        rows = rows.filter((Customer.name.ilike(like)) | (Customer.phone.ilike(like)))
+    if price_list_id:
+        rows = rows.filter(Customer.price_list_id.in_(price_list_id))
+    if date_from:
+        try:
+            rows = rows.filter(last_log_sq.c.last_contacted >= datetime.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            rows = rows.filter(last_log_sq.c.last_contacted <= datetime.fromisoformat(date_to))
+        except ValueError:
+            pass
+
+    rows = rows.all()
+
+    order_agg = _order_aggregates(db, tenant_id, [c.id for c, _, _ in rows])
 
     p1, p2, p3, p4 = [], [], [], []
 
@@ -115,15 +167,19 @@ def get_agent_queue(db: Session, agent_id: str, tenant_id: str) -> dict:
             if last_contacted else 9999
         )
         freq = cust.contact_freq_days or 30
+        agg = order_agg.get(cust.id, {"count": 0, "total": 0.0, "last_at": None})
 
         entry = {
             "customer": cust,
             "last_contacted": last_contacted,
             "days_since_contact": days_since,
             "next_follow_up": next_follow_up,
+            "order_count": agg["count"],
+            "order_total": agg["total"],
+            "last_order_at": agg["last_at"],
         }
 
-        if next_follow_up and next_follow_up.date() <= today:
+        if next_follow_up and next_follow_up.date() <= horizon_date:
             entry["priority_label"] = "Follow-up due"
             p1.append(entry)
         elif days_since >= freq:
@@ -142,6 +198,7 @@ def get_agent_queue(db: Session, agent_id: str, tenant_id: str) -> dict:
         return (
             tier_order.get(e["customer"].customer_tier, 3),
             -(e["days_since_contact"]),
+            -(e["order_total"]),
         )
 
     return {
@@ -158,6 +215,12 @@ def get_agent_queue(db: Session, agent_id: str, tenant_id: str) -> dict:
 def contacts_queue(
     request: Request,
     agent_id: str = None,
+    tier: list = Query(default=[]),
+    search: str = "",
+    price_list_id: list = Query(default=[]),
+    date_from: str = "",
+    date_to: str = "",
+    horizon: int = 0,
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
@@ -165,7 +228,11 @@ def contacts_queue(
     if user.role in ("ADMIN", "MANAGER") and agent_id:
         target_agent_id = agent_id
 
-    queue = get_agent_queue(db, target_agent_id, user.tenant_id)
+    queue = get_agent_queue(
+        db, target_agent_id, user.tenant_id, tier=tier, search=search,
+        price_list_id=price_list_id, date_from=date_from, date_to=date_to,
+        horizon=horizon,
+    )
 
     agents = []
     if user.role in ("ADMIN", "MANAGER"):
@@ -175,10 +242,18 @@ def contacts_queue(
             User.is_deleted == False,
         ).all() if has_module(u, "SALES")]
 
+    price_lists = db.query(PriceList).filter(
+        PriceList.tenant_id == user.tenant_id, PriceList.is_deleted == False,
+        PriceList.is_active == True,
+    ).order_by(PriceList.name).all()
+
     return templates.TemplateResponse(request, "sales/contacts_queue.html", _ctx(
         db, user,
         queue=queue, agents=agents, selected_agent_id=target_agent_id,
-        outcome_choices=OUTCOME_CHOICES,
+        outcome_choices=OUTCOME_CHOICES, tier_choices=TIER_CHOICES,
+        tier=tier, search=search, price_lists=price_lists,
+        price_list_id=price_list_id, date_from=date_from, date_to=date_to,
+        horizon=horizon, today_display=date.today().strftime('%A, %d %b %Y'),
     ))
 
 
@@ -193,25 +268,31 @@ def log_call(
     notes: str = Form(""),
     follow_up_at: str = Form(""),
     contacted_at: str = Form(""),
+    ajax: str = Form(""),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
+    def _err(msg):
+        if ajax:
+            return JSONResponse({"error": msg}, status_code=400)
+        return _redir(f"/sales/contacts/{customer_id}?err={msg.replace(' ', '+')}")
+
     customer = get_customer_or_404(db, customer_id, user.tenant_id)
     if user.role not in ("ADMIN", "MANAGER") and customer.assigned_agent_id != user.id:
         raise HTTPException(403, "Not your assigned customer")
 
     if outcome not in OUTCOME_CHOICES:
-        return _redir(f"/sales/contacts/{customer_id}?err=Invalid+outcome")
+        return _err("Invalid outcome")
 
     fu_at = None
     if follow_up_at:
         try:
             fu_at = datetime.fromisoformat(follow_up_at)
         except ValueError:
-            return _redir(f"/sales/contacts/{customer_id}?err=Invalid+follow-up+date")
+            return _err("Invalid follow-up date")
 
     if outcome == "CALLBACK" and not fu_at:
-        return _redir(f"/sales/contacts/{customer_id}?err=Follow-up+date+is+required+for+Callback")
+        return _err("Follow-up date is required for Callback")
 
     c_at = datetime.utcnow()
     if contacted_at:
@@ -244,6 +325,22 @@ def log_call(
     })
 
     db.commit()
+
+    if ajax:
+        return JSONResponse({
+            "ok": True,
+            "log": {
+                "contacted_at": log.contacted_at.strftime("%d %b %Y %H:%M") if log.contacted_at else "—",
+                "outcome": log.outcome,
+                "outcome_label": log.outcome.replace("_", " ").title(),
+                "agent": user.name,
+                "follow_up_at": log.follow_up_at.strftime("%d %b %Y") if log.follow_up_at else None,
+                "notes": log.notes or "",
+            },
+            "last_contacted_at": c_at.strftime("%d %b %Y"),
+            "redirect_to_order": (outcome == "ORDER_PLACED"),
+            "order_new_url": f"/sales/orders/new?customer_id={customer_id}&call_log_id={log.id}",
+        })
 
     if outcome == "ORDER_PLACED":
         return _redir(f"/sales/orders/new?customer_id={customer_id}&call_log_id={log.id}")
@@ -284,8 +381,8 @@ def contacts_list(
     request: Request,
     page: int = 1,
     search: str = "",
-    tier: str = "",
-    agent_id: str = "",
+    tier: list = Query(default=[]),
+    agent_id: list = Query(default=[]),
     status: str = "active",
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
@@ -298,13 +395,13 @@ def contacts_list(
     if user.role not in ("ADMIN", "MANAGER"):
         q = q.filter(Customer.assigned_agent_id == user.id)
     elif agent_id:
-        q = q.filter(Customer.assigned_agent_id == agent_id)
+        q = q.filter(Customer.assigned_agent_id.in_(agent_id))
 
     if search:
         like = f"%{search}%"
         q = q.filter((Customer.name.ilike(like)) | (Customer.phone.ilike(like)))
     if tier:
-        q = q.filter(Customer.customer_tier == tier)
+        q = q.filter(Customer.customer_tier.in_(tier))
     if status == "active":
         q = q.filter(Customer.is_active == True)
     elif status == "inactive":
@@ -315,9 +412,12 @@ def contacts_list(
     customers = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
 
     now = datetime.utcnow()
+    order_agg = _order_aggregates(db, user.tenant_id, [c.id for c in customers])
     rows = [{
         "customer": c,
         "days_since_contact": (now - c.last_contacted_at).days if c.last_contacted_at else None,
+        "order_count": order_agg.get(c.id, {}).get("count", 0),
+        "order_total": order_agg.get(c.id, {}).get("total", 0.0),
     } for c in customers]
 
     agents = []
@@ -328,11 +428,16 @@ def contacts_list(
             User.is_deleted == False,
         ).all() if has_module(u, "SALES")]
 
+    price_lists = db.query(PriceList).filter(
+        PriceList.tenant_id == user.tenant_id, PriceList.is_deleted == False,
+        PriceList.is_active == True,
+    ).order_by(PriceList.name).all()
+
     return templates.TemplateResponse(request, "sales/contacts_list.html", _ctx(
         db, user,
         rows=rows, total=total, page=page, page_size=PAGE_SIZE,
         search=search, tier=tier, agent_id=agent_id, status=status,
-        agents=agents, tier_choices=TIER_CHOICES,
+        agents=agents, tier_choices=TIER_CHOICES, price_lists=price_lists,
     ))
 
 
@@ -570,6 +675,9 @@ def contacts_export(
 def contact_detail(
     request: Request,
     customer_id: str,
+    date_from: str = "",
+    date_to: str = "",
+    product: str = "",
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
@@ -577,31 +685,103 @@ def contact_detail(
     if user.role not in ("ADMIN", "MANAGER") and customer.assigned_agent_id != user.id:
         raise HTTPException(403, "Not your assigned customer")
 
-    call_logs = (
-        db.query(CRMCallLog)
-        .filter(CRMCallLog.customer_id == customer_id, CRMCallLog.tenant_id == user.tenant_id)
-        .order_by(CRMCallLog.contacted_at.desc())
-        .all()
+    call_logs_q = db.query(CRMCallLog).filter(
+        CRMCallLog.customer_id == customer_id, CRMCallLog.tenant_id == user.tenant_id,
     )
 
-    orders = (
-        db.query(SalesOrder)
-        .filter(SalesOrder.customer_id == customer_id,
-                SalesOrder.is_deleted  == False)
-        .order_by(SalesOrder.created_at.desc())
-        .limit(10)
-        .all()
+    orders_q = db.query(SalesOrder).filter(
+        SalesOrder.customer_id == customer_id,
+        SalesOrder.is_deleted == False,
+        SalesOrder.status != "CANCELLED",
     )
+
+    dt_from = dt_to = None
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from)
+            orders_q = orders_q.filter(SalesOrder.created_at >= dt_from)
+            call_logs_q = call_logs_q.filter(CRMCallLog.contacted_at >= dt_from)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to)
+            orders_q = orders_q.filter(SalesOrder.created_at <= dt_to)
+            call_logs_q = call_logs_q.filter(CRMCallLog.contacted_at <= dt_to)
+        except ValueError:
+            pass
+    if product:
+        like = f"%{product}%"
+        orders_q = orders_q.join(SalesOrderItem, SalesOrderItem.order_id == SalesOrder.id) \
+            .join(ProductVariant, ProductVariant.id == SalesOrderItem.variant_id) \
+            .filter(ProductVariant.variant_label.ilike(like)).distinct()
+
+    call_logs = call_logs_q.order_by(CRMCallLog.contacted_at.desc()).all()
+    filtered_orders = orders_q.order_by(SalesOrder.created_at.desc()).all()
+    orders = filtered_orders[:10]
+
+    # KPIs computed from the filtered (but not row-capped) order set.
+    order_count = len(filtered_orders)
+    order_total = sum(o.total_amount or 0 for o in filtered_orders)
+    order_dates = sorted([o.created_at for o in filtered_orders if o.created_at])
+    last_order_at = order_dates[-1] if order_dates else None
+    days_since_last_order = (datetime.utcnow() - last_order_at).days if last_order_at else None
+    if len(order_dates) > 1:
+        span_days = (order_dates[-1] - order_dates[0]).days
+        avg_cycle_days = round(span_days / (len(order_dates) - 1)) if span_days else 0
+    else:
+        avg_cycle_days = None
+
+    # Simple monthly trend (last 6 months) for the engagement chart.
+    from collections import OrderedDict
+    months = OrderedDict()
+    ref = datetime.utcnow().replace(day=1)
+    for i in range(5, -1, -1):
+        y, m = ref.year, ref.month - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        months[f"{y}-{m:02d}"] = {"orders": 0, "calls": 0}
+    for o in filtered_orders:
+        if o.created_at:
+            k = f"{o.created_at.year}-{o.created_at.month:02d}"
+            if k in months:
+                months[k]["orders"] += 1
+    for log in call_logs:
+        if log.contacted_at:
+            k = f"{log.contacted_at.year}-{log.contacted_at.month:02d}"
+            if k in months:
+                months[k]["calls"] += 1
+    trend = [{"label": k, **v} for k, v in months.items()]
 
     msg = request.query_params.get("msg", "")
     err = request.query_params.get("err", "")
+
+    agents = []
+    if user.role in ("ADMIN", "MANAGER"):
+        agents = [u for u in db.query(User).filter(
+            User.tenant_id == user.tenant_id,
+            User.is_active == True,
+            User.is_deleted == False,
+        ).all() if has_module(u, "SALES")]
+
+    price_lists = db.query(PriceList).filter(
+        PriceList.tenant_id == user.tenant_id, PriceList.is_deleted == False,
+        PriceList.is_active == True,
+    ).order_by(PriceList.name).all()
 
     return templates.TemplateResponse(request, "sales/contact_detail.html", _ctx(
         db, user,
         customer=customer, call_logs=call_logs, orders=orders,
         outcome_choices=OUTCOME_CHOICES,
         can_edit=_can_edit_customer(user, customer),
+        agents=agents, price_lists=price_lists, tier_choices=TIER_CHOICES,
+        is_full_editor=user.role in ("ADMIN", "MANAGER"),
         msg=msg, err=err,
+        date_from=date_from, date_to=date_to, product=product,
+        order_count=order_count, order_total=order_total,
+        days_since_last_order=days_since_last_order, avg_cycle_days=avg_cycle_days,
+        trend=trend,
     ))
 
 
@@ -665,10 +845,10 @@ def contact_edit_save(
 
     if is_full_editor:
         if not name.strip():
-            return _redir(f"/sales/contacts/{customer_id}/edit?err=Name+is+required")
+            return _redir(f"/sales/contacts/{customer_id}?err=Name+is+required")
         p = phone.strip()
         if p and not _PHONE_RE.match(p):
-            return _redir(f"/sales/contacts/{customer_id}/edit?err=Invalid+phone+number+format")
+            return _redir(f"/sales/contacts/{customer_id}?err=Invalid+phone+number+format")
         customer.name = name.strip()
         customer.contact_person = contact_person.strip() or None
         customer.phone = p or None

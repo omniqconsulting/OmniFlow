@@ -2,74 +2,170 @@
 {% block title %}Today's Queue{% endblock %}
 {% block content %}
 {% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+{% set quad_meta = {
+  'p1': {'title':'Follow-up due', 'icon':'🔴', 'color':'#ef4444', 'why':'Has a scheduled follow-up date that is today or overdue.' if not horizon else 'Has a scheduled follow-up date due within the next ' ~ horizon ~ ' day(s), including overdue.'},
+  'p2': {'title':'Overdue contact', 'icon':'🟠', 'color':'#f59e0b', 'why':'Days since last contact has reached or passed the contact frequency target.'},
+  'p3': {'title':'Contact soon', 'icon':'🟡', 'color':'#eab308', 'why':'Approaching the contact frequency target (80%+ elapsed).'},
+  'p4': {'title':'On track', 'icon':'🟢', 'color':'#22c55e', 'why':'Recently contacted, well within the target frequency.'},
+} %}
 
-<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
-  <div>
-    <h2 class="page-title">Today's Queue</h2>
-    <div class="muted">{{ queue.overdue_count }} follow-up(s)/overdue contact(s), {{ queue.total }} total assigned</div>
-  </div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <a href="/sales/contacts/all" class="btn btn-sm btn-outline">All Customers</a>
-  </div>
-</div>
-
-{% if user.role in ('ADMIN','MANAGER') and agents %}
-<form method="get" action="/sales/contacts" style="margin-bottom:18px">
-  <select name="agent_id" onchange="this.form.submit()" style="min-width:220px">
-    {% for a in agents %}
-    <option value="{{ a.id }}" {{ 'selected' if a.id == selected_agent_id else '' }}>{{ a.name }}</option>
-    {% endfor %}
-  </select>
-</form>
-{% endif %}
+<style>
+.cq-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:14px;height:calc(100vh - 300px);min-height:560px}
+@media (max-width:900px){.cq-grid{grid-template-columns:1fr;grid-template-rows:none;height:auto}}
+.cq-quad{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.cq-quad-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:6px;flex-shrink:0}
+.cq-quad-title{font-weight:700;font-size:14px;display:flex;align-items:center;gap:6px}
+.cq-quad-count{font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;color:#fff}
+.cq-quad-why{font-size:11px;color:var(--text-faint);margin-bottom:6px;line-height:1.4;flex-shrink:0}
+.cq-quad-body{flex:1;overflow:auto;min-height:0}
+.cq-col-hdr{display:grid;align-items:center;gap:10px;padding:0 12px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);background:var(--bg-card);position:sticky;top:0;z-index:2}
+.cq-card{border-bottom:1px solid var(--border-subtle);padding:8px 12px;display:grid;align-items:center;gap:10px;font-size:12px}
+.cq-card:last-child{border-bottom:none}
+.cq-card-name-wrap{min-width:0;font-size:12px}
+.cq-card-name{font-size:12px;font-weight:600;color:var(--text-strong);text-decoration:none}
+.cq-tier{font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;color:#fff;margin-left:6px}
+.cq-meta-item{font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cq-meta-item b{color:var(--text-primary);font-weight:600}
+.cq-priority-tag{font-size:10px;color:var(--text-faint);margin-left:auto;white-space:nowrap}
+.cq-menu-wrap{position:relative}
+.cq-menu-btn{background:none;border:1px solid var(--border-med);border-radius:6px;width:28px;height:28px;cursor:pointer;color:var(--text-muted);font-size:16px;line-height:1}
+.cq-menu-btn:hover{background:var(--hover-bg)}
+.cq-menu{display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:8px;min-width:140px;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,0.4);padding:4px}
+.cq-menu.open{display:block}
+.cq-menu button,.cq-menu a{display:block;width:100%;text-align:left;background:none;border:none;padding:7px 10px;font-size:12px;color:var(--text-primary);text-decoration:none;border-radius:5px;cursor:pointer;font-family:inherit}
+.cq-menu button:hover,.cq-menu a:hover{background:var(--hover-bg)}
+</style>
 
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-{% macro cust_card(e) %}
-<div class="card" style="padding:12px 14px;margin-bottom:8px">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
-    <div>
-      <a href="/sales/contacts/{{ e.customer.id }}" style="font-weight:600;color:var(--text-strong);text-decoration:none">{{ e.customer.name }}</a>
-      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(e.customer.customer_tier, '#94a3b8') }};margin-left:6px">{{ e.customer.customer_tier }}</span>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:4px">
-        {{ e.customer.phone or '—' }} ·
-        Last contacted: {{ e.last_contacted.strftime('%d %b %Y') if e.last_contacted else 'Never' }}
-        ({{ e.days_since_contact if e.days_since_contact < 9999 else 'N/A' }} days)
-        {% if e.next_follow_up %} · Follow-up: {{ e.next_follow_up.strftime('%d %b %Y') }}{% endif %}
-      </div>
+<div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:14px">
+<form method="get" action="/sales/contacts" class="filter-bar" style="flex:1;margin-bottom:0">
+  {% if user.role in ('ADMIN','MANAGER') and agents %}
+  <div class="filter-group">
+    <label>Agent</label>
+    <select name="agent_id" onchange="this.form.submit()">
+      {% for a in agents %}
+      <option value="{{ a.id }}" {{ 'selected' if a.id == selected_agent_id else '' }}>{{ a.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+  <div class="ms-wrap" data-name="tier" data-placeholder="All tiers">
+    <div class="ms-label">Tier</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All tiers</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for t in tier_choices %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ t }}" onchange="onMsChange(this)" {% if t in tier %}checked{% endif %}>
+        {{ t }}
+      </label>
+      {% endfor %}
     </div>
-    <button class="btn btn-xs btn-primary" onclick="openLogCall('{{ e.customer.id }}','{{ e.customer.name }}')">Log Call</button>
+  </div>
+  {% if price_lists %}
+  <div class="ms-wrap" data-name="price_list_id" data-placeholder="All categories">
+    <div class="ms-label">Price Category</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All categories</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for pl in price_lists %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ pl.id }}" onchange="onMsChange(this)" {% if pl.id in price_list_id %}checked{% endif %}>
+        {{ pl.name }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  <div class="filter-group">
+    <label>Upcoming</label>
+    <select name="horizon">
+      <option value="0" {{ 'selected' if horizon == 0 else '' }}>Due today/overdue only</option>
+      <option value="3" {{ 'selected' if horizon == 3 else '' }}>Include next 3 days</option>
+      <option value="7" {{ 'selected' if horizon == 7 else '' }}>Include next 7 days</option>
+      <option value="30" {{ 'selected' if horizon == 30 else '' }}>Include next 30 days</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Contacted From</label>
+    <input type="date" name="date_from" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>Contacted To</label>
+    <input type="date" name="date_to" value="{{ date_to }}">
+  </div>
+  <div class="filter-group" style="flex:1;min-width:200px">
+    <label>Search</label>
+    <input type="text" name="search" value="{{ search }}" placeholder="Name or phone…" style="width:100%">
+  </div>
+  <div style="align-self:flex-end;display:flex;gap:6px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    {% if tier or search or price_list_id or date_from or date_to or horizon %}
+    <a href="/sales/contacts?agent_id={{ selected_agent_id }}" class="btn btn-gray btn-sm">Clear</a>
+    {% endif %}
+  </div>
+</form>
+<div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0;align-items:flex-end">
+  <div class="qv-switch" onclick="window.location='/sales/contacts/all?agent_id={{ selected_agent_id if user.role in ('ADMIN','MANAGER') else '' }}&search={{ search }}'">
+    <div class="qv-knob"></div>
+    <span class="qv-lbl on">Quadrant</span>
+    <span class="qv-lbl">List</span>
+  </div>
+  <div style="display:flex;gap:6px">
+    <a href="/sales/contacts/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
+    <a href="/sales/contacts/all?new=1" class="btn btn-sm btn-primary">+ New Customer</a>
+  </div>
+</div>
+</div>
+
+{% set cq_cols = "minmax(140px,1.6fr) 100px 150px 120px 150px 40px" %}
+
+{% macro cust_row(e) %}
+<div class="cq-card" style="grid-template-columns:{{ cq_cols }}">
+  <div class="cq-card-name-wrap">
+    <a href="/sales/contacts/{{ e.customer.id }}" class="cq-card-name">{{ e.customer.name }}</a>
+    <span class="cq-tier" style="background:{{ tier_colors.get(e.customer.customer_tier, '#94a3b8') }}">{{ e.customer.customer_tier }}</span>
+  </div>
+  <div class="cq-meta-item">{{ e.customer.phone or '—' }}</div>
+  <div class="cq-meta-item"><b>{{ e.last_contacted.strftime('%d %b %Y') if e.last_contacted else 'Never' }}</b> ({{ e.days_since_contact if e.days_since_contact < 9999 else 'N/A' }}d)</div>
+  <div class="cq-meta-item">{% if e.next_follow_up %}<b>{{ e.next_follow_up.strftime('%d %b %Y') }}</b>{% else %}—{% endif %}</div>
+  <div class="cq-meta-item"><b>{{ e.order_count }}</b>{% if e.order_total %} · ₹{{ '%.0f'|format(e.order_total) }}{% endif %}</div>
+  <div class="cq-menu-wrap">
+    <button class="cq-menu-btn" onclick="toggleRowMenu(event, this)">⋮</button>
+    <div class="cq-menu">
+      <button onclick="closeRowMenus();openLogCall('{{ e.customer.id }}','{{ e.customer.name }}')">Log Call</button>
+      <a href="/sales/orders/new?customer_id={{ e.customer.id }}">+ Order</a>
+      <a href="/sales/contacts/{{ e.customer.id }}">Profile</a>
+    </div>
   </div>
 </div>
 {% endmacro %}
 
-<details open style="margin-bottom:14px">
-  <summary style="cursor:pointer;font-weight:700;color:#ef4444;padding:8px 0">🔴 Follow-up due ({{ queue.p1|length }})</summary>
-  {% for e in queue.p1 %}{{ cust_card(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}
-</details>
-
-<details open style="margin-bottom:14px">
-  <summary style="cursor:pointer;font-weight:700;color:#f59e0b;padding:8px 0">🟠 Overdue contact ({{ queue.p2|length }})</summary>
-  {% for e in queue.p2 %}{{ cust_card(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}
-</details>
-
-<details style="margin-bottom:14px">
-  <summary style="cursor:pointer;font-weight:700;color:#eab308;padding:8px 0">🟡 Contact soon ({{ queue.p3|length }})</summary>
-  {% for e in queue.p3 %}{{ cust_card(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}
-</details>
-
-<details style="margin-bottom:14px">
-  <summary style="cursor:pointer;font-weight:700;color:#22c55e;padding:8px 0">🟢 On track ({{ queue.p4|length }})</summary>
-  {% for e in queue.p4 %}{{ cust_card(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}
-</details>
-
-{% if queue.total == 0 %}
-<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
-  <div style="font-size:40px;margin-bottom:12px">📭</div>
-  <div style="font-size:15px;font-weight:500">No customers assigned yet</div>
+<div class="cq-grid">
+  {% for key in ['p1','p2','p3','p4'] %}
+  {% set meta = quad_meta[key] %}
+  {% set list = queue[key] %}
+  <div class="cq-quad">
+    <div class="cq-quad-hdr">
+      <div class="cq-quad-title" style="color:{{ meta.color }}">{{ meta.icon }} {{ meta.title }}</div>
+      <span class="cq-quad-count" style="background:{{ meta.color }}">{{ list|length }}</span>
+    </div>
+    <div class="cq-quad-why">{{ meta.why }} <span style="color:var(--text-faint)">Sorted by: tier (A→D), then most overdue, then order value.</span></div>
+    <div class="cq-quad-body">
+      {% if list %}
+      <div class="cq-col-hdr" style="grid-template-columns:{{ cq_cols }}">
+        <div>Customer</div><div>Phone</div><div>Last Contact</div><div>Follow-up</div><div>Orders</div><div></div>
+      </div>
+      {% endif %}
+      {% for e in list %}{{ cust_row(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}
+    </div>
+  </div>
+  {% endfor %}
 </div>
-{% endif %}
 
 <!-- Log call slide-over -->
 <div id="logCallOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100" onclick="closeLogCall(event)">
@@ -87,23 +183,39 @@
       </select>
 
       <div id="followUpField" style="display:none;margin-bottom:10px">
-        <label style="font-size:12px;color:var(--text-muted)">Follow-up date <span style="color:#ef4444">*</span></label>
+        <label style="font-size:12px;color:var(--text-muted)">Follow-up date (next meeting / reminder) <span style="color:#ef4444">*</span></label>
         <input type="date" name="follow_up_at" id="logCallFollowUp" style="width:100%">
       </div>
 
       <label style="font-size:12px;color:var(--text-muted)">Notes</label>
       <textarea name="notes" rows="3" style="width:100%;margin-bottom:14px"></textarea>
 
+      <div id="logCallError" class="alert alert-red" style="display:none;margin-bottom:10px"></div>
       <button type="submit" class="btn btn-primary" style="width:100%">Save Call Log</button>
     </form>
   </div>
 </div>
 
 <script>
+let logCallCustomerId = null;
+
+function closeRowMenus() {
+  document.querySelectorAll('.cq-menu.open').forEach(function(m){ m.classList.remove('open'); });
+}
+function toggleRowMenu(e, btn) {
+  e.stopPropagation();
+  const menu = btn.nextElementSibling;
+  const isOpen = menu.classList.contains('open');
+  closeRowMenus();
+  if (!isOpen) menu.classList.add('open');
+}
+document.addEventListener('click', closeRowMenus);
+
 function openLogCall(customerId, customerName) {
+  logCallCustomerId = customerId;
   document.getElementById('logCallCustName').textContent = customerName;
-  document.getElementById('logCallForm').action = '/sales/contacts/' + customerId + '/log-call';
   document.getElementById('logCallContactedAt').value = new Date().toISOString().slice(0,16);
+  document.getElementById('logCallError').style.display = 'none';
   document.getElementById('logCallOverlay').style.display = 'block';
 }
 function closeLogCall(e) {
@@ -115,5 +227,19 @@ function toggleFollowUp() {
   field.style.display = isCallback ? 'block' : 'none';
   document.getElementById('logCallFollowUp').required = isCallback;
 }
+
+document.getElementById('logCallForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const errEl = document.getElementById('logCallError');
+  errEl.style.display = 'none';
+  const fd = new FormData(this);
+  fd.append('ajax', '1');
+  const res = await fetch(`/sales/contacts/${logCallCustomerId}/log-call`, { method: 'POST', body: fd });
+  const d = await res.json();
+  if (!res.ok) { errEl.textContent = d.error || 'Could not save call log'; errEl.style.display = ''; return; }
+  document.getElementById('logCallOverlay').style.display = 'none';
+  if (d.redirect_to_order) { window.location.href = d.order_new_url; return; }
+  window.location.reload();
+});
 </script>
 {% endblock %}

@@ -18,7 +18,7 @@ from typing import List, Optional
 
 from .database import (
     get_db, new_id, Product, ProductVariant, ProductSchemaField, UnitOfMeasure,
-    User, ProductStock, Category, SubCategory,
+    User, ProductStock, Category, SubCategory, EndProduct,
 )
 from .auth import get_current_user, require_admin, require_manager, has_module, require_module
 from .templates_env import templates
@@ -238,6 +238,11 @@ def catalog_list(
         q=q, category_id=category_id, sub_category_id=sub_category_id, tier=tier, active=active,
         categories=categories, subcats_by_cat=subcats_by_cat,
         tier_choices=TIER_CHOICES,
+        # New-Product modal (Phase 4 of the UX redesign) needs the same
+        # subcategory-by-id shape and reference data as catalog_new.html.
+        new_product_subcats_by_id={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
+        units=_active_units(db, user.tenant_id),
+        schema_fields=_active_schema_fields(db, user.tenant_id),
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))
 
@@ -287,26 +292,14 @@ async def catalog_create(
         if not sku:
             continue
         if sku in seen_skus:
-            return templates.TemplateResponse(request, "sales/catalog_new.html", _ctx(
-                db, user, product={"name": name, "description": description, "sub_category_id": sub_category_id, "base_unit_id": base_unit_id},
-                attributes=attributes, schema_fields=schema_fields,
-                units=_active_units(db, user.tenant_id), categories=_active_categories(db, user.tenant_id),
-                subcats_by_cat={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
-                err=f"Duplicate SKU '{sku}' in the form",
-            ), status_code=400)
+            return RedirectResponse(f"/sales/catalog?err=Duplicate+SKU+'{sku}'+in+the+form", status_code=303)
         seen_skus.add(sku)
         existing = db.query(ProductVariant).filter(
             ProductVariant.tenant_id == user.tenant_id, ProductVariant.sku_code == sku,
             ProductVariant.is_deleted == False,
         ).first()
         if existing:
-            return templates.TemplateResponse(request, "sales/catalog_new.html", _ctx(
-                db, user, product={"name": name, "description": description, "sub_category_id": sub_category_id, "base_unit_id": base_unit_id},
-                attributes=attributes, schema_fields=schema_fields,
-                units=_active_units(db, user.tenant_id), categories=_active_categories(db, user.tenant_id),
-                subcats_by_cat={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
-                err=f"SKU '{sku}' already exists",
-            ), status_code=400)
+            return RedirectResponse(f"/sales/catalog?err=SKU+'{sku}'+already+exists", status_code=303)
         variant_rows.append({
             "sku": sku,
             "label": labels[i].strip() if i < len(labels) else "",
@@ -315,13 +308,10 @@ async def catalog_create(
         })
 
     if not variant_rows:
-        return templates.TemplateResponse(request, "sales/catalog_new.html", _ctx(
-            db, user, product={"name": name, "description": description, "sub_category_id": sub_category_id, "base_unit_id": base_unit_id},
-            attributes=attributes, schema_fields=schema_fields,
-            units=_active_units(db, user.tenant_id), categories=_active_categories(db, user.tenant_id),
-            subcats_by_cat={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
-            err="At least one Variant (SKU) is required — a Product alone isn't sellable",
-        ), status_code=400)
+        return RedirectResponse(
+            "/sales/catalog?err=At+least+one+Variant+(SKU)+is+required+-+a+Product+alone+isn't+sellable",
+            status_code=303,
+        )
 
     product = Product(
         id=new_id(), tenant_id=user.tenant_id, name=name,
@@ -483,7 +473,7 @@ async def variant_edit_save(
         ProductVariant.id != variant_id, ProductVariant.is_deleted == False,
     ).first()
     if existing:
-        return RedirectResponse(f"/sales/catalog/variant/{variant_id}/edit?err=SKU+{sku_code}+already+exists", status_code=303)
+        return RedirectResponse(f"/sales/catalog/{variant.product_id}?err=SKU+{sku_code}+already+exists", status_code=303)
 
     variant.sku_code = sku_code
     variant.variant_label = variant_label.strip() or variant.variant_label
@@ -494,7 +484,7 @@ async def variant_edit_save(
     variant.updated_at = datetime.utcnow()
     sync_end_product_from_variant(db, variant)
     db.commit()
-    return RedirectResponse(f"/sales/catalog/variant/{variant_id}/edit?msg=Variant+updated", status_code=303)
+    return RedirectResponse(f"/sales/catalog/{variant.product_id}?msg=Variant+updated", status_code=303)
 
 
 @router.post("/sales/catalog/variant/{variant_id}/delete")
@@ -543,7 +533,7 @@ async def upload_variant_media(
     variant.media_urls_json = json.dumps(existing)
     variant.updated_at = datetime.utcnow()
     db.commit()
-    return RedirectResponse(f"/sales/catalog/variant/{variant_id}/edit?msg=Photos+uploaded", status_code=303)
+    return RedirectResponse(f"/sales/catalog/{variant.product_id}?msg=Photos+uploaded", status_code=303)
 
 
 @router.post("/sales/catalog/variant/{variant_id}/delete-media")
@@ -560,7 +550,7 @@ def delete_variant_media(
         variant.media_urls_json = json.dumps(existing)
         variant.updated_at = datetime.utcnow()
         db.commit()
-    return RedirectResponse(f"/sales/catalog/variant/{variant_id}/edit?msg=Photo+removed", status_code=303)
+    return RedirectResponse(f"/sales/catalog/{variant.product_id}?msg=Photo+removed", status_code=303)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -871,6 +861,15 @@ def catalog_detail(product_id: str, request: Request, user: User = Depends(_requ
         ).all()
     } if variants else {}
 
+    # Setup <-> Sales cross-link (Phase 5): match on sku_code, the same key
+    # sales_catalog_sync.py already uses to keep the two in sync.
+    skus = [v.sku_code for v in variants if v.sku_code]
+    setup_end_product = db.query(EndProduct).filter(
+        EndProduct.tenant_id == user.tenant_id,
+        EndProduct.sku_code.in_(skus),
+        EndProduct.is_deleted == False,
+    ).first() if skus else None
+
     return templates.TemplateResponse(request, "sales/catalog_detail.html", _ctx(
         db, user,
         product=product,
@@ -880,5 +879,6 @@ def catalog_detail(product_id: str, request: Request, user: User = Depends(_requ
         units=_active_units(db, user.tenant_id),
         schema_fields=_active_schema_fields(db, user.tenant_id),
         tier_choices=TIER_CHOICES,
+        setup_end_product=setup_end_product,
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))

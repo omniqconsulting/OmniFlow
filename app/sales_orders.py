@@ -8,6 +8,7 @@ two-step Product -> Variant flow.
 """
 import csv
 import io
+import json
 import calendar
 from datetime import datetime, date
 from datetime import date as _date
@@ -357,8 +358,18 @@ def order_new_form(
             Customer.is_active == True, Customer.assigned_agent_id == user.id,
         ).order_by(Customer.name).all()
 
-    return templates.TemplateResponse(request, "sales/orders_new.html", _ctx(
-        db, user, customer=customer, customers=customers, call_log_id=call_log_id,
+    # Same "sellable" filter as order_detail's product picker — a Product with
+    # zero active variants isn't sellable.
+    products = (
+        db.query(Product)
+        .filter(Product.tenant_id == user.tenant_id, Product.is_deleted == False, Product.is_active == True)
+        .order_by(Product.name)
+        .all()
+    )
+    products = [p for p in products if any(v.is_active and not v.is_deleted for v in p.variants)]
+
+    return templates.TemplateResponse(request, "sales/order_builder.html", _ctx(
+        db, user, customer=customer, customers=customers, call_log_id=call_log_id, products=products,
         agents=_sales_agents(db, user.tenant_id), branches=_active_branches(db, user.tenant_id),
     ))
 
@@ -390,12 +401,15 @@ def order_quick_customer_create(
     name: str = Form(...),
     phone: str = Form(""),
     email: str = Form(""),
+    ajax: str = Form(""),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
     """Inline 'create new customer' affordance on the order screen (1.3) —
     lets an agent add a new party without leaving the order-creation flow."""
     if not name.strip():
+        if ajax:
+            return JSONResponse({"error": "Party name is required"}, status_code=400)
         return _redir("/sales/orders/new?err=Party+name+is+required")
 
     customer = Customer(
@@ -408,6 +422,8 @@ def order_quick_customer_create(
     )
     db.add(customer)
     db.commit()
+    if ajax:
+        return JSONResponse({"id": customer.id, "name": customer.name, "phone": customer.phone})
     return _redir(f"/sales/orders/new?customer_id={customer.id}&msg=Customer+created")
 
 
@@ -421,6 +437,7 @@ def order_create(
     branch_id: str = Form(""),
     expected_delivery_date: str = Form(""),
     notes: str = Form(""),
+    ajax: str = Form(""),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
@@ -429,6 +446,8 @@ def order_create(
         Customer.is_deleted == False,
     ).first()
     if not customer:
+        if ajax:
+            return JSONResponse({"error": "Invalid customer"}, status_code=400)
         return _redir("/sales/orders/new?err=Invalid+customer")
     if user.role not in ("ADMIN", "MANAGER") and customer.assigned_agent_id != user.id:
         raise HTTPException(403, "Not your assigned customer")
@@ -440,6 +459,8 @@ def order_create(
             User.is_active == True, User.is_deleted == False,
         ).first()
         if not agent or not has_module(agent, "SALES"):
+            if ajax:
+                return JSONResponse({"error": "Invalid salesman"}, status_code=400)
             return _redir("/sales/orders/new?err=Invalid+salesman")
         resolved_agent_id = agent.id
 
@@ -449,6 +470,8 @@ def order_create(
             Branch.id == branch_id, Branch.tenant_id == user.tenant_id, Branch.is_deleted == False,
         ).first()
         if not branch:
+            if ajax:
+                return JSONResponse({"error": "Invalid branch"}, status_code=400)
             return _redir("/sales/orders/new?err=Invalid+branch")
         resolved_branch_id = branch.id
 
@@ -474,6 +497,8 @@ def order_create(
     )
     db.add(order)
     db.commit()
+    if ajax:
+        return JSONResponse({"id": order.id, "redirect": f"/sales/orders/{order.id}"})
     return _redir(f"/sales/orders/{order.id}?msg=Order+created")
 
 
@@ -618,28 +643,34 @@ async def order_add_item(
     manual_override_price: str = Form(""),
     override_reason: str = Form(""),
     photo: UploadFile = File(None),
+    ajax: str = Form(""),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
+    def _err(msg):
+        if ajax:
+            return JSONResponse({"error": msg}, status_code=400)
+        return _redir(f"/sales/orders/{order_id}?err={msg.replace(' ', '+')}")
+
     order = get_order_or_404(db, order_id, user.tenant_id)
     if not _can_view_order(user, order):
         raise HTTPException(403, "Not your order")
     if order.status != "DRAFT":
-        return _redir(f"/sales/orders/{order_id}?err=Only+DRAFT+orders+can+be+edited")
+        return _err("Only DRAFT orders can be edited")
 
     variant = db.query(ProductVariant).filter(
         ProductVariant.id == variant_id, ProductVariant.tenant_id == user.tenant_id,
         ProductVariant.is_deleted == False,
     ).first()
     if not variant:
-        return _redir(f"/sales/orders/{order_id}?err=Invalid+variant")
+        return _err("Invalid variant")
 
     try:
         qty = float(qty_ordered)
         if qty <= 0:
             raise ValueError
     except ValueError:
-        return _redir(f"/sales/orders/{order_id}?err=Invalid+quantity")
+        return _err("Invalid quantity")
 
     preview_status, preview_in_transit = _preview_stock_status(db, user.tenant_id, variant_id, qty)
 
@@ -649,11 +680,11 @@ async def order_add_item(
 
     if price is None:
         if not manual_override_price:
-            return _redir(f"/sales/orders/{order_id}?err=No+price+configured+-+enter+a+manual+price")
+            return _err("No price configured - enter a manual price")
         try:
             price = float(manual_override_price)
         except ValueError:
-            return _redir(f"/sales/orders/{order_id}?err=Invalid+manual+price")
+            return _err("Invalid manual price")
         price_source = "MANUAL"
 
     stock = db.query(ProductStock).filter(ProductStock.variant_id == variant_id).first()
@@ -697,6 +728,21 @@ async def order_add_item(
         ))
 
     db.commit()
+    if ajax:
+        media = json.loads(variant.media_urls_json) if variant.media_urls_json else []
+        return JSONResponse({
+            "item_id": item.id,
+            "variant_id": variant_id,
+            "label": (variant.product.name + " — " + variant.sku_code) if variant.product else variant.sku_code,
+            "sku_code": variant.sku_code,
+            "product_tier": variant.product_tier,
+            "qty_ordered": item.qty_ordered,
+            "unit_price": item.unit_price,
+            "price_source": item.price_source,
+            "line_total": item.line_total,
+            "stock_status": item.stock_status,
+            "photo_url": media[0] if media else None,
+        })
     msg = "Item+added" if preview_status == "AVAILABLE" else "Item+added+-+out+of+stock%2C+arrange+separately"
     return _redir(f"/sales/orders/{order_id}?msg={msg}")
 
@@ -756,6 +802,7 @@ def order_update_item(
 def order_remove_item(
     order_id: str,
     item_id: str,
+    ajax: str = Form(""),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
@@ -763,6 +810,8 @@ def order_remove_item(
     if not _can_view_order(user, order):
         raise HTTPException(403, "Not your order")
     if order.status != "DRAFT":
+        if ajax:
+            return JSONResponse({"error": "Only DRAFT orders can be edited"}, status_code=400)
         return _redir(f"/sales/orders/{order_id}?err=Only+DRAFT+orders+can+be+edited")
 
     item = db.query(SalesOrderItem).filter(
@@ -771,6 +820,8 @@ def order_remove_item(
     if item:
         db.delete(item)
         db.commit()
+    if ajax:
+        return JSONResponse({"ok": True})
     return _redir(f"/sales/orders/{order_id}?msg=Item+removed")
 
 
@@ -842,22 +893,28 @@ def order_item_delete_media(
 @router.post("/sales/orders/{order_id}/confirm")
 def order_confirm(
     order_id: str,
+    ajax: str = Form(""),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
+    def _err(msg):
+        if ajax:
+            return JSONResponse({"error": msg}, status_code=400)
+        return _redir(f"/sales/orders/{order_id}?err={msg.replace(' ', '+')}")
+
     order = get_order_or_404(db, order_id, user.tenant_id)
     if not _can_view_order(user, order):
         raise HTTPException(403, "Not your order")
 
     if order.status != "DRAFT":
-        return _redir(f"/sales/orders/{order_id}?err=Only+DRAFT+orders+can+be+confirmed")
+        return _err("Only DRAFT orders can be confirmed")
 
     if not order.items:
-        return _redir(f"/sales/orders/{order_id}?err=Order+has+no+items")
+        return _err("Order has no items")
 
     pending_items = [i for i in order.items if i.approval_status == "PENDING"]
     if pending_items and user.role not in ("ADMIN", "MANAGER"):
-        return _redir(f"/sales/orders/{order_id}?err=Order+has+items+pending+Manager+price+approval")
+        return _err("Order has items pending Manager price approval")
 
     for item in order.items:
         stock = db.query(ProductStock).filter(
@@ -892,6 +949,8 @@ def order_confirm(
     from .notifications import notify_order_placed
     notify_order_placed(db, order)
 
+    if ajax:
+        return JSONResponse({"ok": True, "redirect": f"/sales/orders/{order_id}"})
     return _redir(f"/sales/orders/{order_id}?msg=Order+confirmed")
 
 
@@ -1011,6 +1070,49 @@ def api_check_stock(variant_id: str, user: User = Depends(_require_sales), db: S
         "reserved": stock.qty_reserved,
         "in_transit": stock.qty_in_transit,
         "in_transit_date": in_transit.isoformat() if in_transit else None,
+    })
+
+
+@router.get("/sales/orders/api/variant-lookup")
+def api_variant_lookup(
+    variant_id: str,
+    customer_id: str = None,
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    """
+    Read-only aggregation for the Sell workspace (Phase 0/1 of the UX
+    redesign) — combines resolve_price() and the same stock fields as
+    api_check_stock(), plus the variant's first photo. Introduces no new
+    pricing or stock rule; it only assembles data that already exists.
+    """
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id,
+        ProductVariant.tenant_id == user.tenant_id,
+    ).first()
+    if not variant:
+        raise HTTPException(404, "Variant not found")
+
+    price_info = {"price": None, "source": "NONE"}
+    if customer_id:
+        price_info = resolve_price(db, customer_id, variant_id, user.tenant_id)
+
+    stock = db.query(ProductStock).filter(
+        ProductStock.variant_id == variant_id,
+        ProductStock.tenant_id == user.tenant_id,
+    ).first()
+    qty_available = stock.qty_available if stock else 0
+    stock_status = "IN_STOCK" if qty_available > 0 else "OUT_OF_STOCK"
+
+    media = json.loads(variant.media_urls_json) if variant.media_urls_json else []
+    photo_url = media[0] if media else None
+
+    return JSONResponse({
+        "price": price_info["price"],
+        "price_source": price_info["source"],
+        "stock_status": stock_status,
+        "qty_available": qty_available,
+        "photo_url": photo_url,
     })
 
 
