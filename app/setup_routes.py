@@ -21,7 +21,11 @@ from .database import (
     Customer, EndProduct, Vendor, RawMaterial, UnitOfMeasure,
     CustomReferenceList, CustomReferenceItem,
     FMSFlow, FMSStage, FMSTicket, FMSStageHistory,
-    ProductVariant,
+    ProductVariant, ProductStock,
+    SalesOrder, CRMCallLog, CustomerPriceOverride,
+    InventoryPurchaseOrder,
+    StockLedgerEntry, InventoryPOItem, PriceListItem, PriceListItemHistory,
+    CostEntry, SalesOrderItem, StockReservation,
 )
 from .auth import require_admin, require_admin_or_redirect, get_nav_flags, has_module
 from .labels import get_labels
@@ -390,6 +394,38 @@ def delete_customer(
     return _redir("/setup/customers?msg=Customer+deleted")
 
 
+@router.post("/setup/customers/bulk-delete")
+def bulk_delete_customers(
+    customer_ids: list[str] = Form(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Hard-delete selected customers — permanent, for clearing test/bad data
+    before a clean re-upload. Customers with existing sales activity (orders,
+    call logs, price overrides) are skipped and reported rather than deleted,
+    to avoid destroying real transaction history."""
+    deleted, skipped = 0, []
+    for cid in customer_ids:
+        c = db.query(Customer).filter(Customer.id == cid, Customer.tenant_id == user.tenant_id).first()
+        if not c:
+            continue
+        blockers = []
+        if db.query(SalesOrder).filter(SalesOrder.customer_id == cid).first():
+            blockers.append("sales orders")
+        if db.query(CRMCallLog).filter(CRMCallLog.customer_id == cid).first():
+            blockers.append("call logs")
+        if db.query(CustomerPriceOverride).filter(CustomerPriceOverride.customer_id == cid).first():
+            blockers.append("price overrides")
+        if blockers:
+            skipped.append(f"{c.name} (has {', '.join(blockers)})")
+            continue
+        db.delete(c)
+        deleted += 1
+    db.commit()
+    err = f"&err={len(skipped)}+skipped+(existing+sales+activity)" if skipped else ""
+    return _redir(f"/setup/customers?msg={deleted}+customer(s)+deleted{err}")
+
+
 @router.get("/setup/customers/template")
 def customers_template(user: User = Depends(require_admin)):
     return _csv_template(_CUSTOMER_COLS, "customers_template.csv")
@@ -617,27 +653,42 @@ def _end_product_unit_or_error(db: Session, tenant_id: str, unit_abbr: str):
     return unit, None
 
 
-def _generate_end_product_sku(db: Session, tenant_id: str, name: str) -> str:
+def _sku_piece(s: str) -> str:
+    """First 2 alphanumeric characters of s, uppercased, padded with X if too short."""
+    letters = re.sub(r"[^A-Za-z0-9]", "", s or "").upper()
+    return (letters + "XX")[:2]
+
+
+def _generate_end_product_sku(
+    db: Session, tenant_id: str, name: str,
+    category_name: str = None, sub_category_name: str = None,
+) -> str:
     """Auto-generate a SKU when the user leaves it blank, so every End Product
     always has one and syncs to the Sales Catalog (sync is matched on
-    sku_code). Slugifies the name, uppercases it, and appends a numeric
-    suffix on collision against both EndProduct and ProductVariant."""
-    base = re.sub(r"[^A-Za-z0-9]+", "-", name or "").strip("-").upper()[:40] or "SKU"
-    candidate = base
-    n = 2
-    while (
-        db.query(EndProduct).filter(
-            EndProduct.tenant_id == tenant_id, EndProduct.sku_code == candidate,
-            EndProduct.is_deleted == False,
-        ).first()
-        or db.query(ProductVariant).filter(
-            ProductVariant.tenant_id == tenant_id, ProductVariant.sku_code == candidate,
-            ProductVariant.is_deleted == False,
-        ).first()
-    ):
-        candidate = f"{base}-{n}"
+    sku_code). Format: CC-SS-II-### — 2 chars category, 2 chars sub-category,
+    2 chars item name, all caps, then a zero-padded variant number that
+    increments on collision against both EndProduct and ProductVariant."""
+    prefix = "-".join([
+        _sku_piece(category_name or "Uncategorized"),
+        _sku_piece(sub_category_name or "General"),
+        _sku_piece(name),
+    ])
+    n = 1
+    while True:
+        candidate = f"{prefix}-{n:03d}"
+        exists = (
+            db.query(EndProduct).filter(
+                EndProduct.tenant_id == tenant_id, EndProduct.sku_code == candidate,
+                EndProduct.is_deleted == False,
+            ).first()
+            or db.query(ProductVariant).filter(
+                ProductVariant.tenant_id == tenant_id, ProductVariant.sku_code == candidate,
+                ProductVariant.is_deleted == False,
+            ).first()
+        )
+        if not exists:
+            return candidate
         n += 1
-    return candidate
 
 
 @router.get("/setup/end-products", response_class=HTMLResponse)
@@ -715,7 +766,7 @@ async def add_end_product(
         if exists:
             return _redir(f"/setup/end-products?err=SKU+{sku}+already+exists")
     else:
-        sku = _generate_end_product_sku(db, user.tenant_id, name.strip())
+        sku = _generate_end_product_sku(db, user.tenant_id, name.strip(), category.strip(), sub_category.strip())
     unit_abbr = unit.strip()
     _, unit_err = _end_product_unit_or_error(db, user.tenant_id, unit_abbr)
     if unit_err:
@@ -777,7 +828,7 @@ async def edit_end_product(
         if exists:
             return _redir(f"/setup/end-products?err=SKU+{sku}+already+exists")
     elif not sku:
-        sku = p.sku_code or _generate_end_product_sku(db, user.tenant_id, name.strip())
+        sku = p.sku_code or _generate_end_product_sku(db, user.tenant_id, name.strip(), category.strip(), sub_category.strip())
     unit_abbr = unit.strip()
     _, unit_err = _end_product_unit_or_error(db, user.tenant_id, unit_abbr)
     if unit_err:
@@ -836,6 +887,64 @@ def delete_end_product(
     return _redir("/setup/end-products?msg=Product+deleted")
 
 
+def _variant_transaction_blockers(db: Session, variant_id: str) -> list:
+    """Real transaction/history tables that should block a hard-delete of a
+    ProductVariant. ProductStock is excluded — it's just the current-balance
+    row, created alongside the variant, and safe to delete with it."""
+    checks = [
+        (StockLedgerEntry, "stock ledger entries"),
+        (InventoryPOItem, "purchase order line items"),
+        (PriceListItem, "price list entries"),
+        (PriceListItemHistory, "price history"),
+        (CostEntry, "cost entries"),
+        (SalesOrderItem, "sales order line items"),
+        (StockReservation, "stock reservations"),
+        (CustomerPriceOverride, "customer price overrides"),
+    ]
+    blockers = []
+    for model, label in checks:
+        if db.query(model).filter(model.variant_id == variant_id).first():
+            blockers.append(label)
+    return blockers
+
+
+@router.post("/setup/end-products/bulk-delete")
+def bulk_delete_end_products(
+    prod_ids: list[str] = Form(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Hard-delete selected End Products — permanent, for clearing test/bad
+    data before a clean re-upload. Also cascades to the paired Catalog
+    ProductVariant (and its stock row) so the SKU is fully freed up. If that
+    variant has real transaction history (orders, purchases, price history),
+    the whole row is skipped and reported rather than destroying that history."""
+    deleted, skipped = 0, []
+    for pid in prod_ids:
+        p = db.query(EndProduct).filter(EndProduct.id == pid, EndProduct.tenant_id == user.tenant_id).first()
+        if not p:
+            continue
+        variant = None
+        if p.sku_code:
+            variant = db.query(ProductVariant).filter(
+                ProductVariant.tenant_id == user.tenant_id,
+                ProductVariant.sku_code == p.sku_code,
+                ProductVariant.is_deleted == False,
+            ).first()
+        if variant:
+            blockers = _variant_transaction_blockers(db, variant.id)
+            if blockers:
+                skipped.append(f"{p.name} (has {', '.join(blockers)})")
+                continue
+            db.query(ProductStock).filter(ProductStock.variant_id == variant.id).delete()
+            db.delete(variant)
+        db.delete(p)
+        deleted += 1
+    db.commit()
+    err = f"&err={len(skipped)}+skipped+(existing+transaction+history)" if skipped else ""
+    return _redir(f"/setup/end-products?msg={deleted}+product(s)+deleted{err}")
+
+
 @router.get("/setup/end-products/template")
 def end_products_template(user: User = Depends(require_admin)):
     return _csv_template(_ENDPRODUCT_COLS, "end_products_template.csv")
@@ -865,7 +974,10 @@ async def import_end_products(
                 errors.append({"row": i, "error": f"SKU {sku} already exists", "data": dict(row)})
                 continue
         else:
-            sku = _generate_end_product_sku(db, user.tenant_id, name)
+            sku = _generate_end_product_sku(
+                db, user.tenant_id, name,
+                (row.get("category") or "").strip(), (row.get("sub_category") or "").strip(),
+            )
         unit_abbr = (row.get("unit") or "").strip()
         _, unit_err = _end_product_unit_or_error(db, user.tenant_id, unit_abbr)
         if unit_err:
@@ -1021,7 +1133,10 @@ async def end_products_bulk_confirm(request: Request, user: User = Depends(requi
                 warnings.append(f"SKU {sku} already exists — skipped")
                 continue
         else:
-            sku = _generate_end_product_sku(db, user.tenant_id, r["name"])
+            sku = _generate_end_product_sku(
+                db, user.tenant_id, r["name"],
+                r.get("category") or "", r.get("sub_category") or "",
+            )
         end_product = EndProduct(
             tenant_id=user.tenant_id, name=r["name"], sku_code=sku,
             unit=r.get("unit"),
@@ -1378,6 +1493,29 @@ def delete_vendor(vendor_id: str, user: User = Depends(require_admin), db: Sessi
         v.is_deleted = True; db.commit()
     return _redir("/setup/vendors?msg=Vendor+deleted")
 
+@router.post("/setup/vendors/bulk-delete")
+def bulk_delete_vendors(
+    vendor_ids: list[str] = Form(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Hard-delete selected vendors — permanent. Vendors with existing
+    purchase orders are skipped and reported, to avoid destroying real
+    purchase history."""
+    deleted, skipped = 0, []
+    for vid in vendor_ids:
+        v = db.query(Vendor).filter(Vendor.id == vid, Vendor.tenant_id == user.tenant_id).first()
+        if not v:
+            continue
+        if db.query(InventoryPurchaseOrder).filter(InventoryPurchaseOrder.vendor_id == vid).first():
+            skipped.append(v.name)
+            continue
+        db.delete(v)
+        deleted += 1
+    db.commit()
+    err = f"&err={len(skipped)}+skipped+(existing+purchase+orders)" if skipped else ""
+    return _redir(f"/setup/vendors?msg={deleted}+vendor(s)+deleted{err}")
+
 @router.get("/setup/vendors/template")
 def vendors_template(user: User = Depends(require_admin)):
     return _csv_template(_VENDOR_COLS, "vendors_template.csv")
@@ -1588,6 +1726,24 @@ def delete_raw_material(item_id: str, user: User = Depends(require_admin), db: S
     if m:
         m.is_deleted = True; db.commit()
     return _redir("/setup/raw-materials?msg=Raw+material+deleted")
+
+@router.post("/setup/raw-materials/bulk-delete")
+def bulk_delete_raw_materials(
+    item_ids: list[str] = Form(...),
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Hard-delete selected raw materials — permanent. No other table
+    references raw_materials, so this is always safe."""
+    deleted = 0
+    for iid in item_ids:
+        m = db.query(RawMaterial).filter(RawMaterial.id == iid, RawMaterial.tenant_id == user.tenant_id).first()
+        if not m:
+            continue
+        db.delete(m)
+        deleted += 1
+    db.commit()
+    return _redir(f"/setup/raw-materials?msg={deleted}+raw+material(s)+deleted")
 
 @router.get("/setup/raw-materials/template")
 def raw_materials_template(user: User = Depends(require_admin)):
