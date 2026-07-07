@@ -36,9 +36,15 @@ COST_TYPES = ("BUY_PRICE", "FREIGHT", "HANDLING", "OTHER")
 NEW_COST_TYPES = ("FREIGHT", "HANDLING", "OTHER")
 
 _require_sales = require_module("SALES", "SALES_MODULE")
+_require_sales_or_redirect = require_module("SALES", "SALES_MODULE", redirect_unauthenticated=True)
 
 
 def _require_pricing_admin(user: User = Depends(_require_sales)) -> User:
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(status_code=403, detail="Admin/Manager only")
+    return user
+
+def _require_pricing_admin_or_redirect(user: User = Depends(_require_sales_or_redirect)) -> User:
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(status_code=403, detail="Admin/Manager only")
     return user
@@ -108,7 +114,7 @@ def set_price_list_item(db, price_list_id: str, variant_id: str,
 @router.get("/sales/pricing", response_class=HTMLResponse)
 def pricing_overview(
     request: Request,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     list_count = db.query(func.count(PriceList.id)).filter(
@@ -177,7 +183,7 @@ def pricing_overview(
 @router.get("/sales/pricing/lists", response_class=HTMLResponse)
 def pricing_lists(
     request: Request,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     lists = db.query(PriceList).filter(
@@ -279,7 +285,7 @@ def pricing_list_set_default(
 def pricing_list_items(
     request: Request,
     list_id: str,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     pl = get_price_list_or_404(db, list_id, user.tenant_id)
@@ -362,7 +368,7 @@ def pricing_list_bulk_template(
 def pricing_list_bulk_upload_form(
     request: Request,
     list_id: str,
-    user: User = Depends(_require_pricing_admin),
+    user: User = Depends(_require_pricing_admin_or_redirect),
     db: Session = Depends(get_db),
 ):
     pl = get_price_list_or_404(db, list_id, user.tenant_id)
@@ -427,7 +433,7 @@ async def pricing_list_bulk_upload(
 @router.get("/sales/pricing/overrides", response_class=HTMLResponse)
 def pricing_overrides(
     request: Request,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     overrides = db.query(CustomerPriceOverride).filter(
@@ -512,7 +518,7 @@ def pricing_override_revoke(
 @router.get("/sales/pricing/costs", response_class=HTMLResponse)
 def pricing_costs(
     request: Request,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     entries = db.query(CostEntry).filter(
@@ -731,7 +737,7 @@ def price_trends(
 @router.get("/sales/pricing/margin-report", response_class=HTMLResponse)
 def margin_report(
     request: Request,
-    user: User = Depends(_require_pricing_admin),
+    user: User = Depends(_require_pricing_admin_or_redirect),
     db: Session = Depends(get_db),
     period: str = "30d",
     group_by: str = "product",

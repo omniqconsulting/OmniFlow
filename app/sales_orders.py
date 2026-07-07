@@ -575,7 +575,7 @@ def orders_export(user: User = Depends(_require_sales), db: Session = Depends(ge
 def order_detail(
     request: Request,
     order_id: str,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     order = get_order_or_404(db, order_id, user.tenant_id)

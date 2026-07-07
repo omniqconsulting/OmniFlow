@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from .database import get_db, new_id, UnitOfMeasure
-from .auth import require_admin
+from .auth import require_admin, require_admin_or_redirect
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 
@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/setup/units", response_class=HTMLResponse)
-def list_uoms(request: Request, user=Depends(require_admin), db: Session = Depends(get_db)):
+def list_uoms(request: Request, user=Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     uoms = (
         db.query(UnitOfMeasure)
         .filter(UnitOfMeasure.tenant_id == user.tenant_id, UnitOfMeasure.is_deleted == False)
