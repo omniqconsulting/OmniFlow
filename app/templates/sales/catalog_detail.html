@@ -13,6 +13,9 @@
   </div>
   <div style="display:flex;gap:8px">
     <a href="/sales/catalog" class="btn btn-sm btn-gray">← Catalog</a>
+    {% if setup_end_product and user.role in ('ADMIN','MANAGER') %}
+    <a href="/setup/end-products" class="btn btn-sm btn-outline" title="View in Setup &gt; End Products">View in Setup</a>
+    {% endif %}
     {% if user.role in ('ADMIN','MANAGER') %}
     <a href="/sales/catalog/{{ product.id }}/edit" class="btn btn-sm btn-primary">Edit Product</a>
     {% endif %}
@@ -60,7 +63,11 @@
       <div style="font-size:12px;color:var(--text-faint);min-width:90px">Avail: {{ qty if qty is not none else '—' }}</div>
       <span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:99px;{{ 'background:#22c55e33;color:#22c55e' if v.is_active else 'background:#94a3b833;color:#94a3b8' }}">{{ 'ACTIVE' if v.is_active else 'INACTIVE' }}</span>
       <div style="display:flex;gap:6px">
+        {% if user.role in ('ADMIN','MANAGER') %}
+        <button type="button" class="btn btn-xs btn-outline" onclick="openVariantEdit('{{ v.id }}')">Edit</button>
+        {% else %}
         <a href="/sales/catalog/variant/{{ v.id }}/edit" class="btn btn-xs btn-outline">Edit</a>
+        {% endif %}
         {% if user.role in ('ADMIN','MANAGER') %}
         <form method="post" action="/sales/catalog/variant/{{ v.id }}/delete" onsubmit="return confirm('Remove this variant?')">
           <button type="submit" class="btn btn-xs btn-gray">Delete</button>
@@ -112,5 +119,108 @@
     <button type="submit" class="btn btn-sm btn-primary">+ Add Variant</button>
   </form>
 </div>
+{% endif %}
+
+{% if user.role in ('ADMIN','MANAGER') %}
+{% set modal_body %}
+<div style="display:grid;grid-template-columns:200px 1fr;gap:16px">
+  <div>
+    <img id="vem-gallery-main" src="" style="display:none;width:100%;border-radius:8px;object-fit:cover;height:160px;margin-bottom:8px">
+    <div id="vem-gallery-empty" style="height:160px;background:var(--bg-input);border-radius:8px;display:flex;align-items:center;justify-content:center">
+      <span style="font-size:32px;opacity:0.4">📦</span>
+    </div>
+    <div id="vem-gallery-thumbs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>
+    <form method="post" id="vem-upload-form" enctype="multipart/form-data" style="margin-top:10px">
+      <input type="file" name="files" accept="image/jpeg,image/png,image/webp" multiple>
+      <button type="submit" class="btn btn-xs btn-outline" style="margin-top:6px;width:100%">Upload Photos</button>
+    </form>
+  </div>
+  <form method="post" id="vem-edit-form">
+    <div class="form-group"><label class="form-label">SKU Code *</label><input name="sku_code" id="vem-sku" required class="form-input"></div>
+    <div class="form-group"><label class="form-label">Label</label><input name="variant_label" id="vem-label" class="form-input"></div>
+    <div class="form-group">
+      <label class="form-label">Unit (overrides Product default)</label>
+      <select name="base_unit_id" id="vem-unit" class="form-input">
+        <option value="">— use Product default —</option>
+        {% for u in units %}<option value="{{ u.id }}">{{ u.name }} ({{ u.abbreviation }})</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label class="form-label">Low Stock Threshold</label><input type="number" step="any" name="low_stock_threshold" id="vem-threshold" class="form-input"></div>
+    <div class="form-group">
+      <label class="form-label">Tier</label>
+      <select name="product_tier" id="vem-tier" class="form-input">
+        {% for t in tier_choices %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="is_active" id="vem-active" style="width:auto"> Active</label></div>
+    <div id="vem-attributes"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button type="button" class="btn btn-outline" onclick="closeModal('editVariantModal')">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+    </div>
+  </form>
+</div>
+{% endset %}
+{% with modal_id="editVariantModal", modal_title="Edit Variant", modal_body=modal_body, modal_max_width="640px" %}
+{% include "components/modal.html" %}
+{% endwith %}
+<script>
+const VARIANT_DATA = {
+  {% for v in variants %}
+  "{{ v.id }}": {
+    sku_code: {{ v.sku_code|tojson }},
+    variant_label: {{ (v.variant_label or '')|tojson }},
+    base_unit_id: {{ (v.base_unit_id or '')|tojson }},
+    low_stock_threshold: {{ v.low_stock_threshold if v.low_stock_threshold is not none else 'null' }},
+    product_tier: {{ v.product_tier|tojson }},
+    is_active: {{ 'true' if v.is_active else 'false' }},
+    media_urls: {{ (v.media_urls_json or '[]')|safe }},
+    attributes: {{ (v.variant_attributes_json or '{}')|safe }},
+  },
+  {% endfor %}
+};
+
+function openVariantEdit(variantId) {
+  const d = VARIANT_DATA[variantId];
+  if (!d) return;
+  document.getElementById('vem-edit-form').action = `/sales/catalog/variant/${variantId}/edit`;
+  document.getElementById('vem-upload-form').action = `/sales/catalog/variant/${variantId}/upload-media`;
+  document.getElementById('vem-sku').value = d.sku_code;
+  document.getElementById('vem-label').value = d.variant_label;
+  document.getElementById('vem-unit').value = d.base_unit_id;
+  document.getElementById('vem-threshold').value = d.low_stock_threshold != null ? d.low_stock_threshold : '';
+  document.getElementById('vem-tier').value = d.product_tier;
+  document.getElementById('vem-active').checked = d.is_active;
+
+  const mainImg = document.getElementById('vem-gallery-main');
+  const emptyBox = document.getElementById('vem-gallery-empty');
+  const thumbs = document.getElementById('vem-gallery-thumbs');
+  if (d.media_urls && d.media_urls.length) {
+    mainImg.src = `/static/${d.media_urls[0]}`;
+    mainImg.style.display = '';
+    emptyBox.style.display = 'none';
+    thumbs.innerHTML = d.media_urls.map((m, i) => `
+      <div style="position:relative">
+        <img src="/static/${m}" onclick="document.getElementById('vem-gallery-main').src=this.src" style="width:44px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border-subtle)">
+        <form method="post" action="/sales/catalog/variant/${variantId}/delete-media" style="position:absolute;top:-6px;right:-6px" onsubmit="return confirm('Remove this photo?')">
+          <input type="hidden" name="index" value="${i}">
+          <button type="submit" style="width:16px;height:16px;border-radius:50%;background:#ef4444;color:#fff;border:none;font-size:9px;line-height:1;cursor:pointer">✕</button>
+        </form>
+      </div>`).join('');
+  } else {
+    mainImg.style.display = 'none';
+    emptyBox.style.display = 'flex';
+    thumbs.innerHTML = '';
+  }
+
+  const attrsEl = document.getElementById('vem-attributes');
+  const attrEntries = Object.entries(d.attributes || {});
+  attrsEl.innerHTML = attrEntries.length
+    ? `<table style="width:100%;font-size:13px;margin-bottom:10px">${attrEntries.map(([k, v]) => `<tr><td style="padding:5px 0;color:var(--text-muted);width:160px">${k}</td><td>${v}</td></tr>`).join('')}</table>`
+    : '';
+
+  openModal('editVariantModal');
+}
+</script>
 {% endif %}
 {% endblock %}

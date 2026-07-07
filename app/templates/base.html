@@ -66,18 +66,8 @@
   <a href="/knowledge" {% if '/knowledge' in request.url.path %}class="active"{% endif %}>Training</a>
   {% endif %}
   {% if has_sales %}
-  <div class="nav-group" id="nav-sales">
-    <a href="/sales/contacts" class="{% if '/sales/' in request.url.path %}active{% endif %}">Sales <span class="nav-caret">▾</span></a>
-    <div class="nav-dropdown">
-      <a href="/sales/contacts">Contacts</a>
-      <a href="/sales/catalog">Catalog</a>
-      <a href="/sales/orders">Orders</a>
-      <a href="/sales/pricing">Pricing &amp; Margin</a>
-      {% if has_sales_analytics %}
-      <a href="/sales/analytics">Insights</a>
-      {% endif %}
-    </div>
-  </div>
+  <a href="/sales/contacts" id="nav-sales-customers" {% if '/sales/contacts' in request.url.path %}class="active"{% endif %}>Customers</a>
+  <a href="/sales/orders" id="nav-sales-sell" {% if '/sales/orders' in request.url.path %}class="active"{% endif %}>Sell</a>
   {% endif %}
   {% if has_inventory_module %}
   <a href="/inventory-v2" {% if '/inventory-v2' in request.url.path %}class="active"{% endif %}>Inventory</a>

@@ -1,0 +1,23 @@
+{#
+  Shared modal component.
+  Usage:
+    {% with modal_id="addModal", modal_title="Add Customer" %}
+      {% include "components/modal.html" %}
+    {% endwith %}
+  Put the body/footer markup as children by overriding via a block-based
+  include is not possible with plain include, so pages that need custom
+  bodies should copy this shell's div structure — see openModal()/closeModal()
+  below, which is what every modal on the page should call instead of
+  hand-rolling display toggles.
+#}
+<div id="{{ modal_id }}" class="omni-modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center" onclick="if(event.target===this) closeModal('{{ modal_id }}')">
+  <div class="modal-box" style="max-width:{{ modal_max_width|default('480px') }};width:100%" role="dialog" aria-modal="true" aria-labelledby="{{ modal_id }}-title" tabindex="-1">
+    <div class="modal-hdr">
+      <div class="modal-title" id="{{ modal_id }}-title">{{ modal_title }}</div>
+      <button type="button" class="modal-close" onclick="closeModal('{{ modal_id }}')">×</button>
+    </div>
+    <div class="modal-body">
+      {{ modal_body|safe if modal_body is defined else '' }}
+    </div>
+  </div>
+</div>

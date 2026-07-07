@@ -31,6 +31,7 @@
 <table style="width:100%;font-size:13px;border-collapse:collapse">
   <thead>
     <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+      <th style="padding:8px 12px"></th>
       <th style="padding:8px 12px">Product</th><th style="padding:8px 12px">SKU</th>
       <th style="padding:8px 12px">Available</th><th style="padding:8px 12px">Reserved</th>
       <th style="padding:8px 12px">In-Transit</th><th style="padding:8px 12px">Status</th>
@@ -40,6 +41,7 @@
   <tbody>
     {% for v, s, label, color in rows %}
     <tr style="border-bottom:1px solid var(--border-subtle)">
+      <td style="padding:8px 12px">{% with variant=v %}{% include "components/product_thumb.html" %}{% endwith %}</td>
       <td style="padding:8px 12px"><a href="/sales/catalog/{{ v.product_id }}">{{ v.product.name if v.product else '' }}</a></td>
       <td style="padding:8px 12px;color:var(--text-faint)">{{ v.sku_code }}</td>
       <td style="padding:8px 12px">{{ s.qty_available }} {{ v.base_unit.abbreviation if v.base_unit else (v.product.base_unit.abbreviation if v.product and v.product.base_unit else '') }}</td>

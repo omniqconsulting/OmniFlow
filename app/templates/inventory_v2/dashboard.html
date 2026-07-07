@@ -25,6 +25,7 @@
   <table style="width:100%;font-size:13px;border-collapse:collapse">
     <thead>
       <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px"></th>
         <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
         <th style="padding:6px 8px">Available</th><th style="padding:6px 8px">Reserved</th>
         <th style="padding:6px 8px">In-Transit</th><th style="padding:6px 8px">Status</th>
@@ -34,6 +35,7 @@
     <tbody>
       {% for v, s, label, color in stock_rows %}
       <tr style="border-bottom:1px solid var(--border-subtle);{{ 'background:rgba(239,68,68,.08)' if color == 'red' else ('background:rgba(245,158,11,.06)' if color == 'amber' else '') }}">
+        <td style="padding:6px 8px">{% with variant=v %}{% include "components/product_thumb.html" %}{% endwith %}</td>
         <td style="padding:6px 8px"><a href="/sales/catalog/{{ v.product_id }}">{{ v.product.name if v.product else '' }}</a></td>
         <td style="padding:6px 8px;color:var(--text-faint)">{{ v.sku_code }}</td>
         <td style="padding:6px 8px">{{ s.qty_available }}</td>

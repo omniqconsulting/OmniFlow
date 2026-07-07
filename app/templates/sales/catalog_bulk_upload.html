@@ -1,69 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Bulk Upload Products{% endblock %}
 {% block content %}
-
-<div class="page-header" style="margin-bottom:18px">
-  <h2 class="page-title">Bulk Upload Products</h2>
-  <a href="/sales/catalog" class="btn btn-sm btn-gray">← Back to Catalog</a>
-</div>
-
-<div class="card" style="padding:20px;max-width:760px">
-  <p style="font-size:13px;color:var(--text-muted)">
-    1. Download the <a href="/sales/catalog/bulk-template">CSV template</a> (columns include your active attribute fields).<br>
-    2. One row = one Variant (SKU). Rows sharing the same category/sub_category/product_name are grouped onto the same Product.<br>
-    3. Optional: fill <code>photo_drive_link</code> with a Google Drive share link ("Anyone with the link can view") to auto-attach a photo — no manual upload needed.<br>
-    4. Fill it in and upload below, review the validation results, then confirm to import the valid rows.
-  </p>
-
-  <div style="display:flex;gap:10px;align-items:center;margin:16px 0">
-    <input type="file" id="bulk-file" accept=".csv">
-    <button onclick="validateBulk()" class="btn btn-sm btn-primary">Validate</button>
-  </div>
-
-  <div id="bulk-result"></div>
-</div>
-
-<script>
-let _bulkRows = [];
-
-async function validateBulk() {
-  const fileInput = document.getElementById('bulk-file');
-  if (!fileInput.files.length) { alert('Choose a CSV file first'); return; }
-  const fd = new FormData();
-  fd.append('file', fileInput.files[0]);
-  const res = await fetch('/sales/catalog/bulk-upload', { method: 'POST', body: fd });
-  if (!res.ok) { alert('Upload failed'); return; }
-  const data = await res.json();
-  _bulkRows = data.rows;
-
-  let html = `<div style="font-size:14px;margin:14px 0"><b>${data.valid}</b> of <b>${data.total}</b> rows valid.</div>`;
-  if (data.errors.length) {
-    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:14px">';
-    html += '<thead><tr style="border-bottom:1px solid var(--border-subtle)"><th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Row</th><th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">SKU</th><th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Errors</th></tr></thead><tbody>';
-    data.errors.forEach(e => {
-      html += `<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:6px;font-size:12px">${e.row}</td><td style="padding:6px;font-size:12px">${e.sku || '—'}</td><td style="padding:6px;font-size:12px;color:#f87171">${e.errors.join(', ')}</td></tr>`;
-    });
-    html += '</tbody></table>';
-  }
-  if (data.valid > 0) {
-    html += `<button class="btn btn-sm btn-primary" onclick="confirmBulk()">Confirm Import (${data.valid} rows)</button>`;
-  }
-  document.getElementById('bulk-result').innerHTML = html;
-}
-
-async function confirmBulk() {
-  const res = await fetch('/sales/catalog/bulk-upload/confirm', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ rows: _bulkRows }),
-  });
-  const data = await res.json();
-  let html = `<div class="alert alert-green">${data.created} variants created. ${data.skipped} rows skipped.</div>`;
-  if (data.photo_warnings && data.photo_warnings.length) {
-    html += '<div class="alert alert-red" style="margin-top:8px">Some photos could not be attached:<ul style="margin:6px 0 0 18px">';
-    data.photo_warnings.forEach(w => { html += `<li>${w.sku}: ${w.error}</li>`; });
-    html += '</ul></div>';
-  }
-  document.getElementById('bulk-result').innerHTML = html;
-}
-</script>
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Bulk Upload Products",
+  back_url="/sales/catalog",
+  back_label="Back to Catalog",
+  download_url="/sales/catalog/bulk-template",
+  validate_url="/sales/catalog/bulk-upload",
+  revalidate_url="/sales/catalog/bulk-upload/revalidate",
+  confirm_url="/sales/catalog/bulk-upload/confirm",
+  columns=columns,
+  row_label="variant(s)",
+  instructions='1. Download the <a href="/sales/catalog/bulk-template">CSV template</a> (includes your active attribute fields). One row = one Variant (SKU); rows sharing category/sub_category/product_name group onto the same Product. Fill <code>photo_drive_link</code> to auto-attach a photo.<br>2. Fix any errored rows directly in the table (no need to re-upload) and click Re-validate.'
+) }}
 {% endblock %}

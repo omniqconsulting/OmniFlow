@@ -1,0 +1,348 @@
+{% extends "base.html" %}
+{% block title %}New Order{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:18px">
+  <h2 class="page-title">Sell — New Order</h2>
+  <a href="/sales/orders" class="btn btn-sm btn-gray">← Back to Orders</a>
+</div>
+
+{% if request.query_params.get('err') %}<div class="alert alert-red" style="margin-bottom:14px">{{ request.query_params.get('err') }}</div>{% endif %}
+<div id="builder-alert" style="display:none;margin-bottom:14px"></div>
+
+<div class="sell-builder" style="display:grid;grid-template-columns:280px 1fr 340px;gap:16px;align-items:start">
+
+  <!-- Panel 1: Customer & terms -->
+  <div class="card" style="padding:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CUSTOMER &amp; TERMS</h3>
+    <div style="margin-bottom:10px">
+      <label style="font-size:12px;color:var(--text-muted)">Customer *</label>
+      <select id="customer_select" required style="width:100%" onchange="onCustomerChange()">
+        <option value="">— Select customer —</option>
+        {% for c in customers %}
+        <option value="{{ c.id }}" {{ 'selected' if customer and c.id == customer.id else '' }}>{{ c.name }} ({{ c.phone or 'no phone' }})</option>
+        {% endfor %}
+      </select>
+      <a href="javascript:void(0)" onclick="openModal('quickCustomerModal')" style="font-size:12px;display:inline-block;margin-top:6px">+ Add New Party</a>
+    </div>
+
+    <div style="margin-bottom:10px">
+      <label style="font-size:12px;color:var(--text-muted)">Salesman</label>
+      <select id="agent_select" style="width:100%">
+        <option value="{{ user.id }}">Myself ({{ user.name }})</option>
+        {% for a in agents if a.id != user.id %}
+        <option value="{{ a.id }}">{{ a.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="margin-bottom:10px">
+      <label style="font-size:12px;color:var(--text-muted)">Payment Terms</label>
+      <input id="payment_terms_input" style="width:100%" placeholder="e.g. Net 30">
+    </div>
+
+    <div style="margin-bottom:10px">
+      <label style="font-size:12px;color:var(--text-muted)">Delivery Address</label>
+      <textarea id="delivery_address_input" rows="2" style="width:100%" placeholder="Defaults to customer's shipping address"></textarea>
+    </div>
+
+    <div style="margin-bottom:10px">
+      <label style="font-size:12px;color:var(--text-muted)">Select {{ L.Branch }}</label>
+      <select id="branch_select" style="width:100%">
+        <option value="">— Not specified —</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}">{{ b.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="margin-bottom:10px">
+      <label style="font-size:12px;color:var(--text-muted)">Expected Delivery Date</label>
+      <input type="date" id="expected_delivery_date_input" style="width:100%">
+    </div>
+
+    <div>
+      <label style="font-size:12px;color:var(--text-muted)">Notes</label>
+      <textarea id="notes_input" rows="2" style="width:100%"></textarea>
+    </div>
+  </div>
+
+  <!-- Panel 2: Product search -->
+  <div class="card" style="padding:16px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">PRODUCT SEARCH</h3>
+    <input id="product_search_input" placeholder="Search by product name or SKU…" style="width:100%;margin-bottom:10px" oninput="renderSearchResults()">
+    <div id="search_results" style="max-height:520px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+  </div>
+
+  <!-- Panel 3: Cart -->
+  <div class="card" style="padding:16px;position:sticky;top:12px">
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CART</h3>
+    <div id="cart_rows" style="display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto"></div>
+    <div id="cart_empty" class="muted" style="font-size:12px;margin:8px 0">No items yet — search and add products on the left.</div>
+    <div style="border-top:1px solid var(--border-subtle);margin-top:12px;padding-top:12px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:10px">
+        <span>Total</span><span id="cart_total">₹0</span>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline" style="width:100%;margin-bottom:8px" onclick="submitOrder(false)">Save Draft</button>
+      <button type="button" class="btn btn-sm btn-primary" style="width:100%" onclick="submitOrder(true)">Confirm Order</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quick-add customer modal (Phase 0 component) -->
+{% with modal_id="quickCustomerModal", modal_title="Add New Party" %}
+{% include "components/modal.html" %}
+{% endwith %}
+<script>
+document.getElementById('quickCustomerModal').querySelector('.modal-body').innerHTML = `
+  <div class="form-group"><label class="form-label">Party Name *</label><input id="quick_party_name" class="form-input"></div>
+  <div class="form-group"><label class="form-label">Phone</label><input id="quick_party_phone" class="form-input"></div>
+  <div class="form-group"><label class="form-label">Email</label><input id="quick_party_email" type="email" class="form-input"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+    <button type="button" class="btn btn-outline" onclick="closeModal('quickCustomerModal')">Cancel</button>
+    <button type="button" class="btn btn-primary" onclick="createQuickParty()">Create Party</button>
+  </div>`;
+</script>
+
+<script>
+// ── Catalog data for client-side search (typical catalog sizes) ────────────
+const CATALOG = [
+  {% for p in products %}
+  {% for v in p.variants if v.is_active and not v.is_deleted %}
+  {
+    variant_id: "{{ v.id }}",
+    product_name: {{ p.name|tojson }},
+    sku_code: {{ v.sku_code|tojson }},
+    label: {{ (v.variant_label or v.sku_code)|tojson }},
+    tier: {{ (v.product_tier or '')|tojson }},
+    photo: ({{ (v.media_urls_json or '[]')|safe }})[0] || null,
+  },
+  {% endfor %}
+  {% endfor %}
+];
+
+let cart = []; // {variant_id, label, sku_code, tier, photo, qty, price, price_source, manual}
+let selectedCustomerId = {{ ('"' + customer.id + '"')|safe if customer else 'null' }};
+
+function thumbHtml(photo, size) {
+  size = size || 40;
+  if (photo) return `<img src="/static/${photo}" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:8px;border:1px solid var(--border-subtle);flex-shrink:0">`;
+  return `<div style="width:${size}px;height:${size}px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-faint);font-size:${Math.round(size/2.2)}px">📦</div>`;
+}
+
+function renderSearchResults() {
+  const q = (document.getElementById('product_search_input').value || '').toLowerCase().trim();
+  const results = document.getElementById('search_results');
+  let matches = CATALOG;
+  if (q) {
+    matches = CATALOG.filter(v => v.product_name.toLowerCase().includes(q) || v.sku_code.toLowerCase().includes(q) || v.label.toLowerCase().includes(q));
+  }
+  matches = matches.slice(0, 50);
+  if (!matches.length) { results.innerHTML = '<div class="muted" style="font-size:12px">No matching products.</div>'; return; }
+  results.innerHTML = matches.map(v => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--border-subtle);border-radius:8px;cursor:pointer" onclick="highlightVariant('${v.variant_id}')" id="row_${v.variant_id}">
+      ${thumbHtml(v.photo)}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">${v.product_name} — ${v.label}</div>
+        <div class="muted" style="font-size:11px">SKU: ${v.sku_code}${v.tier ? ' · ' + v.tier : ''}</div>
+        <div class="muted" style="font-size:11px" id="lookup_${v.variant_id}">Select a customer to see price &amp; stock</div>
+      </div>
+      <button type="button" class="btn btn-xs btn-primary" onclick="event.stopPropagation();addToCart('${v.variant_id}')">+ Add</button>
+    </div>`).join('');
+}
+
+async function highlightVariant(variantId) {
+  if (!selectedCustomerId) return;
+  const el = document.getElementById(`lookup_${variantId}`);
+  if (!el) return;
+  el.textContent = 'Loading…';
+  try {
+    const res = await fetch(`/sales/orders/api/variant-lookup?variant_id=${variantId}&customer_id=${selectedCustomerId}`);
+    const d = await res.json();
+    const priceText = d.price != null ? `₹${d.price}` : 'no price configured';
+    el.textContent = `${priceText} · ${d.qty_available} in stock`;
+  } catch (e) { el.textContent = ''; }
+}
+
+async function addToCart(variantId) {
+  const v = CATALOG.find(x => x.variant_id === variantId);
+  if (!v) return;
+  let price = null, priceSource = 'NONE';
+  if (selectedCustomerId) {
+    try {
+      const res = await fetch(`/sales/orders/api/variant-lookup?variant_id=${variantId}&customer_id=${selectedCustomerId}`);
+      const d = await res.json();
+      price = d.price; priceSource = d.price_source;
+    } catch (e) {}
+  }
+  const existing = cart.find(c => c.variant_id === variantId);
+  if (existing) { existing.qty += 1; renderCart(); return; }
+  cart.push({
+    variant_id: variantId, label: `${v.product_name} — ${v.label}`, sku_code: v.sku_code,
+    tier: v.tier, photo: v.photo, qty: 1, price: price, price_source: priceSource, manual: false,
+  });
+  renderCart();
+}
+
+function removeFromCart(variantId) {
+  cart = cart.filter(c => c.variant_id !== variantId);
+  renderCart();
+}
+
+function updateCartQty(variantId, qty) {
+  const c = cart.find(x => x.variant_id === variantId);
+  if (c) c.qty = Math.max(0.01, parseFloat(qty) || 1);
+  renderCart();
+}
+
+function updateCartPrice(variantId, price) {
+  const c = cart.find(x => x.variant_id === variantId);
+  if (!c) return;
+  const p = parseFloat(price);
+  c.price = isNaN(p) ? null : p;
+  c.manual = true;
+  c.price_source = 'MANUAL';
+  renderCart();
+}
+
+function renderCart() {
+  const rows = document.getElementById('cart_rows');
+  const empty = document.getElementById('cart_empty');
+  if (!cart.length) { rows.innerHTML = ''; empty.style.display = ''; document.getElementById('cart_total').textContent = '₹0'; return; }
+  empty.style.display = 'none';
+  let total = 0;
+  rows.innerHTML = cart.map(c => {
+    const lineTotal = (c.price || 0) * c.qty;
+    total += lineTotal;
+    const overrideBadge = c.manual ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;color:#111;background:#f59e0b;margin-left:4px">MANUAL</span>` : '';
+    return `
+    <div style="display:flex;gap:8px;align-items:flex-start;border-bottom:1px solid var(--border-subtle);padding-bottom:8px">
+      ${thumbHtml(c.photo, 36)}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600">${c.label}${overrideBadge}</div>
+        <div class="muted" style="font-size:10px">${c.sku_code}</div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <input type="number" step="0.01" value="${c.qty}" style="width:60px;font-size:12px" onchange="updateCartQty('${c.variant_id}', this.value)">
+          <input type="number" step="0.01" placeholder="price" value="${c.price != null ? c.price : ''}" style="width:80px;font-size:12px" onchange="updateCartPrice('${c.variant_id}', this.value)">
+          <button type="button" class="btn btn-xs btn-outline" onclick="removeFromCart('${c.variant_id}')">✕</button>
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:2px">₹${lineTotal.toFixed(2)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('cart_total').textContent = `₹${total.toFixed(2)}`;
+}
+
+async function onCustomerChange() {
+  const sel = document.getElementById('customer_select');
+  selectedCustomerId = sel.value || null;
+  if (!selectedCustomerId) return;
+  try {
+    const res = await fetch(`/sales/orders/api/customer-defaults?customer_id=${selectedCustomerId}`);
+    if (!res.ok) return;
+    const d = await res.json();
+    const ptInput = document.getElementById('payment_terms_input');
+    const addrInput = document.getElementById('delivery_address_input');
+    if (!ptInput.value && d.default_payment_terms) ptInput.value = d.default_payment_terms;
+    if (!addrInput.value && d.shipping_address) addrInput.value = d.shipping_address;
+  } catch (e) {}
+  // Re-resolve prices in the cart for the newly selected customer.
+  for (const c of cart) {
+    if (c.manual) continue;
+    try {
+      const res = await fetch(`/sales/orders/api/variant-lookup?variant_id=${c.variant_id}&customer_id=${selectedCustomerId}`);
+      const d = await res.json();
+      c.price = d.price; c.price_source = d.price_source;
+    } catch (e) {}
+  }
+  renderCart();
+}
+
+async function createQuickParty() {
+  const name = document.getElementById('quick_party_name').value.trim();
+  if (!name) { alert('Party name is required'); return; }
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('phone', document.getElementById('quick_party_phone').value.trim());
+  fd.append('email', document.getElementById('quick_party_email').value.trim());
+  fd.append('ajax', '1');
+  const res = await fetch('/sales/orders/quick-customer', { method: 'POST', body: fd });
+  const d = await res.json();
+  if (!res.ok) { alert(d.error || 'Could not create party'); return; }
+  const sel = document.getElementById('customer_select');
+  const opt = document.createElement('option');
+  opt.value = d.id; opt.text = `${d.name} (${d.phone || 'no phone'})`; opt.selected = true;
+  sel.add(opt);
+  closeModal('quickCustomerModal');
+  onCustomerChange();
+}
+
+function showAlert(msg, isError) {
+  const el = document.getElementById('builder-alert');
+  el.className = isError ? 'alert alert-red' : 'alert alert-green';
+  el.textContent = msg;
+  el.style.display = '';
+}
+
+async function submitOrder(shouldConfirm) {
+  if (!selectedCustomerId) { showAlert('Select a customer first', true); return; }
+  if (!cart.length) { showAlert('Add at least one item to the cart', true); return; }
+  for (const c of cart) {
+    if (c.price == null) { showAlert(`Enter a manual price for ${c.label} — no price is configured`, true); return; }
+  }
+
+  const fd = new FormData();
+  fd.append('customer_id', selectedCustomerId);
+  fd.append('agent_id', document.getElementById('agent_select').value);
+  fd.append('payment_terms', document.getElementById('payment_terms_input').value);
+  fd.append('delivery_address', document.getElementById('delivery_address_input').value);
+  fd.append('branch_id', document.getElementById('branch_select').value);
+  fd.append('expected_delivery_date', document.getElementById('expected_delivery_date_input').value);
+  fd.append('notes', document.getElementById('notes_input').value);
+  fd.append('call_log_id', {{ (call_log_id or '')|tojson }});
+  fd.append('ajax', '1');
+
+  const createRes = await fetch('/sales/orders/create', { method: 'POST', body: fd });
+  const created = await createRes.json();
+  if (!createRes.ok) { showAlert(created.error || 'Could not create order', true); return; }
+  const orderId = created.id;
+
+  // Known limitation: add-item only accepts one line per request — batch
+  // client-side rather than changing the endpoint to accept bulk input.
+  for (const c of cart) {
+    const ifd = new FormData();
+    ifd.append('variant_id', c.variant_id);
+    ifd.append('qty_ordered', c.qty);
+    if (c.manual) {
+      ifd.append('manual_override_price', c.price);
+      ifd.append('override_reason', 'Set in Sell workspace');
+    }
+    ifd.append('ajax', '1');
+    const itemRes = await fetch(`/sales/orders/${orderId}/add-item`, { method: 'POST', body: ifd });
+    if (!itemRes.ok) {
+      const d = await itemRes.json();
+      showAlert(`Order saved as draft, but "${c.label}" could not be added: ${d.error}`, true);
+      window.location.href = `/sales/orders/${orderId}`;
+      return;
+    }
+  }
+
+  if (shouldConfirm) {
+    const cfd = new FormData();
+    cfd.append('ajax', '1');
+    const confirmRes = await fetch(`/sales/orders/${orderId}/confirm`, { method: 'POST', body: cfd });
+    const confirmed = await confirmRes.json();
+    if (!confirmRes.ok) {
+      showAlert(`Order saved as draft, but could not confirm: ${confirmed.error}`, true);
+      window.location.href = `/sales/orders/${orderId}`;
+      return;
+    }
+  }
+
+  window.location.href = `/sales/orders/${orderId}`;
+}
+
+renderSearchResults();
+if (selectedCustomerId) onCustomerChange();
+</script>
+{% endblock %}

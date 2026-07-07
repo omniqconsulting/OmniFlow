@@ -7,13 +7,26 @@
   <a href="/sales/orders" class="btn btn-sm btn-gray">← Back to Orders</a>
 </div>
 
-<div class="card" style="padding:20px;max-width:820px">
+<style>
+.bu-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:16px 0}
+.bu-kpi{background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:10px;padding:12px 16px}
+.bu-kpi .val{font-size:24px;font-weight:700;color:var(--text-strong);line-height:1.1}
+.bu-kpi .lbl{font-size:11px;color:var(--text-faint);margin-top:4px;font-weight:500}
+.bu-kpi.ok .val{color:#22c55e}
+.bu-kpi.err .val{color:#ef4444}
+.bu-err-table{width:100%;border-collapse:collapse;font-size:12px;margin:14px 0}
+.bu-err-table th{text-align:left;padding:6px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);white-space:nowrap}
+.bu-err-table td{padding:5px 6px;border-bottom:1px solid var(--border-subtle);vertical-align:top}
+.bu-err-table input{width:100%;min-width:90px;background:var(--bg-input);border:1px solid var(--border-med);border-radius:5px;padding:4px 6px;font-size:12px;color:var(--text-primary)}
+.bu-err-msg{color:#f87171;font-size:11px;white-space:normal;max-width:200px}
+.bu-err-row{font-size:11px;color:var(--text-faint);white-space:nowrap}
+.bu-err-table input.bu-bad{border-color:#ef4444;background:rgba(239,68,68,0.08)}
+</style>
+
+<div class="card" style="padding:20px;width:100%;box-sizing:border-box">
   <p style="font-size:13px;color:var(--text-muted)">
-    1. Download the <a href="/sales/orders/bulk-template">CSV template</a>.<br>
-    2. One row = one line item. Rows with the same <code>customer_phone</code> are grouped into one order.<br>
-    3. Optional <code>salesman_email</code> (matched to a SALES-access user) and <code>branch_name</code> (matched by name, see <a href="/setup">Setup → {{ L.Branches }}</a>) columns set the order's salesman and dispatch location.<br>
-    4. Items flagged unavailable are still added to the order (marked "out of stock — arrange separately"), they are not rejected.<br>
-    5. Orders are created as <b>DRAFT</b> — an agent must manually confirm each one to trigger stock reservation.
+    1. Download the <a href="/sales/orders/bulk-template">CSV template</a>. One row = one line item; rows sharing <code>customer_phone</code> group into one DRAFT order. Optional <code>salesman_email</code> / <code>branch_name</code> set the salesman and dispatch branch.<br>
+    2. Fix any errored rows directly in the table (no need to re-upload) and click Re-validate.
   </p>
 
   <div style="display:flex;gap:10px;align-items:center;margin:16px 0">
@@ -21,35 +34,74 @@
     <button onclick="validateBulk()" class="btn btn-sm btn-primary">Validate</button>
   </div>
 
+  <div id="bulk-format-error"></div>
+
+  <div class="bu-kpi-grid">
+    <div class="bu-kpi"><div class="val" id="kpi-total">—</div><div class="lbl">Rows Read</div></div>
+    <div class="bu-kpi ok"><div class="val" id="kpi-valid">—</div><div class="lbl">Cleared Validation</div></div>
+    <div class="bu-kpi err"><div class="val" id="kpi-errors">—</div><div class="lbl">Need Fixing</div></div>
+    <div class="bu-kpi"><div class="val" id="kpi-imported">—</div><div class="lbl">Imported</div></div>
+  </div>
+
   <div id="bulk-result"></div>
 </div>
 
 <script>
-let _bulkOrders = [];
+const COLS = {{ columns|tojson }};
+let _bulkOrders = [];   // accumulated, grouped by customer_phone
+let _errorRows = [];
+let _totalRows = 0;
 
-async function validateBulk() {
-  const fileInput = document.getElementById('bulk-file');
-  if (!fileInput.files.length) { alert('Choose a CSV file first'); return; }
-  const fd = new FormData();
-  fd.append('file', fileInput.files[0]);
-  const res = await fetch('/sales/orders/bulk-upload', { method: 'POST', body: fd });
-  if (!res.ok) { alert('Upload failed'); return; }
-  const data = await res.json();
-  _bulkOrders = data.orders;
+function esc(v) { return (v === undefined || v === null ? '' : String(v)).replace(/"/g, '&quot;'); }
 
-  let html = `<div style="font-size:14px;margin:14px 0"><b>${data.order_count}</b> order(s) to be created. <b>${data.unavailable_count}</b> item(s) flagged as unavailable.</div>`;
+function setKpis() {
+  const validCount = _bulkOrders.reduce((sum, o) => sum + o.items.length, 0);
+  document.getElementById('kpi-total').textContent = _totalRows || '—';
+  document.getElementById('kpi-valid').textContent = validCount;
+  document.getElementById('kpi-errors').textContent = _errorRows.length;
+  return validCount;
+}
 
-  if (data.errors.length) {
-    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:14px">';
-    html += '<thead><tr style="border-bottom:1px solid var(--border-subtle)"><th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Row</th><th style="text-align:left;padding:6px;font-size:11px;color:var(--text-muted)">Error</th></tr></thead><tbody>';
-    data.errors.forEach(e => {
-      html += `<tr style="border-bottom:1px solid var(--border-subtle)"><td style="padding:6px;font-size:12px">${e.row}</td><td style="padding:6px;font-size:12px;color:#f87171">${e.error}</td></tr>`;
+function mergeOrders(newOrders) {
+  newOrders.forEach(o => {
+    const existing = _bulkOrders.find(x => x.customer_phone === o.customer_phone);
+    if (existing) {
+      existing.items = existing.items.concat(o.items);
+      if (o.agent_id) existing.agent_id = o.agent_id;
+      if (o.branch_id) existing.branch_id = o.branch_id;
+    } else {
+      _bulkOrders.push(o);
+    }
+  });
+}
+
+function badCols(errorText) {
+  const t = (errorText || '').toLowerCase();
+  return COLS.filter(c => t.includes(c.toLowerCase().replace(/_/g, ' ')) || t.includes(c.toLowerCase()));
+}
+
+function renderResult() {
+  let html = '';
+  if (_errorRows.length) {
+    html += '<h3 style="font-size:13px;margin-bottom:6px">Rows needing fixes</h3>';
+    html += '<div style="overflow-x:auto"><table class="bu-err-table"><thead><tr><th>Row</th>';
+    COLS.forEach(c => html += `<th>${c}</th>`);
+    html += '<th>Error</th></tr></thead><tbody>';
+    _errorRows.forEach((e, idx) => {
+      const bad = badCols(e.error);
+      html += `<tr data-idx="${idx}"><td class="bu-err-row">${e.row}</td>`;
+      COLS.forEach(c => {
+        const cls = bad.includes(c) ? ' class="bu-bad"' : '';
+        html += `<td><input data-col="${c}"${cls} value="${esc(e.data[c])}"></td>`;
+      });
+      html += `<td class="bu-err-msg">${e.error}</td></tr>`;
     });
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
+    html += '<button class="btn btn-sm btn-outline" onclick="revalidateErrors()">Re-validate edited rows</button> ';
   }
 
-  data.orders.forEach(o => {
-    html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;padding:10px;margin-bottom:10px">`;
+  _bulkOrders.forEach(o => {
+    html += `<div style="border:1px solid var(--border-subtle);border-radius:8px;padding:10px;margin:10px 0">`;
     html += `<div style="font-weight:600;font-size:13px">${o.customer_name} (${o.customer_phone})</div>`;
     html += '<table style="width:100%;font-size:12px;margin-top:6px">';
     o.items.forEach(it => {
@@ -59,10 +111,52 @@ async function validateBulk() {
     html += '</table></div>';
   });
 
-  if (data.order_count > 0) {
-    html += `<button class="btn btn-sm btn-primary" onclick="confirmBulk()">Create ${data.order_count} Draft Order(s)</button>`;
+  const validCount = setKpis();
+  if (validCount > 0) {
+    html += `<button class="btn btn-sm btn-primary" onclick="confirmBulk()">Create ${_bulkOrders.length} Draft Order(s) (${validCount} items)</button>`;
   }
   document.getElementById('bulk-result').innerHTML = html;
+}
+
+async function validateBulk() {
+  const fileInput = document.getElementById('bulk-file');
+  if (!fileInput.files.length) { alert('Choose a CSV file first'); return; }
+  const fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  const res = await fetch('/sales/orders/bulk-upload', { method: 'POST', body: fd });
+  if (!res.ok) { alert('Upload failed'); return; }
+  const data = await res.json();
+  document.getElementById('bulk-format-error').innerHTML = '';
+  if (data.format_error) {
+    _totalRows = 0; _bulkOrders = []; _errorRows = [];
+    document.getElementById('bulk-format-error').innerHTML = `<div class="alert alert-red" style="margin:10px 0">${data.format_error}</div>`;
+    document.getElementById('bulk-result').innerHTML = '';
+    setKpis();
+    return;
+  }
+  _totalRows = data.total;
+  _bulkOrders = data.orders;
+  _errorRows = data.errors;
+  document.getElementById('kpi-imported').textContent = '—';
+  renderResult();
+}
+
+async function revalidateErrors() {
+  const rows = _errorRows.map((e, idx) => {
+    const tr = document.querySelector(`tr[data-idx="${idx}"]`);
+    const updated = Object.assign({}, e.data);
+    COLS.forEach(c => { updated[c] = tr.querySelector(`input[data-col="${c}"]`).value; });
+    return updated;
+  });
+  const res = await fetch('/sales/orders/bulk-upload/revalidate', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ rows }),
+  });
+  if (!res.ok) { alert('Re-validation failed'); return; }
+  const data = await res.json();
+  mergeOrders(data.orders);
+  _errorRows = data.errors;
+  renderResult();
 }
 
 async function confirmBulk() {
@@ -71,8 +165,11 @@ async function confirmBulk() {
     body: JSON.stringify({ orders: _bulkOrders }),
   });
   const data = await res.json();
+  document.getElementById('kpi-imported').textContent = data.created;
   document.getElementById('bulk-result').innerHTML =
     `<div class="alert alert-green">${data.created} draft order(s) created. <a href="/sales/orders">View orders</a></div>`;
+  _bulkOrders = [];
+  setKpis();
 }
 </script>
 {% endblock %}

@@ -78,6 +78,9 @@
                 <button type="submit" class="btn btn-xs btn-green" style="margin-right:4px" title="Approve">✓ Approve</button>
               </form>
               {% endif %}
+              {% if p.catalog_product_id %}
+              <a href="/sales/catalog/{{ p.catalog_product_id }}" class="btn btn-xs btn-outline" style="margin-right:4px" title="View in Sales Catalog">View in Catalog</a>
+              {% endif %}
               <button data-obj='{{ {"id": p.id, "name": p.name, "sku_code": p.sku_code, "unit": p.unit, "description": p.description, "category_name": p.category_name, "sub_category_name": p.sub_category_name, "is_active": p.is_active}|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
               <form method="post" action="/setup/end-products/{{ p.id }}/delete" style="display:inline"
                     onsubmit="return confirm('Delete {{ p.name }}?')">

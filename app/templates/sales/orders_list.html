@@ -20,6 +20,17 @@
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
+{% if user.role in ('ADMIN', 'MANAGER') %}
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+  <span class="muted" style="font-size:11px;align-self:center">Manage:</span>
+  <a href="/sales/catalog" class="btn btn-xs btn-outline">Catalog</a>
+  <a href="/sales/pricing" class="btn btn-xs btn-outline">Pricing &amp; Margin</a>
+  {% if has_sales_analytics %}
+  <a href="/sales/analytics" class="btn btn-xs btn-outline">Insights</a>
+  {% endif %}
+</div>
+{% endif %}
+
 <div style="display:grid;grid-template-columns:200px 1fr;gap:18px;align-items:start">
   <!-- Status left-nav -->
   <div class="card" style="padding:12px">

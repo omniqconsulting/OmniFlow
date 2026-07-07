@@ -53,7 +53,7 @@
       <button class="view-btn" id="btn-org" onclick="switchView('org')">Org Chart</button>
     </div>
     {% if can_bulk and user.role == 'ADMIN' %}
-    <button onclick="show('bulk-modal')" class="btn btn-outline btn-sm">⬆ Bulk Import</button>
+    <a href="/employees/bulk-upload-page" class="btn btn-outline btn-sm">⬆ Bulk Import</a>
     {% endif %}
     {% if user.role == 'ADMIN' %}
     <button onclick="show('create-modal')" class="btn btn-primary">+ Add Employee</button>
@@ -592,35 +592,6 @@
 {% endif %}
 
 <!-- ══ BULK IMPORT MODAL ══════════════════════════════════════════════════ -->
-{% if can_bulk and user.role == 'ADMIN' %}
-<div id="bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
-  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:520px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Bulk Import via CSV</h3>
-      <button onclick="hide('bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
-    </div>
-    <p style="font-size:12px;color:var(--text-faint);margin-bottom:14px">Download a template, fill it in, then upload. Rows with errors are returned as a downloadable report — valid rows are still imported.</p>
-    <div style="background:var(--bg-input);border-radius:8px;padding:12px 14px;margin-bottom:16px">
-      <p style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Step 1 — Download Template</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <a href="/employees/import/template?entity=employees" class="btn btn-sm btn-outline">⬇ Employees CSV</a>
-      </div>
-      <div style="font-size:11px;color:var(--text-xfaint);margin-top:8px">Row 2 in the CSV is a description row — do not edit or delete it. Add your data from row 3 onwards.</div>
-    </div>
-    <p style="font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Step 2 — Upload Filled CSV</p>
-    <div style="border:1px solid var(--border-subtle);border-radius:8px;padding:12px 14px;margin-bottom:16px">
-      <p style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px">👤 Employees</p>
-      <form method="post" action="/employees/import" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
-        <input type="file" name="file" accept=".csv" required
-               style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
-        <button type="submit" class="btn btn-sm btn-primary">Import</button>
-      </form>
-    </div>
-    <button onclick="hide('bulk-modal')" class="btn btn-gray" style="width:100%">Close</button>
-  </div>
-</div>
-{% endif %}
-
 {% if not can_bulk and user.role == 'ADMIN' %}
 <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);border-radius:10px;padding:14px 18px;margin-top:16px;display:flex;gap:14px;align-items:center">
   <span style="font-size:22px">🔒</span>

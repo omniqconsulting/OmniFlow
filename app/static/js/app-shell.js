@@ -502,6 +502,27 @@ document.addEventListener('keydown', function(e){
   if(e.key === 'Escape') toggleOthersSheet(false);
 });
 
+// Shared modal helpers (components/modal.html and any hand-rolled modal using
+// the same display:none/flex + backdrop pattern from setup/customers.html).
+window.openModal = function(modalId){
+  const el = document.getElementById(modalId);
+  if(!el) return;
+  el.style.display = 'flex';
+  const panel = el.querySelector('.modal-box');
+  if(panel) panel.focus();
+};
+window.closeModal = function(modalId){
+  const el = document.getElementById(modalId);
+  if(!el) return;
+  el.style.display = 'none';
+};
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Escape') return;
+  document.querySelectorAll('.omni-modal-backdrop').forEach(function(el){
+    if(el.style.display === 'flex') el.style.display = 'none';
+  });
+});
+
 // Mobile top bar's account menu (base.html): same open/close pattern as the
 // Others sheet above, tap the account icon to open, backdrop/Escape to close.
 window.toggleAccountMenu = function(force){

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload Vendors{% endblock %}
+{% block content %}
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Bulk Upload Vendors",
+  back_url="/setup/vendors",
+  back_label="Back to Vendors",
+  download_url="/setup/vendors/template",
+  validate_url="/setup/vendors/bulk-upload/validate",
+  revalidate_url="/setup/vendors/bulk-upload/revalidate",
+  confirm_url="/setup/vendors/bulk-upload/confirm",
+  columns=columns,
+  row_label="vendor(s)"
+) }}
+{% endblock %}

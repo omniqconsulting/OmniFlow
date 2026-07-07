@@ -7,48 +7,14 @@
     <h2 class="page-title">Customer Price Overrides</h2>
     <div class="muted">{{ overrides|length }} active override{{ '' if overrides|length == 1 else 's' }}</div>
   </div>
-  <a href="/sales/pricing" class="btn btn-sm btn-outline">← Pricing Overview</a>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% if is_admin %}<button type="button" class="btn btn-sm btn-primary" onclick="openModal('newOverrideModal')">+ New Override</button>{% endif %}
+    <a href="/sales/pricing" class="btn btn-sm btn-outline">← Pricing Overview</a>
+  </div>
 </div>
 
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
-
-{% if is_admin %}
-<div class="card" style="padding:16px;margin-bottom:18px">
-  <h3 style="margin-top:0">New Override</h3>
-  <form method="post" action="/sales/pricing/overrides/create" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-    <div>
-      <label style="font-size:12px;color:var(--text-muted)">Customer *</label><br>
-      <select name="customer_id" required style="min-width:160px">
-        {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-      </select>
-    </div>
-    <div>
-      <label style="font-size:12px;color:var(--text-muted)">Variant (SKU) *</label><br>
-      <select name="variant_id" required style="min-width:160px">
-        {% for v in variants %}<option value="{{ v.id }}">{{ v.product.name if v.product else '' }} — {{ v.sku_code }}</option>{% endfor %}
-      </select>
-    </div>
-    <div>
-      <label style="font-size:12px;color:var(--text-muted)">Price *</label><br>
-      <input name="unit_price" type="number" step="0.01" required style="width:110px">
-    </div>
-    <div>
-      <label style="font-size:12px;color:var(--text-muted)">Valid From</label><br>
-      <input name="valid_from" type="date">
-    </div>
-    <div>
-      <label style="font-size:12px;color:var(--text-muted)">Valid To</label><br>
-      <input name="valid_to" type="date">
-    </div>
-    <div>
-      <label style="font-size:12px;color:var(--text-muted)">Reason</label><br>
-      <input name="reason" style="min-width:160px">
-    </div>
-    <button type="submit" class="btn btn-sm btn-primary">Create</button>
-  </form>
-</div>
-{% endif %}
 
 {% if overrides %}
 <div class="card" style="padding:0;overflow:hidden">
@@ -86,4 +52,32 @@
 <div class="muted">No active overrides.</div>
 {% endif %}
 
+{% if is_admin %}
+{% set modal_body %}
+<form method="post" action="/sales/pricing/overrides/create">
+  <div class="form-group"><label class="form-label">Customer *</label>
+    <select name="customer_id" required class="form-input">
+      {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="form-group"><label class="form-label">Variant (SKU) *</label>
+    <select name="variant_id" required class="form-input">
+      {% for v in variants %}<option value="{{ v.id }}">{{ v.product.name if v.product else '' }} — {{ v.sku_code }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="form-group"><label class="form-label">Price *</label><input name="unit_price" type="number" step="0.01" required class="form-input"></div>
+  <div class="form-group"><label class="form-label">Valid From</label><input name="valid_from" type="date" class="form-input"></div>
+  <div class="form-group"><label class="form-label">Valid To</label><input name="valid_to" type="date" class="form-input"></div>
+  <div class="form-group"><label class="form-label">Reason</label><input name="reason" class="form-input"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+    <button type="button" class="btn btn-outline" onclick="closeModal('newOverrideModal')">Cancel</button>
+    <button type="submit" class="btn btn-primary">Create</button>
+  </div>
+</form>
+{% endset %}
+{% with modal_id="newOverrideModal", modal_title="New Override", modal_body=modal_body %}
+{% include "components/modal.html" %}
+{% endwith %}
+{% if err %}<script>openModal('newOverrideModal');</script>{% endif %}
+{% endif %}
 {% endblock %}

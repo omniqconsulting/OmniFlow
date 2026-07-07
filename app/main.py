@@ -2,6 +2,7 @@
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import datetime, timedelta
 from typing import List, Optional
 import asyncio, os, csv, io
@@ -57,6 +58,7 @@ from .constants import (
     BULK_IMPORT_MAX_ROWS,
 )
 from .labels import get_labels, DEFAULT_L, INDUSTRY_NAMES, INDUSTRY_PRESETS
+from .bulk_common import check_required_headers
 
 app = FastAPI(title="OmniFlow")
 
@@ -121,18 +123,25 @@ def _validate_email(email: str) -> str | None:
 
 def _read_csv_rows(raw: bytes, filename: str) -> list:
     """Decode + parse an uploaded CSV into a list of row dicts, with shared validation."""
+    rows, _ = _read_csv_rows_with_headers(raw, filename)
+    return rows
+
+
+def _read_csv_rows_with_headers(raw: bytes, filename: str) -> tuple:
+    """Same as _read_csv_rows but also returns the raw header row, for format-mismatch checks."""
     if not raw:
         raise HTTPException(400, "Uploaded file is empty.")
     if (filename or "").lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
     content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     try:
-        rows = list(csv.DictReader(io.StringIO(content)))
+        dict_reader = csv.DictReader(io.StringIO(content))
+        rows = list(dict_reader)
     except csv.Error:
         raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
     if len(rows) > BULK_IMPORT_MAX_ROWS:
         raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    return rows
+    return rows, dict_reader.fieldnames
 
 
 def _next_employee_id(db, tenant_id: str) -> str:
@@ -1887,6 +1896,15 @@ def tickets_bulk_template(user: User = Depends(require_manager)):
         headers={"Content-Disposition": "attachment; filename=tickets_template.csv"})
 
 
+# Must also be registered before /tickets/{ticket_id} for the same reason as bulk-template above.
+@app.get("/tickets/bulk-upload-page", response_class=HTMLResponse)
+def tickets_bulk_upload_page(request: Request, user: User = Depends(require_manager), db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "tickets_bulk_upload.html", {
+        "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user), "columns": _TICKET_BULK_COLS,
+    })
+
+
 @app.get("/tickets/{ticket_id}", response_class=HTMLResponse)
 def ticket_detail(ticket_id: str, request: Request,
                   user: User = Depends(get_current_user),
@@ -2130,58 +2148,109 @@ def ticket_delete(ticket_id: str, user: User = Depends(require_admin),
     return redirect("/tickets")
 
 
+_TICKET_BULK_COLS = ["title", "description", "priority", "ticket_category", "assignee_phone", "due_at", "evidence_required"]
+
+
+def _validate_ticket_row(row: dict, tenant_id: str, db: Session) -> tuple:
+    title = (row.get("title") or "").strip()
+    if title.lower().startswith("mandatory") or title.lower().startswith("optional"):
+        return None, None  # instructional filler row from the template — silently skip
+    description = (row.get("description") or "").strip()
+    priority = (row.get("priority") or "MEDIUM").strip().upper()
+    category = (row.get("ticket_category") or "NORMAL").strip().upper()
+    phone = (row.get("assignee_phone") or "").strip()
+    due_str = (row.get("due_at") or "").strip()
+    ev_req = (row.get("evidence_required") or "FALSE").strip().upper() == "TRUE"
+
+    if not title:
+        return None, "title is required"
+    if not description:
+        return None, "description is required"
+    if priority not in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
+        return None, f"invalid priority '{priority}'"
+    if category not in ("NORMAL", "HELP"):
+        return None, f"invalid ticket_category '{category}'"
+    if not phone:
+        return None, "assignee_phone is required"
+    assignee = db.query(User).filter(User.phone == phone, User.tenant_id == tenant_id,
+                                      User.is_active == True, User.is_deleted == False).first()
+    if not assignee:
+        return None, f"no active user with phone '{phone}'"
+    if not due_str:
+        return None, "due_at is required"
+    try:
+        due_dt = datetime.strptime(due_str, "%Y-%m-%d %H:%M")
+    except Exception:
+        return None, f"due_at must be YYYY-MM-DD HH:MM, got '{due_str}'"
+
+    return {
+        "title": title[:200], "description": description, "priority": priority,
+        "ticket_category": category, "assignee_id": assignee.id,
+        "due_at": due_dt.isoformat(), "evidence_required": ev_req,
+    }, None
+
+
+def _run_ticket_validation(rows_in: list, tenant_id: str, db: Session, start_index: int = 2) -> dict:
+    valid_rows, errors = [], []
+    for i, row in enumerate(rows_in, start=start_index):
+        parsed, error = _validate_ticket_row(row, tenant_id, db)
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": dict(row)})
+        elif parsed:
+            valid_rows.append(parsed)
+    return {
+        "total": len(valid_rows) + len(errors),
+        "valid": len(valid_rows),
+        "errors": errors,
+        "rows": valid_rows,
+    }
+
+
 @app.post("/tickets/bulk-upload")
 async def tickets_bulk_upload(file: UploadFile = File(...),
                                user: User = Depends(require_manager),
                                db: Session = Depends(get_db)):
-    """P5-07: Bulk upload tickets from CSV."""
-    tid = user.tenant_id
-    reader = _read_csv_rows(await file.read(), file.filename)
-    errors = []
-    created = 0
-    tenant = db.query(Tenant).get(tid)
+    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
+    fmt_err = check_required_headers(fieldnames, ["title", "description", "assignee_phone", "due_at"], _TICKET_BULK_COLS)
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
     for i, row in enumerate(reader, start=2):
-        title = (row.get("title") or "").strip()
-        # Skip description/header-like rows
-        if title.lower().startswith("mandatory") or title.lower().startswith("optional"):
-            continue
-        description = (row.get("description") or "").strip()
-        priority = (row.get("priority") or "MEDIUM").strip().upper()
-        category = (row.get("ticket_category") or "NORMAL").strip().upper()
-        phone = (row.get("assignee_phone") or "").strip()
-        due_str = (row.get("due_at") or "").strip()
-        ev_req = (row.get("evidence_required") or "FALSE").strip().upper() == "TRUE"
+        row["_row"] = i
+    return JSONResponse(_run_ticket_validation(reader, user.tenant_id, db))
 
-        if not title:
-            errors.append(f"Row {i}: title is required"); continue
-        if not description:
-            errors.append(f"Row {i}: description is required"); continue
-        if priority not in ("LOW","MEDIUM","HIGH","CRITICAL"):
-            errors.append(f"Row {i}: invalid priority '{priority}'"); continue
-        if category not in ("NORMAL","HELP"):
-            errors.append(f"Row {i}: invalid ticket_category '{category}'"); continue
-        if not phone:
-            errors.append(f"Row {i}: assignee_phone is required"); continue
-        assignee = db.query(User).filter(User.phone == phone, User.tenant_id == tid,
-                                          User.is_active == True, User.is_deleted == False).first()
+
+@app.post("/tickets/bulk-upload/revalidate")
+async def tickets_bulk_revalidate(request: Request, user: User = Depends(require_manager), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_ticket_validation(rows_in, user.tenant_id, db))
+
+
+@app.post("/tickets/bulk-upload/confirm")
+async def tickets_bulk_confirm(request: Request, user: User = Depends(require_manager), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows = body.get("rows", [])
+    tenant = db.query(Tenant).get(user.tenant_id)
+    created = 0
+    for r in rows:
+        assignee = db.query(User).filter(User.id == r.get("assignee_id"), User.tenant_id == user.tenant_id).first()
         if not assignee:
-            errors.append(f"Row {i}: no active user with phone '{phone}'"); continue
-        if not due_str:
-            errors.append(f"Row {i}: due_at is required"); continue
+            continue
         try:
-            due_dt = datetime.strptime(due_str, "%Y-%m-%d %H:%M")
-        except Exception:
-            errors.append(f"Row {i}: due_at must be YYYY-MM-DD HH:MM, got '{due_str}'"); continue
-
+            due_dt = datetime.fromisoformat(r["due_at"])
+        except (KeyError, ValueError):
+            continue
         ticket = Ticket(
-            tenant_id=tid, title=title[:200], description=description,
-            priority=priority, created_by_id=user.id,
+            tenant_id=user.tenant_id, title=r["title"], description=r["description"],
+            priority=r["priority"], created_by_id=user.id,
             current_assignee_id=assignee.id, due_at=due_dt, ticket_type="D",
         )
         if hasattr(ticket, "evidence_required"):
-            ticket.evidence_required = ev_req
+            ticket.evidence_required = r.get("evidence_required", False)
         if hasattr(ticket, "ticket_category"):
-            ticket.ticket_category = category
+            ticket.ticket_category = r.get("ticket_category", "NORMAL")
         db.add(ticket)
         db.flush()
         tenant.ticket_seq = (tenant.ticket_seq or 0) + 1
@@ -2195,18 +2264,7 @@ async def tickets_bulk_upload(file: UploadFile = File(...),
     except Exception as e:
         db.rollback()
         raise HTTPException(400, f"Import failed — no tickets were created. {e}")
-    if errors:
-        import io as _io
-        buf = _io.StringIO()
-        w = csv.writer(buf)
-        w.writerow(["Row","Error"])
-        for e in errors:
-            parts = e.split(": ", 1)
-            w.writerow(parts if len(parts)==2 else [e, ""])
-        buf.seek(0)
-        return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=ticket_upload_errors.csv"})
-    return redirect(f"/tickets?bulk_created={created}")
+    return JSONResponse({"created": created})
 
 
 @app.post("/tickets/{ticket_id}/action")
@@ -3657,133 +3715,151 @@ def checklist_bulk_template(user: User = Depends(require_admin)):
                headers={"Content-Disposition": "attachment; filename=checklist_template.csv"})
 
 
+_FREQ_ALIASES = {
+    "TWICE A MONTH": "TWICE_A_MONTH",
+    "TWICE-A-MONTH": "TWICE_A_MONTH",
+    "BI-MONTHLY":    "TWICE_A_MONTH",
+    "BIMONTHLY":     "TWICE_A_MONTH",
+    "QUATERLY":      "QUARTERLY",    # common misspelling
+    "QUATER":        "QUARTERLY",
+    "ANNUAL":        "YEARLY",
+    "ANNUALLY":      "YEARLY",
+}
+_VALID_FREQS = {"DAILY", "WEEKLY", "TWICE_A_MONTH", "MONTHLY", "QUARTERLY", "YEARLY", "PER_SHIFT"}
+_CHECKLIST_BULK_COLS = ["title", "description", "frequency", "assigned_to_role", "assigned_to_department",
+                        "assigned_to_name", "assigned_to_phone", "evidence_required", "is_recurring",
+                        "reminder_hours_before", "reminder_repeat_hours"]
+
+
+def _validate_checklist_row(row: dict, tenant_id: str, db: Session) -> tuple:
+    title = (row.get("title") or "").strip()
+    if title.lower().startswith("mandatory") or title.lower().startswith("optional"):
+        return None, None  # instructional filler row from the template — silently skip
+    desc = (row.get("description") or "").strip()
+    if not title and desc:
+        title, desc = desc, ""
+    if not title:
+        return None, "title is required"
+    freq_raw = (row.get("frequency") or "DAILY").strip().upper()
+    freq = _FREQ_ALIASES.get(freq_raw, freq_raw)
+    if freq not in _VALID_FREQS:
+        return None, f"Invalid frequency '{freq_raw}' — valid values: {', '.join(sorted(_VALID_FREQS))}"
+
+    role = (row.get("assigned_to_role") or "EMPLOYEE").strip().upper()
+    dept_id = None
+    user_id = None
+    dept_name = (row.get("assigned_to_department") or "").strip()
+    emp_name = (row.get("assigned_to_name") or "").strip()
+    phone = (row.get("assigned_to_phone") or "").strip()
+    if emp_name:
+        u = db.query(User).filter(
+            User.tenant_id == tenant_id, func.lower(User.name) == emp_name.lower(),
+            User.is_deleted == False,
+        ).first()
+        if not u:
+            return None, f"No employee named '{emp_name}'"
+        user_id = u.id
+        role = u.role
+    elif phone:
+        u = db.query(User).filter(User.tenant_id == tenant_id, User.phone == phone, User.is_deleted == False).first()
+        if not u:
+            return None, f"No user with phone {phone}"
+        user_id = u.id
+        role = u.role
+    elif dept_name:
+        d = db.query(Department).filter(Department.tenant_id == tenant_id, Department.name == dept_name,
+                                         Department.is_deleted == False).first()
+        if not d:
+            return None, f"Department not found: {dept_name}"
+        dept_id = d.id
+
+    ev_raw = (row.get("evidence_required") or "").strip().upper()
+    ev_req = ev_raw in ("TRUE", "YES", "1", "Y")
+    try:
+        remind_b = int((row.get("reminder_hours_before") or "2").strip() or 2)
+    except ValueError:
+        remind_b = 2
+    try:
+        remind_r = int((row.get("reminder_repeat_hours") or "4").strip() or 4)
+    except ValueError:
+        remind_r = 4
+    is_rec_raw = (row.get("is_recurring") or "TRUE").strip().upper()
+    is_rec = is_rec_raw != "FALSE"
+
+    return {
+        "title": title, "description": desc, "frequency": freq, "assigned_to_role": role,
+        "assigned_to_dept_id": dept_id, "assigned_to_user_id": user_id,
+        "evidence_required": ev_req, "is_recurring": is_rec,
+        "reminder_hours_before": remind_b, "reminder_repeat_hours": remind_r,
+    }, None
+
+
+def _run_checklist_validation(rows_in: list, tenant_id: str, db: Session, start_index: int = 2) -> dict:
+    valid_rows, errors = [], []
+    for i, row in enumerate(rows_in, start=start_index):
+        parsed, error = _validate_checklist_row(row, tenant_id, db)
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": dict(row)})
+        elif parsed:
+            valid_rows.append(parsed)
+    return {
+        "total": len(valid_rows) + len(errors),
+        "valid": len(valid_rows),
+        "errors": errors,
+        "rows": valid_rows,
+    }
+
+
+@app.get("/checklists/bulk-upload-page", response_class=HTMLResponse)
+def checklist_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "checklists_bulk_upload.html", {
+        "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user), "columns": _CHECKLIST_BULK_COLS,
+    })
+
+
 @app.post("/checklists/bulk-upload")
 async def checklist_bulk_upload(file: UploadFile = File(...),
                                  user: User = Depends(require_admin),
                                  db: Session = Depends(get_db)):
-    import csv, io
-    from fastapi.responses import StreamingResponse as _SR
-    raw = await file.read()
-    # Try UTF-8 first, fall back to Windows-1252 for files saved by Excel
-    try:
-        content = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        content = raw.decode("cp1252", errors="replace")
-    content = content.lstrip(chr(65279))  # strip any leftover BOM (files re-saved by multiple tools can stack extra BOMs)
-    # Normalise frequency aliases so common variants are accepted
-    _FREQ_ALIASES = {
-        "TWICE A MONTH": "TWICE_A_MONTH",
-        "TWICE-A-MONTH": "TWICE_A_MONTH",
-        "BI-MONTHLY":    "TWICE_A_MONTH",
-        "BIMONTHLY":     "TWICE_A_MONTH",
-        "QUATERLY":      "QUARTERLY",    # common misspelling
-        "QUATER":        "QUARTERLY",
-        "ANNUAL":        "YEARLY",
-        "ANNUALLY":      "YEARLY",
-    }
-    _VALID_FREQS = {"DAILY","WEEKLY","TWICE_A_MONTH","MONTHLY","QUARTERLY","YEARLY","PER_SHIFT"}
-    reader = list(csv.DictReader(io.StringIO(content)))
-    if len(reader) > BULK_IMPORT_MAX_ROWS:
-        raise HTTPException(400, f"File has {len(reader)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    errors = []
+    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
+    fmt_err = check_required_headers(fieldnames, ["title"], _CHECKLIST_BULK_COLS)
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
+    for i, row in enumerate(reader, start=2):
+        row["_row"] = i
+    return JSONResponse(_run_checklist_validation(reader, user.tenant_id, db))
+
+
+@app.post("/checklists/bulk-upload/revalidate")
+async def checklist_bulk_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_checklist_validation(rows_in, user.tenant_id, db))
+
+
+@app.post("/checklists/bulk-upload/confirm")
+async def checklist_bulk_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows = body.get("rows", [])
     created = 0
-    for i, row in enumerate(reader, start=1):
-        title = (row.get("title") or "").strip()
-        # Skip description/header-like rows
-        if title.lower().startswith("mandatory") or title.lower().startswith("optional"):
-            continue
-        desc  = (row.get("description") or "").strip()
-        # If title is blank but description has content, use description as title
-        if not title and desc:
-            title = desc
-            desc  = ""
-        freq_raw = (row.get("frequency") or "DAILY").strip().upper()
-        freq = _FREQ_ALIASES.get(freq_raw, freq_raw)
-        if not title:
-            errors.append((i, "(blank)", "title is required"))
-            continue
-        if freq not in _VALID_FREQS:
-            errors.append((i, title, f"Invalid frequency '{freq_raw}' — valid values: {', '.join(sorted(_VALID_FREQS))}"))
-            continue
-        # Resolve assignee
-        role = (row.get("assigned_to_role") or "EMPLOYEE").strip().upper()
-        dept_id = None
-        user_id = None
-        dept_name = (row.get("assigned_to_department") or "").strip()
-        emp_name = (row.get("assigned_to_name") or "").strip()
-        phone = (row.get("assigned_to_phone") or "").strip()
-        if emp_name:
-            from sqlalchemy import func as _func
-            u = db.query(User).filter(
-                User.tenant_id == user.tenant_id,
-                _func.lower(User.name) == emp_name.lower(),
-                User.is_deleted == False,
-            ).first()
-            if not u:
-                # Build a helpful list of available names for the error message
-                all_names = [r.name for r in db.query(User.name).filter(
-                    User.tenant_id == user.tenant_id, User.is_deleted == False).all()]
-                errors.append((i, title, f"No employee named '{emp_name}'. Available: {', '.join(sorted(all_names))}"))
-                continue
-            user_id = u.id
-            role = u.role
-        elif phone:
-            u = db.query(User).filter(User.tenant_id == user.tenant_id,
-                                       User.phone == phone, User.is_deleted == False).first()
-            if not u:
-                errors.append((i, title, f"No user with phone {phone}"))
-                continue
-            user_id = u.id
-            role = u.role
-        elif dept_name:
-            from .database import Department as _Dept
-            d = db.query(_Dept).filter(_Dept.tenant_id == user.tenant_id,
-                                        _Dept.name == dept_name,
-                                        _Dept.is_deleted == False).first()
-            if not d:
-                errors.append((i, title, f"Department not found: {dept_name}"))
-                continue
-            dept_id = d.id
-        ev_raw = (row.get("evidence_required") or "").strip().upper()
-        ev_req = ev_raw in ("TRUE", "YES", "1", "Y")
-        try:
-            remind_b = int((row.get("reminder_hours_before") or "2").strip() or 2)
-        except ValueError:
-            remind_b = 2
-        try:
-            remind_r = int((row.get("reminder_repeat_hours") or "4").strip() or 4)
-        except ValueError:
-            remind_r = 4
-        is_rec_raw = (row.get("is_recurring") or "TRUE").strip().upper()
-        is_rec = is_rec_raw != "FALSE"
-        try:
-            db.add(ChecklistTemplate(
-                tenant_id=user.tenant_id, title=title, description=desc,
-                frequency=freq, assigned_to_role=role,
-                assigned_to_dept_id=dept_id, assigned_to_user_id=user_id,
-                evidence_required=ev_req, is_recurring=is_rec,
-                reminder_hours_before=remind_b, reminder_repeat_hours=remind_r,
-            ))
-            db.flush()
-            created += 1
-        except Exception as exc:
-            db.rollback()
-            errors.append((i, title, f"DB error: {exc}"))
-    if not errors:
+    for r in rows:
+        db.add(ChecklistTemplate(
+            tenant_id=user.tenant_id, title=r["title"], description=r.get("description"),
+            frequency=r["frequency"], assigned_to_role=r.get("assigned_to_role"),
+            assigned_to_dept_id=r.get("assigned_to_dept_id"), assigned_to_user_id=r.get("assigned_to_user_id"),
+            evidence_required=r.get("evidence_required", False), is_recurring=r.get("is_recurring", True),
+            reminder_hours_before=r.get("reminder_hours_before", 2), reminder_repeat_hours=r.get("reminder_repeat_hours", 4),
+        ))
+        created += 1
+    try:
         db.commit()
-    else:
+    except Exception as e:
         db.rollback()
-    if errors:
-        buf = io.StringIO()
-        w = csv.writer(buf)
-        w.writerow(["row","title","error"])
-        for (r, t, e) in errors:
-            w.writerow([r, t, e])
-        buf.seek(0)
-        return _SR(iter([buf.read().encode()]),
-                   media_type="text/csv",
-                   headers={"Content-Disposition": "attachment; filename=checklist_upload_errors.csv"})
-    return redirect(f"/checklists?uploaded={created}")
+        raise HTTPException(400, f"Import failed — no checklists were created. {e}")
+    return JSONResponse({"created": created})
 
 
 # ── Employees ─────────────────────────────────────────────────────────────────
@@ -3950,6 +4026,110 @@ def download_csv_template(entity: str = "employees",
         headers={"Content-Disposition": f"attachment; filename={entity}_template.csv"},
     )
 
+_EMPLOYEE_BULK_COLS = ["name", "phone", "password", "role", "department_name", "branch_name",
+                       "manager_phone", "email", "joining_date", "address"]
+
+
+def _parse_bulk_date(s: str):
+    """Accept YYYY-MM-DD, M/D/YYYY, MM/DD/YYYY, D-M-YYYY etc."""
+    from datetime import date as _date
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return _date.fromisoformat(s)
+    except ValueError:
+        pass
+    for fmt in ("%m/%d/%Y", "%d/%m/%Y", "%d-%m-%Y", "%m-%d-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            pass
+    return None
+
+
+def _validate_employee_row(row: dict, tenant_id: str, db: Session, branch_lkp: dict) -> tuple:
+    name = (row.get("name") or "").strip()
+    if name.lower().startswith("mandatory") or name.lower().startswith("optional"):
+        return None, None  # instructional filler row from the template — silently skip
+    phone = (row.get("phone") or "").strip()
+    password = (row.get("password") or "").strip()
+    role = (row.get("role") or "EMPLOYEE").strip().upper()
+
+    if not name:
+        return None, "name is required"
+    if not phone:
+        return None, "phone is required"
+    if not password:
+        return None, "password is required"
+    if len(password) < 6:
+        return None, "password must be at least 6 characters"
+    if role not in ("EMPLOYEE", "MANAGER", "ADMIN"):
+        return None, f"invalid role '{role}'"
+    if db.query(User).filter(User.tenant_id == tenant_id, User.phone == phone, User.is_deleted == False).first():
+        return None, f"phone {phone} already exists"
+
+    dept_id = None
+    dept_name = (row.get("department_name") or "").strip()
+    if dept_name:
+        dept = db.query(Department).filter(
+            Department.tenant_id == tenant_id, Department.name == dept_name, Department.is_deleted == False,
+        ).first()
+        if dept:
+            dept_id = dept.id
+
+    branch_id = None
+    branch_name = (row.get("branch_name") or "").strip()
+    if branch_name:
+        branch_id = branch_lkp.get(branch_name.lower())
+
+    mgr_id = None
+    mgr_phone = (row.get("manager_phone") or "").strip()
+    if mgr_phone:
+        mgr = db.query(User).filter(User.tenant_id == tenant_id, User.phone == mgr_phone, User.is_deleted == False).first()
+        if mgr:
+            mgr_id = mgr.id
+
+    jdate = _parse_bulk_date(row.get("joining_date") or "")
+
+    return {
+        "name": name, "phone": phone, "password": password, "role": role,
+        "email": (row.get("email") or "").strip() or None,
+        "department_id": dept_id, "branch_id": branch_id, "manager_id": mgr_id,
+        "address": (row.get("address") or "").strip() or None,
+        "joining_date": jdate.isoformat() if jdate else None,
+    }, None
+
+
+def _run_employee_validation(rows_in: list, tenant_id: str, db: Session, start_index: int = 2) -> dict:
+    branch_lkp = {b.name.strip().lower(): b.id for b in db.query(Branch).filter(
+        Branch.tenant_id == tenant_id, Branch.is_deleted == False).all()}
+    valid_rows, errors = [], []
+    for i, row in enumerate(rows_in, start=start_index):
+        parsed, error = _validate_employee_row(row, tenant_id, db, branch_lkp)
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": dict(row)})
+        elif parsed:
+            valid_rows.append(parsed)
+    return {
+        "total": len(valid_rows) + len(errors),
+        "valid": len(valid_rows),
+        "errors": errors,
+        "rows": valid_rows,
+    }
+
+
+@app.get("/employees/bulk-upload-page", response_class=HTMLResponse)
+def employees_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "BULK_IMPORT", db):
+        raise HTTPException(403, "Bulk import requires Professional plan")
+    return templates.TemplateResponse(request, "employees_bulk_upload.html", {
+        "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user), "columns": _EMPLOYEE_BULK_COLS,
+    })
+
+
 @app.post("/employees/import")
 async def bulk_import_employees(file: UploadFile = File(...),
                                 user: User = Depends(require_admin),
@@ -3958,150 +4138,57 @@ async def bulk_import_employees(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
-
-    reader = _read_csv_rows(await file.read(), file.filename)
-
-    from datetime import date as _date
-
-    def _parse_date(s: str):
-        """Accept YYYY-MM-DD, M/D/YYYY, MM/DD/YYYY, D-M-YYYY etc."""
-        s = s.strip()
-        if not s:
-            return None
-        # ISO first
-        try:
-            return _date.fromisoformat(s)
-        except ValueError:
-            pass
-        # slash-separated (M/D/YYYY or MM/DD/YYYY)
-        for fmt in ("%m/%d/%Y", "%d/%m/%Y", "%d-%m-%Y", "%m-%d-%Y"):
-            try:
-                return datetime.strptime(s, fmt).date()
-            except ValueError:
-                pass
-        return None
-
-    # Build branch lookup for optional branch_name column
-    _branch_lkp = {b.name.strip().lower(): b.id
-                   for b in db.query(Branch).filter(
-                       Branch.tenant_id == user.tenant_id,
-                       Branch.is_deleted == False).all()}
-
-    errors, imported = [], 0
+    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
+    fmt_err = check_required_headers(fieldnames, ["name", "phone", "password"], _EMPLOYEE_BULK_COLS)
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
     for i, row in enumerate(reader, start=2):
-        name = (row.get("name") or "").strip()
-        phone = (row.get("phone") or "").strip()
-        password = (row.get("password") or "").strip()
-        role = (row.get("role") or "EMPLOYEE").strip().upper()
+        row["_row"] = i
+    return JSONResponse(_run_employee_validation(reader, user.tenant_id, db))
 
-        # Skip description rows
-        if name.lower().startswith("mandatory") or name.lower().startswith("optional"):
-            continue
 
-        if not name:
-            errors.append({"row": i, "error": "name is required", "data": dict(row)})
-            continue
-        if not phone:
-            errors.append({"row": i, "error": "phone is required", "data": dict(row)})
-            continue
-        if not password:
-            errors.append({"row": i, "error": "password is required", "data": dict(row)})
-            continue
-        if role not in ("EMPLOYEE", "MANAGER", "ADMIN"):
-            errors.append({"row": i, "error": f"invalid role '{role}'", "data": dict(row)})
-            continue
-        if db.query(User).filter(
-            User.tenant_id == user.tenant_id,
-            User.phone == phone, User.is_deleted == False,
-        ).first():
-            errors.append({"row": i, "error": f"phone {phone} already exists", "data": dict(row)})
-            continue
+@app.post("/employees/import/revalidate")
+async def bulk_import_employees_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_employee_validation(rows_in, user.tenant_id, db))
 
-        # Resolve optional dept
-        dept_id = None
-        dept_name = (row.get("department_name") or "").strip()
-        if dept_name:
-            dept = db.query(Department).filter(
-                Department.tenant_id == user.tenant_id,
-                Department.name == dept_name,
-                Department.is_deleted == False,
-            ).first()
-            if dept:
-                dept_id = dept.id
 
-        # Resolve optional branch
-        branch_id = None
-        branch_name = (row.get("branch_name") or "").strip()
-        if branch_name:
-            branch_id = _branch_lkp.get(branch_name.lower())
-
-        # Resolve optional manager
-        mgr_id = None
-        mgr_phone = (row.get("manager_phone") or "").strip()
-        if mgr_phone:
-            mgr = db.query(User).filter(
-                User.tenant_id == user.tenant_id,
-                User.phone == mgr_phone, User.is_deleted == False,
-            ).first()
-            if mgr:
-                mgr_id = mgr.id
-
-        jdate = _parse_date(row.get("joining_date") or "")
-
-        # Each row gets its own savepoint: a DB-level failure on one row
-        # (e.g. a constraint violation) must not corrupt the shared session
-        # and abort every row already staged in this request.
+@app.post("/employees/import/confirm")
+async def bulk_import_employees_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "BULK_IMPORT", db):
+        raise HTTPException(403, "Bulk import requires Professional plan")
+    body = await request.json()
+    rows = body.get("rows", [])
+    created = 0
+    for r in rows:
         try:
             with db.begin_nested():
+                jdate = None
+                if r.get("joining_date"):
+                    from datetime import date as _date
+                    jdate = _date.fromisoformat(r["joining_date"])
                 db.add(User(
-                    tenant_id=user.tenant_id, name=name, phone=phone,
-                    email=(row.get("email") or "").strip() or None,
-                    password_hash=hash_password(password), role=role,
-                    department_id=dept_id,
-                    branch_id=branch_id,
-                    manager_id=mgr_id,
-                    address=(row.get("address") or "").strip() or None,
-                    joining_date=jdate,
-                    status="ACTIVE",
+                    tenant_id=user.tenant_id, name=r["name"], phone=r["phone"],
+                    email=r.get("email"), password_hash=hash_password(r["password"]), role=r["role"],
+                    department_id=r.get("department_id"), branch_id=r.get("branch_id"),
+                    manager_id=r.get("manager_id"), address=r.get("address"),
+                    joining_date=jdate, status="ACTIVE",
                     employee_id=_next_employee_id(db, user.tenant_id),
                 ))
                 db.flush()
-            imported += 1
-        except Exception as row_err:
-            import logging as _logging
-            _logging.getLogger(__name__).exception("Employee import row %s failed", i)
-            errors.append({"row": i, "error": f"could not create employee: {row_err}", "data": dict(row)})
+            created += 1
+        except Exception:
             continue
-
     try:
         db.commit()
     except Exception as e:
         db.rollback()
-        import logging as _logging
-        _logging.getLogger(__name__).exception("Employee import commit failed")
         raise HTTPException(400, f"Import failed — no employees were created. {e}")
-
-    if errors:
-        # Return downloadable exception report
-        buf = io.StringIO()
-        w = csv.DictWriter(buf, fieldnames=["row", "error", "name", "phone", "role"])
-        w.writeheader()
-        for e in errors:
-            w.writerow({
-                "row": e["row"], "error": e["error"],
-                "name": e["data"].get("name", ""),
-                "phone": e["data"].get("phone", ""),
-                "role": e["data"].get("role", ""),
-            })
-        buf.seek(0)
-        return StreamingResponse(
-            iter([buf.getvalue()]),
-            media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=import_errors.csv",
-                     "X-Imported": str(imported)},
-        )
-
-    return redirect(f"/employees?imported={imported}")
+    return JSONResponse({"created": created})
 
 
 @app.post("/employees/{emp_id}/reset-password")
@@ -4570,6 +4657,45 @@ def employee_performance(
     })
 
 
+def _validate_department_row(row: dict, tenant_id: str, db: Session, branch_lookup: dict) -> tuple:
+    name = (row.get("name") or "").strip()
+    if not name or name.lower().startswith("mandatory") or name.lower().startswith("optional"):
+        return None, None  # instructional filler row from the template — silently skip
+    branch_name = (row.get("branch_name") or "").strip()
+    branch_id = branch_lookup.get(branch_name.lower()) if branch_name else None
+    exists = db.query(Department).filter(
+        Department.tenant_id == tenant_id, Department.name == name,
+        Department.branch_id == branch_id, Department.is_deleted == False,
+    ).first()
+    if exists:
+        return None, f"department '{name}' already exists for this branch"
+    return {"name": name, "branch_id": branch_id}, None
+
+
+def _run_department_validation(rows_in: list, tenant_id: str, db: Session, start_index: int = 2) -> dict:
+    branch_lookup = {b.name.strip().lower(): b.id for b in db.query(Branch).filter(
+        Branch.tenant_id == tenant_id, Branch.is_deleted == False).all()}
+    valid_rows, errors = [], []
+    for i, row in enumerate(rows_in, start=start_index):
+        parsed, error = _validate_department_row(row, tenant_id, db, branch_lookup)
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": dict(row)})
+        elif parsed:
+            valid_rows.append(parsed)
+    return {"total": len(valid_rows) + len(errors), "valid": len(valid_rows), "errors": errors, "rows": valid_rows}
+
+
+@app.get("/departments/bulk-upload-page", response_class=HTMLResponse)
+def departments_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "BULK_IMPORT", db):
+        raise HTTPException(403, "Bulk import requires Professional plan")
+    return templates.TemplateResponse(request, "departments_bulk_upload.html", {
+        "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user), "columns": ["name", "branch_name"],
+    })
+
+
 @app.post("/departments/import")
 async def bulk_import_departments(file: UploadFile = File(...),
                                    user: User = Depends(require_admin),
@@ -4578,34 +4704,71 @@ async def bulk_import_departments(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
-    reader = _read_csv_rows(await file.read(), file.filename)
-    count = 0
-    # Build branch name → id lookup for this tenant
-    _branch_lookup = {b.name.strip().lower(): b.id for b in db.query(Branch).filter(
-        Branch.tenant_id == user.tenant_id, Branch.is_deleted == False).all()}
-    for row in reader:
-        name = (row.get("name") or "").strip()
-        if not name or name.lower().startswith("mandatory") or name.lower().startswith("optional"):
-            continue
-        branch_name = (row.get("branch_name") or "").strip()
-        branch_id = _branch_lookup.get(branch_name.lower()) if branch_name else None
-        # Skip exact duplicates (same name + branch_id already exists)
-        exists = db.query(Department).filter(
-            Department.tenant_id == user.tenant_id,
-            Department.name == name,
-            Department.branch_id == branch_id,
-            Department.is_deleted == False,
-        ).first()
-        if exists:
-            continue
-        db.add(Department(tenant_id=user.tenant_id, name=name, branch_id=branch_id))
-        count += 1
+    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
+    fmt_err = check_required_headers(fieldnames, ["name"], ["name", "branch_name"])
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
+    for i, row in enumerate(reader, start=2):
+        row["_row"] = i
+    return JSONResponse(_run_department_validation(reader, user.tenant_id, db))
+
+
+@app.post("/departments/import/revalidate")
+async def bulk_import_departments_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_department_validation(rows_in, user.tenant_id, db))
+
+
+@app.post("/departments/import/confirm")
+async def bulk_import_departments_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "BULK_IMPORT", db):
+        raise HTTPException(403, "Requires Professional plan")
+    body = await request.json()
+    rows = body.get("rows", [])
+    created = 0
+    for r in rows:
+        db.add(Department(tenant_id=user.tenant_id, name=r["name"], branch_id=r.get("branch_id")))
+        created += 1
     try:
         db.commit()
     except Exception as e:
         db.rollback()
         raise HTTPException(400, f"Import failed — no departments were created. {e}")
-    return redirect(f"/setup?imported_depts={count}")
+    return JSONResponse({"created": created})
+
+
+def _validate_branch_row(row: dict) -> tuple:
+    name = (row.get("name") or "").strip()
+    if not name or name.lower().startswith("mandatory") or name.lower().startswith("optional"):
+        return None, None  # instructional filler row from the template — silently skip
+    return {"name": name, "address": (row.get("address") or "").strip() or None}, None
+
+
+def _run_branch_validation(rows_in: list, start_index: int = 2) -> dict:
+    valid_rows, errors = [], []
+    for i, row in enumerate(rows_in, start=start_index):
+        parsed, error = _validate_branch_row(row)
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": dict(row)})
+        elif parsed:
+            valid_rows.append(parsed)
+    return {"total": len(valid_rows) + len(errors), "valid": len(valid_rows), "errors": errors, "rows": valid_rows}
+
+
+@app.get("/branches/bulk-upload-page", response_class=HTMLResponse)
+def branches_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "BULK_IMPORT", db):
+        raise HTTPException(403, "Bulk import requires Professional plan")
+    return templates.TemplateResponse(request, "branches_bulk_upload.html", {
+        "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user), "columns": ["name", "address"],
+    })
+
 
 @app.post("/branches/import")
 async def bulk_import_branches(file: UploadFile = File(...),
@@ -4615,21 +4778,41 @@ async def bulk_import_branches(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
-    reader = _read_csv_rows(await file.read(), file.filename)
-    count = 0
-    for row in reader:
-        name = (row.get("name") or "").strip()
-        if not name or name.lower().startswith("mandatory") or name.lower().startswith("optional"):
-            continue
-        db.add(Branch(tenant_id=user.tenant_id, name=name,
-                      address=(row.get("address") or "").strip()))
-        count += 1
+    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
+    fmt_err = check_required_headers(fieldnames, ["name"], ["name", "address"])
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
+    for i, row in enumerate(reader, start=2):
+        row["_row"] = i
+    return JSONResponse(_run_branch_validation(reader))
+
+
+@app.post("/branches/import/revalidate")
+async def bulk_import_branches_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_branch_validation(rows_in))
+
+
+@app.post("/branches/import/confirm")
+async def bulk_import_branches_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "BULK_IMPORT", db):
+        raise HTTPException(403, "Requires Professional plan")
+    body = await request.json()
+    rows = body.get("rows", [])
+    created = 0
+    for r in rows:
+        db.add(Branch(tenant_id=user.tenant_id, name=r["name"], address=r.get("address")))
+        created += 1
     try:
         db.commit()
     except Exception as e:
         db.rollback()
         raise HTTPException(400, f"Import failed — no branches were created. {e}")
-    return redirect(f"/setup?imported_branches={count}")
+    return JSONResponse({"created": created})
 
 
 # ── Setup ─────────────────────────────────────────────────────────────────────

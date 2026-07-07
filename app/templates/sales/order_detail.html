@@ -54,10 +54,10 @@
 
 <div class="card" style="padding:16px;margin-bottom:18px">
   <h3 style="margin-top:0">Line Items</h3>
-  {% if order.items %}
-  <table style="width:100%;font-size:13px;border-collapse:collapse">
+  <table id="items-table" style="width:100%;font-size:13px;border-collapse:collapse{{ '' if order.items else ';display:none' }}">
     <thead>
       <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px"></th>
         <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Qty</th>
         <th style="padding:6px 8px">Unit Price</th><th style="padding:6px 8px">Source</th>
         <th style="padding:6px 8px">Line Total</th><th style="padding:6px 8px">Stock Status</th>
@@ -65,9 +65,10 @@
         {% if can_edit %}<th style="padding:6px 8px"></th>{% endif %}
       </tr>
     </thead>
-    <tbody>
+    <tbody id="items-tbody">
       {% for item in order.items %}
       <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 8px">{% with variant=item.variant %}{% include "components/product_thumb.html" %}{% endwith %}</td>
         <td style="padding:6px 8px">{{ (item.variant.product.name + ' — ' + item.variant.sku_code) if item.variant and item.variant.product else (item.variant.sku_code if item.variant else '—') }}
           {% if item.variant %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(item.variant.product_tier, '#94a3b8') }};margin-left:4px">{{ item.variant.product_tier }}</span>{% endif %}
         </td>
@@ -109,59 +110,21 @@
         </td>
         {% if can_edit %}
         <td style="padding:6px 8px">
-          <form method="post" action="/sales/orders/{{ order.id }}/remove-item/{{ item.id }}" style="display:inline">
-            <button type="submit" class="btn btn-xs btn-outline" onclick="return confirm('Remove this item?')">Remove</button>
-          </form>
+          <button type="button" class="btn btn-xs btn-outline" onclick="quickRemoveItem('{{ item.id }}', this)">Remove</button>
         </td>
         {% endif %}
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  {% else %}
-  <div class="muted">No items added yet.</div>
-  {% endif %}
+  <div id="items-empty" class="muted" style="{{ 'display:none' if order.items else '' }}">No items added yet.</div>
 
   {% if can_edit %}
   <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border-subtle)">
     <h4 style="margin:0 0 10px 0;font-size:13px">Add Line Item</h4>
-    <form method="post" action="/sales/orders/{{ order.id }}/add-item" enctype="multipart/form-data" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-      <div>
-        <label style="font-size:11px;color:var(--text-muted);display:block">Product *</label>
-        <select id="product_picker" required onchange="onProductChange(this.value)" style="min-width:200px">
-          <option value="">— Select —</option>
-          {% for p in products %}
-          <option value="{{ p.id }}">{{ p.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label style="font-size:11px;color:var(--text-muted);display:block">Variant (SKU) *</label>
-        <select name="variant_id" id="variant_select" required onchange="checkStock(this.value)" style="min-width:180px" disabled>
-          <option value="">— Select a product first —</option>
-        </select>
-      </div>
-      <img id="variant_photo_preview" src="" style="display:none;width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle)">
-      <div>
-        <label style="font-size:11px;color:var(--text-muted);display:block">Qty *</label>
-        <input type="number" name="qty_ordered" step="0.01" required style="width:90px">
-      </div>
-      <div>
-        <label style="font-size:11px;color:var(--text-muted);display:block">Manual Price (₹)</label>
-        <input type="number" name="manual_override_price" step="0.01" style="width:110px">
-      </div>
-      <div>
-        <label style="font-size:11px;color:var(--text-muted);display:block">Override Reason</label>
-        <input name="override_reason" style="width:160px">
-      </div>
-      <div id="photo_upload_field">
-        <label style="font-size:11px;color:var(--text-muted);display:block">Reference Photo <span style="font-weight:400">(no catalog photo on file)</span></label>
-        <input type="file" name="photo" style="width:150px">
-      </div>
-      <button type="submit" class="btn btn-sm btn-primary">+ Add Item</button>
-    </form>
-    <div id="stock-check-result" style="margin-top:8px;font-size:12px"></div>
-    <div class="muted" style="font-size:11px;margin-top:6px">No price list is configured yet — enter a manual price for each item.</div>
+    <input id="product_search_input" placeholder="Search by product name or SKU…" style="width:100%;max-width:420px;margin-bottom:8px" oninput="renderSearchResults()">
+    <div id="search_results" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;max-width:420px"></div>
+    <div id="add-item-alert" style="display:none;margin-top:8px;font-size:12px"></div>
   </div>
   {% endif %}
 </div>
@@ -197,63 +160,138 @@
 </div>
 
 <script>
-const productVariants = {
+// Flattened variant catalog for the type-ahead search (Sell workspace pattern) —
+// replaces the old two-step Product -> Variant <select> + full-page-reload add.
+const CATALOG = [
   {% for p in products %}
-  "{{ p.id }}": [{% for v in p.variants if v.is_active and not v.is_deleted %}{id:"{{ v.id }}", label:"{{ (v.variant_label or v.sku_code)|e }} ({{ v.sku_code|e }})", photo:{{ (v.media_urls_json or '[]')|safe }}[0] || null},{% endfor %}],
+  {% for v in p.variants if v.is_active and not v.is_deleted %}
+  {
+    variant_id: "{{ v.id }}",
+    product_name: {{ p.name|tojson }},
+    sku_code: {{ v.sku_code|tojson }},
+    label: {{ (v.variant_label or v.sku_code)|tojson }},
+    tier: {{ (v.product_tier or '')|tojson }},
+    photo: ({{ (v.media_urls_json or '[]')|safe }})[0] || null,
+  },
   {% endfor %}
-};
+  {% endfor %}
+];
+const ORDER_ID = "{{ order.id }}";
+const CUSTOMER_ID = {{ ('"' + order.customer_id + '"')|safe if order.customer_id else 'null' }};
+const priceSourceBadges = {'CUSTOMER_OVERRIDE':'🔵 Custom','PRICE_LIST':'🟢 List','DEFAULT_LIST':'🟡 Default','MANUAL':'⚪ Manual'};
+const stockColors = {'AVAILABLE':'#22c55e','PARTIAL':'#f59e0b','UNAVAILABLE':'#ef4444'};
+const tierColors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'};
 
-function onProductChange(productId) {
-  const sel = document.getElementById('variant_select');
-  sel.innerHTML = '';
-  document.getElementById('stock-check-result').innerHTML = '';
-  document.getElementById('variant_photo_preview').style.display = 'none';
-  const variants = productVariants[productId] || [];
-  if (!variants.length) {
-    sel.innerHTML = '<option value="">No variants for this product</option>';
-    sel.disabled = true;
+function thumbHtml(photo, size) {
+  size = size || 32;
+  if (photo) return `<img src="/static/${photo}" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle)">`;
+  return `<div style="width:${size}px;height:${size}px;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-input);display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:${Math.round(size/2.2)}px">📦</div>`;
+}
+
+function renderSearchResults() {
+  const q = (document.getElementById('product_search_input').value || '').toLowerCase().trim();
+  const results = document.getElementById('search_results');
+  let matches = CATALOG;
+  if (q) matches = CATALOG.filter(v => v.product_name.toLowerCase().includes(q) || v.sku_code.toLowerCase().includes(q) || v.label.toLowerCase().includes(q));
+  matches = matches.slice(0, 50);
+  if (!matches.length) { results.innerHTML = '<div class="muted" style="font-size:12px">No matching products.</div>'; return; }
+  results.innerHTML = matches.map(v => `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px;border:1px solid var(--border-subtle);border-radius:6px">
+      ${thumbHtml(v.photo)}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600">${v.product_name} — ${v.label}</div>
+        <div class="muted" style="font-size:10px">SKU: ${v.sku_code}${v.tier ? ' · ' + v.tier : ''}</div>
+      </div>
+      <input type="number" step="0.01" placeholder="qty" id="qty_${v.variant_id}" style="width:60px;font-size:12px">
+      <button type="button" class="btn btn-xs btn-primary" onclick="quickAddItem('${v.variant_id}')">+ Add</button>
+    </div>`).join('');
+}
+
+function showAddItemAlert(msg, isError) {
+  const el = document.getElementById('add-item-alert');
+  el.className = isError ? 'alert alert-red' : 'alert alert-green';
+  el.textContent = msg;
+  el.style.display = '';
+}
+
+async function quickAddItem(variantId) {
+  const qtyInput = document.getElementById(`qty_${variantId}`);
+  const qty = parseFloat(qtyInput.value);
+  if (!qty || qty <= 0) { showAddItemAlert('Enter a valid quantity', true); return; }
+
+  const fd = new FormData();
+  fd.append('variant_id', variantId);
+  fd.append('qty_ordered', qty);
+  fd.append('ajax', '1');
+  const res = await fetch(`/sales/orders/${ORDER_ID}/add-item`, { method: 'POST', body: fd });
+  const d = await res.json();
+  if (!res.ok) {
+    if (d.error && d.error.includes('No price configured')) {
+      const manual = prompt('No price configured for this item — enter a manual price:');
+      if (manual === null) return;
+      const fd2 = new FormData();
+      fd2.append('variant_id', variantId);
+      fd2.append('qty_ordered', qty);
+      fd2.append('manual_override_price', manual);
+      fd2.append('override_reason', 'Entered at add-item time');
+      fd2.append('ajax', '1');
+      const res2 = await fetch(`/sales/orders/${ORDER_ID}/add-item`, { method: 'POST', body: fd2 });
+      const d2 = await res2.json();
+      if (!res2.ok) { showAddItemAlert(d2.error || 'Could not add item', true); return; }
+      appendItemRow(d2);
+      qtyInput.value = '';
+      return;
+    }
+    showAddItemAlert(d.error || 'Could not add item', true);
     return;
   }
-  sel.disabled = false;
-  sel.innerHTML = '<option value="">— Select —</option>' + variants.map(v => `<option value="${v.id}" data-photo="${v.photo || ''}">${v.label}</option>`).join('');
+  appendItemRow(d);
+  qtyInput.value = '';
 }
 
-function showVariantPhoto(variantId) {
-  const sel = document.getElementById('variant_select');
-  const opt = sel.querySelector(`option[value="${variantId}"]`);
-  const img = document.getElementById('variant_photo_preview');
-  const uploadField = document.getElementById('photo_upload_field');
-  const photo = opt ? opt.getAttribute('data-photo') : '';
-  if (photo) {
-    img.src = `/static/${photo}`;
-    img.style.display = 'inline-block';
-    uploadField.style.display = 'none';
-  } else {
-    img.style.display = 'none';
-    uploadField.style.display = '';
+function appendItemRow(item) {
+  document.getElementById('items-table').style.display = '';
+  document.getElementById('items-empty').style.display = 'none';
+  const tbody = document.getElementById('items-tbody');
+  const tierBadge = item.product_tier ? `<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:${tierColors[item.product_tier] || '#94a3b8'};margin-left:4px">${item.product_tier}</span>` : '';
+  const sourceBadge = priceSourceBadges[item.price_source] || item.price_source || '—';
+  let stockCell = '—';
+  if (item.stock_status === 'UNAVAILABLE') {
+    stockCell = `<span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:99px;color:#fff;background:#ef4444">⚠ OUT OF STOCK — ARRANGE SEPARATELY</span>`;
+  } else if (item.stock_status) {
+    stockCell = `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:${stockColors[item.stock_status] || '#94a3b8'}">${item.stock_status}</span>`;
+  }
+  const tr = document.createElement('tr');
+  tr.style.borderBottom = '1px solid var(--border-subtle)';
+  tr.innerHTML = `
+    <td style="padding:6px 8px">${thumbHtml(item.photo_url, 32)}</td>
+    <td style="padding:6px 8px">${item.label}${tierBadge}</td>
+    <td style="padding:6px 8px">${item.qty_ordered}</td>
+    <td style="padding:6px 8px">₹${item.unit_price.toFixed(2)}</td>
+    <td style="padding:6px 8px">${sourceBadge}</td>
+    <td style="padding:6px 8px">₹${item.line_total.toFixed(2)}</td>
+    <td style="padding:6px 8px">${stockCell}</td>
+    <td style="padding:6px 8px"></td>
+    <td style="padding:6px 8px">
+      <button type="button" class="btn btn-xs btn-outline" onclick="quickRemoveItem('${item.item_id}', this)">Remove</button>
+    </td>`;
+  tbody.appendChild(tr);
+}
+
+async function quickRemoveItem(itemId, btn) {
+  if (!confirm('Remove this item?')) return;
+  const fd = new FormData();
+  fd.append('ajax', '1');
+  const res = await fetch(`/sales/orders/${ORDER_ID}/remove-item/${itemId}`, { method: 'POST', body: fd });
+  if (!res.ok) { showAddItemAlert('Could not remove item', true); return; }
+  const tr = btn.closest('tr');
+  tr.remove();
+  if (!document.getElementById('items-tbody').children.length) {
+    document.getElementById('items-table').style.display = 'none';
+    document.getElementById('items-empty').style.display = '';
   }
 }
 
-async function checkStock(variantId) {
-  showVariantPhoto(variantId);
-  const out = document.getElementById('stock-check-result');
-  if (!variantId) { out.innerHTML = ''; return; }
-  out.innerHTML = 'Checking stock…';
-  try {
-    const res = await fetch(`/sales/orders/api/check-stock/${variantId}`);
-    const d = await res.json();
-    // 1.6: always show all three numbers — available, already-booked, in-transit —
-    // so an agent doesn't get a false sense of availability from qty_available alone.
-    let html = `<span style="margin-right:12px">✅ <strong>${d.available}</strong> available</span>` +
-               `<span style="margin-right:12px">🔒 <strong>${d.reserved}</strong> already booked</span>` +
-               `<span>🚚 <strong>${d.in_transit}</strong> in transit${d.in_transit_date ? ' (exp. ' + d.in_transit_date + ')' : ''}</span>`;
-    if (d.available <= 0) {
-      html = `<div style="color:#ef4444;font-weight:600;margin-bottom:2px">⚠ Out of stock — can still be added, will be flagged for separate arrangement</div>` + html;
-    }
-    out.innerHTML = html;
-  } catch (e) {
-    out.innerHTML = '';
-  }
-}
+renderSearchResults();
 </script>
 {% endblock %}

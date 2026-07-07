@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -28,6 +28,7 @@ from .database import (
 from .auth import get_current_user, require_admin, require_manager, get_nav_flags
 from .labels import get_labels, DEFAULT_L
 from .constants import has_feature, PLAN_LIMITS, BULK_IMPORT_MAX_ROWS
+from .bulk_common import check_required_headers
 from .notifications import (
     create_notification,
     notify_fms_stage_transition,
@@ -2374,11 +2375,133 @@ def fms_bulk_template(
     )
 
 
+def _fms_stage_cols(stages: list) -> tuple:
+    base_headers = ["Title *", "Priority", "Due Date (YYYY-MM-DD)", "WO Number", "Target Qty", "Qty Unit", "TaT Unit (Days/Hours)"]
+    stage_headers = []
+    for s in stages:
+        stage_headers.append(f"{s.name} Assignee Phone")
+        stage_headers.append(f"{s.name} TaT")
+    return base_headers, stage_headers
+
+
+def _get_active_flow(flow_id: str, tenant_id: str, db: Session):
+    flow = None
+    if flow_id:
+        flow = db.query(FMSFlow).filter(
+            FMSFlow.id == flow_id, FMSFlow.tenant_id == tenant_id, FMSFlow.is_deleted == False,
+        ).first()
+    if not flow:
+        flow = db.query(FMSFlow).filter(
+            FMSFlow.tenant_id == tenant_id, FMSFlow.is_active == True, FMSFlow.is_deleted == False,
+        ).order_by(FMSFlow.name).first()
+    return flow
+
+
+def _parse_fms_row(row: dict, stages: list, tenant_id: str, db: Session) -> tuple:
+    """row is a dict keyed by the template's header strings. Returns (parsed_dict, error) —
+    parsed_dict carries everything confirm needs to create the ticket without re-touching the DB
+    beyond what's necessary; unresolvable stage phones fall back to the flow's default (non-blocking)."""
+    def cell(key):
+        v = row.get(key)
+        return str(v).strip() if v not in (None, "") else ""
+
+    title = cell("Title *")
+    if not title:
+        return None, "Title is required"
+    title = title[:200]
+    priority = cell("Priority").upper() or "MEDIUM"
+    if priority not in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
+        priority = "MEDIUM"
+    due_date_str = cell("Due Date (YYYY-MM-DD)")
+    due_date = None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d %H:%M"):
+        try:
+            due_date = datetime.strptime(due_date_str, fmt); break
+        except ValueError:
+            pass
+    if due_date is None:
+        return None, f"Invalid Due Date '{due_date_str}' — expected YYYY-MM-DD"
+
+    wo_number = cell("WO Number")
+    target_qty_str = cell("Target Qty")
+    qty_unit = cell("Qty Unit")
+    tat_unit_str = cell("TaT Unit (Days/Hours)").lower() or "hours"
+    tat_mult = 24.0 if "day" in tat_unit_str else (1 / 60.0 if "min" in tat_unit_str else 1.0)
+
+    stage_assignees: dict = {}
+    stage_schedule: dict = {}
+    cursor = datetime.utcnow()
+    for s in stages:
+        assignee_id = s.default_assignee_id
+        phone = cell(f"{s.name} Assignee Phone")
+        if phone:
+            u = db.query(User).filter(
+                User.tenant_id == tenant_id, User.phone == phone, User.is_deleted == False,
+            ).first()
+            if u:
+                assignee_id = u.id
+        if assignee_id:
+            stage_assignees[s.id] = assignee_id
+
+        tat_hours = float(s.target_tat_hours or 24)
+        raw = cell(f"{s.name} TaT")
+        if raw:
+            try:
+                tat_hours = float(raw) * tat_mult
+            except (ValueError, TypeError):
+                pass
+        p_end = cursor + timedelta(hours=tat_hours)
+        stage_schedule[s.id] = {"planned_start": cursor.isoformat(), "planned_end": p_end.isoformat()}
+        cursor = p_end
+
+    return {
+        "title": title, "priority": priority, "due_at": due_date.isoformat(),
+        "wo_number": wo_number or None,
+        "target_qty": int(target_qty_str) if target_qty_str.isdigit() else None,
+        "qty_unit": qty_unit or None,
+        "stage_assignees": stage_assignees, "stage_schedule": stage_schedule,
+    }, None
+
+
+def _run_fms_validation(rows_in: list, stages: list, tenant_id: str, db: Session, start_index: int = 3) -> dict:
+    valid_rows, errors = [], []
+    for i, row in enumerate(rows_in, start=start_index):
+        if not any(v not in (None, "", "_row") for k, v in row.items() if k != "_row"):
+            continue
+        parsed, error = _parse_fms_row(row, stages, tenant_id, db)
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": {k: v for k, v in row.items() if k != "_row"}})
+        else:
+            valid_rows.append(parsed)
+    return {
+        "total": len(valid_rows) + len(errors),
+        "valid": len(valid_rows),
+        "errors": errors,
+        "rows": valid_rows,
+    }
+
+
+@router.get("/tickets/bulk-upload-page", response_class=HTMLResponse)
+def fms_bulk_upload_page(request: Request, flow_id: str = "", user: User = Depends(require_manager), db: Session = Depends(get_db)):
+    flows = db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == user.tenant_id, FMSFlow.is_active == True, FMSFlow.is_deleted == False,
+    ).order_by(FMSFlow.name).all()
+    flow = _get_active_flow(flow_id, user.tenant_id, db)
+    columns = []
+    if flow:
+        stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order)
+        base_headers, stage_headers = _fms_stage_cols(stages)
+        columns = base_headers + stage_headers
+    return templates.TemplateResponse(request, "fms/bulk_upload.html", _ctx(
+        request, user, db, flows=flows, active_flow=flow, columns=columns,
+    ))
+
+
 @router.post("/tickets/bulk-upload")
 async def fms_bulk_upload(
     request: Request,
     file: UploadFile = File(...),
-    upload_flow_id: str = Form(...),
+    flow_id: str = Form(...),
     user: User = Depends(require_manager),
     db: Session = Depends(get_db),
 ):
@@ -2386,117 +2509,88 @@ async def fms_bulk_upload(
     from openpyxl import load_workbook
 
     flow = db.query(FMSFlow).filter(
-        FMSFlow.id == upload_flow_id,
-        FMSFlow.tenant_id == user.tenant_id,
-        FMSFlow.is_active == True,
-        FMSFlow.is_deleted == False,
+        FMSFlow.id == flow_id, FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_active == True, FMSFlow.is_deleted == False,
     ).first()
     if not flow:
-        return _redirect("/fms/dashboard?err=Flow+not+found")
-
+        raise HTTPException(400, "Flow not found")
     stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order)
     if not stages:
-        return _redirect("/fms/dashboard?err=Flow+has+no+stages")
+        raise HTTPException(400, "Flow has no stages")
 
     content = await file.read()
     try:
         wb = load_workbook(filename=_io.BytesIO(content), read_only=True, data_only=True)
     except Exception:
-        return _redirect("/fms/dashboard?err=Invalid+Excel+file+-+please+use+the+downloaded+template")
+        raise HTTPException(400, "Invalid Excel file — please use the downloaded template.")
 
     ws = wb.active
     all_rows = list(ws.iter_rows(values_only=True))
     if len(all_rows) < 3:
-        return _redirect("/fms/dashboard?err=File+too+short")
+        raise HTTPException(400, "File too short.")
     if len(all_rows) - 2 > BULK_IMPORT_MAX_ROWS:
-        return _redirect(f"/fms/dashboard?err=File+has+too+many+rows+-+maximum+{BULK_IMPORT_MAX_ROWS}")
+        raise HTTPException(400, f"File has too many rows — maximum {BULK_IMPORT_MAX_ROWS}.")
 
     headers = [str(h).strip() if h is not None else "" for h in all_rows[0]]
-
-    stage_phone_cols = {s.id: headers.index(f"{s.name} Assignee Phone") for s in stages if f"{s.name} Assignee Phone" in headers}
-    stage_tat_cols   = {s.id: headers.index(f"{s.name} TaT")            for s in stages if f"{s.name} TaT"            in headers}
-    tat_unit_col     = headers.index("TaT Unit (Days/Hours)") if "TaT Unit (Days/Hours)" in headers else None
-
-    warnings = []
-    created_count = 0
-    tenant = db.query(Tenant).get(user.tenant_id)
-
+    base_headers, stage_headers = _fms_stage_cols(stages)
+    fmt_err = check_required_headers(headers, ["Title *", "Due Date (YYYY-MM-DD)"], base_headers + stage_headers)
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
+    rows = []
     for row_num, row in enumerate(all_rows[2:], start=3):
-        if not any(row):
-            continue
+        d = {headers[i]: (row[i] if i < len(row) else None) for i in range(len(headers))}
+        d["_row"] = row_num
+        rows.append(d)
 
-        def cell(idx, r=row):
-            return str(r[idx]).strip() if idx < len(r) and r[idx] is not None else ""
+    return JSONResponse(_run_fms_validation(rows, stages, user.tenant_id, db))
 
-        title = cell(0)
-        priority = cell(1).upper() or "MEDIUM"
-        due_date_str = cell(2)
-        wo_number = cell(3)
-        target_qty_str = cell(4)
-        qty_unit = cell(5)
-        tat_unit_str = cell(tat_unit_col).lower() if tat_unit_col is not None else "hours"
-        tat_mult = 24.0 if "day" in tat_unit_str else (1 / 60.0 if "min" in tat_unit_str else 1.0)
 
-        if not title:
-            warnings.append(f"Row {row_num}: Title required — skipped")
-            continue
-        if len(title) > 200:
-            title = title[:200]
-        if priority not in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
-            priority = "MEDIUM"
+@router.post("/tickets/bulk-upload/revalidate")
+async def fms_bulk_revalidate(request: Request, user: User = Depends(require_manager), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    flow_id = body.get("flow_id", "")
+    flow = _get_active_flow(flow_id, user.tenant_id, db)
+    if not flow:
+        raise HTTPException(400, "Flow not found")
+    stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order)
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_fms_validation(rows_in, stages, user.tenant_id, db))
 
-        due_date = None
-        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d %H:%M"):
-            try:
-                due_date = datetime.strptime(due_date_str, fmt); break
-            except ValueError:
-                pass
-        if due_date is None:
-            warnings.append(f"Row {row_num} ({title}): Invalid Due Date '{due_date_str}' — skipped")
-            continue
 
-        # Build per-stage assignees and schedule
-        stage_assignees: dict = {}
-        stage_schedule: dict = {}
-        cursor = datetime.utcnow()
-        for s in stages:
-            assignee_id = s.default_assignee_id
-            if s.id in stage_phone_cols:
-                phone = cell(stage_phone_cols[s.id])
-                if phone:
-                    u = db.query(User).filter(
-                        User.tenant_id == user.tenant_id, User.phone == phone,
-                        User.is_deleted == False,
-                    ).first()
-                    if u:
-                        assignee_id = u.id
-                    else:
-                        warnings.append(f"Row {row_num}: Phone '{phone}' not found for stage '{s.name}' — using default")
-            if assignee_id:
-                stage_assignees[s.id] = assignee_id
+@router.post("/tickets/bulk-upload/confirm")
+async def fms_bulk_confirm(request: Request, user: User = Depends(require_manager), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows = body.get("rows", [])
+    flow_id = body.get("flow_id", "")
+    flow = _get_active_flow(flow_id, user.tenant_id, db)
+    if not flow:
+        raise HTTPException(400, "Flow not found")
+    stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order)
+    if not stages:
+        raise HTTPException(400, "Flow has no stages")
 
-            tat_hours = float(s.target_tat_hours or 24)
-            if s.id in stage_tat_cols:
-                raw = cell(stage_tat_cols[s.id])
-                try:
-                    tat_hours = float(raw) * tat_mult
-                except (ValueError, TypeError):
-                    pass
-            p_end = cursor + timedelta(hours=tat_hours)
-            stage_schedule[s.id] = {"planned_start": cursor.isoformat(), "planned_end": p_end.isoformat()}
-            cursor = p_end
-
+    tenant = db.query(Tenant).get(user.tenant_id)
+    created = 0
+    for r in rows:
+        stage_assignees = r.get("stage_assignees") or {}
+        stage_schedule = r.get("stage_schedule") or {}
         first_assignee_id = stage_assignees.get(stages[0].id) or stages[0].default_assignee_id
         first_sched = stage_schedule.get(stages[0].id, {})
 
+        try:
+            due_at = datetime.fromisoformat(r["due_at"])
+        except (KeyError, ValueError):
+            continue
+
         ticket = FMSTicket(
             tenant_id=user.tenant_id, flow_id=flow.id,
-            current_stage_id=stages[0].id, title=title,
-            priority=priority, wo_number=wo_number or None,
-            target_qty=int(target_qty_str) if target_qty_str.isdigit() else None,
-            qty_unit=qty_unit or None,
+            current_stage_id=stages[0].id, title=r["title"],
+            priority=r["priority"], wo_number=r.get("wo_number"),
+            target_qty=r.get("target_qty"), qty_unit=r.get("qty_unit"),
             current_assignee_id=first_assignee_id,
-            due_at=due_date, created_by_id=user.id, status="ACTIVE",
+            due_at=due_at, created_by_id=user.id, status="ACTIVE",
             stage_assignees_json=_json.dumps(stage_assignees) if stage_assignees else None,
             stage_schedule_json=_json.dumps(stage_schedule) if stage_schedule else None,
         )
@@ -2510,20 +2604,15 @@ async def fms_bulk_upload(
             planned_start=datetime.fromisoformat(first_sched["planned_start"]) if first_sched.get("planned_start") else None,
             planned_end=datetime.fromisoformat(first_sched["planned_end"]) if first_sched.get("planned_end") else None,
         ))
-        _log(db, ticket.id, user.id, "CREATED", f"History import: {title}")
-        created_count += 1
+        _log(db, ticket.id, user.id, "CREATED", f"Bulk import: {r['title']}")
+        created += 1
 
     try:
         db.commit()
     except Exception as e:
         db.rollback()
-        return _redirect(f"/fms/dashboard?err=Import+failed+-+no+tickets+were+created:+{e}")
-
-    from urllib.parse import quote as _q
-    base_msg = f"{created_count} ticket(s) imported from '{flow.name}'"
-    if warnings:
-        base_msg += f". {len(warnings)} warning(s): {'; '.join(warnings[:3])}"
-    return _redirect(f"/fms/dashboard?view=stage&flow_id={flow.id}&msg={_q(base_msg)}")
+        raise HTTPException(400, f"Import failed — no tickets were created. {e}")
+    return JSONResponse({"created": created})
 
 
 @router.get("/api/flow/{flow_id}/defaults")

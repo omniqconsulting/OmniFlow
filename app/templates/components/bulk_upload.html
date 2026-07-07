@@ -1,0 +1,195 @@
+{#
+  Shared bulk-upload UI: KPI cards (Rows Read / Cleared Validation / Need Fixing / Imported)
+  + an inline-editable error table + re-validate-without-re-upload flow.
+
+  Every validate/revalidate endpoint used with this component MUST return either:
+    {"format_error": str}   — the uploaded file doesn't match the expected template at all;
+                              no KPI/table is rendered, just the error message.
+  or:
+    {"total": int, "valid": int, "errors": [{"row": int, "error": str, "data": dict}], "rows": [...]}
+  Every confirm endpoint MUST return an object containing at least {"created": int}.
+
+  Params:
+    title            - page heading
+    back_url         - "Back to X" link target
+    back_label       - link text (default "Back to list")
+    download_url     - CSV template download URL (optional)
+    instructions     - raw HTML for the 2-step instructions paragraph (optional override)
+    validate_url     - POST endpoint, multipart file upload -> validate JSON
+    revalidate_url   - POST endpoint, JSON {rows:[...]} of edited error rows -> validate JSON
+    confirm_url      - POST endpoint, JSON {rows:[...]} of valid rows -> {created, ...}
+    columns          - list of raw CSV/row column keys shown in the editable error table
+    accept           - file input accept attribute (default ".csv")
+    row_label        - noun for the imported entity, e.g. "customer(s)" (default "row(s)")
+    extra_fields     - dict of static key/value pairs sent with every validate/revalidate/confirm
+                        call (e.g. {"flow_id": flow.id}) — merged into the multipart form data
+                        and into the JSON body of revalidate/confirm requests
+#}
+{% macro bulk_upload_ui(title, back_url, validate_url, revalidate_url, confirm_url, columns, download_url=None, back_label="Back to list", instructions=None, accept=".csv", row_label="row(s)", extra_fields=None) %}
+<div class="page-header" style="margin-bottom:18px">
+  <h2 class="page-title">{{ title }}</h2>
+  <a href="{{ back_url }}" class="btn btn-sm btn-gray">← {{ back_label }}</a>
+</div>
+
+<style>
+.bu-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:16px 0}
+.bu-kpi{background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:10px;padding:12px 16px}
+.bu-kpi .val{font-size:24px;font-weight:700;color:var(--text-strong);line-height:1.1}
+.bu-kpi .lbl{font-size:11px;color:var(--text-faint);margin-top:4px;font-weight:500}
+.bu-kpi.ok .val{color:#22c55e}
+.bu-kpi.err .val{color:#ef4444}
+.bu-err-table{width:100%;border-collapse:collapse;font-size:12px;margin:14px 0}
+.bu-err-table th{text-align:left;padding:6px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);white-space:nowrap}
+.bu-err-table td{padding:5px 6px;border-bottom:1px solid var(--border-subtle);vertical-align:top}
+.bu-err-table input{width:100%;min-width:90px;background:var(--bg-input);border:1px solid var(--border-med);border-radius:5px;padding:4px 6px;font-size:12px;color:var(--text-primary)}
+.bu-err-msg{color:#f87171;font-size:11px;white-space:normal;max-width:220px}
+.bu-err-row{font-size:11px;color:var(--text-faint);white-space:nowrap}
+.bu-err-table input.bu-bad{border-color:#ef4444;background:rgba(239,68,68,0.08)}
+</style>
+
+<div class="card" style="padding:20px;width:100%;box-sizing:border-box">
+  <p style="font-size:13px;color:var(--text-muted)">
+    {% if instructions %}{{ instructions|safe }}{% else %}
+    1. {% if download_url %}Download the <a href="{{ download_url }}">CSV template</a>, fill it in, and upload it below.{% else %}Prepare your CSV file using the required columns and upload it below.{% endif %}<br>
+    2. Fix any errored rows directly in the table (no need to re-upload) and click Re-validate.
+    {% endif %}
+  </p>
+
+  <div style="display:flex;gap:10px;align-items:center;margin:16px 0">
+    <input type="file" id="bulk-file" accept="{{ accept }}">
+    <button onclick="validateBulk()" class="btn btn-sm btn-primary">Validate</button>
+  </div>
+
+  <div id="bulk-format-error"></div>
+
+  <div class="bu-kpi-grid">
+    <div class="bu-kpi"><div class="val" id="kpi-total">—</div><div class="lbl">Rows Read</div></div>
+    <div class="bu-kpi ok"><div class="val" id="kpi-valid">—</div><div class="lbl">Cleared Validation</div></div>
+    <div class="bu-kpi err"><div class="val" id="kpi-errors">—</div><div class="lbl">Need Fixing</div></div>
+    <div class="bu-kpi"><div class="val" id="kpi-imported">—</div><div class="lbl">Imported</div></div>
+  </div>
+
+  <div id="bulk-result"></div>
+</div>
+
+<script>
+(function(){
+  const VALIDATE_URL = {{ validate_url|tojson }};
+  const REVALIDATE_URL = {{ revalidate_url|tojson }};
+  const CONFIRM_URL = {{ confirm_url|tojson }};
+  const COLS = {{ columns|tojson }};
+  const ROW_LABEL = {{ row_label|tojson }};
+  const EXTRA_FIELDS = {{ (extra_fields or {})|tojson }};
+
+  let validRows = [];
+  let errorRows = [];
+  let totalRows = 0;
+
+  function esc(v) { return (v === undefined || v === null ? '' : String(v)).replace(/"/g, '&quot;'); }
+
+  function setKpis() {
+    document.getElementById('kpi-total').textContent = totalRows || '—';
+    document.getElementById('kpi-valid').textContent = validRows.length;
+    document.getElementById('kpi-errors').textContent = errorRows.length;
+  }
+
+  // Heuristic cell highlighting: error messages consistently name the offending
+  // column (e.g. "phone is required"), so flag any column whose key appears in the text.
+  function badCols(errorText) {
+    const t = (errorText || '').toLowerCase();
+    return COLS.filter(c => t.includes(c.toLowerCase().replace(/_/g, ' ')) || t.includes(c.toLowerCase()));
+  }
+
+  function renderResult() {
+    let html = '';
+    if (errorRows.length) {
+      html += '<h3 style="font-size:13px;margin-bottom:6px">Rows needing fixes</h3>';
+      html += '<div style="overflow-x:auto"><table class="bu-err-table"><thead><tr><th>Row</th>';
+      COLS.forEach(c => html += `<th>${c}</th>`);
+      html += '<th>Error</th></tr></thead><tbody>';
+      errorRows.forEach((e, idx) => {
+        const bad = badCols(e.error);
+        html += `<tr data-idx="${idx}"><td class="bu-err-row">${e.row}</td>`;
+        COLS.forEach(c => {
+          const cls = bad.includes(c) ? ' class="bu-bad"' : '';
+          html += `<td><input data-col="${c}"${cls} value="${esc(e.data[c])}"></td>`;
+        });
+        html += `<td class="bu-err-msg">${e.error}</td></tr>`;
+      });
+      html += '</tbody></table></div>';
+      html += '<button class="btn btn-sm btn-outline" onclick="window._bulkUpload.revalidate()">Re-validate edited rows</button> ';
+    }
+    if (validRows.length > 0) {
+      html += ` <button class="btn btn-sm btn-primary" onclick="window._bulkUpload.confirm()">Confirm Import (${validRows.length} ${ROW_LABEL})</button>`;
+    }
+    document.getElementById('bulk-result').innerHTML = html;
+    setKpis();
+  }
+
+  async function validateBulk() {
+    const fileInput = document.getElementById('bulk-file');
+    if (!fileInput.files.length) { alert('Choose a file first'); return; }
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    Object.keys(EXTRA_FIELDS).forEach(k => fd.append(k, EXTRA_FIELDS[k]));
+    const res = await fetch(VALIDATE_URL, { method: 'POST', body: fd });
+    if (!res.ok) { alert('Upload failed — ' + (await res.text())); return; }
+    const data = await res.json();
+    document.getElementById('bulk-format-error').innerHTML = '';
+    if (data.format_error) {
+      totalRows = 0; validRows = []; errorRows = [];
+      document.getElementById('bulk-format-error').innerHTML = `<div class="alert alert-red" style="margin:10px 0">${data.format_error}</div>`;
+      document.getElementById('bulk-result').innerHTML = '';
+      setKpis();
+      return;
+    }
+    totalRows = data.total;
+    validRows = data.rows;
+    errorRows = data.errors;
+    document.getElementById('kpi-imported').textContent = '—';
+    renderResult();
+  }
+
+  async function revalidateErrors() {
+    const rows = errorRows.map((e, idx) => {
+      const tr = document.querySelector(`tr[data-idx="${idx}"]`);
+      const updated = Object.assign({}, e.data);
+      COLS.forEach(c => { updated[c] = tr.querySelector(`input[data-col="${c}"]`).value; });
+      return updated;
+    });
+    const res = await fetch(REVALIDATE_URL, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(Object.assign({ rows }, EXTRA_FIELDS)),
+    });
+    if (!res.ok) { alert('Re-validation failed — ' + (await res.text())); return; }
+    const data = await res.json();
+    validRows = validRows.concat(data.rows);
+    errorRows = data.errors;
+    renderResult();
+  }
+
+  async function confirmBulk() {
+    const res = await fetch(CONFIRM_URL, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(Object.assign({ rows: validRows }, EXTRA_FIELDS)),
+    });
+    if (!res.ok) { alert('Import failed — ' + (await res.text())); return; }
+    const data = await res.json();
+    document.getElementById('kpi-imported').textContent = data.created;
+    let extra = '';
+    if (data.skipped) extra += ` ${data.skipped} row(s) skipped.`;
+    if (data.warnings && data.warnings.length) {
+      extra += '<ul style="margin:8px 0 0 18px;font-size:12px">' +
+        data.warnings.map(w => `<li>${typeof w === 'string' ? w : JSON.stringify(w)}</li>`).join('') + '</ul>';
+    }
+    document.getElementById('bulk-result').innerHTML =
+      `<div class="alert alert-green">${data.created} ${ROW_LABEL} created.${extra}</div>`;
+    validRows = [];
+    setKpis();
+  }
+
+  window.validateBulk = validateBulk;
+  window._bulkUpload = { revalidate: revalidateErrors, confirm: confirmBulk };
+})();
+</script>
+{% endmacro %}

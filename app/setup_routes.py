@@ -10,7 +10,7 @@ _PHONE_RE = re.compile(r'^[0-9+\-\s()]{7,20}$')
 from datetime import datetime, date as _date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from markupsafe import Markup
 from sqlalchemy.orm import Session
 import os
@@ -21,10 +21,12 @@ from .database import (
     Customer, EndProduct, Vendor, RawMaterial, UnitOfMeasure,
     CustomReferenceList, CustomReferenceItem,
     FMSFlow, FMSStage, FMSTicket, FMSStageHistory,
+    ProductVariant,
 )
 from .auth import require_admin, get_nav_flags, has_module
 from .labels import get_labels
 from .constants import BULK_IMPORT_MAX_ROWS
+from .bulk_common import check_required_headers
 from .sales_catalog_sync import (
     sync_variant_from_end_product, attach_drive_photo, resolve_or_create_category_pair,
 )
@@ -510,9 +512,22 @@ def end_products_page(
     q = q.order_by(EndProduct.name)
     total = q.count()
     products = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    # Setup <-> Sales cross-link (Phase 5 of the UX redesign): EndProduct and
+    # ProductVariant already sync bidirectionally on sku_code (sales_catalog_sync.py)
+    # — read that same key here, don't recompute a new matching rule.
+    skus = [p.sku_code for p in products if p.sku_code]
+    variants_by_sku = {
+        v.sku_code: v for v in db.query(ProductVariant).filter(
+            ProductVariant.tenant_id == user.tenant_id,
+            ProductVariant.sku_code.in_(skus),
+            ProductVariant.is_deleted == False,
+        ).all()
+    } if skus else {}
     for p in products:
         p.category_name = p.category.name if p.category else ""
         p.sub_category_name = p.sub_category.name if p.sub_category else ""
+        matching_variant = variants_by_sku.get(p.sku_code) if p.sku_code else None
+        p.catalog_product_id = matching_variant.product_id if matching_variant else None
     return templates.TemplateResponse(request, "setup/end_products.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -1109,6 +1124,97 @@ async def import_vendors(
     return _redir(f"/setup/vendors?msg=Imported+{imported}+vendor(s)")
 
 
+def _validate_vendor_row(row: dict, start_row: int) -> tuple:
+    name = (row.get("name") or "").strip()
+    if not name or name.startswith("Mandatory") or name.startswith("Optional"):
+        return None, None  # instructional filler row from the template — silently skip
+    if len(name) > 200:
+        return None, "name exceeds 200 characters"
+    phone = (row.get("phone") or "").strip()
+    if phone and not _PHONE_RE.match(phone):
+        return None, "invalid phone number format"
+    return {
+        "name": name,
+        "contact_person": (row.get("contact_person") or "").strip() or None,
+        "phone": phone or None,
+        "email": (row.get("email") or "").strip() or None,
+        "address": (row.get("address") or "").strip() or None,
+        "parts_supplied": (row.get("parts_supplied") or "").strip() or None,
+        "notes": (row.get("notes") or "").strip() or None,
+    }, None
+
+
+def _run_vendor_validation(rows_in: list, start_index: int = 2) -> dict:
+    valid_rows, errors = [], []
+    for i, row in enumerate(rows_in, start=start_index):
+        parsed, error = _validate_vendor_row(row, i)
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": dict(row)})
+        elif parsed:
+            valid_rows.append(parsed)
+    return {
+        "total": len(valid_rows) + len(errors),
+        "valid": len(valid_rows),
+        "errors": errors,
+        "rows": valid_rows,
+    }
+
+
+@router.get("/setup/vendors/bulk-upload", response_class=HTMLResponse)
+def vendors_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "setup/vendors_bulk_upload.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user), **_nav_ctx(db, user),
+        "columns": [c[0] for c in _VENDOR_COLS],
+    })
+
+
+@router.post("/setup/vendors/bulk-upload/validate")
+async def vendors_bulk_validate(file: UploadFile = File(...), user: User = Depends(require_admin)):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    dict_reader = csv.DictReader(io.StringIO(content))
+    rows = list(dict_reader)
+    if len(rows) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    fmt_err = check_required_headers(dict_reader.fieldnames, ["name"], [c[0] for c in _VENDOR_COLS])
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
+    for i, row in enumerate(rows, start=2):
+        row["_row"] = i
+    return JSONResponse(_run_vendor_validation(rows))
+
+
+@router.post("/setup/vendors/bulk-upload/revalidate")
+async def vendors_bulk_revalidate(request: Request, user: User = Depends(require_admin)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_vendor_validation(rows_in))
+
+
+@router.post("/setup/vendors/bulk-upload/confirm")
+async def vendors_bulk_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows = body.get("rows", [])
+    created = 0
+    for r in rows:
+        db.add(Vendor(
+            tenant_id=user.tenant_id, name=r["name"], contact_person=r.get("contact_person"),
+            phone=r.get("phone"), email=r.get("email"), address=r.get("address"),
+            parts_supplied=r.get("parts_supplied"), notes=r.get("notes"), created_by_id=user.id,
+        ))
+        created += 1
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no vendors were created. {e}")
+    return JSONResponse({"created": created})
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # RAW MATERIALS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1221,6 +1327,92 @@ async def import_raw_materials(
         r.headers["X-Imported"] = str(imported)
         return r
     return _redir(f"/setup/raw-materials?msg=Imported+{imported}+item(s)")
+
+
+def _validate_raw_material_row(row: dict) -> tuple:
+    name = (row.get("name") or "").strip()
+    if not name or name.startswith("Mandatory") or name.startswith("Optional"):
+        return None, None  # instructional filler row from the template — silently skip
+    if len(name) > 200:
+        return None, "name exceeds 200 characters"
+    return {
+        "name": name,
+        "unit": (row.get("unit") or "").strip() or None,
+        "description": (row.get("description") or "").strip() or None,
+        "major_supplier": (row.get("major_supplier") or "").strip() or None,
+        "notes": (row.get("notes") or "").strip() or None,
+    }, None
+
+
+def _run_raw_material_validation(rows_in: list, start_index: int = 2) -> dict:
+    valid_rows, errors = [], []
+    for i, row in enumerate(rows_in, start=start_index):
+        parsed, error = _validate_raw_material_row(row)
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": dict(row)})
+        elif parsed:
+            valid_rows.append(parsed)
+    return {
+        "total": len(valid_rows) + len(errors),
+        "valid": len(valid_rows),
+        "errors": errors,
+        "rows": valid_rows,
+    }
+
+
+@router.get("/setup/raw-materials/bulk-upload", response_class=HTMLResponse)
+def raw_materials_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "setup/raw_materials_bulk_upload.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user), **_nav_ctx(db, user),
+        "columns": [c[0] for c in _RAW_MATERIAL_COLS],
+    })
+
+
+@router.post("/setup/raw-materials/bulk-upload/validate")
+async def raw_materials_bulk_validate(file: UploadFile = File(...), user: User = Depends(require_admin)):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    dict_reader = csv.DictReader(io.StringIO(content))
+    rows = list(dict_reader)
+    if len(rows) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    fmt_err = check_required_headers(dict_reader.fieldnames, ["name"], [c[0] for c in _RAW_MATERIAL_COLS])
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
+    for i, row in enumerate(rows, start=2):
+        row["_row"] = i
+    return JSONResponse(_run_raw_material_validation(rows))
+
+
+@router.post("/setup/raw-materials/bulk-upload/revalidate")
+async def raw_materials_bulk_revalidate(request: Request, user: User = Depends(require_admin)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_raw_material_validation(rows_in))
+
+
+@router.post("/setup/raw-materials/bulk-upload/confirm")
+async def raw_materials_bulk_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows = body.get("rows", [])
+    created = 0
+    for r in rows:
+        db.add(RawMaterial(
+            tenant_id=user.tenant_id, name=r["name"], unit=r.get("unit"),
+            description=r.get("description"), major_supplier=r.get("major_supplier"),
+            notes=r.get("notes"), created_by_id=user.id,
+        ))
+        created += 1
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no raw materials were created. {e}")
+    return JSONResponse({"created": created})
 
 
 # ══════════════════════════════════════════════════════════════════════════════

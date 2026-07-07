@@ -17,7 +17,7 @@
       <h2 style="margin:0">Raw Materials</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a href="/setup/raw-materials/template" class="btn btn-sm btn-outline">⬇ CSV Template</a>
-        <button onclick="document.getElementById('importModal').style.display='flex'" class="btn btn-sm btn-outline">⬆ Import CSV</button>
+        <a href="/setup/raw-materials/bulk-upload" class="btn btn-sm btn-outline">⬆ Import CSV</a>
         <button onclick="document.getElementById('addModal').style.display='flex'" class="btn btn-sm btn-primary">+ Add Raw Material</button>
       </div>
     </div>
@@ -180,29 +180,6 @@
   </div>
 </div>
 
-<!-- Import CSV Modal -->
-<div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
-  <div class="modal-box" style="max-width:440px;width:100%">
-    <div class="modal-hdr">
-      <div class="modal-title">Import Raw Materials via CSV</div>
-      <button type="button" class="modal-close" onclick="document.getElementById('importModal').style.display='none'">×</button>
-    </div>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:8px">
-      Download the template, fill it in, then upload. Rows with errors are skipped and shown in a downloadable report.
-    </p>
-    <a href="/setup/raw-materials/template" class="btn btn-sm btn-outline" style="margin-bottom:12px;display:inline-block">⬇ Download Template</a>
-    <div id="import-result" style="display:none;border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px"></div>
-    <div class="form-group">
-      <label class="form-label">Upload CSV</label>
-      <input type="file" id="importFile" accept=".csv" class="form-input" required>
-    </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-      <button type="button" onclick="document.getElementById('importModal').style.display='none'" class="btn btn-outline">Cancel</button>
-      <button type="button" onclick="runImport()" id="importBtn" class="btn btn-primary">Upload & Import</button>
-    </div>
-  </div>
-</div>
-
 <script>
 function filterTable() {
   const q = document.getElementById('searchInput').value.toLowerCase();
@@ -219,37 +196,6 @@ function openEdit(m) {
   document.getElementById('edit_is_active').value = m.is_active ? '1' : '0';
   document.getElementById('editForm').action = '/setup/raw-materials/' + m.id + '/edit';
   document.getElementById('editModal').style.display = 'flex';
-}
-async function runImport() {
-  const fileEl = document.getElementById('importFile');
-  if (!fileEl.files.length) { alert('Please select a CSV file.'); return; }
-  const btn = document.getElementById('importBtn');
-  const resultEl = document.getElementById('import-result');
-  btn.disabled = true; btn.textContent = 'Uploading…';
-  resultEl.style.display = 'none';
-  const fd = new FormData();
-  fd.append('file', fileEl.files[0]);
-  try {
-    const resp = await fetch('/setup/raw-materials/import', { method: 'POST', body: fd });
-    const ct = resp.headers.get('Content-Type') || '';
-    if (ct.includes('text/csv')) {
-      const imported = resp.headers.get('X-Imported') || '0';
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'raw_materials_errors.csv'; a.click();
-      resultEl.style.cssText = 'display:block;background:rgba(245,158,11,0.12);color:#b45309;border:1px solid rgba(245,158,11,0.3);border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px';
-      resultEl.innerHTML = '⚠ ' + imported + ' row(s) imported. Some rows had errors — error report downloaded.';
-      if (parseInt(imported) > 0) setTimeout(() => location.reload(), 2500);
-    } else {
-      resultEl.style.cssText = 'display:block;background:rgba(16,185,129,0.12);color:#065f46;border:1px solid rgba(16,185,129,0.3);border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px';
-      resultEl.textContent = '✓ Import successful!';
-      setTimeout(() => location.reload(), 1200);
-    }
-  } catch(e) {
-    resultEl.style.cssText = 'display:block;background:rgba(239,68,68,0.12);color:#991b1b;border:1px solid rgba(239,68,68,0.3);border-radius:7px;padding:10px 12px;font-size:13px;margin-bottom:10px';
-    resultEl.textContent = '✗ Upload failed. Please try again.';
-  }
-  btn.disabled = false; btn.textContent = 'Upload & Import';
 }
 </script>
 {% endblock %}

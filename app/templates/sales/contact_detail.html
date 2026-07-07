@@ -13,14 +13,25 @@
     <div class="muted">Assigned to {{ customer.assigned_agent.name if customer.assigned_agent else 'Unassigned' }}</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <a href="/sales/contacts/all" class="btn btn-sm btn-outline">Back to list</a>
-    {% if can_edit %}<a href="/sales/contacts/{{ customer.id }}/edit" class="btn btn-sm btn-outline">Edit</a>{% endif %}
-    <button class="btn btn-sm btn-primary" onclick="document.getElementById('logCallOverlay').style.display='block'">Log Call</button>
+    <a href="/sales/contacts" class="btn btn-sm btn-outline">Back to Queue</a>
+    {% if can_edit %}<button type="button" class="btn btn-sm btn-outline" onclick="openModal('editContactModal')">Edit</button>{% endif %}
   </div>
 </div>
 
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+<style>
+.cd-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px}
+.cd-kpi{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:14px 16px}
+.cd-kpi .val{font-size:24px;font-weight:700;color:var(--text-strong);line-height:1.1}
+.cd-kpi .lbl{font-size:11px;color:var(--text-faint);margin-top:4px;font-weight:500}
+.cd-chart{display:flex;align-items:flex-end;gap:14px;height:120px;padding:10px 4px 0}
+.cd-chart-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end}
+.cd-chart-bars{display:flex;gap:3px;align-items:flex-end;height:90px}
+.cd-bar{width:12px;border-radius:3px 3px 0 0;min-height:2px}
+.cd-chart-label{font-size:10px;color:var(--text-faint)}
+</style>
 
 <div class="card" style="padding:16px;margin-bottom:18px">
   <h3 style="margin-top:0">Customer Info</h3>
@@ -36,6 +47,66 @@
   </div>
   <div style="margin-top:12px"><div class="muted" style="font-size:12px">Billing Address</div><div>{{ customer.billing_address or '—' }}</div></div>
   <div style="margin-top:8px"><div class="muted" style="font-size:12px">Shipping Address</div><div>{{ customer.shipping_address or '—' }}</div></div>
+</div>
+
+<form method="get" action="/sales/contacts/{{ customer.id }}" class="filter-bar">
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" value="{{ date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" value="{{ date_to }}">
+  </div>
+  <div class="filter-group" style="min-width:200px">
+    <label>Product</label>
+    <input type="text" name="product" value="{{ product }}" placeholder="Product / variant name…">
+  </div>
+  <div style="align-self:flex-end;display:flex;gap:6px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    {% if date_from or date_to or product %}
+    <a href="/sales/contacts/{{ customer.id }}" class="btn btn-gray btn-sm">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<div class="cd-kpi-grid">
+  <div class="cd-kpi">
+    <div class="val">{{ order_count }}</div>
+    <div class="lbl">Total Orders</div>
+  </div>
+  <div class="cd-kpi">
+    <div class="val">₹{{ '%.0f'|format(order_total) }}</div>
+    <div class="lbl">Total Order Value</div>
+  </div>
+  <div class="cd-kpi">
+    <div class="val">{{ days_since_last_order if days_since_last_order is not none else '—' }}</div>
+    <div class="lbl">Days Since Last Order</div>
+  </div>
+  <div class="cd-kpi">
+    <div class="val">{{ avg_cycle_days if avg_cycle_days is not none else '—' }}</div>
+    <div class="lbl">Typical Purchase Cycle (days)</div>
+  </div>
+</div>
+
+<div class="card" style="padding:16px;margin-bottom:18px">
+  <h3 style="margin-top:0">Engagement — last 6 months</h3>
+  {% set max_v = (trend | map(attribute='orders') | list + trend | map(attribute='calls') | list) | max %}
+  <div class="cd-chart">
+    {% for m in trend %}
+    <div class="cd-chart-col">
+      <div class="cd-chart-bars">
+        <div class="cd-bar" style="height:{{ (m.orders / max_v * 90) if max_v else 0 }}px;background:#3b82f6" title="{{ m.orders }} orders"></div>
+        <div class="cd-bar" style="height:{{ (m.calls / max_v * 90) if max_v else 0 }}px;background:#f59e0b" title="{{ m.calls }} calls"></div>
+      </div>
+      <div class="cd-chart-label">{{ m.label }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div style="display:flex;gap:16px;font-size:11px;color:var(--text-faint);margin-top:6px">
+    <span><span style="display:inline-block;width:9px;height:9px;background:#3b82f6;border-radius:2px;margin-right:4px"></span>Orders</span>
+    <span><span style="display:inline-block;width:9px;height:9px;background:#f59e0b;border-radius:2px;margin-right:4px"></span>Calls</span>
+  </div>
 </div>
 
 <div class="card" style="padding:16px;margin-bottom:18px">
@@ -71,11 +142,13 @@
 </div>
 
 <div class="card" style="padding:16px">
-  <h3 style="margin-top:0">Call History</h3>
-  {% if call_logs %}
-  <table class="table" style="width:100%">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <h3 style="margin-top:0">Call History</h3>
+    <button class="btn btn-sm btn-primary" onclick="document.getElementById('logCallOverlay').style.display='block'">+ Log Call</button>
+  </div>
+  <table class="table" id="call-history-table" style="width:100%{{ '' if call_logs else ';display:none' }}">
     <thead><tr><th>Date</th><th>Outcome</th><th>Agent</th><th>Follow-up</th><th>Notes</th></tr></thead>
-    <tbody>
+    <tbody id="call-history-tbody">
       {% for log in call_logs %}
       <tr>
         <td>{{ log.contacted_at.strftime('%d %b %Y %H:%M') if log.contacted_at else '—' }}</td>
@@ -87,15 +160,71 @@
       {% endfor %}
     </tbody>
   </table>
-  {% else %}
-  <div class="muted">No calls logged yet.</div>
-  {% endif %}
+  <div class="muted" id="call-history-empty" style="{{ 'display:none' if call_logs else '' }}">No calls logged yet.</div>
 </div>
+
+{% if can_edit %}
+{% with modal_id="editContactModal", modal_title="Edit Customer" %}
+{% include "components/modal.html" %}
+{% endwith %}
+<script>
+document.getElementById('editContactModal').querySelector('.modal-body').innerHTML = `
+  <form method="post" action="/sales/contacts/{{ customer.id }}/edit">
+    {% if err %}<div class="alert alert-red" style="margin-bottom:10px">{{ err }}</div>{% endif %}
+    {% if is_full_editor %}
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">BASIC INFO</h3>
+    <div class="form-group"><label class="form-label">Name *</label><input name="name" value="{{ customer.name|e }}" required class="form-input"></div>
+    <div class="form-group"><label class="form-label">Contact Person</label><input name="contact_person" value="{{ (customer.contact_person or '')|e }}" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Phone</label><input name="phone" value="{{ (customer.phone or '')|e }}" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Email</label><input name="email" type="email" value="{{ (customer.email or '')|e }}" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Tier</label>
+      <select name="customer_tier" class="form-input">
+        {% for t in tier_choices %}<option value="{{ t }}" {{ 'selected' if t == customer.customer_tier else '' }}>{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label class="form-label">Contact Frequency (days)</label><input name="contact_freq_days" type="number" value="{{ customer.contact_freq_days }}" class="form-input"></div>
+    {% if agents %}
+    <div class="form-group"><label class="form-label">Assigned Agent</label>
+      <select name="assigned_agent_id" class="form-input">
+        <option value="">Unassigned</option>
+        {% for a in agents %}<option value="{{ a.id }}" {{ 'selected' if a.id == customer.assigned_agent_id else '' }}>{{ a.name }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <h3 style="font-size:13px;color:var(--text-faint);letter-spacing:.03em">COMMERCIAL TERMS</h3>
+    <div class="form-group"><label class="form-label">GSTIN</label><input name="gstin" value="{{ (customer.gstin or '')|e }}" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Credit Limit</label><input name="credit_limit" type="number" step="0.01" value="{{ customer.credit_limit or '' }}" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Default Price Group</label>
+      <select name="price_list_id" class="form-input">
+        <option value="">-- Default --</option>
+        {% for pl in price_lists %}<option value="{{ pl.id }}" {{ 'selected' if customer.price_list_id == pl.id else '' }}>{{ pl.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label class="form-label">Default Payment Terms</label><input name="default_payment_terms" value="{{ (customer.default_payment_terms or '')|e }}" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Status</label>
+      <select name="is_active" class="form-input">
+        <option value="1" {{ 'selected' if customer.is_active else '' }}>Active</option>
+        <option value="0" {{ 'selected' if not customer.is_active else '' }}>Inactive</option>
+      </select>
+    </div>
+    {% endif %}
+    <h3 style="font-size:13px;color:var(--text-faint);letter-spacing:.03em">ADDRESSES &amp; NOTES</h3>
+    <div class="form-group"><label class="form-label">Billing Address</label><textarea name="billing_address" rows="2" class="form-input">{{ (customer.billing_address or '')|e }}</textarea></div>
+    <div class="form-group"><label class="form-label">Shipping Address</label><textarea name="shipping_address" rows="2" class="form-input">{{ (customer.shipping_address or '')|e }}</textarea></div>
+    <div class="form-group"><label class="form-label">Notes</label><textarea name="notes" rows="2" class="form-input">{{ (customer.notes or '')|e }}</textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button type="button" class="btn btn-outline" onclick="closeModal('editContactModal')">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>`;
+{% if err %}openModal('editContactModal');{% endif %}
+</script>
+{% endif %}
 
 <div id="logCallOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100" onclick="if(event.target.id==='logCallOverlay')this.style.display='none'">
   <div style="position:absolute;top:0;right:0;height:100%;width:380px;max-width:90vw;background:var(--bg-card);padding:20px;overflow-y:auto" onclick="event.stopPropagation()">
     <h3 style="margin-top:0">Log Call — {{ customer.name }}</h3>
-    <form method="post" action="/sales/contacts/{{ customer.id }}/log-call">
+    <form method="post" id="dLogCallForm">
       <label style="font-size:12px;color:var(--text-muted)">Contacted at</label>
       <input type="datetime-local" name="contacted_at" id="dContactedAt" style="width:100%;margin-bottom:10px">
 
@@ -112,9 +241,40 @@
       <label style="font-size:12px;color:var(--text-muted)">Notes</label>
       <textarea name="notes" rows="3" style="width:100%;margin-bottom:14px"></textarea>
 
+      <div id="dLogCallError" class="alert alert-red" style="display:none;margin-bottom:10px"></div>
       <button type="submit" class="btn btn-primary" style="width:100%">Save Call Log</button>
     </form>
   </div>
 </div>
-<script>document.getElementById('dContactedAt').value = new Date().toISOString().slice(0,16);</script>
+<script>
+document.getElementById('dContactedAt').value = new Date().toISOString().slice(0,16);
+
+document.getElementById('dLogCallForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const errEl = document.getElementById('dLogCallError');
+  errEl.style.display = 'none';
+  const fd = new FormData(this);
+  fd.append('ajax', '1');
+  const res = await fetch('/sales/contacts/{{ customer.id }}/log-call', { method: 'POST', body: fd });
+  const d = await res.json();
+  if (!res.ok) { errEl.textContent = d.error || 'Could not save call log'; errEl.style.display = ''; return; }
+  document.getElementById('logCallOverlay').style.display = 'none';
+  if (d.redirect_to_order) { window.location.href = d.order_new_url; return; }
+
+  document.getElementById('call-history-table').style.display = '';
+  document.getElementById('call-history-empty').style.display = 'none';
+  const tbody = document.getElementById('call-history-tbody');
+  const tr = document.createElement('tr');
+  const outcomeColors = {'CONNECTED':'#22c55e','NO_ANSWER':'#94a3b8','CALLBACK':'#3b82f6','ORDER_PLACED':'#22c55e','NOT_INTERESTED':'#ef4444'};
+  tr.innerHTML = `
+    <td>${d.log.contacted_at}</td>
+    <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:${outcomeColors[d.log.outcome] || '#94a3b8'}">${d.log.outcome_label}</span></td>
+    <td>${d.log.agent}</td>
+    <td>${d.log.follow_up_at || '—'}</td>
+    <td>${d.log.notes || '—'}</td>`;
+  tbody.insertBefore(tr, tbody.firstChild);
+  this.reset();
+  document.getElementById('dContactedAt').value = new Date().toISOString().slice(0,16);
+});
+</script>
 {% endblock %}

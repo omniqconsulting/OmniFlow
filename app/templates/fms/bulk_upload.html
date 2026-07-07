@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload FMS Tickets{% endblock %}
+{% block content %}
+
+<div class="page-header" style="margin-bottom:18px">
+  <h2 class="page-title">Bulk Upload FMS Tickets</h2>
+  <a href="/fms/dashboard{% if active_flow %}?flow_id={{ active_flow.id }}{% endif %}" class="btn btn-sm btn-gray">← Back to Flow Board</a>
+</div>
+
+<div class="card" style="padding:20px;max-width:600px;margin-bottom:18px">
+  <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Pick the flow this history import belongs to — the template and validation columns depend on the flow's stages.</p>
+  <form method="get" action="/fms/tickets/bulk-upload-page" style="display:flex;gap:10px;align-items:center">
+    <select name="flow_id" onchange="this.form.submit()" style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:8px 10px;font-size:13px;color:var(--text-primary)">
+      <option value="">— Select a flow —</option>
+      {% for f in flows %}
+      <option value="{{ f.id }}" {% if active_flow and active_flow.id == f.id %}selected{% endif %}>{{ f.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+{% if active_flow %}
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Import — " ~ active_flow.name,
+  back_url="/fms/dashboard?flow_id=" ~ active_flow.id,
+  back_label="Back to Flow Board",
+  download_url="/fms/tickets/bulk-template?flow_id=" ~ active_flow.id,
+  validate_url="/fms/tickets/bulk-upload",
+  revalidate_url="/fms/tickets/bulk-upload/revalidate",
+  confirm_url="/fms/tickets/bulk-upload/confirm",
+  columns=columns,
+  accept=".xlsx,.xls",
+  row_label="ticket(s)",
+  extra_fields={"flow_id": active_flow.id},
+  instructions='1. Download the flow template above, fill it in, and upload the Excel file below.<br>2. Fix any errored rows directly in the table (no need to re-upload) and click Re-validate.'
+) }}
+{% endif %}
+{% endblock %}

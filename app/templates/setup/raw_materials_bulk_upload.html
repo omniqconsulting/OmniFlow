@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload Raw Materials{% endblock %}
+{% block content %}
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Bulk Upload Raw Materials",
+  back_url="/setup/raw-materials",
+  back_label="Back to Raw Materials",
+  download_url="/setup/raw-materials/template",
+  validate_url="/setup/raw-materials/bulk-upload/validate",
+  revalidate_url="/setup/raw-materials/bulk-upload/revalidate",
+  confirm_url="/setup/raw-materials/bulk-upload/confirm",
+  columns=columns,
+  row_label="item(s)"
+) }}
+{% endblock %}

@@ -89,6 +89,9 @@
                 <button type="submit" class="btn btn-xs btn-green" style="margin-right:4px" title="Approve">✓ Approve</button>
               </form>
               {% endif %}
+              {% if has_sales %}
+              <a href="/sales/contacts/{{ c.id }}" class="btn btn-xs btn-outline" style="margin-right:4px" title="View in Sales &gt; Contacts">View in Sales</a>
+              {% endif %}
               <button data-obj='{{ {"id": c.id, "name": c.name, "contact_person": c.contact_person, "phone": c.phone, "email": c.email, "address": c.address, "notes": c.notes, "agent_email": c.assigned_agent.email if c.assigned_agent else "", "tier": c.customer_tier, "contact_freq_days": c.contact_freq_days, "credit_limit": c.credit_limit, "gstin": c.gstin, "billing_address": c.billing_address, "shipping_address": c.shipping_address, "default_payment_terms": c.default_payment_terms, "is_active": c.is_active}|tojson }}' onclick="openEdit(JSON.parse(this.dataset.obj))" class="btn btn-xs btn-outline" style="margin-right:4px">Edit</button>
               <form method="post" action="/setup/customers/{{ c.id }}/delete" style="display:inline"
                     onsubmit="return confirm('Delete {{ c.name }}? Existing linked references are retained.')">

@@ -23,6 +23,7 @@ from .auth import get_current_user, require_manager, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 from .constants import BULK_IMPORT_MAX_ROWS
+from .bulk_common import check_required_headers
 
 router = APIRouter()
 
@@ -542,9 +543,29 @@ def _validate_stock_in_row(row: dict, tenant_id: str, db: Session) -> List[str]:
     return errors
 
 
+_STOCK_IN_COLS = ["sku_code", "qty", "unit_abbreviation", "unit_cost", "vendor_name", "date", "notes"]
+
+
 @router.get("/inventory-v2/stock-in/bulk", response_class=HTMLResponse)
 def stock_in_bulk_page(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
-    return templates.TemplateResponse(request, "inventory_v2/stock_in_bulk.html", _ctx(db, user))
+    return templates.TemplateResponse(request, "inventory_v2/stock_in_bulk.html", _ctx(db, user, columns=_STOCK_IN_COLS))
+
+
+def _run_stock_in_validation(rows_in: list, tenant_id: str, db: Session, start_index: int = 2) -> dict:
+    results = []
+    valid_rows = []
+    for i, row in enumerate(rows_in, start=start_index):
+        errors = _validate_stock_in_row(row, tenant_id, db)
+        if not errors:
+            valid_rows.append(row)
+        else:
+            results.append({"row": row.get("_row", i), "error": "; ".join(errors), "data": dict(row)})
+    return {
+        "total": len(valid_rows) + len(results),
+        "valid": len(valid_rows),
+        "errors": results,
+        "rows": valid_rows,
+    }
 
 
 @router.post("/inventory-v2/stock-in/bulk-upload")
@@ -560,22 +581,27 @@ async def stock_in_bulk_upload(
         raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
     content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     try:
-        rows = list(csv.DictReader(io.StringIO(content)))
+        dict_reader = csv.DictReader(io.StringIO(content))
+        rows = list(dict_reader)
     except csv.Error:
         raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    fmt_err = check_required_headers(dict_reader.fieldnames, ["sku_code", "qty"], _STOCK_IN_COLS)
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
     if len(rows) > BULK_IMPORT_MAX_ROWS:
         raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-
-    results = []
-    valid_count = 0
     for i, row in enumerate(rows, start=2):
-        errors = _validate_stock_in_row(row, user.tenant_id, db)
-        if not errors:
-            valid_count += 1
-        else:
-            results.append({"row": i, "sku": row.get("sku_code", ""), "errors": errors})
+        row["_row"] = i
+    return JSONResponse(_run_stock_in_validation(rows, user.tenant_id, db))
 
-    return JSONResponse({"total": len(rows), "valid": valid_count, "errors": results, "rows": rows})
+
+@router.post("/inventory-v2/stock-in/bulk-upload/revalidate")
+async def stock_in_bulk_revalidate(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_stock_in_validation(rows_in, user.tenant_id, db))
 
 
 @router.post("/inventory-v2/stock-in/bulk-upload/confirm")
