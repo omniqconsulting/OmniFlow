@@ -617,6 +617,29 @@ def _end_product_unit_or_error(db: Session, tenant_id: str, unit_abbr: str):
     return unit, None
 
 
+def _generate_end_product_sku(db: Session, tenant_id: str, name: str) -> str:
+    """Auto-generate a SKU when the user leaves it blank, so every End Product
+    always has one and syncs to the Sales Catalog (sync is matched on
+    sku_code). Slugifies the name, uppercases it, and appends a numeric
+    suffix on collision against both EndProduct and ProductVariant."""
+    base = re.sub(r"[^A-Za-z0-9]+", "-", name or "").strip("-").upper()[:40] or "SKU"
+    candidate = base
+    n = 2
+    while (
+        db.query(EndProduct).filter(
+            EndProduct.tenant_id == tenant_id, EndProduct.sku_code == candidate,
+            EndProduct.is_deleted == False,
+        ).first()
+        or db.query(ProductVariant).filter(
+            ProductVariant.tenant_id == tenant_id, ProductVariant.sku_code == candidate,
+            ProductVariant.is_deleted == False,
+        ).first()
+    ):
+        candidate = f"{base}-{n}"
+        n += 1
+    return candidate
+
+
 @router.get("/setup/end-products", response_class=HTMLResponse)
 def end_products_page(
     request: Request,
@@ -691,6 +714,8 @@ async def add_end_product(
         ).first()
         if exists:
             return _redir(f"/setup/end-products?err=SKU+{sku}+already+exists")
+    else:
+        sku = _generate_end_product_sku(db, user.tenant_id, name.strip())
     unit_abbr = unit.strip()
     _, unit_err = _end_product_unit_or_error(db, user.tenant_id, unit_abbr)
     if unit_err:
@@ -751,6 +776,8 @@ async def edit_end_product(
         ).first()
         if exists:
             return _redir(f"/setup/end-products?err=SKU+{sku}+already+exists")
+    elif not sku:
+        sku = p.sku_code or _generate_end_product_sku(db, user.tenant_id, name.strip())
     unit_abbr = unit.strip()
     _, unit_err = _end_product_unit_or_error(db, user.tenant_id, unit_abbr)
     if unit_err:
@@ -837,6 +864,8 @@ async def import_end_products(
             if exists:
                 errors.append({"row": i, "error": f"SKU {sku} already exists", "data": dict(row)})
                 continue
+        else:
+            sku = _generate_end_product_sku(db, user.tenant_id, name)
         unit_abbr = (row.get("unit") or "").strip()
         _, unit_err = _end_product_unit_or_error(db, user.tenant_id, unit_abbr)
         if unit_err:
@@ -991,6 +1020,8 @@ async def end_products_bulk_confirm(request: Request, user: User = Depends(requi
             if exists:
                 warnings.append(f"SKU {sku} already exists — skipped")
                 continue
+        else:
+            sku = _generate_end_product_sku(db, user.tenant_id, r["name"])
         end_product = EndProduct(
             tenant_id=user.tenant_id, name=r["name"], sku_code=sku,
             unit=r.get("unit"),
