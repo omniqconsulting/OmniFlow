@@ -28,6 +28,7 @@ OUTCOME_CHOICES = ("CONNECTED", "NO_ANSWER", "CALLBACK", "ORDER_PLACED", "NOT_IN
 _PHONE_RE = re.compile(r"^[0-9+\-() ]{7,20}$")
 
 _require_sales = require_module("SALES", "SALES_MODULE")
+_require_sales_or_redirect = require_module("SALES", "SALES_MODULE", redirect_unauthenticated=True)
 
 
 def _ctx(db: Session, user: User, **extra) -> dict:
@@ -227,7 +228,7 @@ def contacts_queue(
     date_from: str = "",
     date_to: str = "",
     horizon: int = 0,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     target_agent_id = user.id
@@ -361,7 +362,7 @@ def log_call(
 @router.get("/sales/contacts/new", response_class=HTMLResponse)
 def contact_create_form(
     request: Request,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     agents = []
@@ -407,7 +408,7 @@ def contacts_list(
     agent_id: list = Query(default=[]),
     stage: list = Query(default=[]),
     status: str = "active",
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     q = db.query(Customer).filter(
@@ -511,7 +512,7 @@ _BULK_COLS = [
 @router.get("/sales/contacts/bulk-upload", response_class=HTMLResponse)
 def bulk_upload_form(
     request: Request,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     return templates.TemplateResponse(request, "sales/contacts_bulk_upload.html", _ctx(db, user))
@@ -755,7 +756,7 @@ def contact_detail(
     date_from: str = "",
     date_to: str = "",
     product: str = "",
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     customer = get_customer_or_404(db, customer_id, user.tenant_id)
@@ -866,7 +867,7 @@ def contact_detail(
 def contact_edit_form(
     request: Request,
     customer_id: str,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     customer = get_customer_or_404(db, customer_id, user.tenant_id)

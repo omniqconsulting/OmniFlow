@@ -22,7 +22,9 @@ from .database import (
 )
 from .auth import (
     hash_password, verify_password, create_token,
-    get_current_user, require_admin, require_manager,
+    get_current_user, get_current_user_or_redirect, RedirectToLogin,
+    require_admin, require_manager,
+    require_admin_or_redirect, require_manager_or_redirect,
     get_user_modules, has_module, get_user_tabs, get_nav_flags,
 )
 from .notifications import (
@@ -61,6 +63,10 @@ from .labels import get_labels, DEFAULT_L, INDUSTRY_NAMES, INDUSTRY_PRESETS
 from .bulk_common import check_required_headers
 
 app = FastAPI(title="OmniFlow")
+
+@app.exception_handler(RedirectToLogin)
+def _redirect_to_login_handler(request: Request, exc: RedirectToLogin):
+    return redirect("/login")
 
 
 # ── Super Admin routers — Phase 0-H / 0-K ────────────────────────────────────
@@ -750,7 +756,7 @@ async def submit_help_request(
 
 
 @app.get("/help", response_class=HTMLResponse)
-def help_page(request: Request, user: User = Depends(get_current_user),
+def help_page(request: Request, user: User = Depends(get_current_user_or_redirect),
               db: Session = Depends(get_db)):
     unread = _unread_count(db, user)
     return templates.TemplateResponse(request, "help.html", {
@@ -769,7 +775,7 @@ def logout():
 # ── Profile & Password Change ──────────────────────────────────────────────────
 
 @app.get("/profile", response_class=HTMLResponse)
-def profile_page(request: Request, user: User = Depends(get_current_user),
+def profile_page(request: Request, user: User = Depends(get_current_user_or_redirect),
                  db: Session = Depends(get_db)):
     unread = _unread_count(db, user)
     msg = request.query_params.get("msg", "")
@@ -825,7 +831,7 @@ def profile_change_password(
 # ── Plan & Feature Flags (tenant-facing) — Phase 0-I ──────────────────────────
 
 @app.get("/plan", response_class=HTMLResponse)
-def plan_page(request: Request, user: User = Depends(get_current_user),
+def plan_page(request: Request, user: User = Depends(get_current_user_or_redirect),
               db: Session = Depends(get_db)):
     if user.role != "ADMIN":
         raise HTTPException(403, "Admin only")
@@ -926,7 +932,7 @@ def plan_upgrade_request(
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @app.get("/pending", response_class=HTMLResponse)
-def pending_approval(request: Request, user: User = Depends(get_current_user),
+def pending_approval(request: Request, user: User = Depends(get_current_user_or_redirect),
                      db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     return templates.TemplateResponse(request, "pending_approval.html",
@@ -1106,7 +1112,7 @@ def _calc_dept_health(db, tid, date_from_str, date_to_str):
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request, user: User = Depends(get_current_user),
+def dashboard(request: Request, user: User = Depends(get_current_user_or_redirect),
               db: Session = Depends(get_db)):
     tid = user.tenant_id
 
@@ -1459,7 +1465,7 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
                  ticket_category: List[str] = Query([]),
                  date_from: str = "", date_to: str = "",
                  assignee_id: List[str] = Query([]),
-                 user: User = Depends(get_current_user),
+                 user: User = Depends(get_current_user_or_redirect),
                  db: Session = Depends(get_db)):
     from datetime import date as _date
     tid = user.tenant_id
@@ -1898,7 +1904,7 @@ def tickets_bulk_template(user: User = Depends(require_manager)):
 
 # Must also be registered before /tickets/{ticket_id} for the same reason as bulk-template above.
 @app.get("/tickets/bulk-upload-page", response_class=HTMLResponse)
-def tickets_bulk_upload_page(request: Request, user: User = Depends(require_manager), db: Session = Depends(get_db)):
+def tickets_bulk_upload_page(request: Request, user: User = Depends(require_manager_or_redirect), db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "tickets_bulk_upload.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user), "columns": _TICKET_BULK_COLS,
@@ -1907,7 +1913,7 @@ def tickets_bulk_upload_page(request: Request, user: User = Depends(require_mana
 
 @app.get("/tickets/{ticket_id}", response_class=HTMLResponse)
 def ticket_detail(ticket_id: str, request: Request,
-                  user: User = Depends(get_current_user),
+                  user: User = Depends(get_current_user_or_redirect),
                   db: Session = Depends(get_db)):
     ticket = db.query(Ticket).filter(
         Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id).first()
@@ -2604,7 +2610,7 @@ def _checklist_stats(db: Session, tmpl) -> dict:
 
 
 @app.get("/checklists", response_class=HTMLResponse)
-def checklists(request: Request, user: User = Depends(get_current_user),
+def checklists(request: Request, user: User = Depends(get_current_user_or_redirect),
                db: Session = Depends(get_db),
                dept_id: List[str] = Query([]), manager_id: List[str] = Query([]),
                employee_id: List[str] = Query([]), branch_id: List[str] = Query([]),
@@ -3199,7 +3205,7 @@ def fail_checklist(assignment_id: str,
 
 @app.get("/checklists/history/{template_id}", response_class=HTMLResponse)
 def checklist_history(request: Request, template_id: str,
-                      user: User = Depends(get_current_user),
+                      user: User = Depends(get_current_user_or_redirect),
                       db: Session = Depends(get_db)):
     tmpl = db.query(ChecklistTemplate).filter(
         ChecklistTemplate.id == template_id,
@@ -3811,7 +3817,7 @@ def _run_checklist_validation(rows_in: list, tenant_id: str, db: Session, start_
 
 
 @app.get("/checklists/bulk-upload-page", response_class=HTMLResponse)
-def checklist_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def checklist_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "checklists_bulk_upload.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user), "columns": _CHECKLIST_BULK_COLS,
@@ -3865,7 +3871,7 @@ async def checklist_bulk_confirm(request: Request, user: User = Depends(require_
 # ── Employees ─────────────────────────────────────────────────────────────────
 
 @app.get("/employees", response_class=HTMLResponse)
-def employees_page(request: Request, user: User = Depends(require_manager),
+def employees_page(request: Request, user: User = Depends(require_manager_or_redirect),
                    db: Session = Depends(get_db)):
     tid = user.tenant_id
     if user.role == "MANAGER":
@@ -4120,7 +4126,7 @@ def _run_employee_validation(rows_in: list, tenant_id: str, db: Session, start_i
 
 
 @app.get("/employees/bulk-upload-page", response_class=HTMLResponse)
-def employees_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def employees_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
@@ -4547,7 +4553,7 @@ def resend_whatsapp(
 @app.get("/employees/{emp_id}/performance", response_class=HTMLResponse)
 def employee_performance(
     emp_id: str, request: Request, period: str = "30d",
-    user: User = Depends(require_manager), db: Session = Depends(get_db),
+    user: User = Depends(require_manager_or_redirect), db: Session = Depends(get_db),
 ):
     tid = user.tenant_id
     emp = db.query(User).filter(
@@ -4686,7 +4692,7 @@ def _run_department_validation(rows_in: list, tenant_id: str, db: Session, start
 
 
 @app.get("/departments/bulk-upload-page", response_class=HTMLResponse)
-def departments_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def departments_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
@@ -4760,7 +4766,7 @@ def _run_branch_validation(rows_in: list, start_index: int = 2) -> dict:
 
 
 @app.get("/branches/bulk-upload-page", response_class=HTMLResponse)
-def branches_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def branches_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
@@ -4818,7 +4824,7 @@ async def bulk_import_branches_confirm(request: Request, user: User = Depends(re
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
 @app.get("/setup", response_class=HTMLResponse)
-def setup(request: Request, user: User = Depends(require_admin),
+def setup(request: Request, user: User = Depends(require_admin_or_redirect),
           db: Session = Depends(get_db)):
     from .constants import PLAN_LIMITS, PLAN_LABELS
     branches = db.query(Branch).filter(
@@ -5181,7 +5187,7 @@ def delete_department(dept_id: str, user: User = Depends(require_admin), db: Ses
 
 @app.get("/setup/wizard", response_class=HTMLResponse)
 def onboarding_wizard(request: Request, step: Optional[int] = None,
-                      user: User = Depends(require_admin),
+                      user: User = Depends(require_admin_or_redirect),
                       db: Session = Depends(get_db)):
     """Guided onboarding wizard — auto-continues from where user left off."""
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -5231,7 +5237,7 @@ def onboarding_wizard(request: Request, step: Optional[int] = None,
 # ── Notifications ─────────────────────────────────────────────────────────────
 
 @app.get("/notifications", response_class=HTMLResponse)
-def notifications_page(request: Request, user: User = Depends(get_current_user),
+def notifications_page(request: Request, user: User = Depends(get_current_user_or_redirect),
                         db: Session = Depends(get_db)):
     """Phase 0-D-4: in-app notification centre."""
     notifs = db.query(Notification).filter(
@@ -5267,7 +5273,7 @@ def mark_all_read(user: User = Depends(get_current_user),
 # ── KPI / Analytics ───────────────────────────────────────────────────────────
 
 @app.get("/kpi", response_class=HTMLResponse)
-def kpi_page(request: Request, user: User = Depends(get_current_user),
+def kpi_page(request: Request, user: User = Depends(get_current_user_or_redirect),
              db: Session = Depends(get_db)):
     """Phase 0-E-6 / 0-G-1..5: employee self-view KPI tab."""
     tid = user.tenant_id
@@ -5359,7 +5365,7 @@ def export_csv(export_type: str = "tickets",
 # ── Label Configuration — Phase 0-J ──────────────────────────────────────────
 
 @app.get("/settings/labels", response_class=HTMLResponse)
-def labels_page(request: Request, user: User = Depends(require_admin),
+def labels_page(request: Request, user: User = Depends(require_admin_or_redirect),
                 db: Session = Depends(get_db)):
     """Tenant admin label configuration page."""
     tenant = db.query(Tenant).get(user.tenant_id)

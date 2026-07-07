@@ -23,7 +23,7 @@ from .database import (
     FMSFlow, FMSStage, FMSTicket, FMSStageHistory,
     ProductVariant,
 )
-from .auth import require_admin, get_nav_flags, has_module
+from .auth import require_admin, require_admin_or_redirect, get_nav_flags, has_module
 from .labels import get_labels
 from .constants import BULK_IMPORT_MAX_ROWS
 from .bulk_common import check_required_headers
@@ -227,7 +227,7 @@ def customers_page(
     status: str = "",
     pending: str = "",
     tier: str = "",
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_redirect),
     db: Session = Depends(get_db),
 ):
     q = db.query(Customer).filter(
@@ -496,7 +496,7 @@ def end_products_page(
     page: int = 1,
     status: str = "",
     pending: str = "",
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_redirect),
     db: Session = Depends(get_db),
 ):
     q = db.query(EndProduct).filter(
@@ -760,7 +760,7 @@ async def import_end_products(
 @router.get("/setup/custom-lists", response_class=HTMLResponse)
 def custom_lists_page(
     request: Request,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_redirect),
     db: Session = Depends(get_db),
 ):
     lists = db.query(CustomReferenceList).filter(
@@ -777,7 +777,7 @@ def custom_lists_page(
 
 
 @router.get("/setup/how-to", response_class=HTMLResponse)
-def howto_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def howto_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "setup/howto.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -965,7 +965,7 @@ async def import_list_items(
 @router.get("/setup/deployed-config", response_class=HTMLResponse)
 def deployed_config_page(
     request: Request,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_redirect),
     db: Session = Depends(get_db),
 ):
     flows_raw = db.query(FMSFlow).filter(
@@ -999,7 +999,7 @@ def deployed_config_page(
 
 @router.get("/setup/vendors", response_class=HTMLResponse)
 def vendors_page(request: Request, page: int = 1, status: str = "", pending: str = "",
-                 user: User = Depends(require_admin), db: Session = Depends(get_db)):
+                 user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     q = db.query(Vendor).filter(Vendor.tenant_id == user.tenant_id, Vendor.is_deleted == False)
     if status == "active":
         q = q.filter(Vendor.is_active == True)
@@ -1161,7 +1161,7 @@ def _run_vendor_validation(rows_in: list, start_index: int = 2) -> dict:
 
 
 @router.get("/setup/vendors/bulk-upload", response_class=HTMLResponse)
-def vendors_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def vendors_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "setup/vendors_bulk_upload.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user), **_nav_ctx(db, user),
         "columns": [c[0] for c in _VENDOR_COLS],
@@ -1221,7 +1221,7 @@ async def vendors_bulk_confirm(request: Request, user: User = Depends(require_ad
 
 @router.get("/setup/raw-materials", response_class=HTMLResponse)
 def raw_materials_page(request: Request, page: int = 1, status: str = "", pending: str = "",
-                       user: User = Depends(require_admin), db: Session = Depends(get_db)):
+                       user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     q = db.query(RawMaterial).filter(RawMaterial.tenant_id == user.tenant_id, RawMaterial.is_deleted == False)
     if status == "active":
         q = q.filter(RawMaterial.is_active == True)
@@ -1361,7 +1361,7 @@ def _run_raw_material_validation(rows_in: list, start_index: int = 2) -> dict:
 
 
 @router.get("/setup/raw-materials/bulk-upload", response_class=HTMLResponse)
-def raw_materials_bulk_upload_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def raw_materials_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "setup/raw_materials_bulk_upload.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user), **_nav_ctx(db, user),
         "columns": [c[0] for c in _RAW_MATERIAL_COLS],
@@ -1422,7 +1422,7 @@ async def raw_materials_bulk_confirm(request: Request, user: User = Depends(requ
 @router.get("/setup/org-chart", response_class=HTMLResponse)
 def org_chart_page(
     request: Request,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_redirect),
     db: Session = Depends(get_db),
 ):
     employees = db.query(User).filter(
@@ -1468,7 +1468,7 @@ def org_chart_page(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/setup/employees")
-def setup_employees_redirect(user: User = Depends(require_admin)):
+def setup_employees_redirect(user: User = Depends(require_admin_or_redirect)):
     return _redir("/employees")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1548,7 +1548,7 @@ def _parse_closing_rule(raw: str | None) -> dict | None:
 def setup_flows_list(
     request: Request,
     status: str = "active",
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_redirect),
     db: Session = Depends(get_db),
 ):
     from .constants import has_feature, PLAN_LIMITS
@@ -1604,7 +1604,7 @@ def setup_flows_list(
 @router.get("/setup/flows/new", response_class=HTMLResponse)
 def setup_flow_new(
     request: Request,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_redirect),
     db: Session = Depends(get_db),
 ):
     from .constants import has_feature, PLAN_LIMITS
@@ -1641,7 +1641,7 @@ def setup_flow_new(
 def setup_flow_edit_get(
     flow_id: str,
     request: Request,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_redirect),
     db: Session = Depends(get_db),
 ):
     flow = db.query(FMSFlow).filter(

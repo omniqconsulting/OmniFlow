@@ -29,7 +29,7 @@ from .database import (
     get_db, User, Tenant, TenantAIUsage,
     Ticket, ChecklistAssignment, ChecklistTemplate,
 )
-from .auth import get_current_user, get_nav_flags
+from .auth import get_current_user, get_current_user_or_redirect, get_nav_flags
 from .labels import get_labels
 from .constants import has_feature, get_limit
 from .ai_context import build_context
@@ -60,6 +60,13 @@ def _get_client() -> anthropic.Anthropic:
 # ── Access guard ───────────────────────────────────────────────────────────────
 
 def _require_ai_access(user: User = Depends(get_current_user)) -> User:
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403, "AI Assistant is available to Admins and Managers only.")
+    return user
+
+def _require_ai_access_or_redirect(user: User = Depends(get_current_user_or_redirect)) -> User:
+    """Same role check as _require_ai_access, but for the /ai landing page (GET):
+    missing/invalid session redirects to /login instead of raw 401 JSON."""
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(403, "AI Assistant is available to Admins and Managers only.")
     return user
@@ -390,7 +397,7 @@ def _resolve_since(date_range: str) -> datetime:
 @router.get("", response_class=HTMLResponse)
 @router.get("/", response_class=HTMLResponse)
 def ai_home(request: Request,
-            user: User = Depends(_require_ai_access),
+            user: User = Depends(_require_ai_access_or_redirect),
             db: Session = Depends(get_db)):
     """Ask AI landing page."""
     api_configured = bool(os.getenv("ANTHROPIC_API_KEY", ""))

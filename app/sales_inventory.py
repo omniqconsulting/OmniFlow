@@ -28,6 +28,7 @@ from .bulk_common import check_required_headers
 router = APIRouter()
 
 _require_inventory = require_module("INVENTORY", "INVENTORY_MODULE")
+_require_inventory_or_redirect = require_module("INVENTORY", "INVENTORY_MODULE", redirect_unauthenticated=True)
 
 
 def _require_inventory_manager(user: User = Depends(_require_inventory)) -> User:
@@ -295,7 +296,7 @@ def _check_low_stock_alert(db: Session, variant_id: str, tenant_id: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/inventory-v2", response_class=HTMLResponse)
-def inventory_dashboard(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
+def inventory_dashboard(request: Request, user: User = Depends(_require_inventory_or_redirect), db: Session = Depends(get_db)):
     tier_order = {"A": 0, "B": 1, "C": 2, "D": 3, "UNRANKED": 4}
     variants = db.query(ProductVariant).filter(
         ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
@@ -344,7 +345,7 @@ def inventory_dashboard(request: Request, user: User = Depends(_require_inventor
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/inventory-v2/stock", response_class=HTMLResponse)
-def stock_list(request: Request, q: str = "", user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
+def stock_list(request: Request, q: str = "", user: User = Depends(_require_inventory_or_redirect), db: Session = Depends(get_db)):
     query = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
         ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
     )
@@ -430,7 +431,7 @@ def stock_export(user: User = Depends(_require_inventory), db: Session = Depends
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/inventory-v2/stock-in/new", response_class=HTMLResponse)
-def stock_in_new(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
+def stock_in_new(request: Request, user: User = Depends(_require_inventory_or_redirect), db: Session = Depends(get_db)):
     variants = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
         ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False, ProductVariant.is_active == True,
     ).order_by(Product.name).all()
@@ -547,7 +548,7 @@ _STOCK_IN_COLS = ["sku_code", "qty", "unit_abbreviation", "unit_cost", "vendor_n
 
 
 @router.get("/inventory-v2/stock-in/bulk", response_class=HTMLResponse)
-def stock_in_bulk_page(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
+def stock_in_bulk_page(request: Request, user: User = Depends(_require_inventory_or_redirect), db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "inventory_v2/stock_in_bulk.html", _ctx(db, user, columns=_STOCK_IN_COLS))
 
 
@@ -640,7 +641,7 @@ async def stock_in_bulk_confirm(request: Request, user: User = Depends(_require_
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/inventory-v2/purchase-orders", response_class=HTMLResponse)
-def po_list(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
+def po_list(request: Request, user: User = Depends(_require_inventory_or_redirect), db: Session = Depends(get_db)):
     pos = db.query(InventoryPurchaseOrder).filter(
         InventoryPurchaseOrder.tenant_id == user.tenant_id, InventoryPurchaseOrder.is_deleted == False,
     ).order_by(InventoryPurchaseOrder.created_at.desc()).all()
@@ -651,7 +652,7 @@ def po_list(request: Request, user: User = Depends(_require_inventory), db: Sess
 
 
 @router.get("/inventory-v2/purchase-orders/new", response_class=HTMLResponse)
-def po_new_form(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
+def po_new_form(request: Request, user: User = Depends(_require_inventory_or_redirect), db: Session = Depends(get_db)):
     variants = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
         ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False, ProductVariant.is_active == True,
     ).order_by(Product.name).all()
@@ -737,7 +738,7 @@ def _get_po_or_404(db: Session, po_id: str, tenant_id: str) -> InventoryPurchase
 
 
 @router.get("/inventory-v2/purchase-orders/{po_id}", response_class=HTMLResponse)
-def po_detail(po_id: str, request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
+def po_detail(po_id: str, request: Request, user: User = Depends(_require_inventory_or_redirect), db: Session = Depends(get_db)):
     po = _get_po_or_404(db, po_id, user.tenant_id)
     return templates.TemplateResponse(request, "inventory_v2/po_detail.html", _ctx(
         db, user, po=po,
@@ -1039,7 +1040,7 @@ def get_demand_projection(db, tenant_id: str, days: int = 7):
 
 
 @router.get("/inventory-v2/dispatch-queue", response_class=HTMLResponse)
-def dispatch_queue(request: Request, user: User = Depends(_require_inventory), db: Session = Depends(get_db)):
+def dispatch_queue(request: Request, user: User = Depends(_require_inventory_or_redirect), db: Session = Depends(get_db)):
     """Read-only godown view of CONFIRMED orders pending dispatch."""
     orders = get_upcoming_dispatches(db, user.tenant_id)
     return templates.TemplateResponse(request, "inventory_v2/dispatch_queue.html", _ctx(

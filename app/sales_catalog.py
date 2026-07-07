@@ -20,7 +20,10 @@ from .database import (
     get_db, new_id, Product, ProductVariant, ProductSchemaField, UnitOfMeasure,
     User, ProductStock, Category, SubCategory, EndProduct,
 )
-from .auth import get_current_user, require_admin, require_manager, has_module, require_module
+from .auth import (
+    get_current_user, require_admin, require_admin_or_redirect,
+    require_manager, has_module, require_module,
+)
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 from .constants import BULK_IMPORT_MAX_ROWS
@@ -36,9 +39,17 @@ PAGE_SIZE = 30
 TIER_CHOICES = ("A", "B", "C", "D", "UNRANKED")
 
 _require_sales = require_module("SALES", "SALES_MODULE")
+_require_sales_or_redirect = require_module("SALES", "SALES_MODULE", redirect_unauthenticated=True)
 
 
 def _require_sales_editor(user: User = Depends(_require_sales)) -> User:
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(status_code=403, detail="Manager or Admin only")
+    return user
+
+def _require_sales_editor_or_redirect(user: User = Depends(_require_sales_or_redirect)) -> User:
+    """Same check as _require_sales_editor, for GET page routes: missing/invalid
+    session redirects to /login instead of raw 401 JSON."""
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(status_code=403, detail="Manager or Admin only")
     return user
@@ -136,7 +147,7 @@ def _build_variant_label(sku_code: str, explicit_label: str, attrs: dict) -> str
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sales/catalog/categories", response_class=HTMLResponse)
-def categories_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def categories_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     categories = db.query(Category).filter(
         Category.tenant_id == user.tenant_id, Category.is_deleted == False,
     ).order_by(Category.name).all()
@@ -203,7 +214,7 @@ def catalog_list(
     tier: str = "",
     active: str = "",
     page: int = 1,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     query = db.query(Product).filter(Product.tenant_id == user.tenant_id, Product.is_deleted == False)
@@ -253,7 +264,7 @@ def catalog_list(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sales/catalog/new", response_class=HTMLResponse)
-def catalog_new_form(request: Request, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
+def catalog_new_form(request: Request, user: User = Depends(_require_sales_editor_or_redirect), db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "sales/catalog_new.html", _ctx(
         db, user,
         product=None, attributes={},
@@ -343,7 +354,7 @@ async def catalog_create(
 
 
 @router.get("/sales/catalog/{product_id}/edit", response_class=HTMLResponse)
-def catalog_edit_form(product_id: str, request: Request, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
+def catalog_edit_form(product_id: str, request: Request, user: User = Depends(_require_sales_editor_or_redirect), db: Session = Depends(get_db)):
     product = get_product_or_404(db, product_id, user.tenant_id)
     return templates.TemplateResponse(request, "sales/catalog_edit.html", _ctx(
         db, user,
@@ -442,7 +453,7 @@ async def variant_add(
 
 
 @router.get("/sales/catalog/variant/{variant_id}/edit", response_class=HTMLResponse)
-def variant_edit_form(variant_id: str, request: Request, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
+def variant_edit_form(variant_id: str, request: Request, user: User = Depends(_require_sales_editor_or_redirect), db: Session = Depends(get_db)):
     variant = get_variant_or_404(db, variant_id, user.tenant_id)
     return templates.TemplateResponse(request, "sales/catalog_variant_edit.html", _ctx(
         db, user, variant=variant, product=variant.product,
@@ -559,7 +570,7 @@ def delete_variant_media(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sales/catalog/schema", response_class=HTMLResponse)
-def catalog_schema_page(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def catalog_schema_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
     fields = (
         db.query(ProductSchemaField)
         .filter(ProductSchemaField.tenant_id == user.tenant_id)
@@ -655,7 +666,7 @@ _BASE_VARIANT_COLS = [
 
 
 @router.get("/sales/catalog/bulk-upload", response_class=HTMLResponse)
-def bulk_upload_page(request: Request, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
+def bulk_upload_page(request: Request, user: User = Depends(_require_sales_editor_or_redirect), db: Session = Depends(get_db)):
     schema_fields = _active_schema_fields(db, user.tenant_id)
     cols = _BASE_VARIANT_COLS + [f.label for f in schema_fields]
     return templates.TemplateResponse(request, "sales/catalog_bulk_upload.html", _ctx(db, user, columns=cols))
@@ -871,7 +882,7 @@ def catalog_export(user: User = Depends(_require_sales), db: Session = Depends(g
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sales/catalog/{product_id}", response_class=HTMLResponse)
-def catalog_detail(product_id: str, request: Request, user: User = Depends(_require_sales), db: Session = Depends(get_db)):
+def catalog_detail(product_id: str, request: Request, user: User = Depends(_require_sales_or_redirect), db: Session = Depends(get_db)):
     product = get_product_or_404(db, product_id, user.tenant_id)
     variants = db.query(ProductVariant).filter(
         ProductVariant.product_id == product_id, ProductVariant.is_deleted == False,
