@@ -23,7 +23,7 @@ from .database import (
     CustomSubmoduleResponse,
     LibrarySubmoduleDefinition, TenantDeployedItem,
 )
-from .auth import get_current_user, require_admin, require_manager
+from .auth import get_current_user, get_current_user_or_redirect, require_admin, require_manager
 from .labels import get_labels, DEFAULT_L
 from .notifications import notify_fms_stage_transition
 from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION
@@ -107,7 +107,7 @@ def _require_submodule(db, tenant_id: str, sub_module_type: str):
 
 @router.get("/pms/{ticket_id}", response_class=HTMLResponse)
 def pms_panel(ticket_id: str, request: Request,
-              user: User = Depends(get_current_user),
+              user: User = Depends(get_current_user_or_redirect),
               db: Session = Depends(get_db)):
     """3-A-2: Full PMS panel for a ticket."""
     _require_submodule(db, user.tenant_id, "PMS")
@@ -221,7 +221,7 @@ def pms_revise_target(
 
 @router.get("/dispatch/{ticket_id}", response_class=HTMLResponse)
 def dispatch_panel(ticket_id: str, request: Request,
-                   user: User = Depends(get_current_user),
+                   user: User = Depends(get_current_user_or_redirect),
                    db: Session = Depends(get_db)):
     """3-B-4: Dispatch panel for a ticket."""
     _require_submodule(db, user.tenant_id, "DISPATCH")
@@ -317,7 +317,7 @@ async def dispatch_pod_upload(
 
 @router.get("/invoice/{ticket_id}", response_class=HTMLResponse)
 def invoice_panel(ticket_id: str, request: Request,
-                  user: User = Depends(get_current_user),
+                  user: User = Depends(get_current_user_or_redirect),
                   db: Session = Depends(get_db)):
     """3-C-3/4: Invoice panel with outstanding tracking."""
     _require_submodule(db, user.tenant_id, "INVOICE")
@@ -407,7 +407,7 @@ def invoice_mark_paid(
 
 @router.get("/custom/{ticket_id}/{stage_id}", response_class=HTMLResponse)
 def custom_panel(ticket_id: str, stage_id: str, request: Request,
-                 user: User = Depends(get_current_user),
+                 user: User = Depends(get_current_user_or_redirect),
                  db: Session = Depends(get_db)):
     """3-E-2/3: Render custom sub-module form from library definition."""
     ticket = _get_ticket(db, ticket_id, user.tenant_id)

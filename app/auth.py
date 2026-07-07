@@ -40,12 +40,40 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
+class RedirectToLogin(Exception):
+    """Raised by get_current_user_or_redirect so the app-level exception
+    handler can turn it into a 302 to /login instead of a JSON 401 body."""
+    pass
+
+def get_current_user_or_redirect(request: Request, db: Session = Depends(get_db)) -> User:
+    """Same auth check as get_current_user, but for HTML page routes: an
+    unauthenticated/invalid session redirects to /login instead of
+    returning a raw 401 JSON body (which is what a PWA launched from the
+    home screen with no session would otherwise render as start_url)."""
+    try:
+        return get_current_user(request, db)
+    except HTTPException:
+        raise RedirectToLogin()
+
 def require_admin(user: User = Depends(get_current_user)) -> User:
     if user.role != "ADMIN":
         raise HTTPException(status_code=403, detail="Admin only")
     return user
 
 def require_manager(user: User = Depends(get_current_user)) -> User:
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(status_code=403, detail="Manager or Admin only")
+    return user
+
+def require_admin_or_redirect(user: User = Depends(get_current_user_or_redirect)) -> User:
+    """require_admin for HTML page routes: missing/invalid session redirects
+    to /login (via get_current_user_or_redirect); wrong role still raises a
+    plain 403 (that's a real authorization error, not a login problem)."""
+    if user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+def require_manager_or_redirect(user: User = Depends(get_current_user_or_redirect)) -> User:
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(status_code=403, detail="Manager or Admin only")
     return user
@@ -111,11 +139,15 @@ def get_nav_flags(db: Session, user, tenant=None) -> dict:
         return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_knowledge_repo": False, "has_checklists": True, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
 
 
-def require_module(module: str, feature: str):
+def require_module(module: str, feature: str, redirect_unauthenticated: bool = False):
     """Dependency factory: gates a route on both the tenant-level feature flag
     (SA toggle) and the user's own module access. Use per-blueprint, e.g.
-    _require_sales = require_module("SALES", "SALES_MODULE")."""
-    def _dep(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+    _require_sales = require_module("SALES", "SALES_MODULE").
+    Pass redirect_unauthenticated=True for HTML page routes so a missing/invalid
+    session redirects to /login instead of raising a raw 401 JSON body — role/
+    feature-flag mismatches still raise a plain 403 either way."""
+    _user_dep = get_current_user_or_redirect if redirect_unauthenticated else get_current_user
+    def _dep(user: User = Depends(_user_dep), db: Session = Depends(get_db)) -> User:
         from .constants import has_feature
         tenant = db.query(Tenant).get(user.tenant_id)
         if not has_feature(tenant, feature, db):

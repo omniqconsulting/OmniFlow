@@ -25,7 +25,12 @@ from .database import (
     CustomReferenceList, CustomReferenceItem,
     KnowledgeItem, FMSTicketKnowledgeLink,
 )
-from .auth import get_current_user, require_admin, require_manager, get_nav_flags
+from .auth import (
+    get_current_user, get_current_user_or_redirect,
+    require_admin, require_manager,
+    require_admin_or_redirect, require_manager_or_redirect,
+    get_nav_flags,
+)
 from .labels import get_labels, DEFAULT_L
 from .constants import has_feature, PLAN_LIMITS, BULK_IMPORT_MAX_ROWS
 from .bulk_common import check_required_headers
@@ -602,7 +607,7 @@ def _ticket_closing_rule_check(db, ticket: FMSTicket, stages: list, rule: dict,
 # ── 2-B: Flow Builder ────────────────────────────────────────────────────────
 
 @router.get("/flows", response_class=HTMLResponse)
-def fms_flows(request: Request, user: User = Depends(require_admin),
+def fms_flows(request: Request, user: User = Depends(require_admin_or_redirect),
               db: Session = Depends(get_db)):
     """2-B-1: Flow list — admin only."""
     flows = db.query(FMSFlow).filter(
@@ -629,7 +634,7 @@ def fms_flows(request: Request, user: User = Depends(require_admin),
 
 
 @router.get("/flows/new", response_class=HTMLResponse)
-def fms_flow_new(request: Request, user: User = Depends(require_admin),
+def fms_flow_new(request: Request, user: User = Depends(require_admin_or_redirect),
                  db: Session = Depends(get_db)):
     # Flow creation is SA-only — redirect client admins
     return _redirect("/fms/flows?err=Flows+are+configured+by+your+OmniFlow+account+manager.+Contact+support+to+add+a+new+flow.")
@@ -648,7 +653,7 @@ def fms_flow_create(
 
 @router.get("/flows/{flow_id}", response_class=HTMLResponse)
 def fms_flow_edit(flow_id: str, request: Request,
-                  user: User = Depends(require_admin),
+                  user: User = Depends(require_admin_or_redirect),
                   db: Session = Depends(get_db)):
     flow = _get_flow(db, flow_id, user.tenant_id)
     employees = db.query(User).filter(
@@ -768,7 +773,7 @@ async def fms_flow_import(
 # ── 2-C/D: Ticket Lifecycle ───────────────────────────────────────────────────
 
 @router.get("/", response_class=HTMLResponse)
-def fms_root(user: User = Depends(get_current_user)):
+def fms_root(user: User = Depends(get_current_user_or_redirect)):
     return _redirect("/fms/dashboard")
 
 
@@ -926,7 +931,7 @@ def fms_dashboard(
     log_event_type: List[str] = Query([]),
     log_actor_id: Optional[str] = None,
     log_search: Optional[str] = None,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_or_redirect),
     db: Session = Depends(get_db),
 ):
     """FMS Dashboard — summary strip + flow cards + swimlane/stage-table/consolidated view."""
@@ -1986,7 +1991,7 @@ def _fms_dashboard_inner(
 @router.get("/tickets/new", response_class=HTMLResponse)
 def fms_ticket_new(
     request: Request, flow_id: Optional[str] = None,
-    user: User = Depends(require_manager), db: Session = Depends(get_db),
+    user: User = Depends(require_manager_or_redirect), db: Session = Depends(get_db),
 ):
     """2-C-1: Ticket creation form."""
     flows = db.query(FMSFlow).filter(
@@ -2482,7 +2487,7 @@ def _run_fms_validation(rows_in: list, stages: list, tenant_id: str, db: Session
 
 
 @router.get("/tickets/bulk-upload-page", response_class=HTMLResponse)
-def fms_bulk_upload_page(request: Request, flow_id: str = "", user: User = Depends(require_manager), db: Session = Depends(get_db)):
+def fms_bulk_upload_page(request: Request, flow_id: str = "", user: User = Depends(require_manager_or_redirect), db: Session = Depends(get_db)):
     flows = db.query(FMSFlow).filter(
         FMSFlow.tenant_id == user.tenant_id, FMSFlow.is_active == True, FMSFlow.is_deleted == False,
     ).order_by(FMSFlow.name).all()
@@ -2676,7 +2681,7 @@ def fms_api_flow_defaults(
 def fms_bulk_create_get(
     request: Request,
     flow_id: Optional[str] = Query(default=None),
-    user: User = Depends(require_manager),
+    user: User = Depends(require_manager_or_redirect),
     db: Session = Depends(get_db),
 ):
     """A3-1: Bulk ticket creation form."""
@@ -3093,7 +3098,7 @@ async def fms_bulk_transition(
 @router.get("/tickets/{ticket_id}", response_class=HTMLResponse)
 def fms_ticket_detail(
     ticket_id: str, request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_or_redirect),
     db: Session = Depends(get_db),
 ):
     # Phase A2: detail page removed — redirect to Stage view
@@ -4442,7 +4447,7 @@ def fms_help_request(
 @router.get("/analytics", response_class=HTMLResponse)
 def fms_analytics(
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_or_redirect),
     db: Session = Depends(get_db),
 ):
     """2-F-1/2: TaT breach rates and stage compliance per employee."""

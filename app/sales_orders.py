@@ -35,6 +35,7 @@ from .uploads import save_upload
 router = APIRouter()
 
 _require_sales = require_module("SALES", "SALES_MODULE")
+_require_sales_or_redirect = require_module("SALES", "SALES_MODULE", redirect_unauthenticated=True)
 
 
 def _ctx(db: Session, user: User, **extra) -> dict:
@@ -207,7 +208,7 @@ def _actuals_for_agent(db: Session, tenant_id: str, agent_id: str, period_label:
 def sales_targets_view(
     request: Request,
     period: str = "",
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     period_label = period or datetime.utcnow().strftime("%Y-%m")
@@ -309,7 +310,7 @@ def orders_list(
     request: Request,
     status: str = "",
     page: int = 1,
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     q = db.query(SalesOrder).filter(
@@ -337,7 +338,7 @@ def order_new_form(
     request: Request,
     customer_id: str = "",
     call_log_id: str = "",
-    user: User = Depends(_require_sales),
+    user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
 ):
     customer = None
@@ -528,7 +529,7 @@ def bulk_template(user: User = Depends(_require_sales)):
 
 
 @router.get("/sales/orders/bulk-upload", response_class=HTMLResponse)
-def bulk_upload_form(request: Request, user: User = Depends(_require_sales), db: Session = Depends(get_db)):
+def bulk_upload_form(request: Request, user: User = Depends(_require_sales_or_redirect), db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "sales/orders_bulk_upload.html", _ctx(db, user, columns=_BULK_COLS))
 
 

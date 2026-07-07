@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from .database import get_db, KnowledgeItem, Tenant
-from .auth import get_current_user, User, get_nav_flags
+from .auth import get_current_user, get_current_user_or_redirect, User, get_nav_flags
 from .constants import has_feature
 from .templates_env import templates
 from .labels import get_labels, DEFAULT_L
@@ -84,7 +84,7 @@ def knowledge_index(
     category: str = "",
     kind: str = "",
     page: int = 1,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_or_redirect),
     db: Session = Depends(get_db),
 ):
     _require_feature(user, db)

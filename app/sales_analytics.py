@@ -15,7 +15,7 @@ from .database import (
     get_db, Customer, Product, ProductVariant, SalesOrder, SalesOrderItem,
     TierSnapshot, AnomalyAlert, User,
 )
-from .auth import get_current_user, has_module
+from .auth import get_current_user, get_current_user_or_redirect, has_module
 from .constants import has_feature
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
@@ -32,6 +32,21 @@ ALERT_TYPES = (
 
 def _require_analytics(request: Request, user: User = Depends(get_current_user),
                         db: Session = Depends(get_db)) -> User:
+    if not has_module(user, "SALES"):
+        raise HTTPException(status_code=403, detail="Sales module not enabled for this user")
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(status_code=403, detail="Admin/Manager only")
+    tenant = user.tenant
+    if not has_feature(tenant, "SALES_MODULE", db):
+        raise HTTPException(status_code=403, detail="Sales module not enabled for this tenant")
+    if not has_feature(tenant, "SALES_ANALYTICS", db):
+        raise HTTPException(status_code=403, detail="Sales Analytics not enabled for this tenant")
+    return user
+
+def _require_analytics_or_redirect(request: Request, user: User = Depends(get_current_user_or_redirect),
+                                    db: Session = Depends(get_db)) -> User:
+    """Same checks as _require_analytics, for GET page routes: missing/invalid
+    session redirects to /login instead of raw 401 JSON."""
     if not has_module(user, "SALES"):
         raise HTTPException(status_code=403, detail="Sales module not enabled for this user")
     if user.role not in ("ADMIN", "MANAGER"):
@@ -81,7 +96,7 @@ def _latest_tier_snapshots(db: Session, tenant_id: str, entity_type: str):
 
 @router.get("/sales/analytics", response_class=HTMLResponse)
 def analytics_dashboard(request: Request, db: Session = Depends(get_db),
-                         user: User = Depends(_require_analytics)):
+                         user: User = Depends(_require_analytics_or_redirect)):
     tenant_id = user.tenant_id
     now = datetime.utcnow()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -201,7 +216,7 @@ def analytics_dashboard(request: Request, db: Session = Depends(get_db),
 
 @router.get("/sales/analytics/anomalies", response_class=HTMLResponse)
 def anomaly_feed(request: Request, db: Session = Depends(get_db),
-                  user: User = Depends(_require_analytics),
+                  user: User = Depends(_require_analytics_or_redirect),
                   alert_type: str = None, severity: str = None,
                   is_read: str = None, show_dismissed: str = None):
     tenant_id = user.tenant_id
@@ -259,7 +274,7 @@ def dismiss_alert(alert_id: str, request: Request, db: Session = Depends(get_db)
 
 @router.get("/sales/analytics/tiers/customers", response_class=HTMLResponse)
 def customer_tiers(request: Request, db: Session = Depends(get_db),
-                    user: User = Depends(_require_analytics),
+                    user: User = Depends(_require_analytics_or_redirect),
                     tier: str = None, agent_id: str = None):
     tenant_id = user.tenant_id
     snapshots = _latest_tier_snapshots(db, tenant_id, "CUSTOMER")
@@ -290,7 +305,7 @@ def customer_tiers(request: Request, db: Session = Depends(get_db),
 
 @router.get("/sales/analytics/tiers/products", response_class=HTMLResponse)
 def product_tiers(request: Request, db: Session = Depends(get_db),
-                   user: User = Depends(_require_analytics), tier: str = None):
+                   user: User = Depends(_require_analytics_or_redirect), tier: str = None):
     tenant_id = user.tenant_id
     snapshots = _latest_tier_snapshots(db, tenant_id, "PRODUCT")
     snap_by_variant = {s.entity_id: s for s in snapshots}
@@ -320,7 +335,7 @@ def product_tiers(request: Request, db: Session = Depends(get_db),
 
 @router.get("/sales/analytics/volume", response_class=HTMLResponse)
 def volume_breakdown(request: Request, db: Session = Depends(get_db),
-                      user: User = Depends(_require_analytics)):
+                      user: User = Depends(_require_analytics_or_redirect)):
     tenant_id = user.tenant_id
     cutoff = datetime.utcnow() - timedelta(days=90)
 
