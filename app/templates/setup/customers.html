@@ -52,11 +52,20 @@
       </label>
     </form>
 
+    <div id="cust-bulk-bar" style="display:none;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:12px;flex-wrap:wrap">
+      <span id="cust-bulk-count" style="font-size:13px;font-weight:600;color:#a5b4fc">0 selected</span>
+      <button type="button" onclick="custBulkDelete()" class="btn btn-sm" style="font-size:11px;background:#dc2626;color:#fff;border-color:#dc2626">🗑 Delete</button>
+      <button type="button" onclick="custClearBulkSelection()" class="btn btn-sm btn-gray" style="font-size:11px;margin-left:auto">✕ Clear</button>
+    </div>
+
     <!-- Table -->
     <div class="card" style="padding:0;overflow:hidden">
       <table class="table" id="custTable">
         <thead>
           <tr>
+            <th style="width:32px;padding-right:0">
+              <input type="checkbox" id="cust-select-all" title="Select all" onchange="custToggleAll(this)" style="cursor:pointer;width:14px;height:14px">
+            </th>
             <th>Name</th>
             <th>Contact Person</th>
             <th>Phone</th>
@@ -69,6 +78,9 @@
         <tbody>
           {% for c in customers %}
           <tr data-name="{{ c.name|lower }}">
+            <td style="padding-right:0;vertical-align:middle">
+              <input type="checkbox" class="cust-chk" value="{{ c.id }}" onchange="custUpdateBulkBar()" style="cursor:pointer;width:14px;height:14px">
+            </td>
             <td><strong>{{ c.name }}</strong></td>
             <td>{{ c.contact_person or '—' }}</td>
             <td>{{ c.phone or '—' }}</td>
@@ -99,7 +111,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="7" style="text-align:center;color:var(--text-faint);padding:32px">No customers yet. Add your first customer above.</td></tr>
+          <tr><td colspan="8" style="text-align:center;color:var(--text-faint);padding:32px">No customers yet. Add your first customer above.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -306,6 +318,58 @@ function openEdit(c) {
   document.getElementById('edit_is_active').value = c.is_active ? '1' : '0';
   document.getElementById('editForm').action = '/setup/customers/' + c.id + '/edit';
   document.getElementById('editModal').style.display = 'flex';
+}
+
+function custUpdateBulkBar() {
+  var table = document.getElementById('custTable');
+  if (!table) return;
+  var checked = table.querySelectorAll('.cust-chk:checked');
+  var all    = table.querySelectorAll('.cust-chk');
+  var bar    = document.getElementById('cust-bulk-bar');
+  var count  = document.getElementById('cust-bulk-count');
+  var selAll = document.getElementById('cust-select-all');
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    count.textContent = checked.length + ' selected';
+  } else {
+    bar.style.display = 'none';
+  }
+  if (selAll) {
+    selAll.indeterminate = checked.length > 0 && checked.length < all.length;
+    selAll.checked = all.length > 0 && checked.length === all.length;
+  }
+}
+
+function custToggleAll(masterCb) {
+  var table = document.getElementById('custTable');
+  if (!table) return;
+  table.querySelectorAll('.cust-chk').forEach(function(cb) { cb.checked = masterCb.checked; });
+  custUpdateBulkBar();
+}
+
+function custClearBulkSelection() {
+  var table = document.getElementById('custTable');
+  if (table) table.querySelectorAll('.cust-chk').forEach(function(cb){ cb.checked = false; });
+  var selAll = document.getElementById('cust-select-all');
+  if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+  custUpdateBulkBar();
+}
+
+function custBulkDelete() {
+  var table = document.getElementById('custTable');
+  var checked = table ? Array.from(table.querySelectorAll('.cust-chk:checked')) : [];
+  if (!checked.length) return;
+  if (!confirm('Permanently delete ' + checked.length + ' customer(s)? This cannot be undone. Customers with existing sales activity will be skipped.')) return;
+  var form = document.createElement('form');
+  form.method = 'post';
+  form.action = '/setup/customers/bulk-delete';
+  checked.forEach(function(cb) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'customer_ids'; inp.value = cb.value;
+    form.appendChild(inp);
+  });
+  document.body.appendChild(form);
+  form.submit();
 }
 </script>
 {% endblock %}
