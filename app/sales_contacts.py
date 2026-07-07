@@ -18,6 +18,7 @@ from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread, resolve_customer_agent, _CUSTOMER_TIERS
 from .constants import BULK_IMPORT_MAX_ROWS
+from .bulk_common import check_required_headers
 
 router = APIRouter()
 
@@ -168,12 +169,17 @@ def get_agent_queue(
         )
         freq = cust.contact_freq_days or 30
         agg = order_agg.get(cust.id, {"count": 0, "total": 0.0, "last_at": None})
+        next_due = (
+            next_follow_up + timedelta(days=freq) if next_follow_up
+            else datetime.utcnow() + timedelta(days=freq)
+        )
 
         entry = {
             "customer": cust,
             "last_contacted": last_contacted,
             "days_since_contact": days_since,
             "next_follow_up": next_follow_up,
+            "next_due": next_due,
             "order_count": agg["count"],
             "order_total": agg["total"],
             "last_order_at": agg["last_at"],
@@ -376,6 +382,22 @@ def contact_create_form(
     ))
 
 
+STAGE_CHOICES = ("p1", "p2", "p3", "p4")
+STAGE_LABELS = {"p1": "Follow-up due", "p2": "Overdue contact", "p3": "Contact soon", "p4": "On track"}
+STAGE_COLORS = {"p1": "#ef4444", "p2": "#f59e0b", "p3": "#eab308", "p4": "#22c55e"}
+
+
+def _classify_stage(days_since: int, next_follow_up, freq: int) -> str:
+    today = date.today()
+    if next_follow_up and next_follow_up.date() <= today:
+        return "p1"
+    if days_since >= freq:
+        return "p2"
+    if days_since >= int(freq * 0.8):
+        return "p3"
+    return "p4"
+
+
 @router.get("/sales/contacts/all", response_class=HTMLResponse)
 def contacts_list(
     request: Request,
@@ -383,6 +405,7 @@ def contacts_list(
     search: str = "",
     tier: list = Query(default=[]),
     agent_id: list = Query(default=[]),
+    stage: list = Query(default=[]),
     status: str = "active",
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
@@ -407,18 +430,48 @@ def contacts_list(
     elif status == "inactive":
         q = q.filter(Customer.is_active == False)
 
-    q = q.order_by(Customer.name)
-    total = q.count()
-    customers = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
+    customers = q.order_by(Customer.name).all()
 
     now = datetime.utcnow()
-    order_agg = _order_aggregates(db, user.tenant_id, [c.id for c in customers])
-    rows = [{
-        "customer": c,
-        "days_since_contact": (now - c.last_contacted_at).days if c.last_contacted_at else None,
-        "order_count": order_agg.get(c.id, {}).get("count", 0),
-        "order_total": order_agg.get(c.id, {}).get("total", 0.0),
-    } for c in customers]
+    pending_map = {}
+    if customers:
+        pending_rows = (
+            db.query(CRMCallLog.customer_id, func.min(CRMCallLog.follow_up_at).label("next_follow_up"))
+            .filter(
+                CRMCallLog.tenant_id == user.tenant_id,
+                CRMCallLog.customer_id.in_([c.id for c in customers]),
+                CRMCallLog.follow_up_done == False,
+                CRMCallLog.follow_up_at != None,
+            )
+            .group_by(CRMCallLog.customer_id)
+            .all()
+        )
+        pending_map = {r.customer_id: r.next_follow_up for r in pending_rows}
+
+    all_rows = []
+    for c in customers:
+        days_since = (now - c.last_contacted_at).days if c.last_contacted_at else 9999
+        next_follow_up = pending_map.get(c.id)
+        freq = c.contact_freq_days or 30
+        stage_key = _classify_stage(days_since, next_follow_up, freq)
+        all_rows.append({
+            "customer": c,
+            "days_since_contact": (now - c.last_contacted_at).days if c.last_contacted_at else None,
+            "next_follow_up": next_follow_up,
+            "stage": stage_key,
+        })
+
+    if stage:
+        all_rows = [r for r in all_rows if r["stage"] in stage]
+
+    total = len(all_rows)
+    rows = all_rows[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]
+
+    order_agg = _order_aggregates(db, user.tenant_id, [r["customer"].id for r in rows])
+    for r in rows:
+        agg = order_agg.get(r["customer"].id, {"count": 0, "total": 0.0})
+        r["order_count"] = agg["count"]
+        r["order_total"] = agg["total"]
 
     agents = []
     if user.role in ("ADMIN", "MANAGER"):
@@ -438,6 +491,8 @@ def contacts_list(
         rows=rows, total=total, page=page, page_size=PAGE_SIZE,
         search=search, tier=tier, agent_id=agent_id, status=status,
         agents=agents, tier_choices=TIER_CHOICES, price_lists=price_lists,
+        stage=stage, stage_choices=STAGE_CHOICES, stage_labels=STAGE_LABELS,
+        stage_colors=STAGE_COLORS,
     ))
 
 
@@ -554,6 +609,24 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
     }, None
 
 
+def _run_bulk_validation(rows_in: list, tenant_id: str, db: Session, start_index: int = 2) -> dict:
+    """Shared validator for both the initial CSV upload and re-validation of edited error rows."""
+    seen_phones = set()
+    valid_rows, errors = [], []
+    for i, row in enumerate(rows_in, start=start_index):
+        parsed, error = _validate_bulk_row(row, tenant_id, db, seen_phones)
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": dict(row)})
+        else:
+            valid_rows.append(parsed)
+    return {
+        "total": len(valid_rows) + len(errors),
+        "valid": len(valid_rows),
+        "errors": errors,
+        "rows": valid_rows,
+    }
+
+
 @router.post("/sales/contacts/bulk-upload")
 async def bulk_upload(
     file: UploadFile = File(...),
@@ -567,27 +640,31 @@ async def bulk_upload(
         raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
     content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     try:
-        reader = list(csv.DictReader(io.StringIO(content)))
+        dict_reader = csv.DictReader(io.StringIO(content))
+        reader = list(dict_reader)
     except csv.Error:
         raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    fmt_err = check_required_headers(dict_reader.fieldnames, ["name", "phone"], _BULK_COLS)
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
     if len(reader) > BULK_IMPORT_MAX_ROWS:
         raise HTTPException(400, f"File has {len(reader)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    seen_phones = set()
-    valid_rows, errors = [], []
-
     for i, row in enumerate(reader, start=2):
-        parsed, error = _validate_bulk_row(row, user.tenant_id, db, seen_phones)
-        if error:
-            errors.append({"row": i, "error": error, "data": dict(row)})
-        else:
-            valid_rows.append(parsed)
+        row["_row"] = i
+    return JSONResponse(_run_bulk_validation(reader, user.tenant_id, db))
 
-    return JSONResponse({
-        "total": len(valid_rows) + len(errors),
-        "valid": len(valid_rows),
-        "errors": errors,
-        "rows": valid_rows,
-    })
+
+@router.post("/sales/contacts/bulk-upload/revalidate")
+async def bulk_upload_revalidate(
+    payload: dict,
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    """Re-validate a small set of edited error rows in-browser, without re-uploading the file."""
+    rows_in = payload.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_bulk_validation(rows_in, user.tenant_id, db))
 
 
 @router.post("/sales/contacts/bulk-upload/confirm")

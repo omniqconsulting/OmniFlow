@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Bulk Import Branches{% endblock %}
+{% block content %}
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Bulk Import Branches",
+  back_url="/setup",
+  back_label="Back to Setup",
+  download_url="/employees/import/template?entity=branches",
+  validate_url="/branches/import",
+  revalidate_url="/branches/import/revalidate",
+  confirm_url="/branches/import/confirm",
+  columns=columns,
+  row_label="branch(es)"
+) }}
+{% endblock %}

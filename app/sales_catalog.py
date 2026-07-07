@@ -24,6 +24,7 @@ from .auth import get_current_user, require_admin, require_manager, has_module, 
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 from .constants import BULK_IMPORT_MAX_ROWS
+from .bulk_common import check_required_headers
 from .sales_catalog_sync import (
     sync_end_product_from_variant, remove_end_product_for_variant,
     resolve_or_create_hierarchy, attach_drive_photo,
@@ -647,19 +648,23 @@ async def schema_reorder(request: Request, user: User = Depends(require_admin), 
 # product_name collapse onto the same parent Product.
 # ══════════════════════════════════════════════════════════════════════════════
 
+_BASE_VARIANT_COLS = [
+    "category", "sub_category", "product_name", "product_description",
+    "sku_code", "variant_label", "unit_abbreviation", "low_stock_threshold", "photo_drive_link",
+]
+
+
 @router.get("/sales/catalog/bulk-upload", response_class=HTMLResponse)
 def bulk_upload_page(request: Request, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
-    return templates.TemplateResponse(request, "sales/catalog_bulk_upload.html", _ctx(db, user))
+    schema_fields = _active_schema_fields(db, user.tenant_id)
+    cols = _BASE_VARIANT_COLS + [f.label for f in schema_fields]
+    return templates.TemplateResponse(request, "sales/catalog_bulk_upload.html", _ctx(db, user, columns=cols))
 
 
 @router.get("/sales/catalog/bulk-template")
 def bulk_template(user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
     schema_fields = _active_schema_fields(db, user.tenant_id)
-    cols = [
-        "category", "sub_category", "product_name", "product_description",
-        "sku_code", "variant_label", "unit_abbreviation", "low_stock_threshold", "photo_drive_link",
-    ]
-    cols += [f.label for f in schema_fields]
+    cols = _BASE_VARIANT_COLS + [f.label for f in schema_fields]
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(cols)
@@ -691,6 +696,31 @@ def _validate_variant_row(row, tenant_id, db, existing_skus):
     return errors
 
 
+def _run_variant_validation(rows_in: list, tenant_id: str, db: Session, start_index: int = 2) -> dict:
+    existing_skus = {
+        r[0] for r in db.query(ProductVariant.sku_code).filter(
+            ProductVariant.tenant_id == tenant_id, ProductVariant.is_deleted == False,
+        ).all()
+    }
+    results = []
+    valid_rows = []
+    seen_in_file = set()
+    for i, row in enumerate(rows_in, start=start_index):
+        errors = _validate_variant_row(row, tenant_id, db, existing_skus | seen_in_file)
+        sku = (row.get("sku_code") or "").strip()
+        if not errors:
+            valid_rows.append(row)
+            seen_in_file.add(sku)
+        else:
+            results.append({"row": row.get("_row", i), "error": "; ".join(errors), "data": dict(row)})
+    return {
+        "total": len(valid_rows) + len(results),
+        "valid": len(valid_rows),
+        "errors": results,
+        "rows": valid_rows,
+    }
+
+
 @router.post("/sales/catalog/bulk-upload")
 async def bulk_upload(
     file: UploadFile = File(...),
@@ -704,35 +734,27 @@ async def bulk_upload(
         raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
     content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
     try:
-        rows = list(csv.DictReader(io.StringIO(content)))
+        dict_reader = csv.DictReader(io.StringIO(content))
+        rows = list(dict_reader)
     except csv.Error:
         raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    fmt_err = check_required_headers(dict_reader.fieldnames, ["sku_code", "product_name"], _BASE_VARIANT_COLS)
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
     if len(rows) > BULK_IMPORT_MAX_ROWS:
         raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    existing_skus = {
-        r[0] for r in db.query(ProductVariant.sku_code).filter(
-            ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
-        ).all()
-    }
-
-    results = []
-    valid_count = 0
-    seen_in_file = set()
     for i, row in enumerate(rows, start=2):
-        errors = _validate_variant_row(row, user.tenant_id, db, existing_skus | seen_in_file)
-        sku = (row.get("sku_code") or "").strip()
-        if not errors:
-            valid_count += 1
-            seen_in_file.add(sku)
-        else:
-            results.append({"row": i, "sku": sku, "errors": errors})
+        row["_row"] = i
+    return JSONResponse(_run_variant_validation(rows, user.tenant_id, db))
 
-    return JSONResponse({
-        "total": len(rows),
-        "valid": valid_count,
-        "errors": results,
-        "rows": rows,
-    })
+
+@router.post("/sales/catalog/bulk-upload/revalidate")
+async def bulk_upload_revalidate(request: Request, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_variant_validation(rows_in, user.tenant_id, db))
 
 
 @router.post("/sales/catalog/bulk-upload/confirm")
@@ -806,7 +828,8 @@ async def bulk_upload_confirm(request: Request, user: User = Depends(_require_sa
     except Exception as e:
         db.rollback()
         raise HTTPException(400, f"Import failed — no products were created. {e}")
-    return JSONResponse({"created": created, "skipped": skipped, "photo_warnings": photo_warnings})
+    warnings = [f"Photo for {w['sku']}: {w['error']}" for w in photo_warnings]
+    return JSONResponse({"created": created, "skipped": skipped, "photo_warnings": photo_warnings, "warnings": warnings})
 
 
 @router.get("/sales/catalog/export")

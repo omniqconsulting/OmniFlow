@@ -29,6 +29,7 @@ from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 from .sales_inventory import reserve_stock_for_item, release_all_reservations, fulfill_reservation
 from .constants import SALES_MARGIN_FLOOR_PCT, BULK_IMPORT_MAX_ROWS
+from .bulk_common import check_required_headers
 from .uploads import save_upload
 
 router = APIRouter()
@@ -528,7 +529,7 @@ def bulk_template(user: User = Depends(_require_sales)):
 
 @router.get("/sales/orders/bulk-upload", response_class=HTMLResponse)
 def bulk_upload_form(request: Request, user: User = Depends(_require_sales), db: Session = Depends(get_db)):
-    return templates.TemplateResponse(request, "sales/orders_bulk_upload.html", _ctx(db, user))
+    return templates.TemplateResponse(request, "sales/orders_bulk_upload.html", _ctx(db, user, columns=_BULK_COLS))
 
 
 @router.get("/sales/orders/export")
@@ -1120,29 +1121,12 @@ def api_variant_lookup(
 # BULK ORDER CREATION  (GET form/template routes declared earlier, above)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.post("/sales/orders/bulk-upload")
-async def bulk_upload(
-    file: UploadFile = File(...),
-    user: User = Depends(_require_sales),
-    db: Session = Depends(get_db),
-):
-    raw = await file.read()
-    if not raw:
-        raise HTTPException(400, "Uploaded file is empty.")
-    if (file.filename or "").lower().endswith((".xlsx", ".xls")):
-        raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
-    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
-    try:
-        reader = list(csv.DictReader(io.StringIO(content)))
-    except csv.Error:
-        raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
-    if len(reader) > BULK_IMPORT_MAX_ROWS:
-        raise HTTPException(400, f"File has {len(reader)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-
+def _run_order_validation(rows_in: list, tenant_id: str, db: Session, start_index: int = 2) -> dict:
     rows_by_phone: dict = {}
     errors = []
 
-    for i, row in enumerate(reader, start=2):
+    for i, row in enumerate(rows_in, start=start_index):
+        i = row.get("_row", i)
         phone = (row.get("customer_phone") or "").strip()
         sku = (row.get("product_sku") or "").strip()
         qty_raw = (row.get("qty") or "").strip()
@@ -1155,7 +1139,7 @@ async def bulk_upload(
             continue
 
         customer = db.query(Customer).filter(
-            Customer.tenant_id == user.tenant_id, Customer.phone == phone,
+            Customer.tenant_id == tenant_id, Customer.phone == phone,
             Customer.is_deleted == False,
         ).first()
         if not customer:
@@ -1163,7 +1147,7 @@ async def bulk_upload(
             continue
 
         variant = db.query(ProductVariant).filter(
-            ProductVariant.tenant_id == user.tenant_id, ProductVariant.sku_code == sku,
+            ProductVariant.tenant_id == tenant_id, ProductVariant.sku_code == sku,
             ProductVariant.is_deleted == False,
         ).first()
         if not variant:
@@ -1190,7 +1174,7 @@ async def bulk_upload(
         agent_id = None
         if salesman_email:
             agent = db.query(User).filter(
-                User.tenant_id == user.tenant_id, User.email == salesman_email,
+                User.tenant_id == tenant_id, User.email == salesman_email,
                 User.is_active == True, User.is_deleted == False,
             ).first()
             if not agent or not has_module(agent, "SALES"):
@@ -1202,7 +1186,7 @@ async def bulk_upload(
         branch_id = None
         if branch_name:
             branch = db.query(Branch).filter(
-                Branch.tenant_id == user.tenant_id, Branch.is_deleted == False,
+                Branch.tenant_id == tenant_id, Branch.is_deleted == False,
                 func.lower(Branch.name) == branch_name.lower(),
             ).first()
             if not branch:
@@ -1238,10 +1222,13 @@ async def bulk_upload(
     unavailable_count = sum(
         1 for o in preview_orders for it in o["items"] if it["unavailable"]
     )
+    valid_row_count = sum(len(o["items"]) for o in preview_orders)
 
-    return JSONResponse({
+    return {
         "order_count": len(preview_orders),
         "unavailable_count": unavailable_count,
+        "total": valid_row_count + len(errors),
+        "valid": valid_row_count,
         "orders": [
             {
                 "customer_phone": o["customer_phone"],
@@ -1266,7 +1253,43 @@ async def bulk_upload(
             for o in preview_orders
         ],
         "errors": errors,
-    })
+    }
+
+
+@router.post("/sales/orders/bulk-upload")
+async def bulk_upload(
+    file: UploadFile = File(...),
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    if (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Please upload the CSV template, not an Excel file.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    try:
+        dict_reader = csv.DictReader(io.StringIO(content))
+        reader = list(dict_reader)
+    except csv.Error:
+        raise HTTPException(400, "Could not parse file — please upload a valid CSV using the provided template.")
+    fmt_err = check_required_headers(dict_reader.fieldnames, ["customer_phone", "product_sku", "qty"], _BULK_COLS)
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
+    if len(reader) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(reader)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    for i, row in enumerate(reader, start=2):
+        row["_row"] = i
+    return JSONResponse(_run_order_validation(reader, user.tenant_id, db))
+
+
+@router.post("/sales/orders/bulk-upload/revalidate")
+async def bulk_upload_revalidate(request: Request, user: User = Depends(_require_sales), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_order_validation(rows_in, user.tenant_id, db))
 
 
 @router.post("/sales/orders/bulk-upload/confirm")

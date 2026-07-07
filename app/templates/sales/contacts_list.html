@@ -3,44 +3,23 @@
 {% block content %}
 {% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
 
-<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
-  <div>
-    <h2 class="page-title">All Customers</h2>
-    <div class="muted">{{ total }} customer{{ '' if total == 1 else 's' }}</div>
-  </div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+
+<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+  <div class="muted">{{ total }} customer{{ '' if total == 1 else 's' }}</div>
+  <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap">
+    <a href="/sales/contacts/export?agent_id={{ agent_id[0] if agent_id else '' }}" class="btn btn-sm btn-outline">⬇ Export</a>
+    <a href="/sales/contacts/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
+    <button type="button" class="btn btn-sm btn-primary" onclick="openModal('addContactModal')">+ New Customer</button>
     <div class="qv-switch list" onclick="window.location='/sales/contacts?agent_id={{ agent_id[0] if agent_id else '' }}&search={{ search }}'">
       <div class="qv-knob"></div>
       <span class="qv-lbl">Quadrant</span>
       <span class="qv-lbl on">List</span>
     </div>
-    <a href="/sales/contacts/export?agent_id={{ agent_id[0] if agent_id else '' }}" class="btn btn-sm btn-outline">⬇ Export</a>
-    <a href="/sales/contacts/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
-    <button type="button" class="btn btn-sm btn-primary" onclick="openModal('addContactModal')">+ New Customer</button>
   </div>
 </div>
 
-{% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
-
-<form method="get" action="/sales/contacts/all" class="filter-bar">
-  <div class="filter-group" style="flex:1;min-width:200px">
-    <label>Search</label>
-    <input name="search" value="{{ search }}" placeholder="Search name or phone…" style="width:100%">
-  </div>
-  <div class="ms-wrap" data-name="tier" data-placeholder="All tiers">
-    <div class="ms-label">Tier</div>
-    <button type="button" class="ms-btn" onclick="toggleMs(this)">
-      <span class="ms-btn-text">All tiers</span><span class="ms-caret">▾</span>
-    </button>
-    <div class="ms-panel">
-      {% for t in tier_choices %}
-      <label class="ms-item">
-        <input type="checkbox" value="{{ t }}" onchange="onMsChange(this)" {% if t in tier %}checked{% endif %}>
-        {{ t }}
-      </label>
-      {% endfor %}
-    </div>
-  </div>
+<form method="get" action="/sales/contacts/all" class="filter-bar" style="margin-bottom:14px">
   {% if user.role in ('ADMIN','MANAGER') and agents %}
   <div class="ms-wrap" data-name="agent_id" data-placeholder="All agents">
     <div class="ms-label">Agent</div>
@@ -57,6 +36,34 @@
     </div>
   </div>
   {% endif %}
+  <div class="ms-wrap" data-name="tier" data-placeholder="All tiers">
+    <div class="ms-label">Tier</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All tiers</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for t in tier_choices %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ t }}" onchange="onMsChange(this)" {% if t in tier %}checked{% endif %}>
+        {{ t }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="ms-wrap" data-name="stage" data-placeholder="All stages">
+    <div class="ms-label">Stage</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All stages</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for s in stage_choices %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ s }}" onchange="onMsChange(this)" {% if s in stage %}checked{% endif %}>
+        {{ stage_labels[s] }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
   <div class="filter-group">
     <label>Status</label>
     <select name="status">
@@ -64,6 +71,10 @@
       <option value="inactive" {{ 'selected' if status == 'inactive' else '' }}>Inactive</option>
       <option value="" {{ 'selected' if status == '' else '' }}>Any</option>
     </select>
+  </div>
+  <div class="filter-group" style="flex:1;min-width:200px">
+    <label>Search</label>
+    <input name="search" value="{{ search }}" placeholder="Search name or phone…" style="width:100%">
   </div>
   <div style="align-self:flex-end">
     <button type="submit" class="btn btn-primary btn-sm">Apply</button>
@@ -74,7 +85,7 @@
 <div class="card" style="padding:0;overflow:hidden">
 <table class="table" style="width:100%">
   <thead><tr>
-    <th>Name</th><th>Phone</th><th>Tier</th><th>Assigned Agent</th>
+    <th>Name</th><th>Phone</th><th>Tier</th><th>Stage</th><th>Assigned Agent</th>
     <th>Last Contacted</th><th>Days Since</th><th>Orders</th><th>Order Value</th><th>Actions</th>
   </tr></thead>
   <tbody>
@@ -84,6 +95,7 @@
       <td><a href="/sales/contacts/{{ c.id }}">{{ c.name }}</a></td>
       <td>{{ c.phone or '—' }}</td>
       <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(c.customer_tier, '#94a3b8') }}">{{ c.customer_tier }}</span></td>
+      <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ stage_colors[row.stage] }}">{{ stage_labels[row.stage] }}</span></td>
       <td>{{ c.assigned_agent.name if c.assigned_agent else '—' }}</td>
       <td>{{ c.last_contacted_at.strftime('%d %b %Y') if c.last_contacted_at else 'Never' }}</td>
       <td>{{ row.days_since_contact if row.days_since_contact is not none else '—' }}</td>
@@ -99,11 +111,12 @@
 </table>
 </div>
 
+{% macro page_link(p) %}?page={{ p }}&search={{ search }}{% for t in tier %}&tier={{ t }}{% endfor %}{% for a in agent_id %}&agent_id={{ a }}{% endfor %}{% for s in stage %}&stage={{ s }}{% endfor %}&status={{ status }}{% endmacro %}
 {% if total > page_size %}
 <div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:24px;font-size:12px;color:var(--text-muted)">
-  {% if page > 1 %}<a href="?page={{ page-1 }}&search={{ search }}&tier={{ tier }}&agent_id={{ agent_id }}&status={{ status }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
+  {% if page > 1 %}<a href="{{ page_link(page-1) }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
   <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
-  {% if page * page_size < total %}<a href="?page={{ page+1 }}&search={{ search }}&tier={{ tier }}&agent_id={{ agent_id }}&status={{ status }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
+  {% if page * page_size < total %}<a href="{{ page_link(page+1) }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
 </div>
 {% endif %}
 

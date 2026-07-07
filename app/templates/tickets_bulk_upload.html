@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload {{ L.Tickets }}{% endblock %}
+{% block content %}
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Bulk Upload " ~ L.Tickets,
+  back_url="/tickets",
+  back_label="Back to " ~ L.Tickets,
+  download_url="/tickets/bulk-template",
+  validate_url="/tickets/bulk-upload",
+  revalidate_url="/tickets/bulk-upload/revalidate",
+  confirm_url="/tickets/bulk-upload/confirm",
+  columns=columns,
+  row_label="ticket(s)",
+  instructions='1. Download the <a href="/tickets/bulk-template">CSV template</a>, fill it in, and upload it below. <code>assignee_phone</code> must match an active user; <code>due_at</code> must be YYYY-MM-DD HH:MM.<br>2. Fix any errored rows directly in the table (no need to re-upload) and click Re-validate.'
+) }}
+{% endblock %}

@@ -89,7 +89,7 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
         {% endif %}
       </div>
       <div style="display:flex;gap:8px">
-        {% if can_bulk %}<button onclick="toggleForm('import-branches')" class="btn btn-sm btn-outline">⬆ Import CSV</button>{% endif %}
+        {% if can_bulk %}<a href="/branches/bulk-upload-page" class="btn btn-sm btn-outline">⬆ Import CSV</a>{% endif %}
         {% if plan_limits.max_branches is none or plan_usage.max_branches < plan_limits.max_branches %}
         <button onclick="toggleForm('add-branch')" class="btn btn-sm btn-primary" id="btn-add-branch">+ Add</button>
         {% else %}
@@ -117,23 +117,6 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
         </form>
       </div>
     </div>
-
-    {% if can_bulk %}
-    <div id="import-branches" style="display:none;margin-bottom:16px">
-      <div class="form-panel">
-        <p style="font-size:11px;color:var(--text-faint);margin-bottom:8px">
-          CSV columns: <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px">name, address</code>
-          <a href="/employees/import/template?entity=branches" style="font-size:11px;color:#60a5fa;margin-left:8px">⬇ Template</a>
-        </p>
-        <form method="post" action="/branches/import" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
-          <input type="hidden" name="redirect_to" value="/setup?open=branch">
-          <input type="file" name="file" accept=".csv" required style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
-          <button type="submit" class="btn btn-sm btn-primary">Import</button>
-          <button type="button" onclick="toggleForm('import-branches')" class="btn btn-sm btn-gray">×</button>
-        </form>
-      </div>
-    </div>
-    {% endif %}
 
     {% if branches %}
     <table>
@@ -181,7 +164,7 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <h2 style="margin:0">{{ L.Departments }}</h2>
       <div style="display:flex;gap:8px">
-        {% if can_bulk %}<button onclick="toggleForm('import-depts')" class="btn btn-sm btn-outline">⬆ Import CSV</button>{% endif %}
+        {% if can_bulk %}<a href="/departments/bulk-upload-page" class="btn btn-sm btn-outline">⬆ Import CSV</a>{% endif %}
         <button onclick="toggleForm('add-dept')" class="btn btn-sm btn-primary">+ Add</button>
       </div>
     </div>
@@ -217,22 +200,6 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
         </form>
       </div>
     </div>
-
-    {% if can_bulk %}
-    <div id="import-depts" style="display:none;margin-bottom:16px">
-      <div class="form-panel">
-        <p style="font-size:11px;color:var(--text-faint);margin-bottom:8px">
-          CSV columns: <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px">name, branch_name</code>
-          <a href="/employees/import/template?entity=departments" style="font-size:11px;color:#60a5fa;margin-left:8px">⬇ Template</a>
-        </p>
-        <form method="post" action="/departments/import" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center">
-          <input type="file" name="file" accept=".csv" required style="flex:1;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
-          <button type="submit" class="btn btn-sm btn-primary">Import</button>
-          <button type="button" onclick="toggleForm('import-depts')" class="btn btn-sm btn-gray">×</button>
-        </form>
-      </div>
-    </div>
-    {% endif %}
 
     {% if departments_grouped %}
     <table>

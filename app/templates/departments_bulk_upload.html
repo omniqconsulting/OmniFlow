@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Bulk Import Departments{% endblock %}
+{% block content %}
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Bulk Import Departments",
+  back_url="/setup",
+  back_label="Back to Setup",
+  download_url="/employees/import/template?entity=departments",
+  validate_url="/departments/import",
+  revalidate_url="/departments/import/revalidate",
+  confirm_url="/departments/import/confirm",
+  columns=columns,
+  row_label="department(s)"
+) }}
+{% endblock %}

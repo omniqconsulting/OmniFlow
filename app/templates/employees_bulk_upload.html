@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Bulk Import Employees{% endblock %}
+{% block content %}
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Bulk Import Employees",
+  back_url="/employees",
+  back_label="Back to Employees",
+  download_url="/employees/import/template?entity=employees",
+  validate_url="/employees/import",
+  revalidate_url="/employees/import/revalidate",
+  confirm_url="/employees/import/confirm",
+  columns=columns,
+  row_label="employee(s)",
+  instructions='1. Download the <a href="/employees/import/template?entity=employees">CSV template</a>, fill it in, and upload it below. <code>department_name</code>/<code>branch_name</code>/<code>manager_phone</code> are optional and must match existing records.<br>2. Fix any errored rows directly in the table (no need to re-upload) and click Re-validate.'
+) }}
+{% endblock %}

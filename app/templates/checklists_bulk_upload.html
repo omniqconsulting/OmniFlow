@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload Checklists{% endblock %}
+{% block content %}
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Bulk Upload Checklists",
+  back_url="/checklists",
+  back_label="Back to Checklists",
+  download_url="/checklists/bulk-template",
+  validate_url="/checklists/bulk-upload",
+  revalidate_url="/checklists/bulk-upload/revalidate",
+  confirm_url="/checklists/bulk-upload/confirm",
+  columns=columns,
+  row_label="checklist(s)",
+  instructions='1. Download the <a href="/checklists/bulk-template">CSV template</a>, fill it in, and upload it below. Assign via <code>assigned_to_name</code>, <code>assigned_to_phone</code>, or <code>assigned_to_department</code>.<br>2. Fix any errored rows directly in the table (no need to re-upload) and click Re-validate.'
+) }}
+{% endblock %}

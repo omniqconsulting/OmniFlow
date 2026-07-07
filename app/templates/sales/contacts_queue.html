@@ -18,17 +18,17 @@
 .cq-quad-count{font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;color:#fff}
 .cq-quad-why{font-size:11px;color:var(--text-faint);margin-bottom:6px;line-height:1.4;flex-shrink:0}
 .cq-quad-body{flex:1;overflow:auto;min-height:0}
-.cq-col-hdr{display:grid;align-items:center;gap:10px;padding:0 12px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);background:var(--bg-card);position:sticky;top:0;z-index:2}
-.cq-card{border-bottom:1px solid var(--border-subtle);padding:8px 12px;display:grid;align-items:center;gap:10px;font-size:12px}
+.cq-col-hdr{display:grid;align-items:center;gap:6px;padding:0 8px 6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle);background:var(--bg-card);position:sticky;top:0;z-index:2}
+.cq-card{border-bottom:1px solid var(--border-subtle);padding:6px 8px;display:grid;align-items:center;gap:6px;font-size:11px}
 .cq-card:last-child{border-bottom:none}
-.cq-card-name-wrap{min-width:0;font-size:12px}
-.cq-card-name{font-size:12px;font-weight:600;color:var(--text-strong);text-decoration:none}
-.cq-tier{font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;color:#fff;margin-left:6px}
-.cq-meta-item{font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cq-card-name-wrap{min-width:0;font-size:11px}
+.cq-card-name{font-size:11px;font-weight:600;color:var(--text-strong);text-decoration:none}
+.cq-tier{font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;margin-left:4px}
+.cq-meta-item{font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cq-meta-item b{color:var(--text-primary);font-weight:600}
 .cq-priority-tag{font-size:10px;color:var(--text-faint);margin-left:auto;white-space:nowrap}
 .cq-menu-wrap{position:relative}
-.cq-menu-btn{background:none;border:1px solid var(--border-med);border-radius:6px;width:28px;height:28px;cursor:pointer;color:var(--text-muted);font-size:16px;line-height:1}
+.cq-menu-btn{background:none;border:1px solid var(--border-med);border-radius:6px;width:24px;height:24px;cursor:pointer;color:var(--text-muted);font-size:14px;line-height:1;padding:0}
 .cq-menu-btn:hover{background:var(--hover-bg)}
 .cq-menu{display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:8px;min-width:140px;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,0.4);padding:4px}
 .cq-menu.open{display:block}
@@ -39,8 +39,18 @@
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-<div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:14px">
-<form method="get" action="/sales/contacts" class="filter-bar" style="flex:1;margin-bottom:0">
+<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:12px">
+  <a href="/sales/contacts/export?agent_id={{ selected_agent_id if user.role in ('ADMIN','MANAGER') else '' }}" class="btn btn-sm btn-outline">⬇ Export</a>
+  <a href="/sales/contacts/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
+  <a href="/sales/contacts/all?new=1" class="btn btn-sm btn-primary">+ New Customer</a>
+  <div class="qv-switch" onclick="window.location='/sales/contacts/all?agent_id={{ selected_agent_id if user.role in ('ADMIN','MANAGER') else '' }}&search={{ search }}'">
+    <div class="qv-knob"></div>
+    <span class="qv-lbl on">Quadrant</span>
+    <span class="qv-lbl">List</span>
+  </div>
+</div>
+
+<form method="get" action="/sales/contacts" class="filter-bar" style="margin-bottom:14px">
   {% if user.role in ('ADMIN','MANAGER') and agents %}
   <div class="filter-group">
     <label>Agent</label>
@@ -109,20 +119,8 @@
     {% endif %}
   </div>
 </form>
-<div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0;align-items:flex-end">
-  <div class="qv-switch" onclick="window.location='/sales/contacts/all?agent_id={{ selected_agent_id if user.role in ('ADMIN','MANAGER') else '' }}&search={{ search }}'">
-    <div class="qv-knob"></div>
-    <span class="qv-lbl on">Quadrant</span>
-    <span class="qv-lbl">List</span>
-  </div>
-  <div style="display:flex;gap:6px">
-    <a href="/sales/contacts/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
-    <a href="/sales/contacts/all?new=1" class="btn btn-sm btn-primary">+ New Customer</a>
-  </div>
-</div>
-</div>
 
-{% set cq_cols = "minmax(140px,1.6fr) 100px 150px 120px 150px 40px" %}
+{% set cq_cols = "minmax(90px,1.3fr) 80px 90px 80px 75px 26px" %}
 
 {% macro cust_row(e) %}
 <div class="cq-card" style="grid-template-columns:{{ cq_cols }}">
@@ -131,8 +129,8 @@
     <span class="cq-tier" style="background:{{ tier_colors.get(e.customer.customer_tier, '#94a3b8') }}">{{ e.customer.customer_tier }}</span>
   </div>
   <div class="cq-meta-item">{{ e.customer.phone or '—' }}</div>
-  <div class="cq-meta-item"><b>{{ e.last_contacted.strftime('%d %b %Y') if e.last_contacted else 'Never' }}</b> ({{ e.days_since_contact if e.days_since_contact < 9999 else 'N/A' }}d)</div>
-  <div class="cq-meta-item">{% if e.next_follow_up %}<b>{{ e.next_follow_up.strftime('%d %b %Y') }}</b>{% else %}—{% endif %}</div>
+  <div class="cq-meta-item"><b>{{ e.last_contacted.strftime('%d %b') if e.last_contacted else 'Never' }}</b> ({{ e.days_since_contact if e.days_since_contact < 9999 else 'N/A' }}d)</div>
+  <div class="cq-meta-item"><b>{{ e.next_due.strftime('%d %b %Y') }}</b></div>
   <div class="cq-meta-item"><b>{{ e.order_count }}</b>{% if e.order_total %} · ₹{{ '%.0f'|format(e.order_total) }}{% endif %}</div>
   <div class="cq-menu-wrap">
     <button class="cq-menu-btn" onclick="toggleRowMenu(event, this)">⋮</button>
@@ -158,7 +156,7 @@
     <div class="cq-quad-body">
       {% if list %}
       <div class="cq-col-hdr" style="grid-template-columns:{{ cq_cols }}">
-        <div>Customer</div><div>Phone</div><div>Last Contact</div><div>Follow-up</div><div>Orders</div><div></div>
+        <div>Customer</div><div>Phone</div><div>Last Contact</div><div>Next Due</div><div>Orders</div><div></div>
       </div>
       {% endif %}
       {% for e in list %}{{ cust_row(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}

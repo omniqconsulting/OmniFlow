@@ -29,7 +29,7 @@
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     {% if user.role in ('ADMIN','MANAGER') %}
     <a href="/tickets/bulk-template" class="btn btn-sm btn-outline">⬇ CSV Template</a>
-    <button onclick="document.getElementById('bulk-modal').style.display='flex'" class="btn btn-sm btn-outline">⬆ Bulk Upload</button>
+    <a href="/tickets/bulk-upload-page" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
     {% endif %}
     <a href="/tickets/export?{{ request.query_string.decode() }}" class="btn btn-sm btn-outline" title="Export filtered data as CSV">⬇ Export CSV</a>
     {% if user.role in ('ADMIN','MANAGER','EMPLOYEE') %}
@@ -488,26 +488,6 @@ function openReschedule(ticketId, dueAt) {
 </div>
 {% endif %}
 
-<!-- ── Bulk Upload Modal ──────────────────────────────────────────────────────── -->
-{% if user.role in ('ADMIN','MANAGER') %}
-<div id="bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:center;justify-content:center">
-  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:12px;padding:24px;width:420px;max-width:95vw">
-    <div style="font-size:14px;font-weight:600;color:var(--text-strong);margin-bottom:12px">Bulk Upload {{ L.Tickets }}</div>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Download the template, fill it in, then upload. Failed rows are returned as a downloadable exception report.</p>
-    <a href="/tickets/bulk-template" class="btn btn-sm btn-outline" style="display:inline-block;margin-bottom:14px">⬇ Download Template</a>
-    <form method="post" action="/tickets/bulk-upload" enctype="multipart/form-data">
-      <div class="form-group">
-        <label class="form-label">Upload CSV</label>
-        <input type="file" name="file" accept=".csv" class="form-input" required>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-        <button type="button" onclick="document.getElementById('bulk-modal').style.display='none'" class="btn btn-outline">Cancel</button>
-        <button type="submit" class="btn btn-primary">Upload & Import</button>
-      </div>
-    </form>
-  </div>
-</div>
-{% endif %}
 
 <script>
 /* Toast */

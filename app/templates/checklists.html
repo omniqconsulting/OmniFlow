@@ -52,7 +52,7 @@
   <div style="display:flex;gap:8px">
     {% if user.role == 'ADMIN' %}
     <a href="/checklists/bulk-template" class="btn btn-outline btn-sm">⬇ Template</a>
-    <button onclick="show('bulk-modal')" class="btn btn-outline btn-sm">⬆ Bulk Upload</button>
+    <a href="/checklists/bulk-upload-page" class="btn btn-outline btn-sm">⬆ Bulk Upload</a>
     <button onclick="show('create-modal')" class="btn btn-primary">+ New Checklist</button>
     {% endif %}
     <a href="/checklists/export?{{ request.query_string.decode() }}" class="btn btn-outline btn-sm" title="Export filtered data as CSV">⬇ Export CSV</a>
@@ -1128,32 +1128,6 @@
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" onclick="document.getElementById('complete-modal').classList.remove('open')" class="btn btn-outline">Cancel</button>
         <button type="submit" class="btn btn-primary">✓ Confirm Complete</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- ── Bulk Upload Modal ──────────────────────────────────────────────────── -->
-{% if user.role == 'ADMIN' %}
-<div id="bulk-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);align-items:center;justify-content:center;z-index:100">
-  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:440px;max-width:95vw">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">Bulk Upload Checklists</h3>
-      <button onclick="hide('bulk-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint)">×</button>
-    </div>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">
-      Upload a CSV file to create multiple checklist templates at once.
-      <a href="/checklists/bulk-template" style="color:#3b82f6;text-decoration:none">Download template →</a>
-    </p>
-    <form method="post" action="/checklists/bulk-upload" enctype="multipart/form-data">
-      <div class="form-group" style="margin-bottom:16px">
-        <label class="form-label">Select CSV File</label>
-        <input type="file" name="file" accept=".csv" required
-               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);box-sizing:border-box">
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button type="button" onclick="hide('bulk-modal')" class="btn btn-outline">Cancel</button>
-        <button type="submit" class="btn btn-primary">Upload & Create</button>
       </div>
     </form>
   </div>
