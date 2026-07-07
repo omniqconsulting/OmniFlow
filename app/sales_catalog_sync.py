@@ -201,9 +201,6 @@ def sync_variant_from_end_product(
         variant.end_product_id = end_product.id
         return variant
 
-    if not (end_product.category_id or end_product.sub_category_id):
-        return None
-
     category_name = end_product.category.name if end_product.category else None
     sub_category_name = end_product.sub_category.name if end_product.sub_category else None
     product = resolve_or_create_hierarchy(

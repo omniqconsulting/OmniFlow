@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload End Products{% endblock %}
+{% block content %}
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Bulk Upload End Products",
+  back_url="/setup/end-products",
+  back_label="Back to End Products",
+  download_url="/setup/end-products/template",
+  validate_url="/setup/end-products/bulk-upload/validate",
+  revalidate_url="/setup/end-products/bulk-upload/revalidate",
+  confirm_url="/setup/end-products/bulk-upload/confirm",
+  columns=columns,
+  row_label="product(s)"
+) }}
+{% endblock %}
