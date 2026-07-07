@@ -466,6 +466,133 @@ async def import_customers(
     return _redir(f"/setup/customers?msg=Imported+{imported}+customer(s)")
 
 
+def _validate_customer_row(row: dict, tenant_id: str, user: User, db: Session) -> tuple:
+    name = (row.get("name") or "").strip()
+    if not name or name.startswith("Mandatory") or name.startswith("Optional"):
+        return None, None  # instructional filler row from the template — silently skip
+    if len(name) > 200:
+        return None, "name exceeds 200 characters"
+    tier = (row.get("tier") or "").strip().upper()
+    if tier and tier not in _CUSTOMER_TIERS:
+        return None, "tier must be A, B, C or blank"
+    agent, agent_err = resolve_customer_agent(db, tenant_id, (row.get("agent_email") or "").strip())
+    if agent_err:
+        return None, agent_err
+    freq_raw = (row.get("contact_freq_days") or "").strip()
+    try:
+        freq = int(freq_raw) if freq_raw else 30
+    except ValueError:
+        return None, "contact_freq_days must be a positive integer"
+    credit_raw = (row.get("credit_limit") or "").strip()
+    try:
+        credit = float(credit_raw) if credit_raw else None
+    except ValueError:
+        return None, "credit_limit must be a number"
+    return {
+        "name": name,
+        "contact_person": (row.get("contact_person") or "").strip() or None,
+        "phone": (row.get("phone") or "").strip() or None,
+        "email": (row.get("email") or "").strip() or None,
+        "address": (row.get("address") or "").strip() or None,
+        "notes": (row.get("notes") or "").strip() or None,
+        "agent_email": (row.get("agent_email") or "").strip() or None,
+        "tier": tier,
+        "contact_freq_days": freq,
+        "credit_limit": credit,
+        "gstin": (row.get("gstin") or "").strip() or None,
+        "billing_address": (row.get("billing_address") or "").strip() or None,
+        "shipping_address": (row.get("shipping_address") or "").strip() or None,
+        "default_payment_terms": (row.get("default_payment_terms") or "").strip() or None,
+    }, None
+
+
+def _run_customer_validation(rows_in: list, tenant_id: str, user: User, db: Session, start_index: int = 2) -> dict:
+    valid_rows, errors = [], []
+    for i, row in enumerate(rows_in, start=start_index):
+        parsed, error = _validate_customer_row(row, tenant_id, user, db)
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": dict(row)})
+        elif parsed:
+            valid_rows.append(parsed)
+    return {
+        "total": len(valid_rows) + len(errors),
+        "valid": len(valid_rows),
+        "errors": errors,
+        "rows": valid_rows,
+    }
+
+
+@router.get("/setup/customers/bulk-upload", response_class=HTMLResponse)
+def customers_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "setup/customers_bulk_upload.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user), **_nav_ctx(db, user),
+        "columns": [c[0] for c in _CUSTOMER_COLS],
+    })
+
+
+@router.post("/setup/customers/bulk-upload/validate")
+async def customers_bulk_validate(file: UploadFile = File(...), user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    dict_reader = csv.DictReader(io.StringIO(content))
+    rows = list(dict_reader)
+    if len(rows) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    fmt_err = check_required_headers(dict_reader.fieldnames, ["name"], [c[0] for c in _CUSTOMER_COLS])
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
+    for i, row in enumerate(rows, start=2):
+        row["_row"] = i
+    return JSONResponse(_run_customer_validation(rows, user.tenant_id, user, db))
+
+
+@router.post("/setup/customers/bulk-upload/revalidate")
+async def customers_bulk_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_customer_validation(rows_in, user.tenant_id, user, db))
+
+
+@router.post("/setup/customers/bulk-upload/confirm")
+async def customers_bulk_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows = body.get("rows", [])
+    created = 0
+    for r in rows:
+        agent, agent_err = resolve_customer_agent(db, user.tenant_id, r.get("agent_email") or "")
+        if agent_err:
+            continue  # re-validated already, but be defensive against stale client state
+        db.add(Customer(
+            tenant_id=user.tenant_id,
+            name=r["name"],
+            contact_person=r.get("contact_person"),
+            phone=r.get("phone"),
+            email=r.get("email"),
+            address=r.get("address"),
+            notes=r.get("notes"),
+            assigned_agent_id=agent.id if agent else user.id,
+            customer_tier=r.get("tier") or "UNRANKED",
+            contact_freq_days=r.get("contact_freq_days") or 30,
+            credit_limit=r.get("credit_limit"),
+            gstin=r.get("gstin"),
+            billing_address=r.get("billing_address"),
+            shipping_address=r.get("shipping_address"),
+            default_payment_terms=r.get("default_payment_terms"),
+            created_by_id=user.id,
+        ))
+        created += 1
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no customers were created. {e}")
+    return JSONResponse({"created": created})
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # END PRODUCTS
 # Kept bidirectionally in sync with Sales Catalog's Category -> SubCategory ->
@@ -751,6 +878,151 @@ async def import_end_products(
         r.headers["X-Imported"] = str(imported)
         return r
     return _redir(f"/setup/end-products?msg=Imported+{imported}+product(s)")
+
+
+def _validate_end_product_row(row: dict, tenant_id: str, db: Session) -> tuple:
+    name = (row.get("name") or "").strip()
+    if not name or name.startswith("Mandatory") or name.startswith("Optional"):
+        return None, None  # instructional filler row from the template — silently skip
+    if len(name) > 200:
+        return None, "name exceeds 200 characters"
+    sku = (row.get("sku_code") or "").strip() or None
+    if sku:
+        exists = db.query(EndProduct).filter(
+            EndProduct.tenant_id == tenant_id,
+            EndProduct.sku_code == sku, EndProduct.is_deleted == False,
+        ).first()
+        if exists:
+            return None, f"SKU {sku} already exists"
+    unit_abbr = (row.get("unit") or "").strip()
+    _, unit_err = _end_product_unit_or_error(db, tenant_id, unit_abbr)
+    if unit_err:
+        return None, unit_err
+    low_stock_raw = (row.get("low_stock_threshold") or "").strip()
+    if low_stock_raw:
+        try:
+            float(low_stock_raw)
+        except ValueError:
+            return None, "low_stock_threshold must be a number"
+    return {
+        "name": name,
+        "sku_code": sku,
+        "unit": unit_abbr or None,
+        "description": (row.get("description") or "").strip() or None,
+        "category": (row.get("category") or "").strip() or None,
+        "sub_category": (row.get("sub_category") or "").strip() or None,
+        "variant_label": (row.get("variant_label") or "").strip() or None,
+        "low_stock_threshold": low_stock_raw or None,
+        "photo_drive_link": (row.get("photo_drive_link") or "").strip() or None,
+    }, None
+
+
+def _run_end_product_validation(rows_in: list, tenant_id: str, db: Session, start_index: int = 2) -> dict:
+    valid_rows, errors = [], []
+    seen_skus_in_file = set()
+    for i, row in enumerate(rows_in, start=start_index):
+        parsed, error = _validate_end_product_row(row, tenant_id, db)
+        if not error and parsed and parsed["sku_code"]:
+            if parsed["sku_code"] in seen_skus_in_file:
+                error = f"SKU {parsed['sku_code']} duplicated within file"
+                parsed = None
+            else:
+                seen_skus_in_file.add(parsed["sku_code"])
+        if error:
+            errors.append({"row": row.get("_row", i), "error": error, "data": dict(row)})
+        elif parsed:
+            valid_rows.append(parsed)
+    return {
+        "total": len(valid_rows) + len(errors),
+        "valid": len(valid_rows),
+        "errors": errors,
+        "rows": valid_rows,
+    }
+
+
+@router.get("/setup/end-products/bulk-upload", response_class=HTMLResponse)
+def end_products_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "setup/end_products_bulk_upload.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user), **_nav_ctx(db, user),
+        "columns": [c[0] for c in _ENDPRODUCT_COLS],
+    })
+
+
+@router.post("/setup/end-products/bulk-upload/validate")
+async def end_products_bulk_validate(file: UploadFile = File(...), user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Uploaded file is empty.")
+    content = raw.decode("utf-8-sig", errors="replace").lstrip(chr(65279))
+    dict_reader = csv.DictReader(io.StringIO(content))
+    rows = list(dict_reader)
+    if len(rows) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"File has {len(rows)} rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    fmt_err = check_required_headers(dict_reader.fieldnames, ["name"], [c[0] for c in _ENDPRODUCT_COLS])
+    if fmt_err:
+        return JSONResponse({"format_error": fmt_err})
+    for i, row in enumerate(rows, start=2):
+        row["_row"] = i
+    return JSONResponse(_run_end_product_validation(rows, user.tenant_id, db))
+
+
+@router.post("/setup/end-products/bulk-upload/revalidate")
+async def end_products_bulk_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows_in = body.get("rows", [])
+    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
+        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
+    return JSONResponse(_run_end_product_validation(rows_in, user.tenant_id, db))
+
+
+@router.post("/setup/end-products/bulk-upload/confirm")
+async def end_products_bulk_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    body = await request.json()
+    rows = body.get("rows", [])
+    created = 0
+    warnings = []
+    for r in rows:
+        sku = r.get("sku_code")
+        if sku:
+            exists = db.query(EndProduct).filter(
+                EndProduct.tenant_id == user.tenant_id,
+                EndProduct.sku_code == sku, EndProduct.is_deleted == False,
+            ).first()
+            if exists:
+                warnings.append(f"SKU {sku} already exists — skipped")
+                continue
+        end_product = EndProduct(
+            tenant_id=user.tenant_id, name=r["name"], sku_code=sku,
+            unit=r.get("unit"),
+            description=r.get("description"),
+            created_by_id=user.id,
+        )
+        db.add(end_product)
+        db.flush()
+        category = r.get("category") or ""
+        sub_category = r.get("sub_category") or ""
+        if category or sub_category:
+            end_product.category_id, end_product.sub_category_id = _resolve_end_product_category(
+                db, user.tenant_id, category, sub_category,
+            )
+        low_stock_raw = r.get("low_stock_threshold")
+        variant = sync_variant_from_end_product(
+            db, end_product,
+            variant_label=r.get("variant_label"),
+            low_stock_threshold=float(low_stock_raw) if low_stock_raw else None,
+        )
+        drive_link = r.get("photo_drive_link")
+        if variant and drive_link:
+            photo_err = await attach_drive_photo(variant, drive_link)
+            if photo_err:
+                warnings.append(f"{r['name']}: photo not attached — {photo_err}")
+        created += 1
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(400, f"Import failed — no products were created. {e}")
+    return JSONResponse({"created": created, "warnings": warnings})
 
 
 # ══════════════════════════════════════════════════════════════════════════════

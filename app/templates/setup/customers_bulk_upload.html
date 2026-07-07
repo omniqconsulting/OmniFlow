@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload Customers{% endblock %}
+{% block content %}
+{% from "components/bulk_upload.html" import bulk_upload_ui %}
+{{ bulk_upload_ui(
+  title="Bulk Upload Customers",
+  back_url="/setup/customers",
+  back_label="Back to Customers",
+  download_url="/setup/customers/template",
+  validate_url="/setup/customers/bulk-upload/validate",
+  revalidate_url="/setup/customers/bulk-upload/revalidate",
+  confirm_url="/setup/customers/bulk-upload/confirm",
+  columns=columns,
+  row_label="customer(s)"
+) }}
+{% endblock %}
