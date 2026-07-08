@@ -26,7 +26,7 @@ def upgrade() -> None:
     # preserves today's FIFO behaviour on upgrade instead of showing an
     # unordered pile the first time anyone opens the Dispatch Queue.
     rows = bind.execute(sa.text(
-        "SELECT id FROM sales_orders WHERE status = 'CONFIRMED' AND is_deleted = 0 "
+        "SELECT id FROM sales_orders WHERE status = 'CONFIRMED' AND is_deleted = false "
         "ORDER BY created_at ASC"
     )).fetchall()
     for i, row in enumerate(rows):
