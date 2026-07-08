@@ -11,6 +11,9 @@
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <a href="/sales/orders/targets" class="btn btn-sm btn-outline">🎯 Targets</a>
+    {% if user.role in ('ADMIN', 'MANAGER') %}
+    <a href="/sales/catalog" class="btn btn-sm btn-outline">📚 Catalog</a>
+    {% endif %}
     <a href="/sales/orders/export" class="btn btn-sm btn-outline">⬇ Export</a>
     <a href="/sales/orders/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
     <a href="/sales/orders/new" class="btn btn-sm btn-primary">+ New Order</a>
@@ -20,36 +23,42 @@
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-{% if user.role in ('ADMIN', 'MANAGER') %}
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-  <span class="muted" style="font-size:11px;align-self:center">Manage:</span>
-  <a href="/sales/catalog" class="btn btn-xs btn-outline">Catalog</a>
-  <a href="/sales/pricing" class="btn btn-xs btn-outline">Pricing &amp; Margin</a>
-  {% if has_sales_analytics %}
-  <a href="/sales/analytics" class="btn btn-xs btn-outline">Insights</a>
-  {% endif %}
-</div>
-{% endif %}
-
-<div style="display:grid;grid-template-columns:200px 1fr;gap:18px;align-items:start">
-  <!-- Status left-nav -->
-  <div class="card" style="padding:12px">
-    <div style="font-size:11px;font-weight:700;color:var(--text-faint);letter-spacing:.03em;margin-bottom:8px">STATUS</div>
-    <a href="/sales/orders" style="display:flex;align-items:center;gap:8px;padding:6px 6px;border-radius:6px;font-size:13px;text-decoration:none;color:inherit;{{ 'background:var(--bg-input);font-weight:600' if not status else '' }}">
-      <span style="width:8px;height:8px;border-radius:99px;background:var(--text-faint)"></span> All
-    </a>
-    {% for s in status_choices %}
-    <a href="/sales/orders?status={{ s }}" style="display:flex;align-items:center;gap:8px;padding:6px 6px;border-radius:6px;font-size:13px;text-decoration:none;color:inherit;{{ 'background:var(--bg-input);font-weight:600' if status == s else '' }}">
-      <span style="width:8px;height:8px;border-radius:99px;background:{{ status_colors.get(s, '#94a3b8') }}"></span> {{ s.title() }}
-    </a>
-    {% endfor %}
-  </div>
-
-  <div>
-    <div class="filter-bar" style="margin-bottom:18px">
-      <input id="orderSearch" placeholder="Search order #, customer, or agent…" style="flex:1;min-width:220px" oninput="filterOrders()">
+<form method="get" action="/sales/orders" class="filter-bar" style="margin-bottom:14px">
+  {% if user.role in ('ADMIN','MANAGER') and agents %}
+  <div class="ms-wrap" data-name="agent_id" data-placeholder="All agents">
+    <div class="ms-label">Agent</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All agents</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for a in agents %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ a.id }}" onchange="onMsChange(this)" {% if a.id in agent_id %}checked{% endif %}>
+        {{ a.name }}
+      </label>
+      {% endfor %}
     </div>
+  </div>
+  {% endif %}
+  <div class="filter-group">
+    <label>Status</label>
+    <select name="status">
+      <option value="" {{ 'selected' if not status else '' }}>All</option>
+      {% for s in status_choices %}
+      <option value="{{ s }}" {{ 'selected' if status == s else '' }}>{{ s.title() }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group" style="flex:1;min-width:200px">
+    <label>Search</label>
+    <input name="search" value="{{ search }}" placeholder="Search order #, customer, or agent…" style="width:100%">
+  </div>
+  <div style="align-self:flex-end">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+  </div>
+</form>
 
+<div>
     {% if orders %}
     <div class="card" style="padding:0;overflow:hidden">
     <table class="table" style="width:100%" id="ordersTable">
@@ -59,7 +68,7 @@
       </tr></thead>
       <tbody>
         {% for o in orders %}
-        <tr data-search="{{ (o.display_id or o.id) | lower }} {{ (o.customer.name if o.customer else '') | lower }} {{ (o.agent.name if o.agent else '') | lower }}">
+        <tr>
           <td><a href="/sales/orders/{{ o.id }}">{{ o.display_id or o.id[:8] }}</a></td>
           <td>{{ o.customer.name if o.customer else '—' }}
             {% if o.customer %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(o.customer.customer_tier, '#94a3b8') }};margin-left:4px">{{ o.customer.customer_tier }}</span>{% endif %}
@@ -76,11 +85,12 @@
     </table>
     </div>
 
+    {% macro page_link(p) %}?page={{ p }}&search={{ search }}&status={{ status }}{% for a in agent_id %}&agent_id={{ a }}{% endfor %}{% endmacro %}
     {% if total > page_size %}
     <div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:24px;font-size:12px;color:var(--text-muted)">
-      {% if page > 1 %}<a href="?page={{ page-1 }}&status={{ status }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
+      {% if page > 1 %}<a href="{{ page_link(page-1) }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
       <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
-      {% if page * page_size < total %}<a href="?page={{ page+1 }}&status={{ status }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
+      {% if page * page_size < total %}<a href="{{ page_link(page+1) }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
     </div>
     {% endif %}
 
@@ -90,15 +100,5 @@
       <div style="font-size:15px;font-weight:500">No orders found</div>
     </div>
     {% endif %}
-  </div>
 </div>
-
-<script>
-function filterOrders() {
-  const q = document.getElementById('orderSearch').value.toLowerCase().trim();
-  document.querySelectorAll('#ordersTable tbody tr').forEach(function(row) {
-    row.style.display = !q || row.dataset.search.includes(q) ? '' : 'none';
-  });
-}
-</script>
 {% endblock %}

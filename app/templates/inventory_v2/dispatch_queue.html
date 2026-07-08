@@ -2,10 +2,20 @@
 {% block title %}Dispatch Queue{% endblock %}
 {% block content %}
 
-<div class="page-header" style="margin-bottom:18px">
+<style>
+.dq-row{display:grid;grid-template-columns:28px 110px 1fr 100px 100px 90px 90px 100px;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-subtle);font-size:13px;cursor:grab}
+.dq-row.dragging{opacity:0.4}
+.dq-row.green{background:rgba(34,197,94,.08)}
+.dq-row.amber{background:rgba(245,158,11,.08)}
+.dq-row.red{background:rgba(239,68,68,.08)}
+.dq-hdr{display:grid;grid-template-columns:28px 110px 1fr 100px 100px 90px 90px 100px;gap:10px;padding:0 12px 6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)}
+.dq-handle{cursor:grab;color:var(--text-faint);font-size:16px;text-align:center}
+</style>
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
   <div>
     <h2 class="page-title">Dispatch Queue</h2>
-    <div class="muted">Confirmed orders awaiting dispatch</div>
+    <div class="muted">{{ rows|length }} confirmed order{{ '' if rows|length == 1 else 's' }} awaiting dispatch</div>
   </div>
   <a href="/inventory-v2" class="btn btn-sm btn-outline">← Godown Dashboard</a>
 </div>
@@ -13,34 +23,66 @@
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-{% if orders %}
-{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
-  {% for o in orders %}
-  <div class="card" style="padding:16px">
-    <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:8px">
-      <div>
-        <div style="font-weight:700;font-size:14px">{{ o.display_id or o.id[:8] }}</div>
-        <div class="muted" style="font-size:13px">{{ o.customer.name if o.customer else '—' }}
-          {% if o.customer %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(o.customer.customer_tier, '#94a3b8') }};margin-left:4px">{{ o.customer.customer_tier }}</span>{% endif %}
-        </div>
-      </div>
-      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#f59e0b">{{ o.items|length }} item{{ '' if o.items|length == 1 else 's' }}</span>
-    </div>
-    <div style="font-size:12px;color:var(--text-faint);margin-bottom:8px">Expected {{ o.expected_delivery_date.strftime('%d %b %Y') if o.expected_delivery_date else '—' }}</div>
-    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">
-      {% for item in o.items %}
-      {% with variant=item.variant, thumb_size=28 %}{% include "components/product_thumb.html" %}{% endwith %}
-      {% endfor %}
-    </div>
-    <div style="display:flex;gap:6px">
-      <a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline" style="flex:1;text-align:center">View</a>
-      <form method="post" action="/sales/orders/{{ o.id }}/dispatch" style="flex:1">
-        <button type="submit" class="btn btn-xs btn-primary" style="width:100%" onclick="return confirm('Dispatch order {{ o.display_id }}?')">Dispatch</button>
-      </form>
-    </div>
+<div class="alert" style="background:var(--bg-input);border:1px solid var(--border-subtle);margin-bottom:14px;font-size:12px;color:var(--text-muted)">
+  Orders are dispatched in <b>priority order</b> — drag a row (⠿) to reorder; the top of the list ships first. New confirmed orders join the end of the queue automatically.
+</div>
+
+<form method="get" action="/inventory-v2/dispatch-queue" class="filter-bar" style="margin-bottom:14px">
+  <div class="filter-group">
+    <label>Order #</label>
+    <input name="order_no" value="{{ order_no }}" placeholder="SO-0001" style="width:120px">
   </div>
-  {% endfor %}
+  <div class="filter-group">
+    <label>Customer</label>
+    <input name="customer" value="{{ customer }}" placeholder="Customer name" style="width:160px">
+  </div>
+  <div class="filter-group">
+    <label>SKU</label>
+    <input name="sku" value="{{ sku }}" placeholder="SKU or variant" style="width:140px">
+  </div>
+  <div class="filter-group">
+    <label>Order Date From</label>
+    <input type="date" name="order_date_from" value="{{ order_date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>Order Date To</label>
+    <input type="date" name="order_date_to" value="{{ order_date_to }}">
+  </div>
+  <div class="filter-group">
+    <label>Expected From</label>
+    <input type="date" name="expected_from" value="{{ expected_from }}">
+  </div>
+  <div class="filter-group">
+    <label>Expected To</label>
+    <input type="date" name="expected_to" value="{{ expected_to }}">
+  </div>
+  <div style="align-self:flex-end;display:flex;gap:6px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    {% if order_no or customer or sku or order_date_from or order_date_to or expected_from or expected_to %}
+    <a href="/inventory-v2/dispatch-queue" class="btn btn-gray btn-sm">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+{% if rows %}
+<div class="card" style="padding:0;overflow:hidden">
+  <div class="dq-hdr">
+    <div></div><div>Order #</div><div>Customer</div><div>Order Date</div><div>Expected</div><div>SKUs</div><div>Available</div><div></div>
+  </div>
+  <div id="dq-list">
+    {% for r in rows %}
+    <div class="dq-row {{ r.color }}" draggable="true" data-order-id="{{ r.order.id }}">
+      <div class="dq-handle">⠿</div>
+      <div><a href="/sales/orders/{{ r.order.id }}">{{ r.order.display_id or r.order.id[:8] }}</a></div>
+      <div>{{ r.order.customer.name if r.order.customer else '—' }}</div>
+      <div style="color:var(--text-faint)">{{ r.order.created_at.strftime('%d %b %Y') if r.order.created_at else '—' }}</div>
+      <div style="color:var(--text-faint)">{{ r.order.expected_delivery_date.strftime('%d %b %Y') if r.order.expected_delivery_date else '—' }}</div>
+      <div>{{ r.distinct_skus }}</div>
+      <div>{{ r.available_skus }}/{{ r.distinct_skus }}</div>
+      <div><button type="button" class="btn btn-xs btn-primary" onclick="openDispatch('{{ r.order.id }}')">Dispatch</button></div>
+    </div>
+    {% endfor %}
+  </div>
 </div>
 {% else %}
 <div style="text-align:center;padding:60px 0;color:var(--text-faint)">
@@ -48,4 +90,205 @@
   <div style="font-size:15px;font-weight:500">No orders pending dispatch</div>
 </div>
 {% endif %}
+
+<div class="card" style="padding:18px;margin-top:18px">
+  <h3 style="margin-top:0">7-Day Demand Projection</h3>
+  {% if demand_projection %}
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Needed</th>
+        <th style="padding:6px 8px">Available</th><th style="padding:6px 8px">In-Transit</th>
+        <th style="padding:6px 8px">Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in demand_projection %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 8px">{{ row.product.name }}</td>
+        <td style="padding:6px 8px">{{ row.qty_needed }}</td>
+        <td style="padding:6px 8px">{{ row.qty_available }}</td>
+        <td style="padding:6px 8px">{{ row.qty_in_transit }}</td>
+        <td style="padding:6px 8px;font-weight:700;color:{{ '#ef4444' if row.shortfall else '#22c55e' }}">{{ row.gap }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="color:var(--text-faint);font-size:13px">No confirmed orders due in the next 7 days.</div>
+  {% endif %}
+</div>
+
+<!-- Dispatch modal — shared modal shell, form-group/form-input styling to match
+     the rest of the app's "modern" modals (Adjust Stock, New Product, etc). -->
+{% with modal_id="dispatchModal", modal_title="Dispatch Order", modal_max_width="640px" %}
+{% include "components/modal.html" %}
+{% endwith %}
+<script>
+document.getElementById('dispatchModal').querySelector('.modal-body').innerHTML = `
+  <form method="post" id="dispatchForm" enctype="multipart/form-data">
+    <div style="font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:12px" id="dispatch-order-label"></div>
+    <div id="dispatch-items"></div>
+    <div class="form-group" style="margin-top:12px"><label class="form-label">Comments</label><textarea name="comments" rows="2" class="form-input"></textarea></div>
+    <div class="form-group"><label class="form-label">Challan (optional)</label><input type="file" name="challan" class="form-input"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button type="button" class="btn btn-outline" onclick="closeModal('dispatchModal')">Cancel</button>
+      <button type="submit" class="btn btn-primary">Record Dispatch</button>
+    </div>
+  </form>`;
+</script>
+
+<!-- Results popup -->
+{% with modal_id="dispatchResultModal", modal_title="Dispatch Recorded", modal_max_width="560px" %}
+{% include "components/modal.html" %}
+{% endwith %}
+<script>
+document.getElementById('dispatchResultModal').querySelector('.modal-body').innerHTML = `
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
+        <th style="padding:6px 8px">Dispatched</th>
+        <th style="padding:6px 8px">Old Stock</th><th style="padding:6px 8px">New Stock</th>
+      </tr>
+    </thead>
+    <tbody id="dispatchResultBody"></tbody>
+  </table>
+  <div style="display:flex;justify-content:flex-end;margin-top:16px">
+    <button type="button" class="btn btn-primary" onclick="window.location.reload()">Close</button>
+  </div>`;
+</script>
+
+<script>
+// ── Order data for the dispatch modal (rendered server-side, no extra fetch) ──
+const ORDERS = {
+  {% for r in rows %}
+  "{{ r.order.id }}": {
+    display_id: {{ (r.order.display_id or r.order.id[:8]) | tojson }},
+    items: [
+      {% for item in r.order.items %}
+      {% set remaining = item.qty_ordered - item.qty_dispatched %}
+      {% if remaining > 0 %}
+      {
+        item_id: {{ item.id | tojson }},
+        label: {{ ((item.variant.product.name if item.variant and item.variant.product else '') + ' — ' + (item.variant.sku_code if item.variant else '')) | tojson }},
+        ordered: {{ item.qty_ordered }},
+        dispatched: {{ item.qty_dispatched }},
+        remaining: {{ remaining }},
+      },
+      {% endif %}
+      {% endfor %}
+    ],
+  },
+  {% endfor %}
+};
+const DEPARTMENTS = [{% for d in departments %}{id: {{ d.id | tojson }}, name: {{ d.name | tojson }}},{% endfor %}];
+
+function deptOptions() {
+  return '<option value="">— Aggregate (no department) —</option>' +
+    DEPARTMENTS.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+}
+
+function itemRowHtml(it, rowIndex) {
+  return `
+    <div class="card" style="padding:10px 12px;margin-bottom:8px" data-item-id="${it.item_id}">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">${it.label}</div>
+      <div style="font-size:11px;color:var(--text-faint);margin-bottom:6px">Ordered ${it.ordered} · Dispatched ${it.dispatched} · Remaining ${it.remaining}</div>
+      <div class="dispatch-alloc-rows"></div>
+      <button type="button" class="btn btn-xs btn-outline" onclick="addAllocRow(this)">+ Split across another department</button>
+    </div>`;
+}
+
+function allocRowHtml(itemId, defaultQty) {
+  return `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <input type="hidden" name="alloc_item_id[]" value="${itemId}">
+      <input type="number" name="alloc_qty[]" step="any" min="0" value="${defaultQty}" style="width:90px" placeholder="Qty">
+      <select name="alloc_department_id[]" style="flex:1">${deptOptions()}</select>
+      <button type="button" class="btn btn-xs btn-gray" onclick="this.closest('div').remove()">✕</button>
+    </div>`;
+}
+
+function addAllocRow(btn) {
+  const card = btn.closest('.card');
+  const itemId = card.dataset.itemId;
+  const container = card.querySelector('.dispatch-alloc-rows');
+  const div = document.createElement('div');
+  div.innerHTML = allocRowHtml(itemId, '');
+  container.appendChild(div.firstElementChild);
+}
+
+function openDispatch(orderId) {
+  const order = ORDERS[orderId];
+  document.getElementById('dispatch-order-label').textContent = order.display_id;
+  const container = document.getElementById('dispatch-items');
+  container.innerHTML = order.items.map(it => itemRowHtml(it)).join('');
+  order.items.forEach(it => {
+    const card = container.querySelector(`[data-item-id="${it.item_id}"] .dispatch-alloc-rows`);
+    const div = document.createElement('div');
+    div.innerHTML = allocRowHtml(it.item_id, it.remaining);
+    card.appendChild(div.firstElementChild);
+  });
+  document.getElementById('dispatchForm').action = `/sales/orders/${orderId}/dispatch`;
+  openModal('dispatchModal');
+}
+function closeDispatch() {
+  closeModal('dispatchModal');
+}
+
+document.getElementById('dispatchForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const fd = new FormData(this);
+  fd.append('ajax', '1');
+  const res = await fetch(this.action, { method: 'POST', body: fd });
+  const d = await res.json();
+  if (!res.ok) { alert(d.error || 'Could not record dispatch'); return; }
+  closeDispatch();
+  document.getElementById('dispatchResultModal-title').textContent = d.fully_dispatched ? 'Order Fully Dispatched' : 'Partial Dispatch Recorded';
+  const tbody = document.getElementById('dispatchResultBody');
+  tbody.innerHTML = d.rows.map(function(r) {
+    return '<tr style="border-bottom:1px solid var(--border-subtle)">' +
+      '<td style="padding:6px 8px">' + r.product_name + '</td>' +
+      '<td style="padding:6px 8px;color:var(--text-faint)">' + r.sku_code + '</td>' +
+      '<td style="padding:6px 8px">-' + r.qty_dispatched + '</td>' +
+      '<td style="padding:6px 8px">' + r.old_qty + '</td>' +
+      '<td style="padding:6px 8px;font-weight:700">' + r.new_qty + '</td>' +
+      '</tr>';
+  }).join('');
+  openModal('dispatchResultModal');
+});
+
+// ── Drag-and-drop reorder ──
+let dragEl = null;
+document.getElementById('dq-list')?.addEventListener('dragstart', function(e) {
+  if (e.target.classList.contains('dq-row')) {
+    dragEl = e.target;
+    e.target.classList.add('dragging');
+  }
+});
+document.getElementById('dq-list')?.addEventListener('dragend', function(e) {
+  if (e.target.classList.contains('dq-row')) e.target.classList.remove('dragging');
+});
+document.getElementById('dq-list')?.addEventListener('dragover', function(e) {
+  e.preventDefault();
+  const list = document.getElementById('dq-list');
+  const after = [...list.querySelectorAll('.dq-row:not(.dragging)')].reduce((closest, row) => {
+    const box = row.getBoundingClientRect();
+    const offset = e.clientY - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) return { offset: offset, element: row };
+    return closest;
+  }, { offset: -Infinity, element: null }).element;
+  if (!dragEl) return;
+  if (after == null) list.appendChild(dragEl);
+  else list.insertBefore(dragEl, after);
+});
+document.getElementById('dq-list')?.addEventListener('drop', async function(e) {
+  e.preventDefault();
+  const orderIds = [...document.querySelectorAll('#dq-list .dq-row')].map(r => r.dataset.orderId);
+  await fetch('/inventory-v2/dispatch-queue/reorder', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ order_ids: orderIds }),
+  });
+});
+</script>
 {% endblock %}

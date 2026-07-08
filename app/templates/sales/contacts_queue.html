@@ -42,7 +42,7 @@
 <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:12px">
   <a href="/sales/contacts/export?agent_id={{ selected_agent_id if user.role in ('ADMIN','MANAGER') else '' }}" class="btn btn-sm btn-outline">⬇ Export</a>
   <a href="/sales/contacts/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
-  <a href="/sales/contacts/all?new=1" class="btn btn-sm btn-primary">+ New Customer</a>
+  <button type="button" class="btn btn-sm btn-primary" onclick="openModal('addContactModal')">+ New Customer</button>
   <div class="qv-switch" onclick="window.location='/sales/contacts/all?agent_id={{ selected_agent_id if user.role in ('ADMIN','MANAGER') else '' }}&search={{ search }}'">
     <div class="qv-knob"></div>
     <span class="qv-lbl on">Quadrant</span>
@@ -120,7 +120,7 @@
   </div>
 </form>
 
-{% set cq_cols = "minmax(90px,1.3fr) 80px 90px 80px 75px 26px" %}
+{% set cq_cols = "minmax(90px,1.3fr) 80px 90px 90px 80px 75px 26px" %}
 
 {% macro cust_row(e) %}
 <div class="cq-card" style="grid-template-columns:{{ cq_cols }}">
@@ -130,6 +130,7 @@
   </div>
   <div class="cq-meta-item">{{ e.customer.phone or '—' }}</div>
   <div class="cq-meta-item"><b>{{ e.last_contacted.strftime('%d %b') if e.last_contacted else 'Never' }}</b> ({{ e.days_since_contact if e.days_since_contact < 9999 else 'N/A' }}d)</div>
+  <div class="cq-meta-item">{{ e.next_follow_up.strftime('%d %b %Y') if e.next_follow_up else '—' }}</div>
   <div class="cq-meta-item"><b>{{ e.next_due.strftime('%d %b %Y') }}</b></div>
   <div class="cq-meta-item"><b>{{ e.order_count }}</b>{% if e.order_total %} · ₹{{ '%.0f'|format(e.order_total) }}{% endif %}</div>
   <div class="cq-menu-wrap">
@@ -156,7 +157,7 @@
     <div class="cq-quad-body">
       {% if list %}
       <div class="cq-col-hdr" style="grid-template-columns:{{ cq_cols }}">
-        <div>Customer</div><div>Phone</div><div>Last Contact</div><div>Next Due</div><div>Orders</div><div></div>
+        <div>Customer</div><div>Phone</div><div>Last Contact</div><div>Follow Up</div><div>Next Due</div><div>Orders</div><div></div>
       </div>
       {% endif %}
       {% for e in list %}{{ cust_row(e) }}{% else %}<div class="muted" style="padding:8px 0">Nothing here.</div>{% endfor %}
@@ -239,5 +240,54 @@ document.getElementById('logCallForm').addEventListener('submit', async function
   if (d.redirect_to_order) { window.location.href = d.order_new_url; return; }
   window.location.reload();
 });
+</script>
+
+{% with modal_id="addContactModal", modal_title="New Customer" %}
+{% include "components/modal.html" %}
+{% endwith %}
+<script>
+document.getElementById('addContactModal').querySelector('.modal-body').innerHTML = `
+  <form method="post" action="/sales/contacts/create">
+    <input type="hidden" name="source" value="queue">
+    {% if err %}<div class="alert alert-red" style="margin-bottom:10px">{{ err }}</div>{% endif %}
+    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">BASIC INFO</h3>
+    <div class="form-group"><label class="form-label">Name *</label><input name="name" required class="form-input"></div>
+    <div class="form-group"><label class="form-label">Contact Person</label><input name="contact_person" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Phone</label><input name="phone" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Email</label><input name="email" type="email" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Tier</label>
+      <select name="customer_tier" class="form-input">
+        {% for t in tier_choices %}<option value="{{ t }}" {{ 'selected' if t == 'UNRANKED' else '' }}>{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group"><label class="form-label">Contact Frequency (days)</label><input name="contact_freq_days" type="number" value="30" class="form-input"></div>
+    {% if agents %}
+    <div class="form-group"><label class="form-label">Assign to</label>
+      <select name="assigned_agent_id" class="form-input">
+        <option value="">Myself</option>
+        {% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <h3 style="font-size:13px;color:var(--text-faint);letter-spacing:.03em">COMMERCIAL TERMS</h3>
+    <div class="form-group"><label class="form-label">GSTIN</label><input name="gstin" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Credit Limit</label><input name="credit_limit" type="number" step="0.01" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Default Payment Terms</label><input name="default_payment_terms" placeholder="e.g. Net 30" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Default Price Group</label>
+      <select name="price_list_id" class="form-input">
+        <option value="">-- Default --</option>
+        {% for pl in price_lists %}<option value="{{ pl.id }}">{{ pl.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <h3 style="font-size:13px;color:var(--text-faint);letter-spacing:.03em">ADDRESSES &amp; NOTES</h3>
+    <div class="form-group"><label class="form-label">Billing Address</label><textarea name="billing_address" rows="2" class="form-input"></textarea></div>
+    <div class="form-group"><label class="form-label">Shipping Address</label><textarea name="shipping_address" rows="2" class="form-input"></textarea></div>
+    <div class="form-group"><label class="form-label">Notes</label><textarea name="notes" rows="2" class="form-input"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button type="button" class="btn btn-outline" onclick="closeModal('addContactModal')">Cancel</button>
+      <button type="submit" class="btn btn-primary">Create Customer</button>
+    </div>
+  </form>`;
+{% if err %}openModal('addContactModal');{% endif %}
 </script>
 {% endblock %}

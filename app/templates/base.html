@@ -155,6 +155,21 @@
 
 {% endif %}
 
+<div id="pt-lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:2000;align-items:center;justify-content:center;cursor:zoom-out" onclick="closePhotoLightbox()">
+  <img id="pt-lightbox-img" src="" alt="" style="max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain">
+</div>
+<script>
+function openPhotoLightbox(url, label) {
+  const img = document.getElementById('pt-lightbox-img');
+  img.src = url;
+  img.alt = label || 'Photo';
+  document.getElementById('pt-lightbox').style.display = 'flex';
+}
+function closePhotoLightbox() {
+  document.getElementById('pt-lightbox').style.display = 'none';
+}
+</script>
+
 <script src="/static/js/app-shell.js"></script>
 </body>
 </html>

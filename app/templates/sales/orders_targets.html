@@ -11,6 +11,7 @@
     <form method="get" action="/sales/orders/targets" style="display:flex;gap:6px;align-items:center">
       <input type="month" name="period" value="{{ period_label }}" onchange="this.form.submit()">
     </form>
+    {% if is_admin %}<a href="/sales/orders/targets/history" class="btn btn-sm btn-outline">🕘 History</a>{% endif %}
     <a href="/sales/orders" class="btn btn-sm btn-outline">← Back to Orders</a>
   </div>
 </div>

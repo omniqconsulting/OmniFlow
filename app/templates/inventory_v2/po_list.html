@@ -2,14 +2,14 @@
 {% block title %}Purchase Orders{% endblock %}
 {% block content %}
 
-<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
   <div>
     <h2 class="page-title">Purchase Orders</h2>
     <div class="muted">{{ pos|length }} order{{ '' if pos|length == 1 else 's' }}</div>
   </div>
   <div style="display:flex;gap:8px">
     <a href="/inventory-v2" class="btn btn-sm btn-gray">← Dashboard</a>
-    <a href="/inventory-v2/purchase-orders/new" class="btn btn-sm btn-primary">+ New PO</a>
+    <button type="button" class="btn btn-sm btn-primary" onclick="openModal('newPOModal')">+ New PO</button>
   </div>
 </div>
 
@@ -18,12 +18,55 @@
 
 {% set status_colors = {'DRAFT':'#94a3b8','SUBMITTED':'#3b82f6','APPROVED':'#8b5cf6','PARTIALLY_RECEIVED':'#f59e0b','RECEIVED':'#22c55e','CANCELLED':'#ef4444'} %}
 
+<form method="get" action="/inventory-v2/purchase-orders" class="filter-bar" style="margin-bottom:14px">
+  <div class="filter-group">
+    <label>PO #</label>
+    <input name="po_no" value="{{ po_no }}" placeholder="PO-0001" style="width:120px">
+  </div>
+  <div class="filter-group">
+    <label>Vendor</label>
+    <input name="vendor" value="{{ vendor }}" placeholder="Vendor name" style="width:160px">
+  </div>
+  <div class="filter-group">
+    <label>Status</label>
+    <select name="status">
+      <option value="" {{ 'selected' if not status else '' }}>All</option>
+      {% for s in status_choices %}
+      <option value="{{ s }}" {{ 'selected' if status == s else '' }}>{{ s.replace('_',' ').title() }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Order Date From</label>
+    <input type="date" name="order_date_from" value="{{ order_date_from }}">
+  </div>
+  <div class="filter-group">
+    <label>Order Date To</label>
+    <input type="date" name="order_date_to" value="{{ order_date_to }}">
+  </div>
+  <div class="filter-group">
+    <label>Expected From</label>
+    <input type="date" name="expected_from" value="{{ expected_from }}">
+  </div>
+  <div class="filter-group">
+    <label>Expected To</label>
+    <input type="date" name="expected_to" value="{{ expected_to }}">
+  </div>
+  <div style="align-self:flex-end;display:flex;gap:6px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    {% if po_no or vendor or status or order_date_from or order_date_to or expected_from or expected_to %}
+    <a href="/inventory-v2/purchase-orders" class="btn btn-gray btn-sm">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
 {% if pos %}
 <div class="card" style="padding:0;overflow:hidden">
 <table style="width:100%;font-size:13px;border-collapse:collapse">
   <thead>
     <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
       <th style="padding:8px 12px">PO ID</th><th style="padding:8px 12px">Vendor</th>
+      <th style="padding:8px 12px">Order Date</th>
       <th style="padding:8px 12px">Expected Arrival</th><th style="padding:8px 12px">Items</th>
       <th style="padding:8px 12px">Status</th><th style="padding:8px 12px"></th>
     </tr>
@@ -31,12 +74,18 @@
   <tbody>
     {% for po in pos %}
     <tr style="border-bottom:1px solid var(--border-subtle)">
-      <td style="padding:8px 12px">{{ po.display_id }}</td>
+      <td style="padding:8px 12px"><a href="/inventory-v2/purchase-orders/{{ po.id }}">{{ po.display_id }}</a></td>
       <td style="padding:8px 12px">{{ po.vendor_name_snapshot or '—' }}</td>
+      <td style="padding:8px 12px;color:var(--text-faint)">{{ po.created_at.strftime('%d %b %Y') if po.created_at else '—' }}</td>
       <td style="padding:8px 12px">{{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</td>
       <td style="padding:8px 12px">{{ po.items|length }}</td>
-      <td style="padding:8px 12px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(po.status,'#94a3b8') }}">{{ po.status }}</span></td>
-      <td style="padding:8px 12px"><a href="/inventory-v2/purchase-orders/{{ po.id }}" class="btn btn-xs btn-outline">View</a></td>
+      <td style="padding:8px 12px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(po.status,'#94a3b8') }}">{{ po.status.replace('_',' ') }}</span></td>
+      <td style="padding:8px 12px;display:flex;gap:6px">
+        <a href="/inventory-v2/purchase-orders/{{ po.id }}" class="btn btn-xs btn-outline">View</a>
+        {% if po.status in ('SUBMITTED', 'APPROVED', 'PARTIALLY_RECEIVED') %}
+        <button type="button" class="btn btn-xs btn-primary" onclick="openReceive('{{ po.id }}')">Receive</button>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>
@@ -45,8 +94,186 @@
 {% else %}
 <div style="text-align:center;padding:60px 0;color:var(--text-faint)">
   <div style="font-size:40px;margin-bottom:12px">📋</div>
-  <div style="font-size:15px;font-weight:500;margin-bottom:8px">No purchase orders yet</div>
-  <a href="/inventory-v2/purchase-orders/new" class="btn btn-primary" style="margin-top:8px;display:inline-block">+ Create your first PO</a>
+  <div style="font-size:15px;font-weight:500;margin-bottom:8px">No purchase orders match the current filters</div>
+  <button type="button" class="btn btn-primary" style="margin-top:8px" onclick="openModal('newPOModal')">+ Create your first PO</button>
 </div>
 {% endif %}
+
+<!-- New PO modal — modern form-group/form-input styling matching the rest
+     of the app's modals (New Product, Adjust Stock, Dispatch, etc). -->
+{% set new_po_body %}
+<form method="post" action="/inventory-v2/purchase-orders/create" id="newPOForm">
+  <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">VENDOR</h3>
+  <div class="form-group"><label class="form-label">Vendor</label>
+    <select name="vendor_id" class="form-input">
+      <option value="">Select vendor (or type name below)…</option>
+      {% for v in vendors %}<option value="{{ v.id }}">{{ v.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="form-group"><label class="form-label">Vendor Name (if not in list)</label><input type="text" name="vendor_name" class="form-input"></div>
+  <div class="form-group"><label class="form-label">Expected Arrival Date</label><input type="date" name="expected_arrival_date" class="form-input"></div>
+
+  <h3 style="font-size:13px;color:var(--text-faint);letter-spacing:.03em">LINE ITEMS</h3>
+  <table id="po-items-table" style="width:100%;border-collapse:collapse;margin-bottom:8px">
+    <thead>
+      <tr style="font-size:11px;color:var(--text-muted);text-align:left">
+        <th style="padding:4px">Variant (SKU)</th><th style="padding:4px">Qty *</th>
+        <th style="padding:4px">Unit Cost *</th><th style="padding:4px">Unit</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="po-items-rows"></tbody>
+  </table>
+  <button type="button" class="btn btn-xs btn-outline" onclick="addPORow()">+ Add Line Item</button>
+
+  <div class="form-group" style="margin-top:12px"><label class="form-label">Notes</label><textarea name="notes" rows="2" class="form-input"></textarea></div>
+
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+    <button type="button" class="btn btn-outline" onclick="closeModal('newPOModal')">Cancel</button>
+    <button type="submit" class="btn btn-primary">Create PO</button>
+  </div>
+</form>
+<template id="po-row-template">
+  <tr>
+    <td style="padding:4px"><select name="variant_id[]" required style="width:100%"></select></td>
+    <td style="padding:4px"><input type="number" name="qty_ordered[]" step="any" min="0.01" required style="width:80px"></td>
+    <td style="padding:4px"><input type="number" name="unit_cost[]" step="any" min="0.01" required style="width:80px"></td>
+    <td style="padding:4px"><select name="unit_id[]" style="width:80px"></select></td>
+    <td style="padding:4px"><button type="button" class="btn btn-xs btn-gray" onclick="this.closest('tr').remove()">✕</button></td>
+  </tr>
+</template>
+{% endset %}
+{% with modal_id="newPOModal", modal_title="New Purchase Order", modal_body=new_po_body, modal_max_width="640px" %}
+{% include "components/modal.html" %}
+{% endwith %}
+
+<!-- Receive modal -->
+{% with modal_id="receiveModal", modal_title="Receive Purchase Order", modal_max_width="640px" %}
+{% include "components/modal.html" %}
+{% endwith %}
+<script>
+document.getElementById('receiveModal').querySelector('.modal-body').innerHTML = `
+  <form method="post" id="receiveForm" enctype="multipart/form-data">
+    <div style="font-size:13px;font-weight:600;color:var(--text-strong);margin-bottom:12px" id="receive-po-label"></div>
+    <div id="receive-items"></div>
+    <div class="form-group" style="margin-top:12px"><label class="form-label">Received Date</label><input type="date" name="received_date" class="form-input"></div>
+    <div class="form-group"><label class="form-label">Document (invoice / challan, optional)</label><input type="file" name="document" class="form-input"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button type="button" class="btn btn-outline" onclick="closeModal('receiveModal')">Cancel</button>
+      <button type="submit" class="btn btn-primary">Record Receipt</button>
+    </div>
+  </form>`;
+</script>
+
+<!-- Results popup -->
+{% with modal_id="receiveResultModal", modal_title="Receipt Recorded", modal_max_width="560px" %}
+{% include "components/modal.html" %}
+{% endwith %}
+<script>
+document.getElementById('receiveResultModal').querySelector('.modal-body').innerHTML = `
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
+        <th style="padding:6px 8px">Received</th>
+        <th style="padding:6px 8px">Old Stock</th><th style="padding:6px 8px">New Stock</th>
+      </tr>
+    </thead>
+    <tbody id="receiveResultBody"></tbody>
+  </table>
+  <div style="display:flex;justify-content:flex-end;margin-top:16px">
+    <button type="button" class="btn btn-primary" onclick="window.location.reload()">Close</button>
+  </div>`;
+</script>
+
+<script>
+// ── New PO line items ──
+const PO_VARIANTS = [{% for v in variants %}{id: {{ v.id | tojson }}, name: {{ ((v.product.name if v.product else '') + ' — ' + v.sku_code) | tojson }}},{% endfor %}];
+const PO_UNITS = [{% for u in units %}{id: {{ u.id | tojson }}, abbr: {{ u.abbreviation | tojson }}},{% endfor %}];
+
+function addPORow() {
+  const tpl = document.getElementById('po-row-template');
+  const tbody = document.getElementById('po-items-rows');
+  const frag = tpl.content.cloneNode(true);
+  const variantSel = frag.querySelector('select[name="variant_id[]"]');
+  variantSel.innerHTML = '<option value="">Select…</option>' + PO_VARIANTS.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
+  const unitSel = frag.querySelector('select[name="unit_id[]"]');
+  unitSel.innerHTML = '<option value="">—</option>' + PO_UNITS.map(u => `<option value="${u.id}">${u.abbr}</option>`).join('');
+  tbody.appendChild(frag);
+}
+addPORow();
+
+{% if err %}openModal('newPOModal');{% endif %}
+
+// ── Receive PO ──
+const POS = {
+  {% for po in pos %}
+  "{{ po.id }}": {
+    display_id: {{ po.display_id | tojson }},
+    items: [
+      {% for item in po.items %}
+      {% set remaining = item.qty_ordered - item.qty_received %}
+      {% if remaining > 0 %}
+      {
+        item_id: {{ item.id | tojson }},
+        label: {{ ((item.variant.product.name if item.variant and item.variant.product else '') + ' — ' + (item.variant.sku_code if item.variant else '')) | tojson }},
+        ordered: {{ item.qty_ordered }},
+        received: {{ item.qty_received }},
+        remaining: {{ remaining }},
+        unit_cost: {{ item.unit_cost or 0 }},
+      },
+      {% endif %}
+      {% endfor %}
+    ],
+  },
+  {% endfor %}
+};
+
+function receiveItemRowHtml(it) {
+  return `
+    <div class="card" style="padding:10px 12px;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">${it.label}</div>
+      <div style="font-size:11px;color:var(--text-faint);margin-bottom:6px">Ordered ${it.ordered} · Received ${it.received} · Remaining ${it.remaining}</div>
+      <input type="hidden" name="po_item_id[]" value="${it.item_id}">
+      <div style="display:flex;gap:8px;align-items:center">
+        <div>
+          <label style="font-size:11px;color:var(--text-muted)">Qty Received Now</label>
+          <input type="number" name="qty_received[]" step="any" min="0" max="${it.remaining}" value="${it.remaining}" style="width:100px;display:block">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-muted)">Unit Cost</label>
+          <input type="number" name="unit_cost[]" step="any" min="0" value="${it.unit_cost || ''}" style="width:100px;display:block">
+        </div>
+      </div>
+    </div>`;
+}
+
+function openReceive(poId) {
+  const po = POS[poId];
+  document.getElementById('receive-po-label').textContent = po.display_id;
+  document.getElementById('receive-items').innerHTML = po.items.map(receiveItemRowHtml).join('');
+  document.getElementById('receiveForm').action = `/inventory-v2/purchase-orders/${poId}/receive`;
+  openModal('receiveModal');
+}
+
+document.getElementById('receiveForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const fd = new FormData(this);
+  fd.append('ajax', '1');
+  const res = await fetch(this.action, { method: 'POST', body: fd });
+  const d = await res.json();
+  if (!res.ok) { alert(d.error || 'Could not record receipt'); return; }
+  closeModal('receiveModal');
+  const tbody = document.getElementById('receiveResultBody');
+  tbody.innerHTML = d.rows.map(function(r) {
+    return '<tr style="border-bottom:1px solid var(--border-subtle)">' +
+      '<td style="padding:6px 8px">' + r.product_name + '</td>' +
+      '<td style="padding:6px 8px;color:var(--text-faint)">' + r.sku_code + '</td>' +
+      '<td style="padding:6px 8px">+' + r.qty_received + '</td>' +
+      '<td style="padding:6px 8px">' + r.old_qty + '</td>' +
+      '<td style="padding:6px 8px;font-weight:700">' + r.new_qty + '</td>' +
+      '</tr>';
+  }).join('');
+  openModal('receiveResultModal');
+});
+</script>
 {% endblock %}

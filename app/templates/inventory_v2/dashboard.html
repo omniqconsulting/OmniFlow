@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Godown Dashboard{% endblock %}
+{% block container_class %} full-width{% endblock %}
 {% block content %}
+<div style="padding:28px 36px">
+
+<style>
+.gd-kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
+@media (max-width:1100px){.gd-kpi-row{grid-template-columns:repeat(3,1fr)}}
+.gd-kpi{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:14px 16px}
+.gd-kpi-label{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px}
+.gd-kpi-val{font-size:24px;font-weight:700;color:var(--text-strong);line-height:1}
+.gd-kpi-val.red{color:#f87171}.gd-kpi-val.amber{color:#fbbf24}.gd-kpi-val.green{color:#10b981}
+</style>
 
 <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
   <div>
@@ -8,9 +19,12 @@
     <div class="muted">Stock planning overview</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <a href="/inventory-v2/stock" class="btn btn-sm btn-outline">📦 Full Stock List</a>
-    <a href="/inventory-v2/purchase-orders" class="btn btn-sm btn-outline">📋 Purchase Orders</a>
-    <a href="/inventory-v2/stock-in/new" class="btn btn-sm btn-primary">+ Stock In</a>
+    {% if user.role in ('ADMIN', 'MANAGER') %}
+    <a href="/sales/catalog" class="btn btn-sm btn-outline">📚 Catalog</a>
+    <a href="/inventory-v2/stock-in/bulk" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
+    {% endif %}
+    <a href="/inventory-v2/dispatch-queue" class="btn btn-sm btn-outline">🚚 Dispatch Queue</a>
+    <a href="/inventory-v2/purchase-orders" class="btn btn-sm btn-primary">📋 Purchase Orders</a>
   </div>
 </div>
 
@@ -19,7 +33,111 @@
 
 {% set badge_colors = {'red': '#ef4444', 'amber': '#f59e0b', 'green': '#22c55e'} %}
 
-<div class="card" style="padding:18px;margin-bottom:18px">
+<form method="get" action="/inventory-v2" class="filter-bar" style="margin-bottom:14px">
+  <div class="ms-wrap" data-name="category_id" data-placeholder="All categories">
+    <div class="ms-label">Category</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All categories</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for c in categories %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ c.id }}" onchange="onMsChange(this)" {% if c.id in category_id %}checked{% endif %}>
+        {{ c.name }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="ms-wrap" data-name="sub_category_id" data-placeholder="All sub categories">
+    <div class="ms-label">Sub Category</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All sub categories</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for sc in sub_categories %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ sc.id }}" onchange="onMsChange(this)" {% if sc.id in sub_category_id %}checked{% endif %}>
+        {{ sc.name }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="ms-wrap" data-name="department" data-placeholder="All departments">
+    <div class="ms-label">Department</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All departments</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for d in departments %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ d.name }}" onchange="onMsChange(this)" {% if d.name in department %}checked{% endif %}>
+        {{ d.name }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="ms-wrap" data-name="stock_status" data-placeholder="All statuses">
+    <div class="ms-label">Stock Status</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All statuses</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for s in stock_status_choices %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ s }}" onchange="onMsChange(this)" {% if s in stock_status %}checked{% endif %}>
+        {{ s }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="filter-group">
+    <label>Active</label>
+    <select name="active">
+      <option value="" {{ 'selected' if not active else '' }}>All</option>
+      <option value="active" {{ 'selected' if active == 'active' else '' }}>Active</option>
+      <option value="inactive" {{ 'selected' if active == 'inactive' else '' }}>Inactive</option>
+    </select>
+  </div>
+  <div class="filter-group" style="flex:1;min-width:200px">
+    <label>Variant</label>
+    <input name="search" value="{{ search }}" placeholder="Search SKU or variant…" style="width:100%">
+  </div>
+  <div style="align-self:flex-end;display:flex;gap:6px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    {% if category_id or sub_category_id or department or stock_status or active or search %}
+    <a href="/inventory-v2" class="btn btn-gray btn-sm">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<div class="gd-kpi-row">
+  <div class="gd-kpi">
+    <div class="gd-kpi-label">Total SKUs</div>
+    <div class="gd-kpi-val">{{ kpi_total_skus }}</div>
+  </div>
+  <div class="gd-kpi">
+    <div class="gd-kpi-label">Active SKUs</div>
+    <div class="gd-kpi-val green">{{ kpi_active_skus }}</div>
+  </div>
+  <div class="gd-kpi">
+    <div class="gd-kpi-label">Below Threshold</div>
+    <div class="gd-kpi-val amber">{{ kpi_below_threshold_skus }}</div>
+  </div>
+  <div class="gd-kpi">
+    <div class="gd-kpi-label">Out of Stock</div>
+    <div class="gd-kpi-val red">{{ kpi_out_of_stock_skus }}</div>
+  </div>
+  <div class="gd-kpi">
+    <div class="gd-kpi-label">Open Purchase Orders</div>
+    <div class="gd-kpi-val">{{ kpi_open_pos }}</div>
+  </div>
+  <div class="gd-kpi">
+    <div class="gd-kpi-label">Open Dispatch Orders</div>
+    <div class="gd-kpi-val">{{ kpi_open_dispatches }}</div>
+  </div>
+</div>
+
+<div class="card" style="padding:18px">
   <h3 style="margin-top:0">Stock Status</h3>
   {% if stock_rows %}
   <table style="width:100%;font-size:13px;border-collapse:collapse">
@@ -27,9 +145,11 @@
       <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
         <th style="padding:6px 8px"></th>
         <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
+        {% if show_department_col %}<th style="padding:6px 8px">Department</th>{% endif %}
         <th style="padding:6px 8px">Available</th><th style="padding:6px 8px">Reserved</th>
         <th style="padding:6px 8px">In-Transit</th><th style="padding:6px 8px">Status</th>
         <th style="padding:6px 8px">Last Updated</th>
+        {% if can_edit %}<th style="padding:6px 8px"></th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -38,104 +158,26 @@
         <td style="padding:6px 8px">{% with variant=v %}{% include "components/product_thumb.html" %}{% endwith %}</td>
         <td style="padding:6px 8px"><a href="/sales/catalog/{{ v.product_id }}">{{ v.product.name if v.product else '' }}</a></td>
         <td style="padding:6px 8px;color:var(--text-faint)">{{ v.sku_code }}</td>
+        {% if show_department_col %}<td style="padding:6px 8px">{{ s.department.name if s.department else '—' }}</td>{% endif %}
         <td style="padding:6px 8px">{{ s.qty_available }}</td>
         <td style="padding:6px 8px">{{ s.qty_reserved }}</td>
         <td style="padding:6px 8px">{{ s.qty_in_transit }}</td>
         <td style="padding:6px 8px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ badge_colors.get(color,'#94a3b8') }}">{{ label }}</span></td>
         <td style="padding:6px 8px;color:var(--text-faint)">{{ s.last_updated_at.strftime('%d %b %Y') if s.last_updated_at else '—' }}</td>
+        {% if can_edit %}
+        <td style="padding:6px 8px"><button type="button" class="btn btn-xs btn-outline" onclick="openAdjust('{{ v.id }}','{{ v.sku_code|e }}',{{ s.qty_available }})">Adjust</button></td>
+        {% endif %}
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <div style="color:var(--text-faint);font-size:13px">No products in catalog yet.</div>
+  <div style="color:var(--text-faint);font-size:13px">No products match the current filters.</div>
   {% endif %}
+</div>
 </div>
 
-<div class="card" style="padding:18px;margin-bottom:18px">
-  <div style="display:flex;justify-content:space-between;align-items:center">
-    <h3 style="margin-top:0">Upcoming Dispatches</h3>
-    <a href="/inventory-v2/dispatch-queue" class="btn btn-xs btn-outline">Dispatch Queue</a>
-  </div>
-  {% if upcoming_dispatches %}
-  <table style="width:100%;font-size:13px;border-collapse:collapse">
-    <thead>
-      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
-        <th style="padding:6px 8px">Order</th><th style="padding:6px 8px">Customer</th>
-        <th style="padding:6px 8px">Items</th><th style="padding:6px 8px">Expected Delivery</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for o in upcoming_dispatches %}
-      <tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:6px 8px"><a href="/sales/orders/{{ o.id }}">{{ o.display_id or o.id[:8] }}</a></td>
-        <td style="padding:6px 8px">{{ o.customer.name if o.customer else '—' }}</td>
-        <td style="padding:6px 8px">{{ o.items|length }}</td>
-        <td style="padding:6px 8px;color:var(--text-faint)">{{ o.expected_delivery_date.strftime('%d %b %Y') if o.expected_delivery_date else '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div style="color:var(--text-faint);font-size:13px">No confirmed orders awaiting dispatch.</div>
-  {% endif %}
-</div>
-
-<div class="card" style="padding:18px;margin-bottom:18px">
-  <h3 style="margin-top:0">7-Day Demand Projection</h3>
-  {% if demand_projection %}
-  <table style="width:100%;font-size:13px;border-collapse:collapse">
-    <thead>
-      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
-        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Needed</th>
-        <th style="padding:6px 8px">Available</th><th style="padding:6px 8px">In-Transit</th>
-        <th style="padding:6px 8px">Gap</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in demand_projection %}
-      <tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:6px 8px">{{ row.product.name }}</td>
-        <td style="padding:6px 8px">{{ row.qty_needed }}</td>
-        <td style="padding:6px 8px">{{ row.qty_available }}</td>
-        <td style="padding:6px 8px">{{ row.qty_in_transit }}</td>
-        <td style="padding:6px 8px;font-weight:700;color:{{ '#ef4444' if row.shortfall else '#22c55e' }}">{{ row.gap }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div style="color:var(--text-faint);font-size:13px">No confirmed orders due in the next 7 days.</div>
-  {% endif %}
-</div>
-
-<div class="card" style="padding:18px">
-  <h3 style="margin-top:0">Open Purchase Orders</h3>
-  {% if open_pos %}
-  <table style="width:100%;font-size:13px;border-collapse:collapse">
-    <thead>
-      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
-        <th style="padding:6px 8px">PO ID</th><th style="padding:6px 8px">Vendor</th>
-        <th style="padding:6px 8px">Expected Arrival</th><th style="padding:6px 8px">Items</th>
-        <th style="padding:6px 8px">Status</th><th style="padding:6px 8px"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for po in open_pos %}
-      <tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:6px 8px">{{ po.display_id }}</td>
-        <td style="padding:6px 8px">{{ po.vendor_name_snapshot or '—' }}</td>
-        <td style="padding:6px 8px">{{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</td>
-        <td style="padding:6px 8px">{{ po.items|length }}</td>
-        {% set po_status_colors = {'DRAFT':'#94a3b8','SUBMITTED':'#3b82f6','APPROVED':'#8b5cf6','PARTIALLY_RECEIVED':'#f59e0b','RECEIVED':'#22c55e','CANCELLED':'#ef4444'} %}
-        <td style="padding:6px 8px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ po_status_colors.get(po.status, '#94a3b8') }}">{{ po.status }}</span></td>
-        <td style="padding:6px 8px"><a href="/inventory-v2/purchase-orders/{{ po.id }}" class="btn btn-xs btn-outline">View</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div style="color:var(--text-faint);font-size:13px">No open purchase orders.</div>
-  {% endif %}
-</div>
+{% if can_edit %}
+{% include "inventory_v2/_stock_adjust_modal.html" %}
+{% endif %}
 {% endblock %}

@@ -108,57 +108,101 @@
   </div>
 </div>
 
-<!-- Add Modal -->
+<!-- Add Modal — identical form to Catalog's New Product modal (sales/catalog_list.html),
+     posting to the same /sales/catalog/create endpoint so Catalog and End Products
+     stay in sync automatically via sync_end_product_from_variant. -->
 <div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
-  <div class="modal-box" style="max-width:440px;width:100%">
+  <div class="modal-box" style="max-width:440px;width:100%;max-height:85vh;overflow-y:auto">
     <div class="modal-hdr">
-      <div class="modal-title">Add End Product</div>
+      <div class="modal-title">New Product</div>
       <button type="button" class="modal-close" onclick="document.getElementById('addModal').style.display='none'">×</button>
     </div>
-    <form method="post" action="/setup/end-products/add">
-      <div class="form-group">
-        <label class="form-label">Name <span style="color:#f87171">*</span></label>
-        <input name="name" class="form-input" required maxlength="200">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Category</label>
-        <input name="category" class="form-input" placeholder="e.g. Textiles">
-      </div>
+    <form method="post" action="/sales/catalog/create" id="newProductForm">
+      <input type="hidden" name="source" value="setup">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CORE DETAILS</h3>
+      <div class="form-group"><label class="form-label">Product Name *</label><input name="name" required class="form-input"></div>
+      <div class="form-group"><label class="form-label">Description</label><textarea name="description" rows="2" class="form-input"></textarea></div>
       <div class="form-group">
         <label class="form-label">Sub-Category</label>
-        <input name="sub_category" class="form-input" placeholder="e.g. Cotton">
+        <select name="sub_category_id" class="form-input">
+          <option value="">— None —</option>
+          {% for cat in categories %}
+          {% for sc in subcategories if sc.category_id == cat.id %}
+          <option value="{{ sc.id }}">{{ cat.name }} / {{ sc.name }}</option>
+          {% endfor %}
+          {% endfor %}
+        </select>
       </div>
       <div class="form-group">
-        <label class="form-label">SKU Code <span style="font-size:11px;color:var(--text-faint)">(unique per tenant, no spaces)</span></label>
-        <input name="sku_code" class="form-input" placeholder="e.g. SKU-001" pattern="[A-Za-z0-9\-_]+">
+        <label class="form-label">Default Base Unit</label>
+        <select name="base_unit_id" class="form-input">
+          <option value="">— None —</option>
+          {% for u in units %}<option value="{{ u.id }}">{{ u.name }} ({{ u.abbreviation }})</option>{% endfor %}
+        </select>
       </div>
+
+      {% if schema_fields %}
+      <h3 style="font-size:13px;color:var(--text-faint);letter-spacing:.03em">SHARED ATTRIBUTES</h3>
+      {% for field in schema_fields %}
       <div class="form-group">
-        <label class="form-label">Variant Label</label>
-        <input name="variant_label" class="form-input" placeholder="defaults to name">
+        <label class="form-label">{{ field.label }}{% if field.is_required %} *{% endif %}</label>
+        {% if field.field_type == 'dropdown' %}
+        <select name="attr__{{ field.label }}" class="form-input" {{ 'required' if field.is_required else '' }}>
+          <option value="">— Select —</option>
+          {% for opt in field.options_json | from_json %}<option value="{{ opt }}">{{ opt }}</option>{% endfor %}
+        </select>
+        {% elif field.field_type == 'boolean' %}
+        <input type="checkbox" name="attr__{{ field.label }}" style="width:auto">
+        {% elif field.field_type == 'number' %}
+        <input type="number" step="any" name="attr__{{ field.label }}" class="form-input" {{ 'required' if field.is_required else '' }}>
+        {% else %}
+        <input name="attr__{{ field.label }}" class="form-input" {{ 'required' if field.is_required else '' }}>
+        {% endif %}
       </div>
-      <div class="form-group">
-        <label class="form-label">Unit of Measure <span style="font-size:11px;color:var(--text-faint)">(must match Setup → Units)</span></label>
-        <input name="unit" class="form-input" placeholder="e.g. pcs, kg, litres, box">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Low Stock Threshold</label>
-        <input name="low_stock_threshold" type="number" step="any" class="form-input">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Photo Drive Link</label>
-        <input name="photo_drive_link" class="form-input" placeholder="Google Drive share link">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Description</label>
-        <textarea name="description" class="form-input" rows="2"></textarea>
-      </div>
+      {% endfor %}
+      {% endif %}
+
+      <h3 style="font-size:13px;color:var(--text-faint);letter-spacing:.03em">VARIANTS (SKUS) *</h3>
+      <div class="muted" style="font-size:11px;margin-top:-6px;margin-bottom:8px">A Product isn't sellable on its own — add at least one Variant.</div>
+      <table id="variant-table" style="width:100%;border-collapse:collapse;margin-bottom:8px">
+        <thead>
+          <tr style="font-size:11px;color:var(--text-muted);text-align:left">
+            <th style="padding:4px">SKU Code *</th><th style="padding:4px">Label</th>
+            <th style="padding:4px">Unit</th><th style="padding:4px">Low Stock</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="variant-rows"></tbody>
+      </table>
+      <button type="button" class="btn btn-xs btn-outline" onclick="addVariantRow()">+ Add Variant</button>
+
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
         <button type="button" onclick="document.getElementById('addModal').style.display='none'" class="btn btn-outline">Cancel</button>
-        <button type="submit" class="btn btn-primary">Add Product</button>
+        <button type="submit" class="btn btn-primary">Save Product</button>
       </div>
     </form>
+    <template id="variant-row-template">
+      <tr>
+        <td style="padding:4px"><input name="variant_sku[]" required style="width:100%"></td>
+        <td style="padding:4px"><input name="variant_label[]" placeholder="e.g. Red / King" style="width:100%"></td>
+        <td style="padding:4px">
+          <select name="variant_unit_id[]" style="width:100%">
+            <option value="">— default —</option>
+            {% for u in units %}<option value="{{ u.id }}">{{ u.abbreviation }}</option>{% endfor %}
+          </select>
+        </td>
+        <td style="padding:4px"><input type="number" step="any" name="variant_low_stock[]" style="width:100%"></td>
+        <td style="padding:4px"><button type="button" class="btn btn-xs btn-gray" onclick="this.closest('tr').remove()">✕</button></td>
+      </tr>
+    </template>
   </div>
 </div>
+<script>
+function addVariantRow() {
+  const tpl = document.getElementById('variant-row-template');
+  document.getElementById('variant-rows').appendChild(tpl.content.cloneNode(true));
+}
+addVariantRow();
+</script>
 
 <!-- Edit Modal -->
 <div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
