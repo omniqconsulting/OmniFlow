@@ -26,6 +26,7 @@ from .database import (
     InventoryPurchaseOrder,
     StockLedgerEntry, InventoryPOItem, PriceListItem, PriceListItemHistory,
     CostEntry, SalesOrderItem, StockReservation,
+    Category, SubCategory, ProductSchemaField,
 )
 from .auth import require_admin, require_admin_or_redirect, get_nav_flags, has_module
 from .labels import get_labels
@@ -729,12 +730,30 @@ def end_products_page(
         p.sub_category_name = p.sub_category.name if p.sub_category else ""
         matching_variant = variants_by_sku.get(p.sku_code) if p.sku_code else None
         p.catalog_product_id = matching_variant.product_id if matching_variant else None
+    # Add-Product form mirrors Catalog's New Product modal exactly (same
+    # dropdown-driven category/unit hierarchy) — see sales_catalog.py's
+    # catalog_create, which this form now posts to directly.
+    categories = db.query(Category).filter(
+        Category.tenant_id == user.tenant_id, Category.is_active == True, Category.is_deleted == False,
+    ).order_by(Category.name).all()
+    subcategories = db.query(SubCategory).filter(
+        SubCategory.tenant_id == user.tenant_id, SubCategory.is_active == True, SubCategory.is_deleted == False,
+    ).order_by(SubCategory.name).all()
+    units = db.query(UnitOfMeasure).filter(
+        UnitOfMeasure.tenant_id == user.tenant_id, UnitOfMeasure.is_active == True, UnitOfMeasure.is_deleted == False,
+    ).order_by(UnitOfMeasure.name).all()
+    schema_fields = db.query(ProductSchemaField).filter(
+        ProductSchemaField.tenant_id == user.tenant_id, ProductSchemaField.is_active == True,
+    ).order_by(ProductSchemaField.sort_order).all()
+
     return templates.TemplateResponse(request, "setup/end_products.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "products": products, "total": total,
         "page": page, "page_size": PAGE_SIZE,
         "status_filter": status, "pending_filter": pending,
+        "categories": categories, "subcategories": subcategories,
+        "units": units, "schema_fields": schema_fields,
         "msg": request.query_params.get("msg", ""),
         "err": request.query_params.get("err", ""),
     })

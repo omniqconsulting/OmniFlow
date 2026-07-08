@@ -1,12 +1,25 @@
-{# Manual stock adjustment modal (Admin/Manager only) — included from stock_list.html #}
+{# Manual stock adjustment modal (Admin/Manager only) — included from inventory_v2/dashboard.html #}
 <div id="adjust-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
-  <div class="card" style="width:380px;padding:20px">
+  <div class="card" style="width:400px;padding:20px">
     <h3 style="margin-top:0">Adjust Stock — <span id="adjust-product-name"></span></h3>
-    <form method="post" id="adjust-form" action="">
+    <form method="post" id="adjust-form" action="" enctype="multipart/form-data">
       <label style="font-size:12px;color:var(--text-muted)">New Available Quantity</label>
       <input type="number" step="any" name="new_qty" id="adjust-new-qty" required style="width:100%;margin-bottom:10px">
+
+      <label style="font-size:12px;color:var(--text-muted)">Department / Godown</label>
+      <select name="department_id" id="adjust-department" style="width:100%;margin-bottom:10px">
+        <option value="">— Aggregate (no department) —</option>
+        {% for d in departments %}
+        <option value="{{ d.id }}">{{ d.name }}</option>
+        {% endfor %}
+      </select>
+
       <label style="font-size:12px;color:var(--text-muted)">Reason</label>
-      <textarea name="reason" required style="width:100%;margin-bottom:14px" rows="3" placeholder="e.g. Physical count correction"></textarea>
+      <textarea name="reason" required style="width:100%;margin-bottom:10px" rows="3" placeholder="e.g. Physical count correction"></textarea>
+
+      <label style="font-size:12px;color:var(--text-muted)">Attach Document (optional)</label>
+      <input type="file" name="document" style="width:100%;margin-bottom:14px">
+
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" class="btn btn-sm btn-gray" onclick="closeAdjust()">Cancel</button>
         <button type="submit" class="btn btn-sm btn-primary">Save</button>
@@ -15,10 +28,11 @@
   </div>
 </div>
 <script>
-function openAdjust(productId, productName, currentQty) {
+function openAdjust(variantId, productName, currentQty) {
   document.getElementById('adjust-product-name').textContent = productName;
-  document.getElementById('adjust-form').action = '/inventory-v2/stock/' + productId + '/adjust';
+  document.getElementById('adjust-form').action = '/inventory-v2/stock/' + variantId + '/adjust';
   document.getElementById('adjust-new-qty').value = currentQty;
+  document.getElementById('adjust-department').value = '';
   document.getElementById('adjust-modal').style.display = 'flex';
 }
 function closeAdjust() {

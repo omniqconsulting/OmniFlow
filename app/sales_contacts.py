@@ -170,10 +170,12 @@ def get_agent_queue(
         )
         freq = cust.contact_freq_days or 30
         agg = order_agg.get(cust.id, {"count": 0, "total": 0.0, "last_at": None})
-        next_due = (
-            next_follow_up + timedelta(days=freq) if next_follow_up
-            else datetime.utcnow() + timedelta(days=freq)
-        )
+        if next_follow_up:
+            next_due = next_follow_up + timedelta(days=freq)
+        elif last_contacted:
+            next_due = last_contacted + timedelta(days=freq)
+        else:
+            next_due = datetime.utcnow()
 
         entry = {
             "customer": cust,
@@ -308,12 +310,15 @@ def log_call(
         except ValueError:
             pass
 
+    # Logging a new call supersedes any previously scheduled follow-up for
+    # this customer — whether it's overdue or still upcoming — so the queue's
+    # "next follow-up" always reflects the most recent call, not a stale
+    # reminder from an earlier conversation.
     db.query(CRMCallLog).filter(
         CRMCallLog.customer_id == customer_id,
         CRMCallLog.agent_id == user.id,
         CRMCallLog.follow_up_done == False,
         CRMCallLog.follow_up_at != None,
-        CRMCallLog.follow_up_at <= datetime.utcnow(),
     ).update({"follow_up_done": True})
 
     log = CRMCallLog(
@@ -971,14 +976,16 @@ def contact_create(
     default_payment_terms: str = Form(""),
     price_list_id: str = Form(""),
     notes: str = Form(""),
+    source: str = Form(""),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
+    err_redirect = "/sales/contacts" if source == "queue" else "/sales/contacts/all"
     if not name.strip():
-        return _redir("/sales/contacts/all?err=Name+is+required")
+        return _redir(f"{err_redirect}?err=Name+is+required")
     p = phone.strip()
     if p and not _PHONE_RE.match(p):
-        return _redir("/sales/contacts/all?err=Invalid+phone+number+format")
+        return _redir(f"{err_redirect}?err=Invalid+phone+number+format")
 
     agent_id = assigned_agent_id if user.role in ("ADMIN", "MANAGER") and assigned_agent_id else user.id
     try:

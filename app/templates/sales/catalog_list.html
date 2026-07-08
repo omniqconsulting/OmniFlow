@@ -8,11 +8,9 @@
     <div class="muted">{{ total }} product{{ '' if total == 1 else 's' }}</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/inventory-v2" class="btn btn-sm btn-gray">← Back to Inventory</a>
     {% if user.role in ('ADMIN','MANAGER') %}
-    <a href="/sales/catalog/categories" class="btn btn-sm btn-outline">🗂 Categories</a>
-    <a href="/sales/catalog/schema" class="btn btn-sm btn-outline">⚙ Attribute Schema</a>
     <a href="/sales/catalog/export" class="btn btn-sm btn-outline">⬇ Export CSV</a>
-    <a href="/sales/catalog/bulk-template" class="btn btn-sm btn-outline">📄 Template</a>
     <a href="/sales/catalog/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
     <button type="button" class="btn btn-sm btn-primary" onclick="openModal('newProductModal')">+ New Product</button>
     {% endif %}
@@ -22,96 +20,119 @@
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-<div style="display:grid;grid-template-columns:220px 1fr;gap:18px;align-items:start">
-  <!-- Category -> Sub-Category tree -->
-  <div class="card" style="padding:12px">
-    <div style="font-size:11px;font-weight:700;color:var(--text-faint);letter-spacing:.03em;margin-bottom:8px">CATEGORIES</div>
-    <a href="/sales/catalog" style="display:block;padding:5px 6px;border-radius:6px;font-size:13px;text-decoration:none;color:inherit;{{ 'background:var(--bg-input);font-weight:600' if not category_id else '' }}">All Products</a>
-    {% for cat in categories %}
-    <div style="margin-top:6px">
-      <a href="/sales/catalog?category_id={{ cat.id }}" style="display:block;padding:5px 6px;border-radius:6px;font-size:13px;text-decoration:none;color:inherit;{{ 'background:var(--bg-input);font-weight:600' if category_id == cat.id and not sub_category_id else '' }}">{{ cat.name }}</a>
-      {% for sc in subcats_by_cat.get(cat.id, []) %}
-      <a href="/sales/catalog?sub_category_id={{ sc.id }}" style="display:block;padding:4px 6px 4px 18px;border-radius:6px;font-size:12px;text-decoration:none;color:var(--text-muted);{{ 'background:var(--bg-input);font-weight:600;color:var(--text-strong)' if sub_category_id == sc.id else '' }}">{{ sc.name }}</a>
+<form method="get" action="/sales/catalog" class="filter-bar" style="margin-bottom:18px">
+  <div class="ms-wrap" data-name="category_id" data-placeholder="All categories">
+    <div class="ms-label">Category</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All categories</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for c in categories %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ c.id }}" onchange="onMsChange(this)" {% if c.id in category_id %}checked{% endif %}>
+        {{ c.name }}
+      </label>
       {% endfor %}
     </div>
-    {% endfor %}
   </div>
+  <div class="ms-wrap" data-name="sub_category_id" data-placeholder="All sub categories">
+    <div class="ms-label">Sub Category</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All sub categories</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for sc in subcategories %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ sc.id }}" onchange="onMsChange(this)" {% if sc.id in sub_category_id %}checked{% endif %}>
+        {{ sc.category.name }} / {{ sc.name }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="filter-group">
+    <label>Tier</label>
+    <select name="tier">
+      <option value="">All tiers</option>
+      {% for t in tier_choices %}
+      <option value="{{ t }}" {{ 'selected' if t == tier else '' }}>{{ t }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Status</label>
+    <select name="active">
+      <option value="">Any status</option>
+      <option value="true" {{ 'selected' if active == 'true' else '' }}>Active</option>
+      <option value="false" {{ 'selected' if active == 'false' else '' }}>Inactive</option>
+    </select>
+  </div>
+  <div class="filter-group" style="flex:1;min-width:200px">
+    <label>Search</label>
+    <input name="q" value="{{ q }}" placeholder="Search product or SKU…" style="width:100%">
+  </div>
+  <div style="align-self:flex-end;display:flex;gap:6px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    {% if category_id or sub_category_id or tier or active or q %}
+    <a href="/sales/catalog" class="btn btn-gray btn-sm">Clear</a>
+    {% endif %}
+  </div>
+</form>
 
-  <div>
-    <form method="get" action="/sales/catalog" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">
-      <input type="hidden" name="category_id" value="{{ category_id }}">
-      <input type="hidden" name="sub_category_id" value="{{ sub_category_id }}">
-      <input name="q" value="{{ q }}" placeholder="Search product or SKU…" style="flex:1;min-width:200px">
-      <select name="tier" style="min-width:130px">
-        <option value="">All tiers</option>
-        {% for t in tier_choices %}
-        <option value="{{ t }}" {{ 'selected' if t == tier else '' }}>{{ t }}</option>
-        {% endfor %}
-      </select>
-      <select name="active" style="min-width:120px">
-        <option value="">Any status</option>
-        <option value="true" {{ 'selected' if active == 'true' else '' }}>Active</option>
-        <option value="false" {{ 'selected' if active == 'false' else '' }}>Inactive</option>
-      </select>
-      <button type="submit" class="btn btn-sm btn-outline">Filter</button>
-    </form>
-
-    {% if products %}
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
-      {% for p in products %}
-      {% set first_variant = p.variants[0] if p.variants else none %}
-      {% set media = first_variant.media_urls_json | from_json if first_variant and first_variant.media_urls_json else [] %}
-      <div class="card" style="padding:0;overflow:hidden">
-        <a href="/sales/catalog/{{ p.id }}" style="display:block;text-decoration:none;color:inherit">
-          <div style="height:140px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;overflow:hidden">
-            {% if media %}
-            <img src="/static/{{ media[0] }}" style="width:100%;height:100%;object-fit:cover">
-            {% else %}
-            <span style="font-size:36px;opacity:0.4">📦</span>
-            {% endif %}
-          </div>
-          <div style="padding:12px 14px">
-            <div style="font-size:11px;color:var(--text-faint);font-weight:600;letter-spacing:0.03em">{{ p.sub_category.category.name if p.sub_category else '—' }} / {{ p.sub_category.name if p.sub_category else '—' }}</div>
-            <div style="font-size:14px;font-weight:600;color:var(--text-strong);margin:2px 0 6px">{{ p.name }}</div>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
-              <span style="font-size:11px;color:var(--text-muted)">{{ p.variants|length }} variant{{ '' if p.variants|length == 1 else 's' }}</span>
-              {% if first_variant %}
-              <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'}.get(first_variant.product_tier, '#94a3b8') }}">{{ first_variant.product_tier }}</span>
-              {% endif %}
-            </div>
-          </div>
-        </a>
-        {% if user.role in ('ADMIN','MANAGER') %}
-        <div style="display:flex;gap:6px;padding:10px 14px;border-top:1px solid var(--border-subtle)">
-          <a href="/sales/catalog/{{ p.id }}/edit" class="btn btn-xs btn-outline" style="flex:1;text-align:center">Edit</a>
-          <form method="post" action="/sales/catalog/{{ p.id }}/delete" style="flex:1" onsubmit="return confirm('Delete this product and all its variants?')">
-            <button type="submit" class="btn btn-xs btn-gray" style="width:100%">Delete</button>
-          </form>
-        </div>
+{% if products %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
+  {% for p in products %}
+  {% set first_variant = p.variants[0] if p.variants else none %}
+  {% set media = first_variant.media_urls_json | from_json if first_variant and first_variant.media_urls_json else [] %}
+  <div class="card" style="padding:0;overflow:hidden">
+    <a href="/sales/catalog/{{ p.id }}" style="display:block;text-decoration:none;color:inherit">
+      <div style="height:140px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;overflow:hidden">
+        {% if media %}
+        <img src="/static/{{ media[0] }}" style="width:100%;height:100%;object-fit:cover">
+        {% else %}
+        <span style="font-size:36px;opacity:0.4">📦</span>
         {% endif %}
       </div>
-      {% endfor %}
-    </div>
-
-    {% if total > page_size %}
-    <div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:24px;font-size:12px;color:var(--text-muted)">
-      {% if page > 1 %}<a href="?page={{ page-1 }}&q={{ q }}&category_id={{ category_id }}&sub_category_id={{ sub_category_id }}&tier={{ tier }}&active={{ active }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
-      <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
-      {% if page * page_size < total %}<a href="?page={{ page+1 }}&q={{ q }}&category_id={{ category_id }}&sub_category_id={{ sub_category_id }}&tier={{ tier }}&active={{ active }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
-    </div>
-    {% endif %}
-
-    {% else %}
-    <div style="text-align:center;padding:60px 0;color:var(--text-faint)">
-      <div style="font-size:40px;margin-bottom:12px">📦</div>
-      <div style="font-size:15px;font-weight:500;margin-bottom:8px">No products found</div>
-      {% if user.role in ('ADMIN','MANAGER') %}
-      <button type="button" class="btn btn-primary" style="margin-top:8px" onclick="openModal('newProductModal')">+ Add your first product</button>
-      {% endif %}
+      <div style="padding:12px 14px">
+        <div style="font-size:11px;color:var(--text-faint);font-weight:600;letter-spacing:0.03em">{{ p.sub_category.category.name if p.sub_category else '—' }} / {{ p.sub_category.name if p.sub_category else '—' }}</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text-strong);margin:2px 0 6px">{{ p.name }}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+          <span style="font-size:11px;color:var(--text-muted)">{{ p.variants|length }} variant{{ '' if p.variants|length == 1 else 's' }}</span>
+          {% if first_variant %}
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'}.get(first_variant.product_tier, '#94a3b8') }}">{{ first_variant.product_tier }}</span>
+          {% endif %}
+        </div>
+      </div>
+    </a>
+    {% if user.role in ('ADMIN','MANAGER') %}
+    <div style="display:flex;gap:6px;padding:10px 14px;border-top:1px solid var(--border-subtle)">
+      <a href="/sales/catalog/{{ p.id }}/edit" class="btn btn-xs btn-outline" style="flex:1;text-align:center">Edit</a>
+      <form method="post" action="/sales/catalog/{{ p.id }}/delete" style="flex:1" onsubmit="return confirm('Delete this product and all its variants?')">
+        <button type="submit" class="btn btn-xs btn-gray" style="width:100%">Delete</button>
+      </form>
     </div>
     {% endif %}
   </div>
+  {% endfor %}
 </div>
+
+{% if total > page_size %}
+<div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:24px;font-size:12px;color:var(--text-muted)">
+  {% macro page_link(p) %}?page={{ p }}&q={{ q }}&tier={{ tier }}&active={{ active }}{% for c in category_id %}&category_id={{ c }}{% endfor %}{% for sc in sub_category_id %}&sub_category_id={{ sc }}{% endfor %}{% endmacro %}
+  {% if page > 1 %}<a href="{{ page_link(page-1) }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
+  <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
+  {% if page * page_size < total %}<a href="{{ page_link(page+1) }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
+  <div style="font-size:40px;margin-bottom:12px">📦</div>
+  <div style="font-size:15px;font-weight:500;margin-bottom:8px">No products found</div>
+  {% if user.role in ('ADMIN','MANAGER') %}
+  <button type="button" class="btn btn-primary" style="margin-top:8px" onclick="openModal('newProductModal')">+ Add your first product</button>
+  {% endif %}
+</div>
+{% endif %}
 
 {% if user.role in ('ADMIN','MANAGER') %}
 {% set modal_body %}

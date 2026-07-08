@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Integer, Text, ForeignKey, Float, Date, JSON
+from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Integer, Text, ForeignKey, Float, Date, JSON, UniqueConstraint
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, date
 import enum, uuid, os
@@ -1516,27 +1516,42 @@ class ProductVariant(Base):
 
 class ProductStock(Base):
     """
-    Single row per variant — the live stock snapshot.
-    Always kept consistent with stock_ledger aggregate.
-    Updated atomically in the same transaction as every ledger write.
+    Live stock snapshot per variant, optionally split by department.
+
+    department_id IS NULL: the tenant-wide aggregate row — always exactly
+        one per variant (enforced in code, not just the composite unique
+        index below). This is the ONLY row order reservation/fulfillment,
+        PO receiving, and in-transit tracking ever touch — those flows are
+        intentionally department-agnostic.
+    department_id = X: a per-department breakdown row, written alongside
+        (never instead of) the aggregate row whenever stock-in/adjustment
+        specifies a department — see handle_stock_in/handle_stock_adjustment.
 
     qty_available  = physical stock minus active reservations
-    qty_reserved   = sum of ACTIVE stock_reservations (added in Brief 04)
-    qty_in_transit = sum of open PO items not yet received
+    qty_reserved   = sum of ACTIVE stock_reservations (added in Brief 04;
+        only meaningful on the aggregate row — reservations are never
+        department-scoped)
+    qty_in_transit = sum of open PO items not yet received (aggregate row only)
     avg_cost       = weighted average buy cost (updated on every STOCK_IN)
     """
     __tablename__ = "product_stock"
     id              = Column(String,  primary_key=True, default=new_id)
-    variant_id      = Column(String,  ForeignKey("product_variants.id"), unique=True, nullable=False)
+    variant_id      = Column(String,  ForeignKey("product_variants.id"), nullable=False)
     tenant_id       = Column(String,  ForeignKey("tenants.id"),  nullable=False)
+    department_id   = Column(String,  ForeignKey("departments.id"), nullable=True)
     qty_available   = Column(Float,   default=0.0)
     qty_reserved    = Column(Float,   default=0.0)   # managed in Brief 04
     qty_in_transit  = Column(Float,   default=0.0)
     avg_cost        = Column(Float,   nullable=True)
     last_updated_at = Column(DateTime, default=datetime.utcnow)
 
-    variant = relationship("ProductVariant")
-    tenant  = relationship("Tenant")
+    __table_args__ = (
+        UniqueConstraint("variant_id", "department_id", name="uq_product_stock_variant_department"),
+    )
+
+    variant    = relationship("ProductVariant")
+    tenant     = relationship("Tenant")
+    department = relationship("Department")
 
 
 class StockLedgerEntry(Base):
@@ -1776,6 +1791,11 @@ class SalesOrder(Base):
     is_deleted              = Column(Boolean, default=False)
     created_at             = Column(DateTime, default=datetime.utcnow)
     updated_at             = Column(DateTime, default=datetime.utcnow)
+    # Dispatch Queue manual sequencing (lower = ships first). Set when an
+    # order becomes CONFIRMED (appended to the end of the queue), reassigned
+    # in bulk by the queue's drag-and-drop reorder endpoint, cleared once the
+    # order is fully DISPATCHED (it leaves the queue).
+    dispatch_priority      = Column(Integer, nullable=True)
 
     tenant   = relationship("Tenant")
     customer = relationship("Customer",  foreign_keys=[customer_id])
@@ -1893,6 +1913,29 @@ class SalesTarget(Base):
     tenant     = relationship("Tenant")
     agent      = relationship("User", foreign_keys=[agent_id])
     created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class SalesTargetHistory(Base):
+    """
+    Append-only log of every SalesTarget create/update.
+    Written every time a target is set via /sales/orders/targets/set.
+    Never update or delete rows in this table.
+    """
+    __tablename__ = "sales_target_history"
+    id                 = Column(String,  primary_key=True, default=new_id)
+    tenant_id          = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    agent_id           = Column(String,  ForeignKey("users.id"),   nullable=False)
+    period_label       = Column(String,  nullable=False)
+    old_target_amount  = Column(Float,   nullable=True)
+    new_target_amount  = Column(Float,   nullable=False)
+    old_target_orders  = Column(Integer, nullable=True)
+    new_target_orders  = Column(Integer, nullable=True)
+    changed_by_id      = Column(String,  ForeignKey("users.id"), nullable=True)
+    changed_at         = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    agent      = relationship("User", foreign_keys=[agent_id])
+    changed_by = relationship("User", foreign_keys=[changed_by_id])
 
 
 def create_tables():

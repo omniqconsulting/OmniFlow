@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Target History{% endblock %}
+{% block content %}
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+  <div>
+    <h2 class="page-title">Target Change History</h2>
+    <div class="muted">Every target set/update, with who changed it and when</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <form method="get" action="/sales/orders/targets/history" style="display:flex;gap:6px;align-items:center">
+      <input type="month" name="period" value="{{ period }}" onchange="this.form.submit()">
+    </form>
+    <a href="/sales/orders/targets" class="btn btn-sm btn-outline">← Back to Targets</a>
+  </div>
+</div>
+
+{% if rows %}
+<div class="card" style="padding:0;overflow:hidden">
+<table class="table" style="width:100%">
+  <thead><tr>
+    <th>Agent</th><th>Period</th><th>Amount (Old → New)</th><th>Orders (Old → New)</th>
+    <th>Changed By</th><th>Changed At</th>
+  </tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.agent.name if r.agent else '—' }}</td>
+      <td>{{ r.period_label }}</td>
+      <td>
+        {{ '₹%.0f'|format(r.old_target_amount) if r.old_target_amount is not none else '—' }}
+        → ₹{{ '%.0f'|format(r.new_target_amount) }}
+      </td>
+      <td>
+        {{ r.old_target_orders if r.old_target_orders is not none else '—' }}
+        → {{ r.new_target_orders if r.new_target_orders is not none else '—' }}
+      </td>
+      <td>{{ r.changed_by.name if r.changed_by else '—' }}</td>
+      <td>{{ r.changed_at.strftime('%d %b %Y %H:%M') if r.changed_at else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div style="text-align:center;padding:60px 0;color:var(--text-faint)">
+  <div style="font-size:40px;margin-bottom:12px">🎯</div>
+  <div style="font-size:15px;font-weight:500">No target changes recorded</div>
+</div>
+{% endif %}
+{% endblock %}

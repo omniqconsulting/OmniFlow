@@ -49,7 +49,7 @@
 <div class="card" style="padding:18px">
   <h3 style="margin-top:0">Line Items</h3>
   {% if po.status in ('SUBMITTED','APPROVED','PARTIALLY_RECEIVED') %}
-  <form method="post" action="/inventory-v2/purchase-orders/{{ po.id }}/receive">
+  <form method="post" action="/inventory-v2/purchase-orders/{{ po.id }}/receive" id="receiveForm">
   {% endif %}
   <table style="width:100%;font-size:13px;border-collapse:collapse">
     <thead>
@@ -86,4 +86,46 @@
   </form>
   {% endif %}
 </div>
+
+{% if po.status in ('SUBMITTED','APPROVED','PARTIALLY_RECEIVED') %}
+<div id="receiptResultModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+  <div class="card" style="width:520px;max-width:92vw;padding:20px;max-height:80vh;overflow-y:auto">
+    <h3 style="margin-top:0">Receipt Recorded</h3>
+    <table style="width:100%;font-size:13px;border-collapse:collapse">
+      <thead>
+        <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+          <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
+          <th style="padding:6px 8px">Received</th>
+          <th style="padding:6px 8px">Old Stock</th><th style="padding:6px 8px">New Stock</th>
+        </tr>
+      </thead>
+      <tbody id="receiptResultBody"></tbody>
+    </table>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <button type="button" class="btn btn-sm btn-primary" onclick="window.location.reload()">Close</button>
+    </div>
+  </div>
+</div>
+<script>
+document.getElementById('receiveForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const fd = new FormData(this);
+  fd.append('ajax', '1');
+  const res = await fetch(this.action, { method: 'POST', body: fd });
+  const d = await res.json();
+  if (!res.ok) { alert(d.error || 'Could not record receipt'); return; }
+  const tbody = document.getElementById('receiptResultBody');
+  tbody.innerHTML = d.rows.map(function(r) {
+    return '<tr style="border-bottom:1px solid var(--border-subtle)">' +
+      '<td style="padding:6px 8px">' + r.product_name + '</td>' +
+      '<td style="padding:6px 8px;color:var(--text-faint)">' + r.sku_code + '</td>' +
+      '<td style="padding:6px 8px">+' + r.qty_received + '</td>' +
+      '<td style="padding:6px 8px">' + r.old_qty + '</td>' +
+      '<td style="padding:6px 8px;font-weight:700">' + r.new_qty + '</td>' +
+      '</tr>';
+  }).join('');
+  document.getElementById('receiptResultModal').style.display = 'flex';
+});
+</script>
+{% endif %}
 {% endblock %}

@@ -13,7 +13,7 @@ import calendar
 from datetime import datetime, date
 from datetime import date as _date
 
-from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from sqlalchemy import func, or_ as _or
 from sqlalchemy.orm import Session
@@ -23,11 +23,12 @@ from .database import (
     get_db, new_id, User, Customer, Product, ProductVariant, UnitOfMeasure, ProductStock,
     InventoryPurchaseOrder, InventoryPOItem, SalesOrder, SalesOrderItem,
     PriceList, PriceListItem, CustomerPriceOverride, Branch, MediaUpload, SalesTarget,
+    SalesTargetHistory,
 )
 from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
-from .sales_inventory import reserve_stock_for_item, release_all_reservations, fulfill_reservation
+from .sales_inventory import reserve_stock_for_item, release_all_reservations, fulfill_reservation, dispatch_stock_allocation
 from .constants import SALES_MARGIN_FLOOR_PCT, BULK_IMPORT_MAX_ROWS
 from .bulk_common import check_required_headers
 from .uploads import save_upload
@@ -285,6 +286,8 @@ def sales_target_set(
         SalesTarget.tenant_id == user.tenant_id, SalesTarget.agent_id == agent_id,
         SalesTarget.period_label == period_label,
     ).first()
+    old_amount = existing.target_amount if existing else None
+    old_orders = existing.target_orders if existing else None
     if existing:
         existing.target_amount = amount
         existing.target_orders = orders_target
@@ -293,8 +296,34 @@ def sales_target_set(
             tenant_id=user.tenant_id, agent_id=agent_id, period_label=period_label,
             target_amount=amount, target_orders=orders_target, created_by_id=user.id,
         ))
+    db.add(SalesTargetHistory(
+        tenant_id=user.tenant_id, agent_id=agent_id, period_label=period_label,
+        old_target_amount=old_amount, new_target_amount=amount,
+        old_target_orders=old_orders, new_target_orders=orders_target,
+        changed_by_id=user.id,
+    ))
     db.commit()
     return _redir(f"/sales/orders/targets?period={period_label}&msg=Target+saved")
+
+
+@router.get("/sales/orders/targets/history", response_class=HTMLResponse)
+def sales_targets_history_view(
+    request: Request,
+    period: str = "",
+    user: User = Depends(_require_sales_or_redirect),
+    db: Session = Depends(get_db),
+):
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(403, "Admin/Manager only")
+
+    q = db.query(SalesTargetHistory).filter(SalesTargetHistory.tenant_id == user.tenant_id)
+    if period:
+        q = q.filter(SalesTargetHistory.period_label == period)
+    rows = q.order_by(SalesTargetHistory.changed_at.desc()).limit(500).all()
+
+    return templates.TemplateResponse(request, "sales/orders_targets_history.html", _ctx(
+        db, user, rows=rows, period=period,
+    ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -309,6 +338,8 @@ PAGE_SIZE = 30
 def orders_list(
     request: Request,
     status: str = "",
+    search: str = "",
+    agent_id: list = Query(default=[]),
     page: int = 1,
     user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
@@ -317,10 +348,24 @@ def orders_list(
         SalesOrder.tenant_id == user.tenant_id,
         SalesOrder.is_deleted == False,
     )
+    agents = []
     if user.role not in ("ADMIN", "MANAGER"):
         q = q.filter(SalesOrder.agent_id == user.id)
+    else:
+        agents = _sales_agents(db, user.tenant_id)
+        if agent_id:
+            q = q.filter(SalesOrder.agent_id.in_(agent_id))
     if status and status in STATUS_CHOICES:
         q = q.filter(SalesOrder.status == status)
+    if search:
+        like = f"%{search}%"
+        q = q.join(Customer, SalesOrder.customer_id == Customer.id, isouter=True) \
+             .join(User, SalesOrder.agent_id == User.id, isouter=True) \
+             .filter(_or(
+                 SalesOrder.display_id.ilike(like),
+                 Customer.name.ilike(like),
+                 User.name.ilike(like),
+             ))
 
     q = q.order_by(SalesOrder.created_at.desc())
     total = q.count()
@@ -330,6 +375,7 @@ def orders_list(
         db, user,
         orders=orders, total=total, page=page, page_size=PAGE_SIZE,
         status=status, status_choices=STATUS_CHOICES,
+        search=search, agent_id=agent_id, agents=agents,
     ))
 
 
@@ -619,6 +665,7 @@ def _preview_stock_status(db, tenant_id: str, variant_id: str, qty: float) -> tu
     """
     stock = db.query(ProductStock).filter(
         ProductStock.variant_id == variant_id, ProductStock.tenant_id == tenant_id,
+        ProductStock.department_id.is_(None),
     ).first()
     available = stock.qty_available if stock else 0
     if qty <= available:
@@ -689,7 +736,10 @@ async def order_add_item(
             return _err("Invalid manual price")
         price_source = "MANUAL"
 
-    stock = db.query(ProductStock).filter(ProductStock.variant_id == variant_id).first()
+    stock = db.query(ProductStock).filter(
+        ProductStock.variant_id == variant_id, ProductStock.tenant_id == user.tenant_id,
+        ProductStock.department_id.is_(None),
+    ).first()
     cost_snapshot = stock.avg_cost if stock else None
 
     approval_status = None
@@ -791,7 +841,10 @@ def order_update_item(
         item.price_source = "MANUAL"
         item.override_reason = override_reason.strip() or None
 
-        stock = db.query(ProductStock).filter(ProductStock.variant_id == item.variant_id).first()
+        stock = db.query(ProductStock).filter(
+            ProductStock.variant_id == item.variant_id, ProductStock.tenant_id == user.tenant_id,
+            ProductStock.department_id.is_(None),
+        ).first()
         cost_snapshot = stock.avg_cost if stock else None
         item.approval_status = "PENDING" if not check_margin(price, cost_snapshot) else None
 
@@ -920,7 +973,8 @@ def order_confirm(
 
     for item in order.items:
         stock = db.query(ProductStock).filter(
-            ProductStock.variant_id == item.variant_id
+            ProductStock.variant_id == item.variant_id, ProductStock.tenant_id == user.tenant_id,
+            ProductStock.department_id.is_(None),
         ).first()
         item.cost_snapshot = stock.avg_cost if stock else None
 
@@ -946,6 +1000,11 @@ def order_confirm(
     order.status = "CONFIRMED"
     order.confirmed_at = datetime.utcnow()
     order.updated_at = datetime.utcnow()
+    # Append to the end of the Dispatch Queue.
+    max_priority = db.query(func.max(SalesOrder.dispatch_priority)).filter(
+        SalesOrder.tenant_id == user.tenant_id,
+    ).scalar()
+    order.dispatch_priority = (max_priority or 0) + 1
     db.commit()
 
     from .notifications import notify_order_placed
@@ -984,8 +1043,9 @@ def order_cancel(
 
 
 @router.post("/sales/orders/{order_id}/dispatch")
-def order_dispatch(
+async def order_dispatch(
     order_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -994,23 +1054,114 @@ def order_dispatch(
 
     order = get_order_or_404(db, order_id, user.tenant_id)
     if order.status != "CONFIRMED":
-        return _redir(f"/sales/orders/{order_id}?err=Only+CONFIRMED+orders+can+be+dispatched")
+        err = "Only+CONFIRMED+orders+can+be+dispatched"
+        return _redir(f"/sales/orders/{order_id}?err={err}")
 
-    for item in order.items:
-        if item.stock_status in ("AVAILABLE", "PARTIAL"):
-            fulfill_reservation(
-                db, order.id, item.variant_id,
-                item.qty_ordered, user.tenant_id, user.id,
+    form = await request.form()
+    ajax = form.get("ajax", "")
+    alloc_item_ids = form.getlist("alloc_item_id[]")
+
+    items_by_id = {i.id: i for i in order.items}
+
+    if alloc_item_ids:
+        # Itemized path from the Dispatch Queue modal — partial qty, optional
+        # per-item department split, optional challan + comments.
+        alloc_dept_ids = form.getlist("alloc_department_id[]")
+        alloc_qtys = form.getlist("alloc_qty[]")
+        comments = (form.get("comments") or "").strip()
+        challan = form.get("challan")
+
+        allocations = []
+        for iid, dept_id, qty_raw in zip(alloc_item_ids, alloc_dept_ids, alloc_qtys):
+            item = items_by_id.get(iid)
+            if not item or not qty_raw:
+                continue
+            try:
+                qty = float(qty_raw)
+            except ValueError:
+                continue
+            if qty <= 0:
+                continue
+            allocations.append((item, dept_id or None, qty))
+
+        # Validate per-item totals don't exceed what's left to ship.
+        by_item_total: dict = {}
+        for item, _dept, qty in allocations:
+            by_item_total[item.id] = by_item_total.get(item.id, 0) + qty
+        for item_id, total in by_item_total.items():
+            item = items_by_id[item_id]
+            remaining = item.qty_ordered - item.qty_dispatched
+            if total > remaining + 0.0001:
+                err = "One+or+more+items+dispatch+more+than+the+remaining+quantity"
+                if ajax:
+                    return JSONResponse({"error": err.replace("+", " ")}, status_code=400)
+                return _redir(f"/sales/orders/{order_id}?err={err}")
+
+        variant_ids = {a[0].variant_id for a in allocations}
+        old_qty_by_variant = {
+            s.variant_id: s.qty_available for s in db.query(ProductStock).filter(
+                ProductStock.tenant_id == user.tenant_id, ProductStock.variant_id.in_(variant_ids),
+                ProductStock.department_id.is_(None),
+            ).all()
+        } if variant_ids else {}
+
+        for item, dept_id, qty in allocations:
+            dispatch_stock_allocation(
+                db, order.id, item.variant_id, qty, user.tenant_id, user.id,
+                department_id=dept_id, notes=comments or None,
             )
-            item.qty_dispatched = item.qty_ordered
+            item.qty_dispatched += qty
 
-    order.status = "DISPATCHED"
-    order.dispatched_at = datetime.utcnow()
+        if challan is not None and getattr(challan, "filename", ""):
+            result = await save_upload(challan, user.tenant_id)
+            db.add(MediaUpload(
+                tenant_id=user.tenant_id, entity_type="sales_order", entity_id=order.id,
+                file_name=result["file_name"], file_path=result["file_path"],
+                file_type=result["file_type"], file_size=result["file_size"], uploaded_by_id=user.id,
+            ))
+    else:
+        # Backward-compatible fallback — the plain single-click Dispatch
+        # button on order_detail.html: full remaining qty, aggregate only.
+        for item in order.items:
+            if item.stock_status in ("AVAILABLE", "PARTIAL"):
+                remaining = item.qty_ordered - item.qty_dispatched
+                if remaining > 0:
+                    fulfill_reservation(db, order.id, item.variant_id, remaining, user.tenant_id, user.id)
+                    item.qty_dispatched = item.qty_ordered
+
+    fully_dispatched = all(i.qty_dispatched >= i.qty_ordered - 0.0001 for i in order.items)
+    if fully_dispatched:
+        order.status = "DISPATCHED"
+        order.dispatched_at = datetime.utcnow()
+        order.dispatch_priority = None
     order.updated_at = datetime.utcnow()
     db.commit()
 
-    from .notifications import notify_order_dispatched
-    notify_order_dispatched(db, order, user)
+    if fully_dispatched:
+        from .notifications import notify_order_dispatched
+        notify_order_dispatched(db, order, user)
+
+    if ajax:
+        new_stocks = db.query(ProductStock).filter(
+            ProductStock.tenant_id == user.tenant_id, ProductStock.variant_id.in_(variant_ids),
+            ProductStock.department_id.is_(None),
+        ).all() if alloc_item_ids and variant_ids else []
+        variants_by_id = {i.variant_id: i.variant for i in order.items}
+        dispatched_by_variant: dict = {}
+        if alloc_item_ids:
+            for item, dept_id, qty in allocations:
+                dispatched_by_variant[item.variant_id] = dispatched_by_variant.get(item.variant_id, 0) + qty
+        result_rows = []
+        for s in new_stocks:
+            variant = variants_by_id.get(s.variant_id)
+            result_rows.append({
+                "sku_code": variant.sku_code if variant else "",
+                "product_name": (variant.product.name if variant and variant.product else ""),
+                "qty_dispatched": dispatched_by_variant.get(s.variant_id, 0),
+                "old_qty": old_qty_by_variant.get(s.variant_id, 0),
+                "new_qty": s.qty_available,
+            })
+        return JSONResponse({"ok": True, "rows": result_rows, "fully_dispatched": fully_dispatched})
 
     return _redir(f"/sales/orders/{order_id}?msg=Order+dispatched")
 
@@ -1048,6 +1199,7 @@ def api_check_stock(variant_id: str, user: User = Depends(_require_sales), db: S
     stock = db.query(ProductStock).filter(
         ProductStock.variant_id == variant_id,
         ProductStock.tenant_id == user.tenant_id,
+        ProductStock.department_id.is_(None),
     ).first()
 
     if not stock:
@@ -1102,6 +1254,7 @@ def api_variant_lookup(
     stock = db.query(ProductStock).filter(
         ProductStock.variant_id == variant_id,
         ProductStock.tenant_id == user.tenant_id,
+        ProductStock.department_id.is_(None),
     ).first()
     qty_available = stock.qty_available if stock else 0
     stock_status = "IN_STOCK" if qty_available > 0 else "OUT_OF_STOCK"
@@ -1195,7 +1348,10 @@ def _run_order_validation(rows_in: list, tenant_id: str, db: Session, start_inde
                 continue
             branch_id = branch.id
 
-        stock = db.query(ProductStock).filter(ProductStock.variant_id == variant.id).first()
+        stock = db.query(ProductStock).filter(
+            ProductStock.variant_id == variant.id, ProductStock.tenant_id == tenant_id,
+            ProductStock.department_id.is_(None),
+        ).first()
         available = stock.qty_available if stock else 0
 
         edd = (row.get("expected_delivery_date") or "").strip() or None
