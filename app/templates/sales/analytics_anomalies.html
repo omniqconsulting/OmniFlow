@@ -48,7 +48,7 @@
       <td>{{ a.alert_type.replace('_',' ')|title }}</td>
       <td>{{ a.entity_label or '—' }}</td>
       <td style="font-size:12px">{{ a.detail }}</td>
-      <td style="color:var(--text-faint);font-size:12px">{{ a.detected_at.strftime('%d %b %Y %H:%M') if a.detected_at else '—' }}</td>
+      <td style="color:var(--text-faint);font-size:12px">{{ a.detected_at | ist('%d %b %Y %H:%M') if a.detected_at else '—' }}</td>
       <td>{{ '✅' if a.is_read else '—' }}{{ ' 🗑' if a.is_dismissed else '' }}</td>
       <td style="display:flex;gap:4px">
         {% if not a.is_read %}

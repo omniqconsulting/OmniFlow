@@ -42,8 +42,8 @@
         <span class="badge badge-red">Inactive</span>
         {% endif %}
       </td>
-      <td class="muted">{{ admin.created_at.strftime('%d %b %Y') }}</td>
-      <td class="muted">{{ admin.last_login.strftime('%d %b %Y, %H:%M') if admin.last_login else 'Never' }}</td>
+      <td class="muted">{{ admin.created_at | ist('%d %b %Y') }}</td>
+      <td class="muted">{{ (admin.last_login | ist('%d %b %Y, %H:%M')) if admin.last_login else 'Never' }}</td>
       <td>
         {% if admin.id != sa.id %}
           {% if admin.is_active %}

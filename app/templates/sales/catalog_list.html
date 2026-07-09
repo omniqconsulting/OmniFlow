@@ -103,7 +103,7 @@
         </div>
         {% set stock = stock_status_by_product.get(p.id) %}
         {% if stock %}
-        <div style="margin-top:8px">
+        <div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           {% if stock.state == 'IN_STOCK' %}
           <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#22c55e">✓ In Stock · {{ stock.qty|round(0, 'floor')|int }}</span>
           {% elif stock.state == 'EXPECTED' %}
@@ -112,6 +112,9 @@
           <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#94a3b8">📨 PO Requested</span>
           {% else %}
           <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#ef4444">✕ Out of Stock</span>
+          {% endif %}
+          {% if stock.in_transit %}
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#3b82f6" title="Quantity on an open Purchase Order, not yet received">🚚 {{ stock.in_transit|round(0, 'floor')|int }} in transit</span>
           {% endif %}
         </div>
         {% endif %}

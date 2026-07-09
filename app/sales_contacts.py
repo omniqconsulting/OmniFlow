@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from .database import get_db, new_id, Customer, CRMCallLog, User, Tenant, SalesOrder, PriceList, SalesOrderItem, ProductVariant
 from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
-from .setup_routes import _nav_ctx, _L, _unread, resolve_customer_agent, _CUSTOMER_TIERS
+from .setup_routes import _nav_ctx, _L, _unread, resolve_customer_agent, _CUSTOMER_TIERS, _CUSTOMER_COLS
 from .constants import BULK_IMPORT_MAX_ROWS
 from .bulk_common import check_required_headers
 
@@ -506,12 +506,9 @@ def contacts_list(
 # BULK IMPORT / EXPORT  (static paths — must be declared before /{customer_id})
 # ══════════════════════════════════════════════════════════════════════════════
 
-_BULK_COLS = [
-    "name", "contact_person", "phone", "email", "address", "notes",
-    "agent_email", "employee_name", "contact_freq_days",
-    "tier", "gstin", "credit_limit", "billing_address", "shipping_address",
-    "default_payment_terms",
-]
+# Same canonical column set as Setup's customer import (app/setup_routes.py:
+# _CUSTOMER_COLS) so both surfaces' templates and import behavior match exactly.
+_BULK_COLS = [c for c, _help in _CUSTOMER_COLS]
 
 
 @router.get("/sales/contacts/bulk-upload", response_class=HTMLResponse)
@@ -557,26 +554,9 @@ def _validate_bulk_row(row: dict, tenant_id: str, db: Session, seen_phones: set)
     if existing:
         return None, f"phone {phone} already exists"
 
-    agent = None
-    if agent_email:
-        agent = db.query(User).filter(
-            User.tenant_id == tenant_id, User.email == agent_email,
-            User.is_active == True, User.is_deleted == False,
-        ).first()
-        if not agent or not has_module(agent, "SALES"):
-            return None, f"agent_email {agent_email} not found or lacks SALES access"
-    elif employee_name:
-        # 2.2 — alternate match key so uploaders can work from names alone,
-        # without needing to know each agent's email address.
-        matches = [u for u in db.query(User).filter(
-            User.tenant_id == tenant_id, User.is_active == True, User.is_deleted == False,
-            func.lower(User.name) == employee_name.lower(),
-        ).all() if has_module(u, "SALES")]
-        if not matches:
-            return None, f"employee_name {employee_name} not found or lacks SALES access"
-        if len(matches) > 1:
-            return None, f"employee_name {employee_name} matches {len(matches)} agents — ambiguous, use agent_email instead"
-        agent = matches[0]
+    agent, agent_err = resolve_customer_agent(db, tenant_id, agent_email, employee_name)
+    if agent_err:
+        return None, agent_err
 
     if tier and tier not in _CUSTOMER_TIERS:
         return None, "tier must be A, B, C or blank"
@@ -681,7 +661,19 @@ def bulk_upload_confirm(
 ):
     rows = payload.get("rows", [])
     created = 0
+    skipped = 0
+    warnings = []
     for r in rows:
+        phone = (r.get("phone") or "").strip()
+        # Re-check for a duplicate right before insert — the row may have been
+        # validated earlier and this same batch re-submitted since (double-click
+        # on Confirm, or a repeated import).
+        if phone and db.query(Customer).filter(
+            Customer.tenant_id == user.tenant_id, Customer.phone == phone, Customer.is_deleted == False,
+        ).first():
+            skipped += 1
+            warnings.append(f"Skipped {r.get('name') or phone}: phone {phone} already exists.")
+            continue
         db.add(Customer(
             tenant_id=user.tenant_id,
             name=r["name"], phone=r["phone"], email=r.get("email"),
@@ -704,7 +696,7 @@ def bulk_upload_confirm(
     except Exception as e:
         db.rollback()
         raise HTTPException(400, f"Import failed — no contacts were created. {e}")
-    return JSONResponse({"created": created})
+    return JSONResponse({"created": created, "skipped": skipped, "warnings": warnings})
 
 
 @router.get("/sales/contacts/export")

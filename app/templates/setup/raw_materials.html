@@ -44,6 +44,9 @@
 
     <div id="rm-bulk-bar" style="display:none;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:12px;flex-wrap:wrap">
       <span id="rm-bulk-count" style="font-size:13px;font-weight:600;color:#a5b4fc">0 selected</span>
+      {% if total > page_size %}
+      <a href="javascript:void(0)" onclick="rmSelectAllFilteredMode()" style="font-size:12px;color:#a5b4fc;text-decoration:underline">Select all {{ total }} matching (not just this page)</a>
+      {% endif %}
       <button type="button" onclick="rmBulkDelete()" class="btn btn-sm" style="font-size:11px;background:#dc2626;color:#fff;border-color:#dc2626">🗑 Delete</button>
       <button type="button" onclick="rmClearBulkSelection()" class="btn btn-sm btn-gray" style="font-size:11px;margin-left:auto">✕ Clear</button>
     </div>
@@ -210,9 +213,12 @@ function openEdit(m) {
   document.getElementById('editModal').style.display = 'flex';
 }
 
+var rmSelectAllFiltered = false;
+
 function rmUpdateBulkBar() {
   var table = document.getElementById('rmTable');
   if (!table) return;
+  rmSelectAllFiltered = false;
   var checked = table.querySelectorAll('.rm-chk:checked');
   var all    = table.querySelectorAll('.rm-chk');
   var bar    = document.getElementById('rm-bulk-bar');
@@ -230,6 +236,19 @@ function rmUpdateBulkBar() {
   }
 }
 
+function rmSelectAllFilteredMode() {
+  var table = document.getElementById('rmTable');
+  if (!table) return;
+  table.querySelectorAll('.rm-chk').forEach(function(cb) { cb.checked = true; });
+  var selAll = document.getElementById('rm-select-all');
+  if (selAll) { selAll.checked = true; selAll.indeterminate = false; }
+  rmSelectAllFiltered = true;
+  var bar = document.getElementById('rm-bulk-bar');
+  var count = document.getElementById('rm-bulk-count');
+  bar.style.display = 'flex';
+  count.textContent = '{{ total }} selected (all pages)';
+}
+
 function rmToggleAll(masterCb) {
   var table = document.getElementById('rmTable');
   if (!table) return;
@@ -242,6 +261,7 @@ function rmClearBulkSelection() {
   if (table) table.querySelectorAll('.rm-chk').forEach(function(cb){ cb.checked = false; });
   var selAll = document.getElementById('rm-select-all');
   if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+  rmSelectAllFiltered = false;
   rmUpdateBulkBar();
 }
 
@@ -249,15 +269,23 @@ function rmBulkDelete() {
   var table = document.getElementById('rmTable');
   var checked = table ? Array.from(table.querySelectorAll('.rm-chk:checked')) : [];
   if (!checked.length) return;
-  if (!confirm('Permanently delete ' + checked.length + ' raw material(s)? This cannot be undone.')) return;
+  var countLabel = rmSelectAllFiltered ? '{{ total }}' : checked.length;
+  if (!confirm('Permanently delete ' + countLabel + ' raw material(s)? This cannot be undone.')) return;
   var form = document.createElement('form');
   form.method = 'post';
   form.action = '/setup/raw-materials/bulk-delete';
-  checked.forEach(function(cb) {
+  function addField(name, value) {
     var inp = document.createElement('input');
-    inp.type = 'hidden'; inp.name = 'item_ids'; inp.value = cb.value;
+    inp.type = 'hidden'; inp.name = name; inp.value = value;
     form.appendChild(inp);
-  });
+  }
+  if (rmSelectAllFiltered) {
+    addField('select_all_filtered', '1');
+    addField('status', {{ status_filter|tojson }});
+    addField('pending', {{ pending_filter|tojson }});
+  } else {
+    checked.forEach(function(cb) { addField('item_ids', cb.value); });
+  }
   document.body.appendChild(form);
   form.submit();
 }

@@ -75,7 +75,7 @@
       <div class="dq-handle">⠿</div>
       <div><a href="/sales/orders/{{ r.order.id }}">{{ r.order.display_id or r.order.id[:8] }}</a></div>
       <div>{{ r.order.customer.name if r.order.customer else '—' }}</div>
-      <div style="color:var(--text-faint)">{{ r.order.created_at.strftime('%d %b %Y') if r.order.created_at else '—' }}</div>
+      <div style="color:var(--text-faint)">{{ r.order.created_at | ist('%d %b %Y') if r.order.created_at else '—' }}</div>
       <div style="color:var(--text-faint)">{{ r.order.expected_delivery_date.strftime('%d %b %Y') if r.order.expected_delivery_date else '—' }}</div>
       <div>{{ r.distinct_skus }}</div>
       <div>{{ r.available_skus }}/{{ r.distinct_skus }}</div>
@@ -182,11 +182,11 @@ const ORDERS = {
   },
   {% endfor %}
 };
-const DEPARTMENTS = [{% for d in departments %}{id: {{ d.id | tojson }}, name: {{ d.name | tojson }}},{% endfor %}];
+const BRANCHES = [{% for b in branches %}{id: {{ b.id | tojson }}, name: {{ b.name | tojson }}},{% endfor %}];
 
-function deptOptions() {
-  return '<option value="">— Aggregate (no department) —</option>' +
-    DEPARTMENTS.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+function branchOptions() {
+  return '<option value="">— Aggregate (no branch) —</option>' +
+    BRANCHES.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
 }
 
 function itemRowHtml(it, rowIndex) {
@@ -195,7 +195,7 @@ function itemRowHtml(it, rowIndex) {
       <div style="font-size:13px;font-weight:600;margin-bottom:4px">${it.label}</div>
       <div style="font-size:11px;color:var(--text-faint);margin-bottom:6px">Ordered ${it.ordered} · Dispatched ${it.dispatched} · Remaining ${it.remaining}</div>
       <div class="dispatch-alloc-rows"></div>
-      <button type="button" class="btn btn-xs btn-outline" onclick="addAllocRow(this)">+ Split across another department</button>
+      <button type="button" class="btn btn-xs btn-outline" onclick="addAllocRow(this)">+ Split across another branch</button>
     </div>`;
 }
 
@@ -204,7 +204,7 @@ function allocRowHtml(itemId, defaultQty) {
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
       <input type="hidden" name="alloc_item_id[]" value="${itemId}">
       <input type="number" name="alloc_qty[]" step="any" min="0" value="${defaultQty}" style="width:90px" placeholder="Qty">
-      <select name="alloc_department_id[]" style="flex:1">${deptOptions()}</select>
+      <select name="alloc_branch_id[]" style="flex:1">${branchOptions()}</select>
       <button type="button" class="btn btn-xs btn-gray" onclick="this.closest('div').remove()">✕</button>
     </div>`;
 }

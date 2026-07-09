@@ -41,7 +41,7 @@
     <div><div class="muted">GSTIN</div><div>{{ customer.gstin or '—' }}</div></div>
     <div><div class="muted">Credit Limit</div><div>{{ customer.credit_limit or '—' }}</div></div>
     <div><div class="muted">Contact Frequency</div><div>{{ customer.contact_freq_days }} days</div></div>
-    <div><div class="muted">Last Contacted</div><div>{{ customer.last_contacted_at.strftime('%d %b %Y') if customer.last_contacted_at else 'Never' }}</div></div>
+    <div><div class="muted">Last Contacted</div><div>{{ (customer.last_contacted_at | ist('%d %b %Y')) if customer.last_contacted_at else 'Never' }}</div></div>
     <div><div class="muted">Default Payment Terms</div><div>{{ customer.default_payment_terms or '—' }}</div></div>
     <div><div class="muted">Default Price Group</div><div>{{ customer.price_list.name if customer.price_list else 'Tenant default' }}</div></div>
   </div>
@@ -127,7 +127,7 @@
       {% for o in orders %}
       <tr style="border-bottom:1px solid var(--border-subtle)">
         <td style="padding:6px 8px">{{ o.display_id or o.id[:8] }}</td>
-        <td style="padding:6px 8px;color:var(--text-faint)">{{ o.created_at.strftime('%d %b %Y') if o.created_at else '—' }}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ o.created_at | ist('%d %b %Y') if o.created_at else '—' }}</td>
         <td style="padding:6px 8px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ order_status_colors.get(o.status, '#94a3b8') }}">{{ o.status }}</span></td>
         <td style="padding:6px 8px">₹{{ '%.0f'|format(o.total_amount or 0) }}</td>
         <td style="padding:6px 8px">{{ o.items|length }}</td>
@@ -151,10 +151,10 @@
     <tbody id="call-history-tbody">
       {% for log in call_logs %}
       <tr>
-        <td>{{ log.contacted_at.strftime('%d %b %Y %H:%M') if log.contacted_at else '—' }}</td>
+        <td>{{ log.contacted_at | ist('%d %b %Y %H:%M') if log.contacted_at else '—' }}</td>
         <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ outcome_colors.get(log.outcome, '#94a3b8') }}">{{ log.outcome.replace('_',' ').title() }}</span></td>
         <td>{{ log.agent.name if log.agent else '—' }}</td>
-        <td>{{ log.follow_up_at.strftime('%d %b %Y') if log.follow_up_at else '—' }}{% if log.follow_up_at and log.follow_up_done %} ✓{% endif %}</td>
+        <td>{{ log.follow_up_at | ist('%d %b %Y') if log.follow_up_at else '—' }}{% if log.follow_up_at and log.follow_up_done %} ✓{% endif %}</td>
         <td>{{ log.notes or '—' }}</td>
       </tr>
       {% endfor %}

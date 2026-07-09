@@ -267,7 +267,7 @@ def run_anomaly_detection(db, tenant_id: str, anthropic_client):
         .join(ProductVariant, ProductStock.variant_id == ProductVariant.id)
         .filter(
             ProductStock.tenant_id     == tenant_id,
-            ProductStock.department_id.is_(None),
+            ProductStock.branch_id.is_(None),
             ProductVariant.product_tier       == "A",
             ProductVariant.low_stock_threshold != None,
             ProductStock.qty_available < ProductVariant.low_stock_threshold,

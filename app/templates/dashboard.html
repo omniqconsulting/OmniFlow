@@ -331,7 +331,7 @@ html.light .sc-click-purple{color:#5b21b6 !important}
         <tr>
           <td><a href="/tickets/{{ t.id }}" style="color:var(--text-primary);font-weight:500">{{ t.title }}</a></td>
           <td>{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
-          <td style="{% if t.due_at and t.due_at < now %}color:#f87171{% endif %}">{{ t.due_at.strftime('%d %b') if t.due_at else '—' }}</td>
+          <td style="{% if t.due_at and t.due_at < now %}color:#f87171{% endif %}">{{ t.due_at | ist('%d %b') if t.due_at else '—' }}</td>
           <td>{% if t.due_at and t.due_at < now %}{{ ((now - t.due_at).days) }}{% else %}—{% endif %}</td>
         </tr>{% endfor %}
         </tbody>
@@ -350,7 +350,7 @@ html.light .sc-click-purple{color:#5b21b6 !important}
           <td><a href="/tickets/{{ t.id }}" style="color:var(--text-primary);font-weight:500">{{ t.title }}</a></td>
           <td>{{ t.flagged_reason or '—' }}</td>
           <td>{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
-          <td style="{% if t.due_at and t.due_at < now %}color:#f87171{% endif %}">{{ t.due_at.strftime('%d %b') if t.due_at else '—' }}</td>
+          <td style="{% if t.due_at and t.due_at < now %}color:#f87171{% endif %}">{{ t.due_at | ist('%d %b') if t.due_at else '—' }}</td>
           <td>
             <form method="post" action="/tickets/{{ t.id }}/action" style="display:inline">
               <input type="hidden" name="action" value="unflag">

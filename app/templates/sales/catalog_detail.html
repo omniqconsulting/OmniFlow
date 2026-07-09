@@ -87,8 +87,8 @@
   <h3 style="margin-top:0">Add Variant</h3>
   <form method="post" action="/sales/catalog/{{ product.id }}/variants/add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end">
     <div class="form-group" style="margin:0">
-      <label>SKU Code *</label>
-      <input name="sku_code" required>
+      <label>SKU Code (blank = auto-generated)</label>
+      <input name="sku_code" placeholder="auto">
     </div>
     <div class="form-group" style="margin:0">
       <label>Label</label>

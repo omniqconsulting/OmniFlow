@@ -136,7 +136,7 @@ select option{background:var(--bg-card)}
           {% if ticket.display_id %}<span style="font-family:monospace;color:#60a5fa">{{ ticket.display_id }}</span>{% endif %}
           {% if ticket.wo_number %}<span>WO/PO: {{ ticket.wo_number }}</span>{% endif %}
           {% if ticket.flow %}<span style="color:#c4b5fd">{{ ticket.flow.name }}</span>{% endif %}
-          <span>Created {{ ticket.created_at.strftime('%d %b %Y') if ticket.created_at else '—' }}</span>
+          <span>Created {{ ticket.created_at | ist('%d %b %Y') if ticket.created_at else '—' }}</span>
         </div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
@@ -319,7 +319,7 @@ select option{background:var(--bg-card)}
               {% if v.history.evidence_url %}<a href="{{ v.history.evidence_url }}" target="_blank" style="font-size:10px;color:#fcd34d;text-decoration:none">📎 Evidence</a>{% endif %}
             </div>
             <div style="font-size:10px;color:var(--text-faint);text-align:right">
-              {{ v.history.entered_at.strftime('%d %b, %H:%M') if v.history.entered_at else '—' }}
+              {{ v.history.entered_at | ist('%d %b, %H:%M') if v.history.entered_at else '—' }}
               {% if v.duration_h is not none %}<br>{{ v.duration_h }}h{% elif v.is_open %}<br>ongoing{% endif %}
             </div>
           </div>
@@ -514,21 +514,6 @@ select option{background:var(--bg-card)}
         </form>
       </div>
 
-      {% if can_manage %}
-      <button onclick="togglePanel('reassignPanel')" class="btn-xs" style="text-align:left">↩ Reassign</button>
-      <div id="reassignPanel" class="action-panel">
-        <form method="post" action="/fms/tickets/{{ ticket.id }}/action">
-          <input type="hidden" name="action" value="reassign">
-          <div class="form-group"><label>New assignee</label>
-            <select name="new_assignee_id" required>
-              {% for emp in employees %}<option value="{{ emp.id }}">{{ emp.name }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="form-group"><label>Reason *</label><input type="text" name="reason" placeholder="Reason for reassignment" required></div>
-          <button type="submit" class="btn-sm-gray">Confirm Reassign</button>
-        </form>
-      </div>
-
       {% if not ticket.is_flagged %}
       <button onclick="togglePanel('flagPanel')" class="btn-xs" style="text-align:left;color:#f87171">🚩 Flag Ticket</button>
       <div id="flagPanel" class="action-panel">
@@ -544,6 +529,21 @@ select option{background:var(--bg-card)}
         <button type="submit" class="btn-xs" style="width:100%;text-align:left">Remove Flag</button>
       </form>
       {% endif %}
+
+      {% if can_manage %}
+      <button onclick="togglePanel('reassignPanel')" class="btn-xs" style="text-align:left">↩ Reassign</button>
+      <div id="reassignPanel" class="action-panel">
+        <form method="post" action="/fms/tickets/{{ ticket.id }}/action">
+          <input type="hidden" name="action" value="reassign">
+          <div class="form-group"><label>New assignee</label>
+            <select name="new_assignee_id" required>
+              {% for emp in employees %}<option value="{{ emp.id }}">{{ emp.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="form-group"><label>Reason *</label><input type="text" name="reason" placeholder="Reason for reassignment" required></div>
+          <button type="submit" class="btn-sm-gray">Confirm Reassign</button>
+        </form>
+      </div>
 
       {% if ticket.status == 'ON_HOLD' %}
       <form method="post" action="/fms/tickets/{{ ticket.id }}/action">
@@ -668,7 +668,7 @@ select option{background:var(--bg-card)}
     {% for m in closing_media %}
     <div style="padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">
       <a href="{{ m.file_path }}" target="_blank" rel="noopener" style="color:var(--text-primary)">📎 {{ m.file_name }}</a>
-      <div style="color:#374151;font-size:10px">{{ m.uploaded_by.name if m.uploaded_by else '' }} · {{ m.created_at.strftime('%d %b %Y') if m.created_at else '' }}</div>
+      <div style="color:#374151;font-size:10px">{{ m.uploaded_by.name if m.uploaded_by else '' }} · {{ m.created_at | ist('%d %b %Y') }}</div>
     </div>
     {% endfor %}
   </div>
@@ -714,7 +714,7 @@ select option{background:var(--bg-card)}
           {{ ev_icon }} {{ ev.event_type.replace('_',' ').title() }}
         </div>
         <div style="font-size:10px;color:var(--text-faint);margin-top:1px">
-          {{ ev.actor.name if ev.actor else 'System' }} · {{ ev.created_at.strftime('%d %b, %H:%M') if ev.created_at else '' }}
+          {{ ev.actor.name if ev.actor else 'System' }} · {{ ev.created_at | ist('%d %b, %H:%M') }}
         </div>
         {% if ev.detail %}
         <div style="font-size:10px;color:var(--text-muted);margin-top:2px;line-height:1.4;background:var(--bg-elevated);border-radius:4px;padding:4px 7px;border-left:2px solid {{ ev_color }}">{{ ev.detail }}</div>
@@ -727,10 +727,10 @@ select option{background:var(--bg-card)}
 
   <!-- Ticket meta -->
   <div style="font-size:11px;color:var(--text-faint);border-top:1px solid var(--hover-bg);padding-top:12px;display:flex;flex-direction:column;gap:5px">
-    <div>Created: <span style="color:var(--text-muted)">{{ ticket.created_at.strftime('%d %b %Y') if ticket.created_at else '—' }}</span></div>
+    <div>Created: <span style="color:var(--text-muted)">{{ ticket.created_at | ist('%d %b %Y') if ticket.created_at else '—' }}</span></div>
     <div>By: <span style="color:var(--text-muted)">{{ ticket.created_by.name if ticket.created_by else '—' }}</span></div>
     {% if ticket.completed_at %}
-    <div>Completed: <span style="color:#6ee7b7">{{ ticket.completed_at.strftime('%d %b %Y %H:%M') }}</span></div>
+    <div>Completed: <span style="color:#6ee7b7">{{ ticket.completed_at | ist('%d %b %Y %H:%M') }}</span></div>
     {% endif %}
     <div style="margin-top:4px;font-size:10px;color:#374151;font-family:monospace">{{ ticket.id[:16] }}…</div>
   </div>

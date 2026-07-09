@@ -37,7 +37,7 @@
         <td style="padding:6px 8px;color:var(--text-faint)">{{ pr.variant.sku_code if pr.variant else '—' }}</td>
         <td style="padding:6px 8px">{{ pr.qty_requested if pr.qty_requested is not none else '—' }}</td>
         <td style="padding:6px 8px">{{ pr.requested_by.name if pr.requested_by else '—' }}</td>
-        <td style="padding:6px 8px;color:var(--text-faint)">{{ pr.created_at.strftime('%d %b %Y') if pr.created_at else '—' }}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ pr.created_at | ist('%d %b %Y') if pr.created_at else '—' }}</td>
         <td style="padding:6px 8px;color:var(--text-faint)">{{ pr.notes or '—' }}</td>
         <td style="padding:6px 8px;display:flex;gap:6px">
           <form method="post" action="/inventory-v2/purchase-requests/{{ pr.id }}/approve">
@@ -112,7 +112,7 @@
     <tr style="border-bottom:1px solid var(--border-subtle)">
       <td style="padding:8px 12px"><a href="/inventory-v2/purchase-orders/{{ po.id }}">{{ po.display_id }}</a></td>
       <td style="padding:8px 12px">{{ po.vendor_name_snapshot or '—' }}</td>
-      <td style="padding:8px 12px;color:var(--text-faint)">{{ po.created_at.strftime('%d %b %Y') if po.created_at else '—' }}</td>
+      <td style="padding:8px 12px;color:var(--text-faint)">{{ po.created_at | ist('%d %b %Y') if po.created_at else '—' }}</td>
       <td style="padding:8px 12px">{{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</td>
       <td style="padding:8px 12px">{{ po.items|length }}</td>
       <td style="padding:8px 12px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(po.status,'#94a3b8') }}">{{ po.status.replace('_',' ') }}</span></td>

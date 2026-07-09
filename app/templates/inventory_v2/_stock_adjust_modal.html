@@ -6,11 +6,11 @@
       <label style="font-size:12px;color:var(--text-muted)">New Available Quantity</label>
       <input type="number" step="any" name="new_qty" id="adjust-new-qty" required style="width:100%;margin-bottom:10px">
 
-      <label style="font-size:12px;color:var(--text-muted)">Department / Godown</label>
-      <select name="department_id" id="adjust-department" style="width:100%;margin-bottom:10px">
-        <option value="">— Aggregate (no department) —</option>
-        {% for d in departments %}
-        <option value="{{ d.id }}">{{ d.name }}</option>
+      <label style="font-size:12px;color:var(--text-muted)">Branch</label>
+      <select name="branch_id" id="adjust-branch" style="width:100%;margin-bottom:10px">
+        <option value="">— Aggregate (no branch) —</option>
+        {% for b in branches %}
+        <option value="{{ b.id }}">{{ b.name }}</option>
         {% endfor %}
       </select>
 
@@ -32,7 +32,7 @@ function openAdjust(variantId, productName, currentQty) {
   document.getElementById('adjust-product-name').textContent = productName;
   document.getElementById('adjust-form').action = '/inventory-v2/stock/' + variantId + '/adjust';
   document.getElementById('adjust-new-qty').value = currentQty;
-  document.getElementById('adjust-department').value = '';
+  document.getElementById('adjust-branch').value = '';
   document.getElementById('adjust-modal').style.display = 'flex';
 }
 function closeAdjust() {

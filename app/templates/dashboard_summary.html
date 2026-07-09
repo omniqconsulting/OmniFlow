@@ -352,7 +352,7 @@ html.light .preset-btn.active { background:rgba(29,78,216,0.12); color:#1d4ed8; 
           <td style="padding-left:16px"><a href="/tickets/{{ t.id }}" style="color:var(--text-primary);font-weight:500">{{ t.title }}</a></td>
           <td><span class="badge badge-red" style="font-size:10px">{{ t.priority | priority_label }}</span></td>
           <td>{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
-          <td style="{% if t.due_at and t.due_at < now %}color:#f87171{% endif %}">{{ t.due_at.strftime('%d %b') if t.due_at else '—' }}</td>
+          <td style="{% if t.due_at and t.due_at < now %}color:#f87171{% endif %}">{{ t.due_at | ist('%d %b') if t.due_at else '—' }}</td>
           <td style="padding-right:16px;text-align:right"><a href="/tickets/{{ t.id }}" style="font-size:11px;color:#60a5fa">View →</a></td>
         </tr>{% endfor %}
         </tbody>

@@ -77,7 +77,7 @@
   <table id="variant-table" style="width:100%;border-collapse:collapse;margin-bottom:10px">
     <thead>
       <tr style="font-size:11px;color:var(--text-muted);text-align:left">
-        <th style="padding:4px">SKU Code *</th>
+        <th style="padding:4px">SKU Code (blank = auto-generated)</th>
         <th style="padding:4px">Label</th>
         <th style="padding:4px">Unit</th>
         <th style="padding:4px">Low Stock Threshold</th>
@@ -96,7 +96,7 @@
 
 <template id="variant-row-template">
   <tr>
-    <td style="padding:4px"><input name="variant_sku[]" required style="width:100%"></td>
+    <td style="padding:4px"><input name="variant_sku[]" placeholder="auto" style="width:100%"></td>
     <td style="padding:4px"><input name="variant_label[]" placeholder="e.g. Red / King" style="width:100%"></td>
     <td style="padding:4px">
       <select name="variant_unit_id[]" style="width:100%">

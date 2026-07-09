@@ -36,7 +36,7 @@
         → {{ r.new_target_orders if r.new_target_orders is not none else '—' }}
       </td>
       <td>{{ r.changed_by.name if r.changed_by else '—' }}</td>
-      <td>{{ r.changed_at.strftime('%d %b %Y %H:%M') if r.changed_at else '—' }}</td>
+      <td>{{ r.changed_at | ist('%d %b %Y %H:%M') if r.changed_at else '—' }}</td>
     </tr>
     {% endfor %}
   </tbody>

@@ -54,6 +54,9 @@
 
     <div id="cust-bulk-bar" style="display:none;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:12px;flex-wrap:wrap">
       <span id="cust-bulk-count" style="font-size:13px;font-weight:600;color:#a5b4fc">0 selected</span>
+      {% if total > page_size %}
+      <a href="javascript:void(0)" id="cust-select-all-filtered" onclick="custSelectAllFilteredMode()" style="font-size:12px;color:#a5b4fc;text-decoration:underline">Select all {{ total }} matching (not just this page)</a>
+      {% endif %}
       <button type="button" onclick="custBulkDelete()" class="btn btn-sm" style="font-size:11px;background:#dc2626;color:#fff;border-color:#dc2626">🗑 Delete</button>
       <button type="button" onclick="custClearBulkSelection()" class="btn btn-sm btn-gray" style="font-size:11px;margin-left:auto">✕ Clear</button>
     </div>
@@ -320,9 +323,12 @@ function openEdit(c) {
   document.getElementById('editModal').style.display = 'flex';
 }
 
+var custSelectAllFiltered = false;
+
 function custUpdateBulkBar() {
   var table = document.getElementById('custTable');
   if (!table) return;
+  custSelectAllFiltered = false;
   var checked = table.querySelectorAll('.cust-chk:checked');
   var all    = table.querySelectorAll('.cust-chk');
   var bar    = document.getElementById('cust-bulk-bar');
@@ -340,6 +346,19 @@ function custUpdateBulkBar() {
   }
 }
 
+function custSelectAllFilteredMode() {
+  var table = document.getElementById('custTable');
+  if (!table) return;
+  table.querySelectorAll('.cust-chk').forEach(function(cb) { cb.checked = true; });
+  var selAll = document.getElementById('cust-select-all');
+  if (selAll) { selAll.checked = true; selAll.indeterminate = false; }
+  custSelectAllFiltered = true;
+  var bar = document.getElementById('cust-bulk-bar');
+  var count = document.getElementById('cust-bulk-count');
+  bar.style.display = 'flex';
+  count.textContent = '{{ total }} selected (all pages)';
+}
+
 function custToggleAll(masterCb) {
   var table = document.getElementById('custTable');
   if (!table) return;
@@ -352,6 +371,7 @@ function custClearBulkSelection() {
   if (table) table.querySelectorAll('.cust-chk').forEach(function(cb){ cb.checked = false; });
   var selAll = document.getElementById('cust-select-all');
   if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+  custSelectAllFiltered = false;
   custUpdateBulkBar();
 }
 
@@ -359,15 +379,24 @@ function custBulkDelete() {
   var table = document.getElementById('custTable');
   var checked = table ? Array.from(table.querySelectorAll('.cust-chk:checked')) : [];
   if (!checked.length) return;
-  if (!confirm('Permanently delete ' + checked.length + ' customer(s)? This cannot be undone. Customers with existing sales activity will be skipped.')) return;
+  var countLabel = custSelectAllFiltered ? '{{ total }}' : checked.length;
+  if (!confirm('Permanently delete ' + countLabel + ' customer(s)? This cannot be undone. Customers with existing sales activity will be skipped.')) return;
   var form = document.createElement('form');
   form.method = 'post';
   form.action = '/setup/customers/bulk-delete';
-  checked.forEach(function(cb) {
+  function addField(name, value) {
     var inp = document.createElement('input');
-    inp.type = 'hidden'; inp.name = 'customer_ids'; inp.value = cb.value;
+    inp.type = 'hidden'; inp.name = name; inp.value = value;
     form.appendChild(inp);
-  });
+  }
+  if (custSelectAllFiltered) {
+    addField('select_all_filtered', '1');
+    addField('status', {{ status_filter|tojson }});
+    addField('pending', {{ pending_filter|tojson }});
+    addField('tier', {{ tier_filter|tojson }});
+  } else {
+    checked.forEach(function(cb) { addField('customer_ids', cb.value); });
+  }
   document.body.appendChild(form);
   form.submit();
 }

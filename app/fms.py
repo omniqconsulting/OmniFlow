@@ -4278,8 +4278,12 @@ async def fms_action(
         # 2-D-4. FMSTicketSplit has no separate flagged_reason column (brief §3
         # schema) — a split flag sets its status and mirrors is_flagged onto
         # the ticket so the existing 🚩 badge keeps working unchanged.
-        if user.role not in ("ADMIN", "MANAGER"):
-            raise HTTPException(403, "Managers only")
+        # Any user may flag; an EMPLOYEE may only flag their own assignment
+        # (mirrors regular Tickets/Checklists).
+        if user.role == "EMPLOYEE":
+            current_assignee = (split.assignee_id if split else ticket.current_assignee_id)
+            if current_assignee != user.id:
+                raise HTTPException(status_code=403, detail="Only the current assignee can flag this ticket")
         if split:
             split.status = "FLAGGED"
             split.updated_at = datetime.utcnow()
@@ -4293,8 +4297,10 @@ async def fms_action(
             _log(db, ticket_id, user.id, "FLAGGED", flag_reason.strip())
 
     elif action == "unflag":
-        if user.role not in ("ADMIN", "MANAGER"):
-            raise HTTPException(403, "Managers only")
+        if user.role == "EMPLOYEE":
+            current_assignee = (split.assignee_id if split else ticket.current_assignee_id)
+            if current_assignee != user.id:
+                raise HTTPException(status_code=403, detail="Only the current assignee can unflag this ticket")
         if split and split.status == "FLAGGED":
             split.status = "ACTIVE"
             split.updated_at = datetime.utcnow()

@@ -20,7 +20,7 @@
           <div style="font-size:12px;color:var(--text-faint)">
             {{ f.stages|length }} stage{{ 's' if f.stages|length != 1 }} ·
             {{ f.active_tickets }} active ticket{{ 's' if f.active_tickets != 1 }} ·
-            Deployed {{ f.created_at.strftime('%d %b %Y') if f.created_at else '—' }}
+            Deployed {{ f.created_at | ist('%d %b %Y') if f.created_at else '—' }}
           </div>
         </div>
         {% if f.stages %}

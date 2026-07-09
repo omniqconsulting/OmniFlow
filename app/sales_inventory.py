@@ -18,7 +18,7 @@ from typing import List, Optional
 from .database import (
     get_db, new_id, Product, ProductVariant, UnitOfMeasure, User, Vendor,
     ProductStock, StockLedgerEntry, InventoryPurchaseOrder, InventoryPOItem,
-    StockReservation, Category, SubCategory, Department, MediaUpload,
+    StockReservation, Category, SubCategory, Branch, MediaUpload,
     SalesOrder, SalesOrderItem, Customer, PurchaseRequest,
 )
 from .auth import get_current_user, require_manager, has_module, require_module
@@ -66,16 +66,16 @@ def stock_status_badge(stock: ProductStock, variant: ProductVariant):
     return ("OK", "green")
 
 
-def _get_or_create_stock_row(db: Session, variant_id: str, tenant_id: str, department_id: Optional[str]) -> ProductStock:
+def _get_or_create_stock_row(db: Session, variant_id: str, tenant_id: str, branch_id: Optional[str]) -> ProductStock:
     stock = (
         db.query(ProductStock)
         .filter(ProductStock.variant_id == variant_id, ProductStock.tenant_id == tenant_id,
-                ProductStock.department_id == department_id)
+                ProductStock.branch_id == branch_id)
         .with_for_update()
         .first()
     )
     if not stock:
-        stock = ProductStock(variant_id=variant_id, tenant_id=tenant_id, department_id=department_id)
+        stock = ProductStock(variant_id=variant_id, tenant_id=tenant_id, branch_id=branch_id)
         db.add(stock)
         db.flush()
     return stock
@@ -84,20 +84,20 @@ def _get_or_create_stock_row(db: Session, variant_id: str, tenant_id: str, depar
 def handle_stock_in(db: Session, variant_id: str, qty: float, unit_cost: Optional[float],
                      vendor_name: Optional[str], notes: Optional[str], actor_id: str, tenant_id: str,
                      reference_type: str = "MANUAL", reference_id: str = None,
-                     department_id: Optional[str] = None):
+                     branch_id: Optional[str] = None):
     """
     Record physical stock arriving at the godown.
     Updates product_stock and writes a ledger entry in the same transaction.
 
-    department_id: when given, ALSO applies the same qty/avg_cost delta to a
-        department-scoped ProductStock row (create-if-missing) in addition to
+    branch_id: when given, ALSO applies the same qty/avg_cost delta to a
+        branch-scoped ProductStock row (create-if-missing) in addition to
         the tenant-wide aggregate row — the aggregate must always reflect the
         true total since reservation/fulfillment only ever reads it.
     """
     stock = (
         db.query(ProductStock)
         .filter(ProductStock.variant_id == variant_id, ProductStock.tenant_id == tenant_id,
-                ProductStock.department_id.is_(None))
+                ProductStock.branch_id.is_(None))
         .with_for_update()
         .first()
     )
@@ -122,18 +122,18 @@ def handle_stock_in(db: Session, variant_id: str, qty: float, unit_cost: Optiona
     stock.qty_available += qty
     stock.last_updated_at = datetime.utcnow()
 
-    if department_id:
-        dept_stock = _get_or_create_stock_row(db, variant_id, tenant_id, department_id)
-        if unit_cost and dept_stock.avg_cost is not None:
-            dept_total_qty = dept_stock.qty_available + qty
-            dept_stock.avg_cost = (
-                (dept_stock.qty_available * dept_stock.avg_cost + qty * unit_cost) / dept_total_qty
-                if dept_total_qty > 0 else unit_cost
+    if branch_id:
+        branch_stock = _get_or_create_stock_row(db, variant_id, tenant_id, branch_id)
+        if unit_cost and branch_stock.avg_cost is not None:
+            branch_total_qty = branch_stock.qty_available + qty
+            branch_stock.avg_cost = (
+                (branch_stock.qty_available * branch_stock.avg_cost + qty * unit_cost) / branch_total_qty
+                if branch_total_qty > 0 else unit_cost
             )
         elif unit_cost:
-            dept_stock.avg_cost = unit_cost
-        dept_stock.qty_available += qty
-        dept_stock.last_updated_at = datetime.utcnow()
+            branch_stock.avg_cost = unit_cost
+        branch_stock.qty_available += qty
+        branch_stock.last_updated_at = datetime.utcnow()
 
     db.add(StockLedgerEntry(
         tenant_id=tenant_id,
@@ -159,25 +159,25 @@ def handle_stock_in(db: Session, variant_id: str, qty: float, unit_cost: Optiona
 
 def handle_stock_adjustment(db: Session, variant_id: str, new_qty: float,
                              reason: str, actor_id: str, tenant_id: str,
-                             department_id: Optional[str] = None) -> str:
+                             branch_id: Optional[str] = None) -> str:
     """
     Admin/Manager sets stock to a specific quantity (correction after physical count).
 
-    department_id: when given, new_qty is the corrected quantity for that
-        department's bucket; the same delta is also applied to the tenant-wide
+    branch_id: when given, new_qty is the corrected quantity for that
+        branch's bucket; the same delta is also applied to the tenant-wide
         aggregate row (create-if-missing) so reservation/fulfillment stays
-        accurate. Without department_id, behaves exactly as before — corrects
+        accurate. Without branch_id, behaves exactly as before — corrects
         the aggregate row directly.
 
     Returns the id of the StockLedgerEntry written (for attaching a document).
     """
-    if department_id:
-        target = _get_or_create_stock_row(db, variant_id, tenant_id, department_id)
+    if branch_id:
+        target = _get_or_create_stock_row(db, variant_id, tenant_id, branch_id)
     else:
         target = (
             db.query(ProductStock)
             .filter(ProductStock.variant_id == variant_id, ProductStock.tenant_id == tenant_id,
-                    ProductStock.department_id.is_(None))
+                    ProductStock.branch_id.is_(None))
             .with_for_update()
             .first()
         )
@@ -188,11 +188,11 @@ def handle_stock_adjustment(db: Session, variant_id: str, new_qty: float,
     target.qty_available = new_qty
     target.last_updated_at = datetime.utcnow()
 
-    if department_id:
+    if branch_id:
         aggregate = (
             db.query(ProductStock)
             .filter(ProductStock.variant_id == variant_id, ProductStock.tenant_id == tenant_id,
-                    ProductStock.department_id.is_(None))
+                    ProductStock.branch_id.is_(None))
             .with_for_update()
             .first()
         )
@@ -249,7 +249,7 @@ def handle_po_receive(db: Session, po: InventoryPurchaseOrder, received_items: l
         stock = db.query(ProductStock).filter(
             ProductStock.variant_id == po_item.variant_id,
             ProductStock.tenant_id == tenant_id,
-            ProductStock.department_id.is_(None),
+            ProductStock.branch_id.is_(None),
         ).first()
         if stock:
             stock.qty_in_transit = max(0, stock.qty_in_transit - qty)
@@ -267,7 +267,7 @@ def _apply_in_transit_delta(db: Session, po: InventoryPurchaseOrder, sign: int):
             db.query(ProductStock)
             .filter(ProductStock.variant_id == item.variant_id,
                     ProductStock.tenant_id == po.tenant_id,
-                    ProductStock.department_id.is_(None))
+                    ProductStock.branch_id.is_(None))
             .with_for_update()
             .first()
         )
@@ -329,7 +329,7 @@ def _check_low_stock_alert(db: Session, variant_id: str, tenant_id: str):
     variant = db.query(ProductVariant).filter(ProductVariant.id == variant_id).first()
     stock = db.query(ProductStock).filter(
         ProductStock.variant_id == variant_id, ProductStock.tenant_id == tenant_id,
-        ProductStock.department_id.is_(None),
+        ProductStock.branch_id.is_(None),
     ).first()
     if not variant or not stock or not variant.low_stock_threshold:
         return
@@ -377,27 +377,13 @@ def _check_low_stock_alert(db: Session, variant_id: str, tenant_id: str):
 # DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _dedup_departments_by_name(departments: list) -> tuple:
-    """
-    Department rows fan out one-per-branch for the same logical name
-    (app/main.py add_department/edit_department), so a tenant can have several
-    rows named e.g. "Warehouse A" pointing at different branches. For display
-    (filter checkboxes, write-form selects) we want one entry per distinct
-    name; for filtering stock we need every id sharing that name, since stock
-    may have been recorded against any of them.
-
-    Returns (display_list, name_to_ids) where display_list is
-    [{"name": ..., "id": <representative id>}, ...] deduped and sorted by
-    name, and name_to_ids maps name -> [all ids with that name].
-    """
-    name_to_ids: dict = {}
-    for d in departments:
-        name_to_ids.setdefault(d.name, []).append(d.id)
-    display_list = [
-        {"name": name, "id": ids[0]}
-        for name, ids in sorted(name_to_ids.items(), key=lambda kv: kv[0].lower())
-    ]
-    return display_list, name_to_ids
+def _active_branches(db: Session, tenant_id: str):
+    return (
+        db.query(Branch)
+        .filter(Branch.tenant_id == tenant_id, Branch.is_deleted == False)
+        .order_by(Branch.name)
+        .all()
+    )
 
 
 @router.get("/inventory-v2", response_class=HTMLResponse)
@@ -405,7 +391,7 @@ def inventory_dashboard(
     request: Request,
     category_id: list = Query(default=[]),
     sub_category_id: list = Query(default=[]),
-    department: list = Query(default=[]),
+    branch_id: list = Query(default=[]),
     search: str = "",
     active: str = "",
     stock_status: list = Query(default=[]),
@@ -420,7 +406,7 @@ def inventory_dashboard(
     # KPIs always reflect the tenant-wide aggregate, unaffected by filters.
     aggregate_by_variant = {
         s.variant_id: s for s in db.query(ProductStock).filter(
-            ProductStock.tenant_id == user.tenant_id, ProductStock.department_id.is_(None),
+            ProductStock.tenant_id == user.tenant_id, ProductStock.branch_id.is_(None),
         ).all()
     }
     total_skus = 0
@@ -440,18 +426,14 @@ def inventory_dashboard(
         if badge_label == "OUT":
             out_of_stock_skus += 1
 
-    departments_all = db.query(Department).filter(
-        Department.tenant_id == user.tenant_id, Department.is_deleted == False,
-    ).order_by(Department.name).all()
-    departments, department_name_to_ids = _dedup_departments_by_name(departments_all)
-    department_ids = [did for name in department for did in department_name_to_ids.get(name, [])]
+    branches = _active_branches(db, user.tenant_id)
 
-    # Stock Status table: aggregate rows by default, or department-scoped rows
-    # (one row per variant per selected department) when filtered.
-    if department_ids:
+    # Stock Status table: aggregate rows by default, or branch-scoped rows
+    # (one row per variant per selected branch) when filtered.
+    if branch_id:
         stock_q = db.query(ProductStock).filter(
             ProductStock.tenant_id == user.tenant_id,
-            ProductStock.department_id.in_(department_ids),
+            ProductStock.branch_id.in_(branch_id),
         )
         stocks_for_table = {}
         for s in stock_q.all():
@@ -500,6 +482,10 @@ def inventory_dashboard(
         InventoryPurchaseOrder.is_deleted == False,
     ).order_by(InventoryPurchaseOrder.expected_arrival_date.asc().nullslast()).all()
 
+    pending_po_requests = db.query(PurchaseRequest).filter(
+        PurchaseRequest.tenant_id == user.tenant_id, PurchaseRequest.status == "PENDING",
+    ).count()
+
     upcoming_dispatches = get_upcoming_dispatches(db, user.tenant_id)
     demand_projection = get_demand_projection(db, user.tenant_id)
 
@@ -514,17 +500,18 @@ def inventory_dashboard(
     return templates.TemplateResponse(request, "inventory_v2/dashboard.html", _ctx(
         db, user,
         stock_rows=stock_rows,
-        show_department_col=bool(department_ids),
+        show_branch_col=bool(branch_id),
         open_pos=open_pos,
         upcoming_dispatches=upcoming_dispatches,
         demand_projection=demand_projection,
-        categories=categories, sub_categories=sub_categories, departments=departments,
-        category_id=category_id, sub_category_id=sub_category_id, department=department,
+        categories=categories, sub_categories=sub_categories, branches=branches,
+        category_id=category_id, sub_category_id=sub_category_id, branch_id=branch_id,
         search=search, active=active, stock_status=stock_status,
         stock_status_choices=["OK", "LOW", "OUT"],
         kpi_total_skus=total_skus, kpi_active_skus=active_skus,
         kpi_below_threshold_skus=below_threshold_skus, kpi_out_of_stock_skus=out_of_stock_skus,
         kpi_open_pos=len(open_pos), kpi_open_dispatches=len(upcoming_dispatches),
+        kpi_pending_po_requests=pending_po_requests,
         can_edit=can_edit,
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))
@@ -539,7 +526,7 @@ async def stock_adjust_submit(
     variant_id: str,
     new_qty: float = Form(...),
     reason: str = Form(...),
-    department_id: str = Form(""),
+    branch_id: str = Form(""),
     document: UploadFile = File(None),
     user: User = Depends(_require_inventory_manager),
     db: Session = Depends(get_db),
@@ -552,7 +539,7 @@ async def stock_adjust_submit(
     try:
         ledger_entry_id = handle_stock_adjustment(
             db, variant_id, new_qty, reason, user.id, user.tenant_id,
-            department_id=department_id or None,
+            branch_id=branch_id or None,
         )
     except ValueError as e:
         return RedirectResponse(f"/inventory-v2?err={e}", status_code=303)
@@ -575,7 +562,9 @@ def stock_export(user: User = Depends(_require_inventory), db: Session = Depends
         ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
     ).order_by(Product.name).all()
     stocks_by_variant = {
-        s.variant_id: s for s in db.query(ProductStock).filter(ProductStock.tenant_id == user.tenant_id).all()
+        s.variant_id: s for s in db.query(ProductStock).filter(
+            ProductStock.tenant_id == user.tenant_id, ProductStock.branch_id.is_(None),
+        ).all()
     }
 
     buf = io.StringIO()
@@ -621,17 +610,29 @@ def stock_in_bulk_template(user: User = Depends(_require_inventory)):
     )
 
 
+def _resolve_branch(branch_name: str, tenant_id: str, db: Session):
+    """Bulk stock-in is keyed at SKU + Branch level — ProductStock is now
+    directly branch-scoped, so this is a plain name lookup. Returns (branch, error)."""
+    branch = db.query(Branch).filter(
+        Branch.tenant_id == tenant_id, Branch.is_deleted == False,
+        func.lower(Branch.name) == branch_name.lower(),
+    ).first()
+    if not branch:
+        return None, f"Branch '{branch_name}' not found. Add it in Setup first."
+    return branch, None
+
+
 def _validate_stock_in_row(row: dict, tenant_id: str, db: Session) -> List[str]:
     errors = []
     sku = (row.get("sku_code") or "").strip()
     if not sku:
-        errors.append("sku_code is required")
+        errors.append("sku_code is required — fill in a value for every row.")
     else:
         variant = db.query(ProductVariant).filter(
             ProductVariant.tenant_id == tenant_id, ProductVariant.sku_code == sku, ProductVariant.is_deleted == False,
         ).first()
         if not variant:
-            errors.append(f"Unknown sku_code: {sku}")
+            errors.append(f"SKU '{sku}' not found. Add it in Catalog first.")
 
     qty_raw = (row.get("qty") or "").strip()
     try:
@@ -648,7 +649,7 @@ def _validate_stock_in_row(row: dict, tenant_id: str, db: Session) -> List[str]:
             UnitOfMeasure.is_active == True,
         ).first()
         if not unit:
-            errors.append(f"Unknown unit_abbreviation: {unit_abbr}")
+            errors.append(f"Unit '{unit_abbr}' not found. Add it in Setup → Units first.")
 
     date_raw = (row.get("date") or "").strip()
     if date_raw:
@@ -657,19 +658,16 @@ def _validate_stock_in_row(row: dict, tenant_id: str, db: Session) -> List[str]:
         except ValueError:
             errors.append("date must be in YYYY-MM-DD format")
 
-    dept_name = (row.get("department_name") or "").strip()
-    if dept_name:
-        dept = db.query(Department).filter(
-            Department.tenant_id == tenant_id, Department.is_deleted == False,
-            func.lower(Department.name) == dept_name.lower(),
-        ).first()
-        if not dept:
-            errors.append(f"Department '{dept_name}' not found. Add it in Setup first.")
+    branch_name = (row.get("branch_name") or "").strip()
+    if branch_name:
+        _branch, err = _resolve_branch(branch_name, tenant_id, db)
+        if err:
+            errors.append(err)
 
     return errors
 
 
-_STOCK_IN_COLS = ["sku_code", "department_name", "qty", "unit_abbreviation", "unit_cost", "vendor_name", "date", "notes"]
+_STOCK_IN_COLS = ["sku_code", "branch_name", "qty", "unit_abbreviation", "unit_cost", "vendor_name", "date", "notes"]
 
 
 @router.get("/inventory-v2/stock-in/bulk", response_class=HTMLResponse)
@@ -746,13 +744,10 @@ async def stock_in_bulk_confirm(request: Request, user: User = Depends(_require_
         variant = db.query(ProductVariant).filter(
             ProductVariant.tenant_id == user.tenant_id, ProductVariant.sku_code == sku, ProductVariant.is_deleted == False,
         ).first()
-        dept_name = (row.get("department_name") or "").strip()
-        dept = None
-        if dept_name:
-            dept = db.query(Department).filter(
-                Department.tenant_id == user.tenant_id, Department.is_deleted == False,
-                func.lower(Department.name) == dept_name.lower(),
-            ).first()
+        branch_name = (row.get("branch_name") or "").strip()
+        branch = None
+        if branch_name:
+            branch, _err = _resolve_branch(branch_name, user.tenant_id, db)
         try:
             handle_stock_in(
                 db, variant.id, float(row["qty"]),
@@ -760,7 +755,7 @@ async def stock_in_bulk_confirm(request: Request, user: User = Depends(_require_
                 vendor_name=(row.get("vendor_name") or "").strip() or None,
                 notes=(row.get("notes") or "").strip() or None,
                 actor_id=user.id, tenant_id=user.tenant_id,
-                department_id=dept.id if dept else None,
+                branch_id=branch.id if branch else None,
             )
             created += 1
         except ValueError:
@@ -1026,7 +1021,7 @@ async def po_receive(po_id: str, request: Request, user: User = Depends(_require
     old_qty_by_variant = {
         s.variant_id: s.qty_available for s in db.query(ProductStock).filter(
             ProductStock.tenant_id == user.tenant_id, ProductStock.variant_id.in_(variant_ids),
-            ProductStock.department_id.is_(None),
+            ProductStock.branch_id.is_(None),
         ).all()
     }
 
@@ -1051,7 +1046,7 @@ async def po_receive(po_id: str, request: Request, user: User = Depends(_require
     if ajax:
         new_stocks = db.query(ProductStock).filter(
             ProductStock.tenant_id == user.tenant_id, ProductStock.variant_id.in_(variant_ids),
-            ProductStock.department_id.is_(None),
+            ProductStock.branch_id.is_(None),
         ).all()
         variants_by_id = {i.variant_id: i.variant for i in po.items}
         result_rows = []
@@ -1104,7 +1099,7 @@ def reserve_stock_for_item(db, variant_id: str, order_id: str, order_item_id: st
         db.query(ProductStock)
         .filter(ProductStock.variant_id == variant_id,
                 ProductStock.tenant_id  == tenant_id,
-                ProductStock.department_id.is_(None))
+                ProductStock.branch_id.is_(None))
         .with_for_update()
         .first()
     )
@@ -1184,7 +1179,7 @@ def release_all_reservations(db, order_id: str, tenant_id: str, reason: str = ""
             db.query(ProductStock)
             .filter(ProductStock.variant_id == res.variant_id,
                     ProductStock.tenant_id  == tenant_id,
-                    ProductStock.department_id.is_(None))
+                    ProductStock.branch_id.is_(None))
             .with_for_update()
             .first()
         )
@@ -1226,7 +1221,7 @@ def fulfill_reservation(db, order_id: str, variant_id: str,
         db.query(ProductStock)
         .filter(ProductStock.variant_id == variant_id,
                 ProductStock.tenant_id  == tenant_id,
-                ProductStock.department_id.is_(None))
+                ProductStock.branch_id.is_(None))
         .with_for_update()
         .first()
     )
@@ -1251,10 +1246,10 @@ def fulfill_reservation(db, order_id: str, variant_id: str,
 
 def dispatch_stock_allocation(db, order_id: str, variant_id: str, qty: float,
                                tenant_id: str, actor_id: str,
-                               department_id: str = None, notes: str = None):
+                               branch_id: str = None, notes: str = None):
     """
     Partial-aware dispatch of `qty` units of `variant_id` for one order,
-    optionally attributed to a specific department's stock bucket.
+    optionally attributed to a specific branch's stock bucket.
 
     Unlike fulfill_reservation (which assumes the entire reservation ships at
     once), this only consumes `qty` from the ACTIVE reservation — the
@@ -1281,7 +1276,7 @@ def dispatch_stock_allocation(db, order_id: str, variant_id: str, qty: float,
         db.query(ProductStock)
         .filter(ProductStock.variant_id == variant_id,
                 ProductStock.tenant_id  == tenant_id,
-                ProductStock.department_id.is_(None))
+                ProductStock.branch_id.is_(None))
         .with_for_update()
         .first()
     )
@@ -1295,16 +1290,16 @@ def dispatch_stock_allocation(db, order_id: str, variant_id: str, qty: float,
         reservation.status = "FULFILLED"
         reservation.fulfilled_at = datetime.utcnow()
 
-    if department_id:
-        dept_stock = _get_or_create_stock_row(db, variant_id, tenant_id, department_id)
-        dept_stock.qty_available = max(0, dept_stock.qty_available - consumed)
-        dept_stock.last_updated_at = datetime.utcnow()
+    if branch_id:
+        branch_stock = _get_or_create_stock_row(db, variant_id, tenant_id, branch_id)
+        branch_stock.qty_available = max(0, branch_stock.qty_available - consumed)
+        branch_stock.last_updated_at = datetime.utcnow()
 
     ledger_notes = notes or ""
-    if department_id:
-        dept = db.query(Department).filter(Department.id == department_id).first()
-        if dept:
-            ledger_notes = f"{ledger_notes} [Dept: {dept.name}]".strip()
+    if branch_id:
+        branch = db.query(Branch).filter(Branch.id == branch_id).first()
+        if branch:
+            ledger_notes = f"{ledger_notes} [Branch: {branch.name}]".strip()
 
     db.add(StockLedgerEntry(
         tenant_id      = tenant_id,
@@ -1433,7 +1428,7 @@ def dispatch_queue(
 
     aggregate_by_variant = {
         s.variant_id: s for s in db.query(ProductStock).filter(
-            ProductStock.tenant_id == user.tenant_id, ProductStock.department_id.is_(None),
+            ProductStock.tenant_id == user.tenant_id, ProductStock.branch_id.is_(None),
         ).all()
     }
 
@@ -1454,14 +1449,11 @@ def dispatch_queue(
             color = "amber"
         rows.append({"order": o, "distinct_skus": distinct_skus, "available_skus": available_skus, "color": color})
 
-    departments_all = db.query(Department).filter(
-        Department.tenant_id == user.tenant_id, Department.is_deleted == False,
-    ).order_by(Department.name).all()
-    departments, _ = _dedup_departments_by_name(departments_all)
+    branches = _active_branches(db, user.tenant_id)
     demand_projection = get_demand_projection(db, user.tenant_id)
 
     return templates.TemplateResponse(request, "inventory_v2/dispatch_queue.html", _ctx(
-        db, user, rows=rows, departments=departments, demand_projection=demand_projection,
+        db, user, rows=rows, branches=branches, demand_projection=demand_projection,
         order_no=order_no, customer=customer, sku=sku,
         order_date_from=order_date_from, order_date_to=order_date_to,
         expected_from=expected_from, expected_to=expected_to,

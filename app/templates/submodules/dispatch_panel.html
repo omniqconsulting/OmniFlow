@@ -94,7 +94,7 @@
                 <td class="small">{{ rec.driver_name or '—' }}</td>
                 <td class="small">{{ rec.destination or '—' }}</td>
                 <td class="small {{ 'text-danger' if rec.expected_delivery and rec.expected_delivery < now and not rec.is_delivered else '' }}">
-                  {{ rec.expected_delivery.strftime('%d %b %H:%M') if rec.expected_delivery else '—' }}
+                  {{ rec.expected_delivery | ist('%d %b %H:%M') if rec.expected_delivery else '—' }}
                 </td>
                 <td>
                   {% if rec.is_delivered %}

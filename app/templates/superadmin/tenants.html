@@ -64,8 +64,8 @@
         <span class="badge badge-green">ACTIVE</span>
         {% endif %}
       </td>
-      <td class="muted">{{ stats.last_activity.strftime('%d %b, %H:%M') if stats.last_activity else '—' }}</td>
-      <td class="muted">{{ tenant.created_at.strftime('%d %b %Y') }}</td>
+      <td class="muted">{{ stats.last_activity | ist('%d %b, %H:%M') if stats.last_activity else '—' }}</td>
+      <td class="muted">{{ tenant.created_at | ist('%d %b %Y') }}</td>
       <td><a href="/superadmin/tenants/{{ tenant.id }}" class="btn btn-sm btn-gray">Manage</a></td>
     </tr>
     {% else %}

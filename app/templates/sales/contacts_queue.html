@@ -129,9 +129,9 @@
     <span class="cq-tier" style="background:{{ tier_colors.get(e.customer.customer_tier, '#94a3b8') }}">{{ e.customer.customer_tier }}</span>
   </div>
   <div class="cq-meta-item">{{ e.customer.phone or '—' }}</div>
-  <div class="cq-meta-item"><b>{{ e.last_contacted.strftime('%d %b') if e.last_contacted else 'Never' }}</b> ({{ e.days_since_contact if e.days_since_contact < 9999 else 'N/A' }}d)</div>
-  <div class="cq-meta-item">{{ e.next_follow_up.strftime('%d %b %Y') if e.next_follow_up else '—' }}</div>
-  <div class="cq-meta-item"><b>{{ e.next_due.strftime('%d %b %Y') }}</b></div>
+  <div class="cq-meta-item"><b>{{ (e.last_contacted | ist('%d %b')) if e.last_contacted else 'Never' }}</b> ({{ e.days_since_contact if e.days_since_contact < 9999 else 'N/A' }}d)</div>
+  <div class="cq-meta-item">{{ e.next_follow_up | ist('%d %b %Y') if e.next_follow_up else '—' }}</div>
+  <div class="cq-meta-item"><b>{{ e.next_due | ist('%d %b %Y') }}</b></div>
   <div class="cq-meta-item"><b>{{ e.order_count }}</b>{% if e.order_total %} · ₹{{ '%.0f'|format(e.order_total) }}{% endif %}</div>
   <div class="cq-menu-wrap">
     <button class="cq-menu-btn" onclick="toggleRowMenu(event, this)">⋮</button>

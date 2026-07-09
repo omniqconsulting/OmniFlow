@@ -61,7 +61,7 @@
             <div style="display:flex;gap:16px;font-size:11px;color:var(--text-faint)">
               <span>{{ item.stage_count }} stage{{ 's' if item.stage_count != 1 }}</span>
               <span>{{ item.active_tickets }} active ticket{{ 's' if item.active_tickets != 1 }}</span>
-              <span>Created {{ f.created_at.strftime('%d %b %Y') }}</span>
+              <span>Created {{ f.created_at | ist('%d %b %Y') }}</span>
             </div>
             <!-- Stage pipeline preview -->
             <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:10px">

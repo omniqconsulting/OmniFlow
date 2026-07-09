@@ -97,7 +97,7 @@
       <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(c.customer_tier, '#94a3b8') }}">{{ c.customer_tier }}</span></td>
       <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ stage_colors[row.stage] }}">{{ stage_labels[row.stage] }}</span></td>
       <td>{{ c.assigned_agent.name if c.assigned_agent else '—' }}</td>
-      <td>{{ c.last_contacted_at.strftime('%d %b %Y') if c.last_contacted_at else 'Never' }}</td>
+      <td>{{ (c.last_contacted_at | ist('%d %b %Y')) if c.last_contacted_at else 'Never' }}</td>
       <td>{{ row.days_since_contact if row.days_since_contact is not none else '—' }}</td>
       <td>{{ row.order_count }}</td>
       <td>{{ '₹%.0f'|format(row.order_total) if row.order_total else '—' }}</td>

@@ -77,7 +77,7 @@
           <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(o.status, '#94a3b8') }}">{{ o.status }}</span></td>
           <td>₹{{ '%.0f'|format(o.total_amount or 0) }}</td>
           <td>{{ o.items|length }}</td>
-          <td style="color:var(--text-faint)">{{ o.created_at.strftime('%d %b %Y') if o.created_at else '—' }}</td>
+          <td style="color:var(--text-faint)">{{ o.created_at | ist('%d %b %Y') if o.created_at else '—' }}</td>
           <td><a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline">View</a></td>
         </tr>
         {% endfor %}

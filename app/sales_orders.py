@@ -665,7 +665,7 @@ def _preview_stock_status(db, tenant_id: str, variant_id: str, qty: float) -> tu
     """
     stock = db.query(ProductStock).filter(
         ProductStock.variant_id == variant_id, ProductStock.tenant_id == tenant_id,
-        ProductStock.department_id.is_(None),
+        ProductStock.branch_id.is_(None),
     ).first()
     available = stock.qty_available if stock else 0
     if qty <= available:
@@ -738,7 +738,7 @@ async def order_add_item(
 
     stock = db.query(ProductStock).filter(
         ProductStock.variant_id == variant_id, ProductStock.tenant_id == user.tenant_id,
-        ProductStock.department_id.is_(None),
+        ProductStock.branch_id.is_(None),
     ).first()
     cost_snapshot = stock.avg_cost if stock else None
 
@@ -843,7 +843,7 @@ def order_update_item(
 
         stock = db.query(ProductStock).filter(
             ProductStock.variant_id == item.variant_id, ProductStock.tenant_id == user.tenant_id,
-            ProductStock.department_id.is_(None),
+            ProductStock.branch_id.is_(None),
         ).first()
         cost_snapshot = stock.avg_cost if stock else None
         item.approval_status = "PENDING" if not check_margin(price, cost_snapshot) else None
@@ -974,7 +974,7 @@ def order_confirm(
     for item in order.items:
         stock = db.query(ProductStock).filter(
             ProductStock.variant_id == item.variant_id, ProductStock.tenant_id == user.tenant_id,
-            ProductStock.department_id.is_(None),
+            ProductStock.branch_id.is_(None),
         ).first()
         item.cost_snapshot = stock.avg_cost if stock else None
 
@@ -1065,14 +1065,14 @@ async def order_dispatch(
 
     if alloc_item_ids:
         # Itemized path from the Dispatch Queue modal — partial qty, optional
-        # per-item department split, optional challan + comments.
-        alloc_dept_ids = form.getlist("alloc_department_id[]")
+        # per-item branch split, optional challan + comments.
+        alloc_branch_ids = form.getlist("alloc_branch_id[]")
         alloc_qtys = form.getlist("alloc_qty[]")
         comments = (form.get("comments") or "").strip()
         challan = form.get("challan")
 
         allocations = []
-        for iid, dept_id, qty_raw in zip(alloc_item_ids, alloc_dept_ids, alloc_qtys):
+        for iid, branch_id, qty_raw in zip(alloc_item_ids, alloc_branch_ids, alloc_qtys):
             item = items_by_id.get(iid)
             if not item or not qty_raw:
                 continue
@@ -1082,11 +1082,11 @@ async def order_dispatch(
                 continue
             if qty <= 0:
                 continue
-            allocations.append((item, dept_id or None, qty))
+            allocations.append((item, branch_id or None, qty))
 
         # Validate per-item totals don't exceed what's left to ship.
         by_item_total: dict = {}
-        for item, _dept, qty in allocations:
+        for item, _branch, qty in allocations:
             by_item_total[item.id] = by_item_total.get(item.id, 0) + qty
         for item_id, total in by_item_total.items():
             item = items_by_id[item_id]
@@ -1101,14 +1101,14 @@ async def order_dispatch(
         old_qty_by_variant = {
             s.variant_id: s.qty_available for s in db.query(ProductStock).filter(
                 ProductStock.tenant_id == user.tenant_id, ProductStock.variant_id.in_(variant_ids),
-                ProductStock.department_id.is_(None),
+                ProductStock.branch_id.is_(None),
             ).all()
         } if variant_ids else {}
 
-        for item, dept_id, qty in allocations:
+        for item, branch_id, qty in allocations:
             dispatch_stock_allocation(
                 db, order.id, item.variant_id, qty, user.tenant_id, user.id,
-                department_id=dept_id, notes=comments or None,
+                branch_id=branch_id, notes=comments or None,
             )
             item.qty_dispatched += qty
 
@@ -1144,7 +1144,7 @@ async def order_dispatch(
     if ajax:
         new_stocks = db.query(ProductStock).filter(
             ProductStock.tenant_id == user.tenant_id, ProductStock.variant_id.in_(variant_ids),
-            ProductStock.department_id.is_(None),
+            ProductStock.branch_id.is_(None),
         ).all() if alloc_item_ids and variant_ids else []
         variants_by_id = {i.variant_id: i.variant for i in order.items}
         dispatched_by_variant: dict = {}
@@ -1199,7 +1199,7 @@ def api_check_stock(variant_id: str, user: User = Depends(_require_sales), db: S
     stock = db.query(ProductStock).filter(
         ProductStock.variant_id == variant_id,
         ProductStock.tenant_id == user.tenant_id,
-        ProductStock.department_id.is_(None),
+        ProductStock.branch_id.is_(None),
     ).first()
 
     if not stock:
@@ -1254,7 +1254,7 @@ def api_variant_lookup(
     stock = db.query(ProductStock).filter(
         ProductStock.variant_id == variant_id,
         ProductStock.tenant_id == user.tenant_id,
-        ProductStock.department_id.is_(None),
+        ProductStock.branch_id.is_(None),
     ).first()
     qty_available = stock.qty_available if stock else 0
     stock_status = "IN_STOCK" if qty_available > 0 else "OUT_OF_STOCK"
@@ -1350,7 +1350,7 @@ def _run_order_validation(rows_in: list, tenant_id: str, db: Session, start_inde
 
         stock = db.query(ProductStock).filter(
             ProductStock.variant_id == variant.id, ProductStock.tenant_id == tenant_id,
-            ProductStock.department_id.is_(None),
+            ProductStock.branch_id.is_(None),
         ).first()
         available = stock.qty_available if stock else 0
 

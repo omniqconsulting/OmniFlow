@@ -50,7 +50,7 @@
           <span style="color:#94a3b8">{{ req.from_plan }}</span>
           <span style="color:#64748b;margin:0 6px">→</span>
           <span style="color:#7dd3fc;font-weight:600">{{ req.to_plan }}</span>
-          <span style="margin-left:10px">{{ req.created_at.strftime('%d %b, %H:%M') }}</span>
+          <span style="margin-left:10px">{{ req.created_at | ist('%d %b, %H:%M') }}</span>
         </div>
         {% if req.message %}
         <div style="font-size:12px;color:#94a3b8;margin-top:4px;font-style:italic">"{{ req.message }}"</div>
@@ -238,8 +238,8 @@ new Chart(document.getElementById('industryChart'), {
       <td>{{ stats.tickets }}</td>
       <td>{{ stats.checklists }}</td>
       <td>{{ stats.flow_tickets }}</td>
-      <td class="muted">{{ tenant.created_at.strftime('%d %b %Y') if tenant.created_at else '—' }}</td>
-      <td class="muted">{{ stats.last_activity.strftime('%d %b, %H:%M') if stats.last_activity else '—' }}</td>
+      <td class="muted">{{ tenant.created_at | ist('%d %b %Y') if tenant.created_at else '—' }}</td>
+      <td class="muted">{{ stats.last_activity | ist('%d %b, %H:%M') if stats.last_activity else '—' }}</td>
       <td><a href="/superadmin/tenants/{{ tenant.id }}" class="btn btn-sm btn-gray">View</a></td>
     </tr>
     {% else %}

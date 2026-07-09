@@ -161,7 +161,7 @@
                 {% endif %}
               </div>
               <span class="small text-muted">
-                {{ log.created_at.strftime('%d %b %H:%M') if log.created_at else '' }}
+                {{ log.created_at | ist('%d %b %H:%M') }}
               </span>
             </div>
           </li>

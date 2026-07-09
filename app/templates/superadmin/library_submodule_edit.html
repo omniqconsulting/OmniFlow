@@ -139,7 +139,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
       <div>
         <span style="color:#e2e8f0;font-size:12px">{{ dep.tenant.name }}</span>
-        <span style="color:#64748b;font-size:11px;margin-left:6px">v{{ dep.deployed_version }} · {{ dep.deployed_at.strftime('%d %b %Y') }}</span>
+        <span style="color:#64748b;font-size:11px;margin-left:6px">v{{ dep.deployed_version }} · {{ dep.deployed_at | ist('%d %b %Y') }}</span>
       </div>
       <form method="post" action="/superadmin/library/submodules/{{ item.id }}/revoke"
             onsubmit="return confirm('Revoke {{ item.name }} from {{ dep.tenant.name }}?')">

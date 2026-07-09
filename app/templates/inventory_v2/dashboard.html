@@ -23,8 +23,14 @@
     <a href="/sales/catalog" class="btn btn-sm btn-outline">📚 Catalog</a>
     <a href="/inventory-v2/stock-in/bulk" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
     {% endif %}
-    <a href="/inventory-v2/dispatch-queue" class="btn btn-sm btn-outline">🚚 Dispatch Queue</a>
-    <a href="/inventory-v2/purchase-orders" class="btn btn-sm btn-primary">📋 Purchase Orders</a>
+    <a href="/inventory-v2/dispatch-queue" class="btn btn-sm btn-outline" style="position:relative">
+      🚚 Dispatch Queue
+      {% if kpi_open_dispatches %}<span class="badge badge-red" style="position:absolute;top:-8px;right:-8px;font-size:10px;padding:1px 6px;border-radius:99px">{{ kpi_open_dispatches }}</span>{% endif %}
+    </a>
+    <a href="/inventory-v2/purchase-orders" class="btn btn-sm btn-primary" style="position:relative">
+      📋 Purchase Orders
+      {% if kpi_pending_po_requests %}<span class="badge badge-amber" style="position:absolute;top:-8px;right:-8px;font-size:10px;padding:1px 6px;border-radius:99px" title="{{ kpi_pending_po_requests }} purchase request(s) awaiting review">{{ kpi_pending_po_requests }}</span>{% endif %}
+    </a>
   </div>
 </div>
 
@@ -62,16 +68,16 @@
       {% endfor %}
     </div>
   </div>
-  <div class="ms-wrap" data-name="department" data-placeholder="All departments">
-    <div class="ms-label">Department</div>
+  <div class="ms-wrap" data-name="branch_id" data-placeholder="All branches">
+    <div class="ms-label">Branch</div>
     <button type="button" class="ms-btn" onclick="toggleMs(this)">
-      <span class="ms-btn-text">All departments</span><span class="ms-caret">▾</span>
+      <span class="ms-btn-text">All branches</span><span class="ms-caret">▾</span>
     </button>
     <div class="ms-panel">
-      {% for d in departments %}
+      {% for b in branches %}
       <label class="ms-item">
-        <input type="checkbox" value="{{ d.name }}" onchange="onMsChange(this)" {% if d.name in department %}checked{% endif %}>
-        {{ d.name }}
+        <input type="checkbox" value="{{ b.id }}" onchange="onMsChange(this)" {% if b.id in branch_id %}checked{% endif %}>
+        {{ b.name }}
       </label>
       {% endfor %}
     </div>
@@ -104,7 +110,7 @@
   </div>
   <div style="align-self:flex-end;display:flex;gap:6px">
     <button type="submit" class="btn btn-primary btn-sm">Apply</button>
-    {% if category_id or sub_category_id or department or stock_status or active or search %}
+    {% if category_id or sub_category_id or branch_id or stock_status or active or search %}
     <a href="/inventory-v2" class="btn btn-gray btn-sm">Clear</a>
     {% endif %}
   </div>
@@ -145,7 +151,7 @@
       <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
         <th style="padding:6px 8px"></th>
         <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
-        {% if show_department_col %}<th style="padding:6px 8px">Department</th>{% endif %}
+        {% if show_branch_col %}<th style="padding:6px 8px">Branch</th>{% endif %}
         <th style="padding:6px 8px">Available</th><th style="padding:6px 8px">Reserved</th>
         <th style="padding:6px 8px">In-Transit</th><th style="padding:6px 8px">Status</th>
         <th style="padding:6px 8px">Last Updated</th>
@@ -158,12 +164,12 @@
         <td style="padding:6px 8px">{% with variant=v %}{% include "components/product_thumb.html" %}{% endwith %}</td>
         <td style="padding:6px 8px"><a href="/sales/catalog/{{ v.product_id }}">{{ v.product.name if v.product else '' }}</a></td>
         <td style="padding:6px 8px;color:var(--text-faint)">{{ v.sku_code }}</td>
-        {% if show_department_col %}<td style="padding:6px 8px">{{ s.department.name if s.department else '—' }}</td>{% endif %}
+        {% if show_branch_col %}<td style="padding:6px 8px">{{ s.branch.name if s.branch else '—' }}</td>{% endif %}
         <td style="padding:6px 8px">{{ s.qty_available }}</td>
         <td style="padding:6px 8px">{{ s.qty_reserved }}</td>
         <td style="padding:6px 8px">{{ s.qty_in_transit }}</td>
         <td style="padding:6px 8px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ badge_colors.get(color,'#94a3b8') }}">{{ label }}</span></td>
-        <td style="padding:6px 8px;color:var(--text-faint)">{{ s.last_updated_at.strftime('%d %b %Y') if s.last_updated_at else '—' }}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ s.last_updated_at | ist('%d %b %Y') if s.last_updated_at else '—' }}</td>
         {% if can_edit %}
         <td style="padding:6px 8px"><button type="button" class="btn btn-xs btn-outline" onclick="openAdjust('{{ v.id }}','{{ v.sku_code|e }}',{{ s.qty_available }})">Adjust</button></td>
         {% endif %}
