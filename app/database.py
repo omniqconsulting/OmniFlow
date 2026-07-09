@@ -1630,6 +1630,34 @@ class InventoryPOItem(Base):
     unit    = relationship("UnitOfMeasure", foreign_keys=[unit_id])
 
 
+class PurchaseRequest(Base):
+    """
+    Sales-agent-raised "please reorder this" request, surfaced when a
+    catalog product has zero available stock AND no open PO already covers
+    it. Shows up in Inventory's Purchase Orders page for approval; approving
+    one is the trigger to actually create a PurchaseOrder for it.
+    status lifecycle: PENDING -> APPROVED | DISMISSED
+    """
+    __tablename__ = "purchase_requests"
+    id              = Column(String,   primary_key=True, default=new_id)
+    tenant_id       = Column(String,   ForeignKey("tenants.id"), nullable=False)
+    variant_id      = Column(String,   ForeignKey("product_variants.id"), nullable=False)
+    requested_by_id = Column(String,   ForeignKey("users.id"), nullable=False)
+    qty_requested   = Column(Float,    nullable=True)
+    notes           = Column(Text,     nullable=True)
+    status          = Column(String,   default="PENDING")
+    po_id           = Column(String,   ForeignKey("inventory_purchase_orders.id"), nullable=True)
+    resolved_by_id  = Column(String,   ForeignKey("users.id"), nullable=True)
+    resolved_at     = Column(DateTime, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    tenant       = relationship("Tenant")
+    variant      = relationship("ProductVariant")
+    requested_by = relationship("User", foreign_keys=[requested_by_id])
+    resolved_by  = relationship("User", foreign_keys=[resolved_by_id])
+    po           = relationship("InventoryPurchaseOrder", foreign_keys=[po_id])
+
+
 class PriceList(Base):
     """
     Named price list (e.g. "Standard", "Wholesale", "Export") — Brief 06.

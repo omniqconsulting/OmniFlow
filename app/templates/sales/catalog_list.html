@@ -101,8 +101,29 @@
           <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'}.get(first_variant.product_tier, '#94a3b8') }}">{{ first_variant.product_tier }}</span>
           {% endif %}
         </div>
+        {% set stock = stock_status_by_product.get(p.id) %}
+        {% if stock %}
+        <div style="margin-top:8px">
+          {% if stock.state == 'IN_STOCK' %}
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#22c55e">✓ In Stock · {{ stock.qty|round(0, 'floor')|int }}</span>
+          {% elif stock.state == 'EXPECTED' %}
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#f59e0b">⏳ Expected {{ stock.date.strftime('%d %b %Y') if stock.date else 'date TBD' }}</span>
+          {% elif stock.state == 'REQUESTED' %}
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#94a3b8">📨 PO Requested</span>
+          {% else %}
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#ef4444">✕ Out of Stock</span>
+          {% endif %}
+        </div>
+        {% endif %}
       </div>
     </a>
+    {% if stock and stock.state == 'NONE' and stock.variant_id %}
+    <div style="padding:0 14px 10px">
+      <form method="post" action="/sales/catalog/{{ stock.variant_id }}/request-po" onsubmit="return confirm('Request a purchase order for this product?')">
+        <button type="submit" class="btn btn-xs btn-outline" style="width:100%">📩 Request Purchase Order</button>
+      </form>
+    </div>
+    {% endif %}
     {% if user.role in ('ADMIN','MANAGER') %}
     <div style="display:flex;gap:6px;padding:10px 14px;border-top:1px solid var(--border-subtle)">
       <a href="/sales/catalog/{{ p.id }}/edit" class="btn btn-xs btn-outline" style="flex:1;text-align:center">Edit</a>

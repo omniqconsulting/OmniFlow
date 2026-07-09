@@ -19,7 +19,7 @@ from .database import (
     get_db, new_id, Product, ProductVariant, UnitOfMeasure, User, Vendor,
     ProductStock, StockLedgerEntry, InventoryPurchaseOrder, InventoryPOItem,
     StockReservation, Category, SubCategory, Department, MediaUpload,
-    SalesOrder, SalesOrderItem, Customer,
+    SalesOrder, SalesOrderItem, Customer, PurchaseRequest,
 )
 from .auth import get_current_user, require_manager, has_module, require_module
 from .templates_env import templates
@@ -822,14 +822,47 @@ def po_list(
         UnitOfMeasure.tenant_id == user.tenant_id, UnitOfMeasure.is_active == True,
     ).order_by(UnitOfMeasure.name).all()
 
+    purchase_requests = db.query(PurchaseRequest).filter(
+        PurchaseRequest.tenant_id == user.tenant_id, PurchaseRequest.status == "PENDING",
+    ).order_by(PurchaseRequest.created_at.asc()).all()
+
     return templates.TemplateResponse(request, "inventory_v2/po_list.html", _ctx(
         db, user, pos=pos, variants=variants, vendors=vendors, units=units,
+        purchase_requests=purchase_requests,
+        prefill_variant=request.query_params.get("prefill_variant", ""),
         po_no=po_no, vendor=vendor, status=status,
         order_date_from=order_date_from, order_date_to=order_date_to,
         expected_from=expected_from, expected_to=expected_to,
         status_choices=["DRAFT", "SUBMITTED", "APPROVED", "PARTIALLY_RECEIVED", "RECEIVED", "CANCELLED"],
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))
+
+
+@router.post("/inventory-v2/purchase-requests/{request_id}/approve")
+def purchase_request_approve(request_id: str, user: User = Depends(_require_inventory_manager), db: Session = Depends(get_db)):
+    pr = db.query(PurchaseRequest).filter(
+        PurchaseRequest.id == request_id, PurchaseRequest.tenant_id == user.tenant_id,
+    ).first()
+    if not pr or pr.status != "PENDING":
+        return RedirectResponse("/inventory-v2/purchase-orders?err=Request+not+found+or+already+resolved", status_code=303)
+    pr.status = "APPROVED"
+    pr.resolved_by_id = user.id
+    pr.resolved_at = datetime.utcnow()
+    db.commit()
+    return RedirectResponse(f"/inventory-v2/purchase-orders?prefill_variant={pr.variant_id}", status_code=303)
+
+
+@router.post("/inventory-v2/purchase-requests/{request_id}/dismiss")
+def purchase_request_dismiss(request_id: str, user: User = Depends(_require_inventory_manager), db: Session = Depends(get_db)):
+    pr = db.query(PurchaseRequest).filter(
+        PurchaseRequest.id == request_id, PurchaseRequest.tenant_id == user.tenant_id,
+    ).first()
+    if pr and pr.status == "PENDING":
+        pr.status = "DISMISSED"
+        pr.resolved_by_id = user.id
+        pr.resolved_at = datetime.utcnow()
+        db.commit()
+    return RedirectResponse("/inventory-v2/purchase-orders?msg=Request+dismissed", status_code=303)
 
 
 @router.post("/inventory-v2/purchase-orders/create")

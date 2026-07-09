@@ -19,6 +19,7 @@ from typing import List, Optional
 from .database import (
     get_db, new_id, Product, ProductVariant, ProductSchemaField, UnitOfMeasure,
     User, ProductStock, Category, SubCategory, EndProduct, Department,
+    InventoryPurchaseOrder, InventoryPOItem, PurchaseRequest,
 )
 from .auth import (
     get_current_user, require_admin, require_admin_or_redirect,
@@ -245,12 +246,63 @@ def catalog_list(
     categories = _active_categories(db, user.tenant_id)
     subcategories = _active_subcategories(db, user.tenant_id)
 
+    # ── Per-product stock status: In Stock / Expected date / Requested / none ──
+    live_variants_by_product = {p.id: [v for v in p.variants if not v.is_deleted] for p in products}
+    all_variant_ids = [v.id for vids in live_variants_by_product.values() for v in vids]
+    stock_by_variant = {
+        s.variant_id: s for s in db.query(ProductStock).filter(
+            ProductStock.tenant_id == user.tenant_id,
+            ProductStock.variant_id.in_(all_variant_ids),
+            ProductStock.department_id.is_(None),
+        ).all()
+    } if all_variant_ids else {}
+
+    open_po_rows = db.query(InventoryPOItem.variant_id, InventoryPurchaseOrder.expected_arrival_date).join(
+        InventoryPurchaseOrder, InventoryPOItem.po_id == InventoryPurchaseOrder.id,
+    ).filter(
+        InventoryPurchaseOrder.tenant_id == user.tenant_id,
+        InventoryPurchaseOrder.status.in_(["SUBMITTED", "APPROVED", "PARTIALLY_RECEIVED"]),
+        InventoryPOItem.variant_id.in_(all_variant_ids),
+    ).all() if all_variant_ids else []
+    expected_date_by_variant: dict = {}
+    for variant_id, expected_date in open_po_rows:
+        if variant_id not in expected_date_by_variant or (
+            expected_date and (not expected_date_by_variant[variant_id] or expected_date < expected_date_by_variant[variant_id])
+        ):
+            expected_date_by_variant[variant_id] = expected_date
+
+    requested_variant_ids = {
+        r[0] for r in db.query(PurchaseRequest.variant_id).filter(
+            PurchaseRequest.tenant_id == user.tenant_id, PurchaseRequest.status == "PENDING",
+            PurchaseRequest.variant_id.in_(all_variant_ids),
+        ).all()
+    } if all_variant_ids else set()
+
+    stock_status_by_product: dict = {}
+    for p in products:
+        variant_ids = [v.id for v in live_variants_by_product[p.id]]
+        total_available = sum(
+            (stock_by_variant[vid].qty_available or 0) for vid in variant_ids if vid in stock_by_variant
+        )
+        if total_available > 0:
+            stock_status_by_product[p.id] = {"state": "IN_STOCK", "qty": total_available}
+            continue
+        expected_dates = [expected_date_by_variant[vid] for vid in variant_ids if vid in expected_date_by_variant]
+        if expected_dates:
+            stock_status_by_product[p.id] = {"state": "EXPECTED", "date": min((d for d in expected_dates if d), default=None)}
+            continue
+        if any(vid in requested_variant_ids for vid in variant_ids):
+            stock_status_by_product[p.id] = {"state": "REQUESTED"}
+            continue
+        stock_status_by_product[p.id] = {"state": "NONE", "variant_id": variant_ids[0] if variant_ids else None}
+
     return templates.TemplateResponse(request, "sales/catalog_list.html", _ctx(
         db, user,
         products=products, total=total, page=page, page_size=PAGE_SIZE,
         q=q, category_id=category_id, sub_category_id=sub_category_id, tier=tier, active=active,
         categories=categories, subcategories=subcategories,
         tier_choices=TIER_CHOICES,
+        stock_status_by_product=stock_status_by_product,
         # New-Product modal (Phase 4 of the UX redesign) needs the same
         # subcategory-by-id shape and reference data as catalog_new.html.
         new_product_subcats_by_id={sc.id: sc for sc in subcategories},
@@ -258,6 +310,48 @@ def catalog_list(
         schema_fields=_active_schema_fields(db, user.tenant_id),
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PURCHASE REQUESTS — sales agent flags an out-of-stock, no-open-PO product;
+# surfaces on Inventory's Purchase Orders page for approval.
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/sales/catalog/{variant_id}/request-po")
+def catalog_request_po(
+    variant_id: str,
+    qty_requested: str = Form(""),
+    notes: str = Form(""),
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    variant = db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id, ProductVariant.tenant_id == user.tenant_id,
+        ProductVariant.is_deleted == False,
+    ).first()
+    if not variant:
+        return RedirectResponse("/sales/catalog?err=Variant+not+found", status_code=303)
+
+    existing = db.query(PurchaseRequest).filter(
+        PurchaseRequest.tenant_id == user.tenant_id, PurchaseRequest.variant_id == variant_id,
+        PurchaseRequest.status == "PENDING",
+    ).first()
+    if existing:
+        return RedirectResponse("/sales/catalog?msg=Purchase+already+requested", status_code=303)
+
+    qty = None
+    if qty_requested.strip():
+        try:
+            qty = float(qty_requested)
+        except ValueError:
+            qty = None
+
+    db.add(PurchaseRequest(
+        tenant_id=user.tenant_id, variant_id=variant_id, requested_by_id=user.id,
+        qty_requested=qty, notes=notes.strip() or None,
+    ))
+    db.commit()
+    return RedirectResponse("/sales/catalog?msg=Purchase+request+sent+to+Inventory", status_code=303)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
