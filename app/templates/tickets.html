@@ -20,6 +20,80 @@
 /* ── Bulk action bar ─────────────────────────────────────────────────────────── */
 #bulk-bar{display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:12px;padding:10px 18px;z-index:300;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);white-space:nowrap}
 #bulk-bar.visible{display:flex}
+/* ── Row overflow ("⋯") — desktop: flat inline row (unchanged); mobile: collapsible panel ── */
+.row-more{display:contents}
+.row-more > summary{display:none}
+.row-more > *:not(summary){display:contents !important}
+/* ── Mobile / standalone restyle ("Clean Feed") — desktop untouched above 767px ─────────── */
+@media (display-mode: standalone), (max-width: 767px) {
+  .page-header{position:relative}
+  .page-header > div{flex-wrap:nowrap;overflow-x:auto;-ms-overflow-style:none;scrollbar-width:none;padding-bottom:2px}
+  .page-header > div::-webkit-scrollbar{display:none}
+  .page-header .btn{white-space:nowrap;font-size:11px;padding:6px 10px;flex-shrink:0}
+  #create-fab{
+    position:fixed;right:18px;bottom:calc(84px + env(safe-area-inset-bottom));
+    width:54px;height:54px;border-radius:50%;padding:0;font-size:0;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 18px rgba(59,130,246,0.45);z-index:60;
+  }
+  #create-fab::after{content:"+";font-size:26px;line-height:1}
+
+  .gear-btn{
+    width:38px;height:38px;border-radius:8px;border:1px solid var(--border-subtle);
+    display:inline-flex;align-items:center;justify-content:center;font-size:16px;
+    color:var(--text-primary);background:var(--bg-card);cursor:pointer;flex-shrink:0;
+  }
+
+  /* pill status tabs */
+  .status-tabs{border-bottom:none;gap:8px;padding:2px 2px 10px}
+  .status-tab{border-bottom:none !important;border-radius:999px;background:var(--bg-card);border:1px solid var(--border-subtle);padding:8px 14px}
+  .status-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .status-tab.active .cnt{background:rgba(255,255,255,0.25);color:#fff}
+
+  /* filter bar → bottom sheet, toggled by a checkbox (no JS) */
+  .filter-toggle-cb{position:absolute;opacity:0;width:0;height:0;pointer-events:none}
+  .filter-sheet-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:190}
+  .filter-toggle-cb:checked ~ .filter-sheet-backdrop{display:block}
+  form.filter-bar{
+    position:fixed;left:0;right:0;bottom:0;z-index:191;flex-direction:column;align-items:stretch;
+    background:var(--bg-card);border:1px solid var(--border-med);border-radius:16px 16px 0 0;
+    padding:10px 16px calc(16px + env(safe-area-inset-bottom));max-height:80vh;overflow-y:auto;
+    transform:translateY(105%);transition:transform .25s ease;margin-bottom:0;
+  }
+  .filter-toggle-cb:checked ~ form.filter-bar{transform:translateY(0)}
+  form.filter-bar::before{content:"";display:block;width:36px;height:4px;border-radius:99px;background:var(--border-med);margin:2px auto 12px}
+
+  /* spacious ticket cards */
+  .card > table.mobile-cards{padding:0}
+  table.mobile-cards{border-spacing:0 10px;border-collapse:separate;margin-top:-10px}
+  table.mobile-cards tr{border-radius:14px;padding:14px;border:1px solid var(--border-subtle);background:var(--bg-card)}
+  table.mobile-cards td{padding:3px 0;border-bottom:none !important}
+  td.td-id{display:none !important}
+  td.td-title{display:block !important;text-align:left !important;padding-right:6px}
+  td.td-title::before{content:attr(data-id);display:block;font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.04em;margin-bottom:3px}
+  td.td-status,td.td-priority{display:inline-flex !important;width:auto;margin-right:6px}
+  td.td-status::before,td.td-priority::before{display:none !important}
+  td.td-assignee,td.td-due{font-size:11px}
+  td.td-assignee::before,td.td-due::before{color:var(--text-xfaint) !important}
+  td.td-attachment{padding-top:6px}
+  td.td-actions{margin-top:8px;padding-top:10px;border-top:1px solid var(--border-subtle) !important}
+
+  .row-more{display:inline-block;position:relative}
+  .row-more > summary{
+    list-style:none;display:inline-flex;align-items:center;justify-content:center;
+    width:34px;height:34px;border-radius:8px;border:1px solid var(--border-subtle);
+    color:var(--text-muted);cursor:pointer;background:var(--bg-elevated);
+  }
+  .row-more > summary::-webkit-details-marker{display:none}
+  .row-more > *:not(summary){display:none !important}
+  .row-more[open] > *:not(summary){
+    display:flex !important;flex-direction:column;gap:6px;
+    position:absolute;right:0;bottom:42px;min-width:180px;
+    background:var(--bg-modal);border:1px solid var(--border-med);border-radius:10px;
+    padding:8px;box-shadow:0 8px 24px rgba(0,0,0,0.45);z-index:20;
+  }
+  .row-more .row-more-panel .btn,.row-more .row-more-panel form .btn{width:100%;justify-content:center}
+}
 </style>
 
 <div id="toast"></div>
@@ -28,17 +102,19 @@
   <h2 class="page-title">{{ L.Tickets }}</h2>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     {% if user.role in ('ADMIN','MANAGER') %}
+    <label for="filter-toggle" class="gear-btn" style="display:none" title="Filters">⚙</label>
     <a href="/tickets/bulk-template" class="btn btn-sm btn-outline">⬇ CSV Template</a>
     <a href="/tickets/bulk-upload-page" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
     {% endif %}
     <a href="/tickets/export?{{ request.query_string.decode() }}" class="btn btn-sm btn-outline" title="Export filtered data as CSV">⬇ Export CSV</a>
     {% if user.role in ('ADMIN','MANAGER','EMPLOYEE') %}
-    <button onclick="document.getElementById('create-modal').style.display='flex'" class="btn btn-primary">
+    <button id="create-fab" onclick="document.getElementById('create-modal').style.display='flex'" class="btn btn-primary">
       + {% if user.role == 'EMPLOYEE' %}Help {{ L.Ticket }}{% else %}New {{ L.Ticket }}{% endif %}
     </button>
     {% endif %}
   </div>
 </div>
+<style>@media (display-mode: standalone), (max-width: 767px){.gear-btn{display:inline-flex !important}}</style>
 
 {% if request.query_params.get('advanced') %}
 <div class="alert alert-green" style="margin-bottom:12px">✓ {{ L.Ticket }} status updated.</div>
@@ -74,6 +150,8 @@
 
 <!-- ── Filter Panel (P5-04) ────────────────────────────────────────────────── -->
 {% if user.role in ('ADMIN','MANAGER') %}
+<input type="checkbox" id="filter-toggle" class="filter-toggle-cb">
+<label for="filter-toggle" class="filter-sheet-backdrop"></label>
 <form method="get" action="/tickets" class="filter-bar" id="filterForm">
   <input type="hidden" name="status" value="{{ status_filter }}">
 
@@ -237,10 +315,10 @@
       <input type="checkbox" name="ticket_ids" value="{{ t.id }}" class="ticket-chk" onchange="updateBulkBar()">
     </td>
     {% endif %}
-    <td style="white-space:nowrap">
+    <td class="td-id" style="white-space:nowrap">
       <a href="/tickets/{{ t.id }}" style="color:#3b82f6;font-size:11px;font-weight:700">{{ t.display_id or '—' }}</a>
     </td>
-    <td>
+    <td class="td-title" data-id="{{ t.display_id or '' }}">
       {% if t.is_flagged %}<span style="color:#f87171">🚩 </span>{% endif %}
       {% if t.id in ticket_has_comments %}<span style="color:var(--text-faint)" title="Has comments">💬 </span>{% endif %}
       <a href="/tickets/{{ t.id }}" style="font-weight:500;color:var(--text-primary);text-decoration:none">{{ t.title }}</a>
@@ -248,17 +326,17 @@
       {% if cat == 'HELP' %}<span class="badge badge-amber" style="font-size:9px;margin-left:4px">HELP</span>{% endif %}
       {% if t.acknowledged_at %}<span class="badge badge-green" style="font-size:9px;margin-left:4px" title="Acknowledged {{ t.acknowledged_at | ist('%d %b, %H:%M') }}">✓ Acked</span>{% endif %}
     </td>
-    <td>
+    <td class="td-status">
       <span class="badge {{ sty[0] }}" style="font-size:10px;white-space:nowrap">{{ sty[1] }}</span>
     </td>
-    <td>
+    <td class="td-priority">
       <span class="badge {% if t.priority=='CRITICAL' %}badge-red{% elif t.priority=='HIGH' %}badge-yellow{% elif t.priority=='MEDIUM' %}badge-blue{% else %}badge-gray{% endif %}">{{ t.priority | priority_label }}</span>
     </td>
-    <td style="color:var(--text-muted);font-size:12px">{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
-    <td {% if t.due_at and t.due_at < now and t.status not in ('CLOSED','DONE') %}style="color:#f87171;font-size:12px"{% else %}style="color:var(--text-muted);font-size:12px"{% endif %}>
+    <td class="td-assignee" style="color:var(--text-muted);font-size:12px">{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
+    <td class="td-due" {% if t.due_at and t.due_at < now and t.status not in ('CLOSED','DONE') %}style="color:#f87171;font-size:12px"{% else %}style="color:var(--text-muted);font-size:12px"{% endif %}>
       {{ t.due_at | ist('%d %b %y') if t.due_at else '—' }}
     </td>
-    <td onclick="event.stopPropagation()" style="white-space:nowrap">
+    <td class="td-attachment" onclick="event.stopPropagation()" style="white-space:nowrap">
       {% if t.evidence_url %}
       <a href="{{ t.evidence_url }}" target="_blank" title="{{ t.evidence_filename or 'View attachment' }}"
          class="btn btn-xs btn-outline">📎 View</a>
@@ -268,7 +346,7 @@
       <span style="color:var(--text-xfaint);font-size:11px">—</span>
       {% endif %}
     </td>
-    <td onclick="event.stopPropagation()" style="white-space:nowrap">
+    <td class="td-actions" onclick="event.stopPropagation()" style="white-space:nowrap">
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
       {% if next_info %}
         {% set btn_label = next_info[0] %}
@@ -288,34 +366,39 @@
       {% elif t.status == 'CLOSED' %}
       <span style="font-size:11px;color:var(--text-xfaint)">Closed</span>
       {% endif %}
-      {# Acknowledge — assignee only, optional (does not gate Done); not yet closed #}
-      {% if (t.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER')) and not t.acknowledged_at and t.status != 'CLOSED' %}
-      <form method="post" action="/tickets/{{ t.id }}/acknowledge" style="display:inline">
-        <button type="submit" class="btn btn-xs btn-green">✓ Acknowledge</button>
-      </form>
-      {% endif %}
-      {# Direct close — Admin/Manager only, skips the Done stage. Only offered for DONE tickets;
-         for OPEN tickets the plain "Mark Done" action above already covers moving it forward. #}
-      {% if user.role in ('ADMIN','MANAGER') and t.status == 'DONE' %}
-      <button type="button" onclick="openCloseModal('{{ t.id }}')" class="btn btn-xs btn-red" title="Close Directly">⏭ Close</button>
-      {% endif %}
-      {# Send Reminder (Admin/Manager only, for open tickets) #}
-      {% if user.role in ('ADMIN','MANAGER') and t.status not in ('DONE','CLOSED') %}
-      <form method="post" action="/tickets/{{ t.id }}/remind" style="display:inline">
-        <button type="submit" class="btn btn-xs" title="Send Reminder">🔔</button>
-      </form>
-      {% endif %}
-      {# Prev stage button (Admin/Manager only) #}
-      {% if user.role in ('ADMIN','MANAGER') and prev_label %}
-      <form method="post" action="/tickets/{{ t.id }}/revert" style="display:inline">
-        <button type="submit" class="btn btn-xs btn-gray" title="Move back to {{ prev_label }}">← {{ prev_label }}</button>
-      </form>
-      {% endif %}
-      {# Edit due date — Admin/Manager only, requires a comment #}
-      {% if user.role in ('ADMIN','MANAGER') and t.status != 'CLOSED' %}
-      <button type="button" class="btn btn-xs btn-outline" title="Edit due date"
-              onclick="openReschedule('{{ t.id }}', '{{ t.due_at.strftime('%Y-%m-%dT%H:%M') if t.due_at else '' }}')">✏ Edit</button>
-      {% endif %}
+      <details class="row-more">
+        <summary>⋯</summary>
+        <div class="row-more-panel">
+          {# Acknowledge — assignee only, optional (does not gate Done); not yet closed #}
+          {% if (t.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER')) and not t.acknowledged_at and t.status != 'CLOSED' %}
+          <form method="post" action="/tickets/{{ t.id }}/acknowledge" style="display:inline">
+            <button type="submit" class="btn btn-xs btn-green">✓ Acknowledge</button>
+          </form>
+          {% endif %}
+          {# Direct close — Admin/Manager only, skips the Done stage. Only offered for DONE tickets;
+             for OPEN tickets the plain "Mark Done" action above already covers moving it forward. #}
+          {% if user.role in ('ADMIN','MANAGER') and t.status == 'DONE' %}
+          <button type="button" onclick="openCloseModal('{{ t.id }}')" class="btn btn-xs btn-red" title="Close Directly">⏭ Close</button>
+          {% endif %}
+          {# Send Reminder (Admin/Manager only, for open tickets) #}
+          {% if user.role in ('ADMIN','MANAGER') and t.status not in ('DONE','CLOSED') %}
+          <form method="post" action="/tickets/{{ t.id }}/remind" style="display:inline">
+            <button type="submit" class="btn btn-xs" title="Send Reminder">🔔</button>
+          </form>
+          {% endif %}
+          {# Prev stage button (Admin/Manager only) #}
+          {% if user.role in ('ADMIN','MANAGER') and prev_label %}
+          <form method="post" action="/tickets/{{ t.id }}/revert" style="display:inline">
+            <button type="submit" class="btn btn-xs btn-gray" title="Move back to {{ prev_label }}">← {{ prev_label }}</button>
+          </form>
+          {% endif %}
+          {# Edit due date — Admin/Manager only, requires a comment #}
+          {% if user.role in ('ADMIN','MANAGER') and t.status != 'CLOSED' %}
+          <button type="button" class="btn btn-xs btn-outline" title="Edit due date"
+                  onclick="openReschedule('{{ t.id }}', '{{ t.due_at.strftime('%Y-%m-%dT%H:%M') if t.due_at else '' }}')">✏ Edit</button>
+          {% endif %}
+        </div>
+      </details>
     </div>
     </td>
   </tr>
