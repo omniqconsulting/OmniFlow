@@ -18,6 +18,42 @@
 
 {% set status_colors = {'DRAFT':'#94a3b8','SUBMITTED':'#3b82f6','APPROVED':'#8b5cf6','PARTIALLY_RECEIVED':'#f59e0b','RECEIVED':'#22c55e','CANCELLED':'#ef4444'} %}
 
+{% if purchase_requests %}
+<div class="card" style="padding:16px;margin-bottom:18px;border-color:rgba(245,158,11,.4)">
+  <h3 style="margin-top:0;display:flex;align-items:center;gap:8px">📨 Purchase Requests <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#f59e0b">{{ purchase_requests|length }}</span></h3>
+  <div class="muted" style="font-size:12px;margin-bottom:10px">Sales agents flagged these as out-of-stock with no open PO — approve to start a purchase order, or dismiss.</div>
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
+        <th style="padding:6px 8px">Qty Requested</th><th style="padding:6px 8px">Requested By</th>
+        <th style="padding:6px 8px">Date</th><th style="padding:6px 8px">Notes</th><th style="padding:6px 8px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for pr in purchase_requests %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:6px 8px">{{ pr.variant.product.name if pr.variant and pr.variant.product else '—' }}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ pr.variant.sku_code if pr.variant else '—' }}</td>
+        <td style="padding:6px 8px">{{ pr.qty_requested if pr.qty_requested is not none else '—' }}</td>
+        <td style="padding:6px 8px">{{ pr.requested_by.name if pr.requested_by else '—' }}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ pr.created_at | ist('%d %b %Y') if pr.created_at else '—' }}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ pr.notes or '—' }}</td>
+        <td style="padding:6px 8px;display:flex;gap:6px">
+          <form method="post" action="/inventory-v2/purchase-requests/{{ pr.id }}/approve">
+            <button type="submit" class="btn btn-xs btn-primary">Approve → Create PO</button>
+          </form>
+          <form method="post" action="/inventory-v2/purchase-requests/{{ pr.id }}/dismiss" onsubmit="return confirm('Dismiss this request?')">
+            <button type="submit" class="btn btn-xs btn-gray">Dismiss</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <form method="get" action="/inventory-v2/purchase-orders" class="filter-bar" style="margin-bottom:14px">
   <div class="filter-group">
     <label>PO #</label>
@@ -76,7 +112,7 @@
     <tr style="border-bottom:1px solid var(--border-subtle)">
       <td style="padding:8px 12px"><a href="/inventory-v2/purchase-orders/{{ po.id }}">{{ po.display_id }}</a></td>
       <td style="padding:8px 12px">{{ po.vendor_name_snapshot or '—' }}</td>
-      <td style="padding:8px 12px;color:var(--text-faint)">{{ po.created_at.strftime('%d %b %Y') if po.created_at else '—' }}</td>
+      <td style="padding:8px 12px;color:var(--text-faint)">{{ po.created_at | ist('%d %b %Y') if po.created_at else '—' }}</td>
       <td style="padding:8px 12px">{{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</td>
       <td style="padding:8px 12px">{{ po.items|length }}</td>
       <td style="padding:8px 12px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(po.status,'#94a3b8') }}">{{ po.status.replace('_',' ') }}</span></td>
@@ -190,19 +226,26 @@ document.getElementById('receiveResultModal').querySelector('.modal-body').inner
 const PO_VARIANTS = [{% for v in variants %}{id: {{ v.id | tojson }}, name: {{ ((v.product.name if v.product else '') + ' — ' + v.sku_code) | tojson }}},{% endfor %}];
 const PO_UNITS = [{% for u in units %}{id: {{ u.id | tojson }}, abbr: {{ u.abbreviation | tojson }}},{% endfor %}];
 
-function addPORow() {
+function addPORow(presetVariantId) {
   const tpl = document.getElementById('po-row-template');
   const tbody = document.getElementById('po-items-rows');
   const frag = tpl.content.cloneNode(true);
   const variantSel = frag.querySelector('select[name="variant_id[]"]');
   variantSel.innerHTML = '<option value="">Select…</option>' + PO_VARIANTS.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
+  if (presetVariantId) variantSel.value = presetVariantId;
   const unitSel = frag.querySelector('select[name="unit_id[]"]');
   unitSel.innerHTML = '<option value="">—</option>' + PO_UNITS.map(u => `<option value="${u.id}">${u.abbr}</option>`).join('');
   tbody.appendChild(frag);
 }
-addPORow();
 
-{% if err %}openModal('newPOModal');{% endif %}
+const PREFILL_VARIANT = {{ prefill_variant | tojson }};
+addPORow(PREFILL_VARIANT || null);
+
+{% if err or prefill_variant %}
+// openModal() lives in app-shell.js, loaded after this inline script — defer
+// until the page has fully parsed so the function actually exists.
+document.addEventListener('DOMContentLoaded', function() { openModal('newPOModal'); });
+{% endif %}
 
 // ── Receive PO ──
 const POS = {

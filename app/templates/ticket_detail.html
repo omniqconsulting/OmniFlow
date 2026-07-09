@@ -120,10 +120,10 @@
   <span>Created by <strong style="color:var(--text-muted)">{{ ticket.created_by.name if ticket.created_by else '—' }}</strong></span>
   <span>Assignee: <strong style="color:var(--text-muted)">{{ ticket.current_assignee.name if ticket.current_assignee else '—' }}</strong></span>
   <span>Due: <strong {% if ticket.due_at and ticket.due_at < now and ticket.status not in ('CLOSED','DONE') %}style="color:#f87171"{% else %}style="color:var(--text-muted)"{% endif %}>
-    {{ ticket.due_at.strftime('%d %b %Y, %I:%M %p') if ticket.due_at else '—' }}
+    {{ ticket.due_at | ist('%d %b %Y, %I:%M %p') if ticket.due_at else '—' }}
   </strong></span>
   {% if ticket.acknowledged_at %}
-  <span>Acked: <strong style="color:var(--text-muted)">{{ ticket.acknowledged_at.strftime('%d %b, %H:%M') }}</strong></span>
+  <span>Acked: <strong style="color:var(--text-muted)">{{ ticket.acknowledged_at | ist('%d %b, %H:%M') }}</strong></span>
   {% endif %}
   {% if ticket.is_flagged and ticket.flagged_reason %}
   <span style="color:#f87171">🚩 {{ ticket.flagged_reason }}</span>

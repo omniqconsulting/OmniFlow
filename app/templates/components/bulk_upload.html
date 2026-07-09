@@ -45,6 +45,12 @@
 .bu-err-msg{color:#f87171;font-size:11px;white-space:normal;max-width:220px}
 .bu-err-row{font-size:11px;color:var(--text-faint);white-space:nowrap}
 .bu-err-table input.bu-bad{border-color:#ef4444;background:rgba(239,68,68,0.08)}
+.bu-spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:bu-spin .7s linear infinite;margin-right:6px;vertical-align:-1px}
+@keyframes bu-spin{to{transform:rotate(360deg)}}
+.bu-err-summary{background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:10px;padding:12px 16px;margin:14px 0}
+.bu-err-summary h4{margin:0 0 6px;font-size:12px;color:var(--text-strong)}
+.bu-err-summary ul{margin:0;padding-left:18px;font-size:12px;color:var(--text-muted)}
+.bu-err-summary li{margin-bottom:3px}
 </style>
 
 <div class="card" style="padding:20px;width:100%;box-sizing:border-box">
@@ -57,7 +63,7 @@
 
   <div style="display:flex;gap:10px;align-items:center;margin:16px 0">
     <input type="file" id="bulk-file" accept="{{ accept }}">
-    <button onclick="validateBulk()" class="btn btn-sm btn-primary">Validate</button>
+    <button id="bulk-validate-btn" onclick="validateBulk()" class="btn btn-sm btn-primary">Validate</button>
   </div>
 
   <div id="bulk-format-error"></div>
@@ -84,8 +90,43 @@
   let validRows = [];
   let errorRows = [];
   let totalRows = 0;
+  let busy = false;
 
   function esc(v) { return (v === undefined || v === null ? '' : String(v)).replace(/"/g, '&quot;'); }
+
+  // Shared in-flight guard for Validate/Re-validate/Confirm — prevents rapid
+  // double-clicks from firing duplicate requests (e.g. duplicate imports).
+  async function runBusy(btn, busyLabel, fn) {
+    if (busy) return;
+    busy = true;
+    const prevHtml = btn ? btn.innerHTML : null;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="bu-spinner"></span>${busyLabel}`;
+    }
+    try {
+      await fn();
+    } finally {
+      busy = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = prevHtml;
+      }
+    }
+  }
+
+  // Groups error rows by a normalized signature (the message with quoted
+  // values stripped) so the user sees "12 rows — Unit not found..." instead
+  // of only a per-row breakdown.
+  function summarizeErrors() {
+    const groups = {};
+    errorRows.forEach(e => {
+      const sig = (e.error || '').replace(/'[^']*'/g, "'…'");
+      if (!groups[sig]) groups[sig] = { count: 0, sample: e.error };
+      groups[sig].count += 1;
+    });
+    return Object.values(groups).sort((a, b) => b.count - a.count);
+  }
 
   function setKpis() {
     document.getElementById('kpi-total').textContent = totalRows || '—';
@@ -103,6 +144,12 @@
   function renderResult() {
     let html = '';
     if (errorRows.length) {
+      const groups = summarizeErrors();
+      html += '<div class="bu-err-summary"><h4>What\'s wrong (' + errorRows.length + ' row' + (errorRows.length === 1 ? '' : 's') + ')</h4><ul>';
+      groups.forEach(g => {
+        html += `<li><strong>${g.count}×</strong> — ${g.sample}</li>`;
+      });
+      html += '</ul></div>';
       html += '<h3 style="font-size:13px;margin-bottom:6px">Rows needing fixes</h3>';
       html += '<div style="overflow-x:auto"><table class="bu-err-table"><thead><tr><th>Row</th>';
       COLS.forEach(c => html += `<th>${c}</th>`);
@@ -117,75 +164,84 @@
         html += `<td class="bu-err-msg">${e.error}</td></tr>`;
       });
       html += '</tbody></table></div>';
-      html += '<button class="btn btn-sm btn-outline" onclick="window._bulkUpload.revalidate()">Re-validate edited rows</button> ';
+      html += '<button id="bulk-revalidate-btn" class="btn btn-sm btn-outline" onclick="window._bulkUpload.revalidate()">Re-validate edited rows</button> ';
     }
     if (validRows.length > 0) {
-      html += ` <button class="btn btn-sm btn-primary" onclick="window._bulkUpload.confirm()">Confirm Import (${validRows.length} ${ROW_LABEL})</button>`;
+      html += ` <button id="bulk-confirm-btn" class="btn btn-sm btn-primary" onclick="window._bulkUpload.confirm()">Confirm Import (${validRows.length} ${ROW_LABEL})</button>`;
     }
     document.getElementById('bulk-result').innerHTML = html;
     setKpis();
   }
 
   async function validateBulk() {
-    const fileInput = document.getElementById('bulk-file');
-    if (!fileInput.files.length) { alert('Choose a file first'); return; }
-    const fd = new FormData();
-    fd.append('file', fileInput.files[0]);
-    Object.keys(EXTRA_FIELDS).forEach(k => fd.append(k, EXTRA_FIELDS[k]));
-    const res = await fetch(VALIDATE_URL, { method: 'POST', body: fd });
-    if (!res.ok) { alert('Upload failed — ' + (await res.text())); return; }
-    const data = await res.json();
-    document.getElementById('bulk-format-error').innerHTML = '';
-    if (data.format_error) {
-      totalRows = 0; validRows = []; errorRows = [];
-      document.getElementById('bulk-format-error').innerHTML = `<div class="alert alert-red" style="margin:10px 0">${data.format_error}</div>`;
-      document.getElementById('bulk-result').innerHTML = '';
-      setKpis();
-      return;
-    }
-    totalRows = data.total;
-    validRows = data.rows;
-    errorRows = data.errors;
-    document.getElementById('kpi-imported').textContent = '—';
-    renderResult();
+    const btn = document.getElementById('bulk-validate-btn');
+    await runBusy(btn, 'Validating…', async () => {
+      const fileInput = document.getElementById('bulk-file');
+      if (!fileInput.files.length) { alert('Choose a file first'); return; }
+      const fd = new FormData();
+      fd.append('file', fileInput.files[0]);
+      Object.keys(EXTRA_FIELDS).forEach(k => fd.append(k, EXTRA_FIELDS[k]));
+      const res = await fetch(VALIDATE_URL, { method: 'POST', body: fd });
+      if (!res.ok) { alert('Upload failed — ' + (await res.text())); return; }
+      const data = await res.json();
+      document.getElementById('bulk-format-error').innerHTML = '';
+      if (data.format_error) {
+        totalRows = 0; validRows = []; errorRows = [];
+        document.getElementById('bulk-format-error').innerHTML = `<div class="alert alert-red" style="margin:10px 0">${data.format_error}</div>`;
+        document.getElementById('bulk-result').innerHTML = '';
+        setKpis();
+        return;
+      }
+      totalRows = data.total;
+      validRows = data.rows;
+      errorRows = data.errors;
+      document.getElementById('kpi-imported').textContent = '—';
+      renderResult();
+    });
   }
 
   async function revalidateErrors() {
-    const rows = errorRows.map((e, idx) => {
-      const tr = document.querySelector(`tr[data-idx="${idx}"]`);
-      const updated = Object.assign({}, e.data);
-      COLS.forEach(c => { updated[c] = tr.querySelector(`input[data-col="${c}"]`).value; });
-      return updated;
+    const btn = document.getElementById('bulk-revalidate-btn');
+    await runBusy(btn, 'Re-validating…', async () => {
+      const rows = errorRows.map((e, idx) => {
+        const tr = document.querySelector(`tr[data-idx="${idx}"]`);
+        const updated = Object.assign({}, e.data);
+        COLS.forEach(c => { updated[c] = tr.querySelector(`input[data-col="${c}"]`).value; });
+        return updated;
+      });
+      const res = await fetch(REVALIDATE_URL, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(Object.assign({ rows }, EXTRA_FIELDS)),
+      });
+      if (!res.ok) { alert('Re-validation failed — ' + (await res.text())); return; }
+      const data = await res.json();
+      validRows = validRows.concat(data.rows);
+      errorRows = data.errors;
+      renderResult();
     });
-    const res = await fetch(REVALIDATE_URL, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(Object.assign({ rows }, EXTRA_FIELDS)),
-    });
-    if (!res.ok) { alert('Re-validation failed — ' + (await res.text())); return; }
-    const data = await res.json();
-    validRows = validRows.concat(data.rows);
-    errorRows = data.errors;
-    renderResult();
   }
 
   async function confirmBulk() {
-    const res = await fetch(CONFIRM_URL, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(Object.assign({ rows: validRows }, EXTRA_FIELDS)),
+    const btn = document.getElementById('bulk-confirm-btn');
+    await runBusy(btn, 'Importing…', async () => {
+      const res = await fetch(CONFIRM_URL, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(Object.assign({ rows: validRows }, EXTRA_FIELDS)),
+      });
+      if (!res.ok) { alert('Import failed — ' + (await res.text())); return; }
+      const data = await res.json();
+      document.getElementById('kpi-imported').textContent = data.created;
+      let extra = '';
+      if (data.skipped) extra += ` ${data.skipped} row(s) skipped.`;
+      if (data.warnings && data.warnings.length) {
+        extra += '<ul style="margin:8px 0 0 18px;font-size:12px">' +
+          data.warnings.map(w => `<li>${typeof w === 'string' ? w : JSON.stringify(w)}</li>`).join('') + '</ul>';
+      }
+      document.getElementById('bulk-result').innerHTML =
+        `<div class="alert alert-green">${data.created} ${ROW_LABEL} created.${extra}</div>`;
+      validRows = [];
+      setKpis();
     });
-    if (!res.ok) { alert('Import failed — ' + (await res.text())); return; }
-    const data = await res.json();
-    document.getElementById('kpi-imported').textContent = data.created;
-    let extra = '';
-    if (data.skipped) extra += ` ${data.skipped} row(s) skipped.`;
-    if (data.warnings && data.warnings.length) {
-      extra += '<ul style="margin:8px 0 0 18px;font-size:12px">' +
-        data.warnings.map(w => `<li>${typeof w === 'string' ? w : JSON.stringify(w)}</li>`).join('') + '</ul>';
-    }
-    document.getElementById('bulk-result').innerHTML =
-      `<div class="alert alert-green">${data.created} ${ROW_LABEL} created.${extra}</div>`;
-    validRows = [];
-    setKpis();
   }
 
   window.validateBulk = validateBulk;

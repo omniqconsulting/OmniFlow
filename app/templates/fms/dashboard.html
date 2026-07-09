@@ -445,17 +445,17 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
       {% if si.visited or si.is_current %}{{ si.assignee_name }}{% else %}<span style="opacity:.3">—</span>{% endif %}
     </td>
     <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
-      {{ si.planned_start.strftime('%d %b, %H:%M') if si.planned_start else '—' }}
+      {{ si.planned_start | ist('%d %b, %H:%M') if si.planned_start else '—' }}
     </td>
     <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
-      {{ si.planned_end.strftime('%d %b, %H:%M') if si.planned_end else '—' }}
+      {{ si.planned_end | ist('%d %b, %H:%M') if si.planned_end else '—' }}
     </td>
     <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
-      {{ si.actual_start.strftime('%d %b, %H:%M') if si.actual_start else '—' }}
+      {{ si.actual_start | ist('%d %b, %H:%M') if si.actual_start else '—' }}
     </td>
     <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
       {% if si.is_current and not si.actual_end %}<span style="color:{{ hex }};font-size:11px">● active</span>
-      {% else %}{{ si.actual_end.strftime('%d %b, %H:%M') if si.actual_end else '—' }}{% endif %}
+      {% else %}{{ si.actual_end | ist('%d %b, %H:%M') if si.actual_end else '—' }}{% endif %}
     </td>
     <td class="jt-cell {{ state_cls }}" {% if si.is_current %}style="background:{{ hex }}12"{% endif %}>
       {% if si.delay_h is not none %}
@@ -472,7 +472,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     <td class="jt-cell {{ state_cls }}{% if editable %} jt-editable{% endif %}"
         {% if si.is_current %}style="background:{{ hex }}12"{% endif %}
         {% if editable %}data-field-id="{{ fdef.id }}" data-stage-id="" data-field-label="{{ fdef.label | replace('"','&quot;') }}" data-ticket-id="{{ t.id }}" onclick="openCellEditModal(this)"{% endif %}
-        {% if ei %}title="Edited by {{ ei.edited_by.name if ei.edited_by else 'System' }} on {{ ei.edited_at.strftime('%d %b %Y, %H:%M') }}: {{ ei.reason }}"{% endif %}>
+        {% if ei %}title="Edited by {{ ei.edited_by.name if ei.edited_by else 'System' }} on {{ ei.edited_at | ist('%d %b %Y, %H:%M') }}: {{ ei.reason }}"{% endif %}>
       {{ cfval }}{% if ei %} <span style="font-size:9px;color:#a78bfa">✎</span>{% endif %}
     </td>
     {% endfor %}
@@ -484,7 +484,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     <td class="jt-cell {{ state_cls }}{% if editable %} jt-editable{% endif %}"
         {% if cfstyle %}style="{{ cfstyle }}"{% elif si.is_current %}style="background:{{ hex }}12"{% endif %}
         {% if editable %}data-field-id="{{ fdef.id }}" data-stage-id="{{ si.stage.id }}" data-field-label="{{ fdef.label | replace('"','&quot;') }}" data-ticket-id="{{ t.id }}" onclick="openCellEditModal(this)"{% endif %}
-        {% if ei %}title="Edited by {{ ei.edited_by.name if ei.edited_by else 'System' }} on {{ ei.edited_at.strftime('%d %b %Y, %H:%M') }}: {{ ei.reason }}"{% endif %}>
+        {% if ei %}title="Edited by {{ ei.edited_by.name if ei.edited_by else 'System' }} on {{ ei.edited_at | ist('%d %b %Y, %H:%M') }}: {{ ei.reason }}"{% endif %}>
       {{ cfval }}{% if ei %} <span style="font-size:9px;color:#a78bfa">✎</span>{% endif %}
     </td>
     {% endfor %}
@@ -661,9 +661,9 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         </td>
         <td>
           {% if t.due_at %}
-          <span style="color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-muted){% endif %}">{{ t.due_at.strftime('%d %b') }}</span>
+          <span style="color:{% if t.due_at < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-muted){% endif %}">{{ t.due_at | ist('%d %b') }}</span>
           {% elif row.planned_end %}
-          <span title="Planned end (no overall due date set)" style="color:{% if row.planned_end < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-faint){% endif %}">{{ row.planned_end.strftime('%d %b') }}</span>
+          <span title="Planned end (no overall due date set)" style="color:{% if row.planned_end < now and t.status not in ('COMPLETED','CLOSED') %}#f87171{% else %}var(--text-faint){% endif %}">{{ row.planned_end | ist('%d %b') }}</span>
           {% else %}—{% endif %}
         </td>
         {# sub-module data columns #}
@@ -687,7 +687,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         {% set sub = row.sub %}
         <td style="font-size:12px;color:var(--text-muted)">{{ sub.total_dispatched or 0 }}</td>
         <td style="font-size:12px;color:{% if (sub.remaining or 0) > 0 %}#fcd34d{% else %}#6ee7b7{% endif %}">{{ sub.remaining or 0 }}</td>
-        <td style="font-size:11px;color:var(--text-faint)">{{ sub.last_dispatch.strftime('%d %b') if sub.last_dispatch else '—' }}</td>
+        <td style="font-size:11px;color:var(--text-faint)">{{ sub.last_dispatch | ist('%d %b') if sub.last_dispatch else '—' }}</td>
         <td><span style="font-size:11px;color:{% if sub.pod_uploaded %}#6ee7b7{% else %}#f87171{% endif %}">{{ 'Yes' if sub.pod_uploaded else 'No' }}</span></td>
         {% elif active_stage.sub_module_tag == 'INVOICE' %}
         {% set sub = row.sub %}
@@ -921,7 +921,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         {% endif %}
         {% if t.due_at %}
         <div style="font-size:10px;margin-top:3px;color:{% if t.due_at < now %}#f87171{% else %}var(--text-faint){% endif %}">
-          Due {{ t.due_at.strftime('%d %b') }}
+          Due {{ t.due_at | ist('%d %b') }}
         </div>
         {% endif %}
       </div>
@@ -1082,13 +1082,13 @@ html.light .ctv-table tbody tr:hover .ctv-sticky{background:#eff6ff !important}
     {% endif %}
     <td class="ctv-cell ctv-col-assignee  {{ bg }}" style="font-size:12px">{{ sd.assignee_name }}</td>
     <td class="ctv-cell ctv-col-entered   {{ bg }}" style="font-size:12px">
-      {{ sd.entered_at.strftime('%d %b, %H:%M') if sd.entered_at else '—' }}
-      {% if sd.planned_start %}<div style="font-size:11px;opacity:.6">plan {{ sd.planned_start.strftime('%d %b') }}</div>{% endif %}
+      {{ sd.entered_at | ist('%d %b, %H:%M') if sd.entered_at else '—' }}
+      {% if sd.planned_start %}<div style="font-size:11px;opacity:.6">plan {{ sd.planned_start | ist('%d %b') }}</div>{% endif %}
     </td>
     <td class="ctv-cell ctv-col-exited    {{ bg }}" style="font-size:12px">
       {% if sd.is_active %}● Active
-      {% elif sd.exited_at %}{{ sd.exited_at.strftime('%d %b, %H:%M') }}{% else %}—{% endif %}
-      {% if sd.planned_end %}<div style="font-size:11px;opacity:.6">plan {{ sd.planned_end.strftime('%d %b') }}</div>{% endif %}
+      {% elif sd.exited_at %}{{ sd.exited_at | ist('%d %b, %H:%M') }}{% else %}—{% endif %}
+      {% if sd.planned_end %}<div style="font-size:11px;opacity:.6">plan {{ sd.planned_end | ist('%d %b') }}</div>{% endif %}
     </td>
     <td class="ctv-cell ctv-col-duration  {{ bg }}" style="font-size:12px">
       {% if sd.duration_h is not none %}{{ sd.duration_h }}h{% elif sd.is_active %}ongoing{% else %}—{% endif %}
@@ -1261,7 +1261,7 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
     {% if log_rows %}
     {% for r in log_rows %}
     <tr class="log-row">
-      <td style="white-space:nowrap;font-size:11px;color:var(--text-faint)">{{ r.at.strftime('%d %b %Y, %H:%M') }}</td>
+      <td style="white-space:nowrap;font-size:11px;color:var(--text-faint)">{{ r.at | ist('%d %b %Y, %H:%M') }}</td>
       <td style="white-space:nowrap">
         <a href="/fms/dashboard?flow_id={{ r.ticket.flow_id }}&view=stage" style="color:#60a5fa;font-size:12px;font-weight:600">{{ r.ticket.display_id or r.ticket.id[:8] }}</a>
         <div style="font-size:11px;color:var(--text-muted)">{{ r.ticket.title[:40] }}{% if r.ticket.title|length > 40 %}…{% endif %}</div>

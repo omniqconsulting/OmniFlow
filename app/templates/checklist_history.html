@@ -42,9 +42,9 @@
     {% for a in history %}
     <tr>
       <td style="color:var(--text-primary);font-weight:500">{{ a.user.name if a.user else '—' }}</td>
-      <td style="font-size:12px;color:var(--text-muted)">{{ a.due_at.strftime('%d %b %Y, %I:%M %p') if a.due_at else '—' }}</td>
+      <td style="font-size:12px;color:var(--text-muted)">{{ a.due_at | ist('%d %b %Y, %I:%M %p') if a.due_at else '—' }}</td>
       <td style="font-size:12px;color:var(--text-muted)">
-        {% if a.completed_at %}{{ a.completed_at.strftime('%d %b %Y, %I:%M %p') }}
+        {% if a.completed_at %}{{ a.completed_at | ist('%d %b %Y, %I:%M %p') }}
         {% else %}<span class="muted">—</span>{% endif %}
       </td>
       <td>

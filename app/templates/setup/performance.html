@@ -139,7 +139,7 @@
         <tbody>
         {% for f in history %}
         <tr style="border-bottom:1px solid var(--border-subtle)">
-          <td style="padding:8px 10px;color:var(--text-muted)">{{ f.created_at.strftime('%d %b %Y, %H:%M') if f.created_at else '—' }}</td>
+          <td style="padding:8px 10px;color:var(--text-muted)">{{ f.created_at | ist('%d %b %Y, %H:%M') if f.created_at else '—' }}</td>
           <td style="padding:8px 10px;color:var(--text-primary)">{{ f.label or '(unnamed)' }}</td>
           <td style="padding:8px 10px">
             <div style="display:flex;gap:4px;flex-wrap:wrap">

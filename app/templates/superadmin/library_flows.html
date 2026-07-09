@@ -44,7 +44,7 @@
           {{ f.status }}
         </span>
       </td>
-      <td class="muted">{{ f.updated_at.strftime('%d %b %Y') if f.updated_at else '—' }}</td>
+      <td class="muted">{{ f.updated_at | ist('%d %b %Y') if f.updated_at else '—' }}</td>
       <td>
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <a href="/superadmin/library/flows/{{ f.id }}" class="btn btn-sm btn-gray">Edit</a>

@@ -2,7 +2,7 @@
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from datetime import datetime, timedelta
 from typing import List, Optional
 import asyncio, os, csv, io
@@ -1557,12 +1557,18 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
     entity_options = get_linked_entity_options(db, tid)
 
     ticket_media_path = {}
+    ticket_has_comments = set()
     if tickets:
         for row in db.query(MediaUpload).filter(
             MediaUpload.entity_type == "ticket",
             MediaUpload.entity_id.in_([t.id for t in tickets]),
         ).order_by(MediaUpload.created_at.desc()).all():
             ticket_media_path.setdefault(row.entity_id, row.file_path)
+        ticket_has_comments = {
+            r[0] for r in db.query(TicketComment.ticket_id).filter(
+                TicketComment.ticket_id.in_([t.id for t in tickets]),
+            ).distinct().all()
+        }
 
     return templates.TemplateResponse(request, "tickets.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
@@ -1577,6 +1583,7 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
         "assignee_id": assignee_id, "date_from": date_from, "date_to": date_to,
         "entity_options": entity_options,
         "ticket_media_path": ticket_media_path,
+        "ticket_has_comments": ticket_has_comments,
         "now": datetime.utcnow(),
     })
 
@@ -3252,15 +3259,16 @@ def checklist_comment(assignment_id: str, body: str = Form(...),
 def checklist_flag(assignment_id: str, flag_reason: str = Form(...),
                     user: User = Depends(get_current_user),
                     db: Session = Depends(get_db)):
-    """Flag a checklist assignment for admin/manager attention."""
-    if user.role not in ("ADMIN", "MANAGER"):
-        raise HTTPException(403)
+    """Flag a checklist assignment for admin/manager attention. Any user may
+    flag; an EMPLOYEE may only flag their own assignment (mirrors Tickets)."""
     a = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.id == assignment_id,
         ChecklistAssignment.tenant_id == user.tenant_id,
     ).first()
     if not a:
         raise HTTPException(404)
+    if user.role == "EMPLOYEE" and a.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the assignee can flag this checklist")
     a.is_flagged = True
     a.flagged_reason = flag_reason.strip()
     db.add(ChecklistComment(assignment_id=assignment_id, user_id=user.id,
@@ -3272,14 +3280,14 @@ def checklist_flag(assignment_id: str, flag_reason: str = Form(...),
 def checklist_unflag(assignment_id: str,
                       user: User = Depends(get_current_user),
                       db: Session = Depends(get_db)):
-    if user.role not in ("ADMIN", "MANAGER"):
-        raise HTTPException(403)
     a = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.id == assignment_id,
         ChecklistAssignment.tenant_id == user.tenant_id,
     ).first()
     if not a:
         raise HTTPException(404)
+    if user.role == "EMPLOYEE" and a.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the assignee can unflag this checklist")
     a.is_flagged = False
     a.flagged_reason = None
     db.add(ChecklistComment(assignment_id=assignment_id, user_id=user.id,
@@ -3872,18 +3880,25 @@ async def checklist_bulk_confirm(request: Request, user: User = Depends(require_
 
 @app.get("/employees", response_class=HTMLResponse)
 def employees_page(request: Request, user: User = Depends(require_manager_or_redirect),
-                   db: Session = Depends(get_db)):
+                   search: str = "", db: Session = Depends(get_db)):
     tid = user.tenant_id
     if user.role == "MANAGER":
         # Manager sees only their direct reports (+ themselves)
         team_ids = [u.id for u in db.query(User).filter(
             User.manager_id == user.id, User.is_deleted == False).all()]
         team_ids.append(user.id)
-        all_users = db.query(User).filter(
-            User.id.in_(team_ids), User.is_deleted == False).all()
+        employees_q = db.query(User).filter(
+            User.id.in_(team_ids), User.is_deleted == False)
     else:
-        all_users = db.query(User).filter(
-            User.tenant_id == tid, User.is_deleted == False).all()
+        employees_q = db.query(User).filter(
+            User.tenant_id == tid, User.is_deleted == False)
+    if search:
+        like = f"%{search}%"
+        employees_q = employees_q.filter(or_(
+            User.name.ilike(like), User.phone.ilike(like),
+            User.email.ilike(like), User.employee_id.ilike(like),
+        ))
+    all_users = employees_q.all()
     all_depts = db.query(Department).filter(
         Department.tenant_id == tid, Department.is_deleted == False).all()
     # Deduplicate departments by name for dropdowns (keep first row per name)
@@ -3944,7 +3959,7 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_red
         **_nav_ctx(db, user),
         "employees": all_users, "departments": departments_unique,
         "branches": branches, "managers": managers,
-        "can_bulk": can_bulk,
+        "can_bulk": can_bulk, "search": search,
         "kpi_total": kpi_total, "kpi_active": kpi_active,
         "kpi_terminated": kpi_terminated, "kpi_departments": kpi_departments,
         "tab_catalog": tab_catalog, "doc_type_labels": DOC_TYPE_LABELS,
@@ -4170,7 +4185,19 @@ async def bulk_import_employees_confirm(request: Request, user: User = Depends(r
     body = await request.json()
     rows = body.get("rows", [])
     created = 0
+    skipped = 0
+    warnings = []
     for r in rows:
+        phone = (r.get("phone") or "").strip()
+        # Re-check for a duplicate right before insert — the row may have been
+        # validated earlier (e.g. on the initial upload) and this same batch
+        # re-submitted since (double-click on Confirm, or a repeated import).
+        if phone and db.query(User).filter(
+            User.tenant_id == user.tenant_id, User.phone == phone, User.is_deleted == False,
+        ).first():
+            skipped += 1
+            warnings.append(f"Skipped {r.get('name') or phone}: phone {phone} already exists.")
+            continue
         try:
             with db.begin_nested():
                 jdate = None
@@ -4187,14 +4214,15 @@ async def bulk_import_employees_confirm(request: Request, user: User = Depends(r
                 ))
                 db.flush()
             created += 1
-        except Exception:
-            continue
+        except Exception as e:
+            skipped += 1
+            warnings.append(f"Skipped {r.get('name') or phone}: {e}")
     try:
         db.commit()
     except Exception as e:
         db.rollback()
         raise HTTPException(400, f"Import failed — no employees were created. {e}")
-    return JSONResponse({"created": created})
+    return JSONResponse({"created": created, "skipped": skipped, "warnings": warnings})
 
 
 @app.post("/employees/{emp_id}/reset-password")

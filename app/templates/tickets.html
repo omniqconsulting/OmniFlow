@@ -242,10 +242,11 @@
     </td>
     <td>
       {% if t.is_flagged %}<span style="color:#f87171">🚩 </span>{% endif %}
+      {% if t.id in ticket_has_comments %}<span style="color:var(--text-faint)" title="Has comments">💬 </span>{% endif %}
       <a href="/tickets/{{ t.id }}" style="font-weight:500;color:var(--text-primary);text-decoration:none">{{ t.title }}</a>
       {% set cat = t.ticket_category if t.ticket_category is defined else 'NORMAL' %}
       {% if cat == 'HELP' %}<span class="badge badge-amber" style="font-size:9px;margin-left:4px">HELP</span>{% endif %}
-      {% if t.acknowledged_at %}<span class="badge badge-green" style="font-size:9px;margin-left:4px" title="Acknowledged {{ t.acknowledged_at.strftime('%d %b, %H:%M') }}">✓ Acked</span>{% endif %}
+      {% if t.acknowledged_at %}<span class="badge badge-green" style="font-size:9px;margin-left:4px" title="Acknowledged {{ t.acknowledged_at | ist('%d %b, %H:%M') }}">✓ Acked</span>{% endif %}
     </td>
     <td>
       <span class="badge {{ sty[0] }}" style="font-size:10px;white-space:nowrap">{{ sty[1] }}</span>
@@ -255,7 +256,7 @@
     </td>
     <td style="color:var(--text-muted);font-size:12px">{{ t.current_assignee.name if t.current_assignee else '—' }}</td>
     <td {% if t.due_at and t.due_at < now and t.status not in ('CLOSED','DONE') %}style="color:#f87171;font-size:12px"{% else %}style="color:var(--text-muted);font-size:12px"{% endif %}>
-      {{ t.due_at.strftime('%d %b %y') if t.due_at else '—' }}
+      {{ t.due_at | ist('%d %b %y') if t.due_at else '—' }}
     </td>
     <td onclick="event.stopPropagation()" style="white-space:nowrap">
       {% if t.evidence_url %}

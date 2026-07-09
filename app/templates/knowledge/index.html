@@ -153,7 +153,7 @@
           <td style="font-size:11px;color:var(--text-faint);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ it.tags or '—' }}</td>
           <td style="white-space:nowrap">{{ it._size_label }}</td>
           <td style="white-space:nowrap">{{ it.created_by.name if it.created_by else '—' }}</td>
-          <td style="white-space:nowrap">{{ it.created_at.strftime('%d %b %Y') if it.created_at else '—' }}</td>
+          <td style="white-space:nowrap">{{ it.created_at | ist('%d %b %Y') if it.created_at else '—' }}</td>
           {% if user.role in ('ADMIN','MANAGER') %}
           <td>
             <form method="post" action="/knowledge/{{ it.id }}/delete" onsubmit="return confirm('Delete this item?')">

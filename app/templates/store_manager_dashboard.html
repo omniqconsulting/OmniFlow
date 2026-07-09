@@ -60,7 +60,7 @@
         <div style="display:flex;align-items:center;gap:6px">
           {% if cl.due_at %}
           <span style="font-size:10px;color:{{ '#f87171' if cl.status == 'OVERDUE' else 'var(--text-faint)' }}">
-            {{ cl.due_at.strftime('%d %b') }}
+            {{ cl.due_at | ist('%d %b') }}
           </span>
           {% endif %}
           <span class="badge {{ 'badge-red' if cl.status == 'OVERDUE' else 'badge-amber' }}">

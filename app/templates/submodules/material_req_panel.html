@@ -82,7 +82,7 @@
                 {% endif %}
               </div>
               <div class="text-end">
-                <div class="small text-muted">{{ req.created_at.strftime('%d %b %H:%M') if req.created_at else '' }}</div>
+                <div class="small text-muted">{{ req.created_at | ist('%d %b %H:%M') }}</div>
                 {% if req.status == 'PENDING' and can_approve %}
                 <div class="d-flex gap-1 mt-1">
                   <form method="post" action="/submodules/materials/req/{{ req.id }}/approve">

@@ -42,6 +42,9 @@
 
     <div id="ep-bulk-bar" style="display:none;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:12px;flex-wrap:wrap">
       <span id="ep-bulk-count" style="font-size:13px;font-weight:600;color:#a5b4fc">0 selected</span>
+      {% if total > page_size %}
+      <a href="javascript:void(0)" onclick="epSelectAllFilteredMode()" style="font-size:12px;color:#a5b4fc;text-decoration:underline">Select all {{ total }} matching (not just this page)</a>
+      {% endif %}
       <button type="button" onclick="epBulkDelete()" class="btn btn-sm" style="font-size:11px;background:#dc2626;color:#fff;border-color:#dc2626">🗑 Delete</button>
       <button type="button" onclick="epClearBulkSelection()" class="btn btn-sm btn-gray" style="font-size:11px;margin-left:auto">✕ Clear</button>
     </div>
@@ -167,7 +170,7 @@
       <table id="variant-table" style="width:100%;border-collapse:collapse;margin-bottom:8px">
         <thead>
           <tr style="font-size:11px;color:var(--text-muted);text-align:left">
-            <th style="padding:4px">SKU Code *</th><th style="padding:4px">Label</th>
+            <th style="padding:4px">SKU Code (blank = auto-generated)</th><th style="padding:4px">Label</th>
             <th style="padding:4px">Unit</th><th style="padding:4px">Low Stock</th><th></th>
           </tr>
         </thead>
@@ -182,7 +185,7 @@
     </form>
     <template id="variant-row-template">
       <tr>
-        <td style="padding:4px"><input name="variant_sku[]" required style="width:100%"></td>
+        <td style="padding:4px"><input name="variant_sku[]" placeholder="auto" style="width:100%"></td>
         <td style="padding:4px"><input name="variant_label[]" placeholder="e.g. Red / King" style="width:100%"></td>
         <td style="padding:4px">
           <select name="variant_unit_id[]" style="width:100%">
@@ -285,9 +288,12 @@ function openEdit(p) {
   document.getElementById('editModal').style.display = 'flex';
 }
 
+var epSelectAllFiltered = false;
+
 function epUpdateBulkBar() {
   var table = document.getElementById('prodTable');
   if (!table) return;
+  epSelectAllFiltered = false;
   var checked = table.querySelectorAll('.ep-chk:checked');
   var all    = table.querySelectorAll('.ep-chk');
   var bar    = document.getElementById('ep-bulk-bar');
@@ -305,6 +311,19 @@ function epUpdateBulkBar() {
   }
 }
 
+function epSelectAllFilteredMode() {
+  var table = document.getElementById('prodTable');
+  if (!table) return;
+  table.querySelectorAll('.ep-chk').forEach(function(cb) { cb.checked = true; });
+  var selAll = document.getElementById('ep-select-all');
+  if (selAll) { selAll.checked = true; selAll.indeterminate = false; }
+  epSelectAllFiltered = true;
+  var bar = document.getElementById('ep-bulk-bar');
+  var count = document.getElementById('ep-bulk-count');
+  bar.style.display = 'flex';
+  count.textContent = '{{ total }} selected (all pages)';
+}
+
 function epToggleAll(masterCb) {
   var table = document.getElementById('prodTable');
   if (!table) return;
@@ -317,6 +336,7 @@ function epClearBulkSelection() {
   if (table) table.querySelectorAll('.ep-chk').forEach(function(cb){ cb.checked = false; });
   var selAll = document.getElementById('ep-select-all');
   if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+  epSelectAllFiltered = false;
   epUpdateBulkBar();
 }
 
@@ -324,15 +344,23 @@ function epBulkDelete() {
   var table = document.getElementById('prodTable');
   var checked = table ? Array.from(table.querySelectorAll('.ep-chk:checked')) : [];
   if (!checked.length) return;
-  if (!confirm('Permanently delete ' + checked.length + ' product(s)? This cannot be undone. Products with existing order/purchase history will be skipped.')) return;
+  var countLabel = epSelectAllFiltered ? '{{ total }}' : checked.length;
+  if (!confirm('Permanently delete ' + countLabel + ' product(s)? This cannot be undone. Products with existing order/purchase history will be skipped.')) return;
   var form = document.createElement('form');
   form.method = 'post';
   form.action = '/setup/end-products/bulk-delete';
-  checked.forEach(function(cb) {
+  function addField(name, value) {
     var inp = document.createElement('input');
-    inp.type = 'hidden'; inp.name = 'prod_ids'; inp.value = cb.value;
+    inp.type = 'hidden'; inp.name = name; inp.value = value;
     form.appendChild(inp);
-  });
+  }
+  if (epSelectAllFiltered) {
+    addField('select_all_filtered', '1');
+    addField('status', {{ status_filter|tojson }});
+    addField('pending', {{ pending_filter|tojson }});
+  } else {
+    checked.forEach(function(cb) { addField('prod_ids', cb.value); });
+  }
   document.body.appendChild(form);
   form.submit();
 }

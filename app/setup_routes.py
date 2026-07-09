@@ -113,6 +113,7 @@ _CUSTOMER_COLS = [
     ("address",             "Optional. Customer address. Free text."),
     ("notes",               "Optional. Any additional notes. Free text."),
     ("agent_email",         "Optional. Email of the assigned salesman (must have Sales access). Defaults to you."),
+    ("employee_name",       "Optional. Alternate to agent_email — name of the assigned salesman, if you don't know their email. Ambiguous if two agents share a name."),
     ("tier",                "Optional. Customer tier: A, B, C, or blank for UNRANKED."),
     ("contact_freq_days",   "Optional. Integer. How often (days) this customer should be contacted. Defaults to 30."),
     ("credit_limit",        "Optional. Numeric credit limit."),
@@ -125,18 +126,32 @@ _CUSTOMER_COLS = [
 _CUSTOMER_TIERS = ("A", "B", "C")
 
 
-def resolve_customer_agent(db: Session, tenant_id: str, agent_email: str):
-    """Find-or-error the Sales-access User for an agent_email column value.
-    Shared by Setup's customer import and Sales CRM's contacts bulk import."""
-    if not agent_email:
-        return None, None
-    agent = db.query(User).filter(
-        User.tenant_id == tenant_id, User.email == agent_email,
-        User.is_active == True, User.is_deleted == False,
-    ).first()
-    if not agent or not has_module(agent, "SALES"):
-        return None, f"agent_email {agent_email} not found or lacks SALES access"
-    return agent, None
+def resolve_customer_agent(db: Session, tenant_id: str, agent_email: str, employee_name: str = ""):
+    """Find-or-error the Sales-access User for an agent_email (preferred) or
+    employee_name (fallback, for uploaders who don't know each agent's email)
+    column value. Shared by Setup's customer import and Sales CRM's contacts
+    bulk import — both surfaces support the same two lookup keys."""
+    agent_email = (agent_email or "").strip()
+    employee_name = (employee_name or "").strip()
+    if agent_email:
+        agent = db.query(User).filter(
+            User.tenant_id == tenant_id, User.email == agent_email,
+            User.is_active == True, User.is_deleted == False,
+        ).first()
+        if not agent or not has_module(agent, "SALES"):
+            return None, f"agent_email {agent_email} not found or lacks SALES access"
+        return agent, None
+    if employee_name:
+        matches = [u for u in db.query(User).filter(
+            User.tenant_id == tenant_id, User.is_active == True, User.is_deleted == False,
+            func.lower(User.name) == employee_name.lower(),
+        ).all() if has_module(u, "SALES")]
+        if not matches:
+            return None, f"employee_name {employee_name} not found or lacks SALES access"
+        if len(matches) > 1:
+            return None, f"employee_name {employee_name} matches {len(matches)} agents — ambiguous, use agent_email instead"
+        return matches[0], None
+    return None, None
 
 _ENDPRODUCT_COLS = [
     ("category",            "Optional. Catalog category name. Created if it doesn't exist yet. Defaults to 'Uncategorized'."),
@@ -225,18 +240,9 @@ def _exception_report(errors: list[dict], filename: str) -> StreamingResponse:
 PAGE_SIZE = 20
 
 
-@router.get("/setup/customers", response_class=HTMLResponse)
-def customers_page(
-    request: Request,
-    page: int = 1,
-    status: str = "",
-    pending: str = "",
-    tier: str = "",
-    user: User = Depends(require_admin_or_redirect),
-    db: Session = Depends(get_db),
-):
+def _customers_filtered_query(db: Session, tenant_id: str, status: str, pending: str, tier: str):
     q = db.query(Customer).filter(
-        Customer.tenant_id == user.tenant_id,
+        Customer.tenant_id == tenant_id,
         Customer.is_deleted == False,
     )
     if status == "active":
@@ -247,7 +253,20 @@ def customers_page(
         q = q.filter(Customer.approval_status == "PENDING")
     if tier:
         q = q.filter(Customer.customer_tier == tier)
-    q = q.order_by(Customer.name)
+    return q
+
+
+@router.get("/setup/customers", response_class=HTMLResponse)
+def customers_page(
+    request: Request,
+    page: int = 1,
+    status: str = "",
+    pending: str = "",
+    tier: str = "",
+    user: User = Depends(require_admin_or_redirect),
+    db: Session = Depends(get_db),
+):
+    q = _customers_filtered_query(db, user.tenant_id, status, pending, tier).order_by(Customer.name)
     total = q.count()
     customers = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
     msg = request.query_params.get("msg", "")
@@ -397,14 +416,24 @@ def delete_customer(
 
 @router.post("/setup/customers/bulk-delete")
 def bulk_delete_customers(
-    customer_ids: list[str] = Form(...),
+    customer_ids: list[str] = Form(default=[]),
+    select_all_filtered: str = Form(""),
+    status: str = Form(""),
+    pending: str = Form(""),
+    tier: str = Form(""),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Hard-delete selected customers — permanent, for clearing test/bad data
     before a clean re-upload. Customers with existing sales activity (orders,
     call logs, price overrides) are skipped and reported rather than deleted,
-    to avoid destroying real transaction history."""
+    to avoid destroying real transaction history.
+
+    select_all_filtered: when set, ignores customer_ids and instead resolves
+    every customer matching the current list filters (not just the current
+    page) — the "select all N matching" affordance."""
+    if select_all_filtered:
+        customer_ids = [c.id for c in _customers_filtered_query(db, user.tenant_id, status, pending, tier).all()]
     deleted, skipped = 0, []
     for cid in customer_ids:
         c = db.query(Customer).filter(Customer.id == cid, Customer.tenant_id == user.tenant_id).first()
@@ -455,7 +484,7 @@ async def import_customers(
         if tier and tier not in _CUSTOMER_TIERS:
             errors.append({"row": i, "error": "tier must be A, B, C or blank", "data": dict(row)})
             continue
-        agent, agent_err = resolve_customer_agent(db, user.tenant_id, (row.get("agent_email") or "").strip())
+        agent, agent_err = resolve_customer_agent(db, user.tenant_id, (row.get("agent_email") or "").strip(), (row.get("employee_name") or "").strip())
         if agent_err:
             errors.append({"row": i, "error": agent_err, "data": dict(row)})
             continue
@@ -600,7 +629,7 @@ async def customers_bulk_confirm(request: Request, user: User = Depends(require_
     rows = body.get("rows", [])
     created = 0
     for r in rows:
-        agent, agent_err = resolve_customer_agent(db, user.tenant_id, r.get("agent_email") or "")
+        agent, agent_err = resolve_customer_agent(db, user.tenant_id, r.get("agent_email") or "", r.get("employee_name") or "")
         if agent_err:
             continue  # re-validated already, but be defensive against stale client state
         db.add(Customer(
@@ -654,29 +683,29 @@ def _end_product_unit_or_error(db: Session, tenant_id: str, unit_abbr: str):
     return unit, None
 
 
-def _sku_piece(s: str) -> str:
-    """First 2 alphanumeric characters of s, uppercased, padded with X if too short."""
+def _sku_piece(s: str, length: int) -> str:
+    """First `length` alphanumeric characters of s, uppercased, padded with X if too short."""
     letters = re.sub(r"[^A-Za-z0-9]", "", s or "").upper()
-    return (letters + "XX")[:2]
+    return (letters + "X" * length)[:length]
 
 
-def _generate_end_product_sku(
-    db: Session, tenant_id: str, name: str,
+def generate_product_sku(
+    db: Session, tenant_id: str,
     category_name: str = None, sub_category_name: str = None,
 ) -> str:
-    """Auto-generate a SKU when the user leaves it blank, so every End Product
-    always has one and syncs to the Sales Catalog (sync is matched on
-    sku_code). Format: CC-SS-II-### — 2 chars category, 2 chars sub-category,
-    2 chars item name, all caps, then a zero-padded variant number that
-    increments on collision against both EndProduct and ProductVariant."""
+    """Auto-generate a SKU when the user leaves it blank, so every product
+    always has one. Format: CC-SSS-#### — 2 chars category, 3 chars
+    sub-category, all caps, then a zero-padded sequence number scoped to that
+    category+sub-category prefix, incrementing on collision against both
+    EndProduct and ProductVariant (the two tables that share the SKU
+    namespace — see sales_catalog_sync.py)."""
     prefix = "-".join([
-        _sku_piece(category_name or "Uncategorized"),
-        _sku_piece(sub_category_name or "General"),
-        _sku_piece(name),
+        _sku_piece(category_name or "Uncategorized", 2),
+        _sku_piece(sub_category_name or "General", 3),
     ])
     n = 1
     while True:
-        candidate = f"{prefix}-{n:03d}"
+        candidate = f"{prefix}-{n:04d}"
         exists = (
             db.query(EndProduct).filter(
                 EndProduct.tenant_id == tenant_id, EndProduct.sku_code == candidate,
@@ -692,6 +721,28 @@ def _generate_end_product_sku(
         n += 1
 
 
+# Backwards-compatible alias — old name took an unused `name` positional arg
+# (item-name was dropped from the generated format; kept as a no-op param
+# so existing call sites don't need updating).
+def _generate_end_product_sku(db: Session, tenant_id: str, name: str = "",
+                               category_name: str = None, sub_category_name: str = None) -> str:
+    return generate_product_sku(db, tenant_id, category_name, sub_category_name)
+
+
+def _end_products_filtered_query(db: Session, tenant_id: str, status: str, pending: str):
+    q = db.query(EndProduct).filter(
+        EndProduct.tenant_id == tenant_id,
+        EndProduct.is_deleted == False,
+    )
+    if status == "active":
+        q = q.filter(EndProduct.is_active == True)
+    elif status == "inactive":
+        q = q.filter(EndProduct.is_active == False)
+    if pending == "1":
+        q = q.filter(EndProduct.approval_status == "PENDING")
+    return q
+
+
 @router.get("/setup/end-products", response_class=HTMLResponse)
 def end_products_page(
     request: Request,
@@ -701,17 +752,7 @@ def end_products_page(
     user: User = Depends(require_admin_or_redirect),
     db: Session = Depends(get_db),
 ):
-    q = db.query(EndProduct).filter(
-        EndProduct.tenant_id == user.tenant_id,
-        EndProduct.is_deleted == False,
-    )
-    if status == "active":
-        q = q.filter(EndProduct.is_active == True)
-    elif status == "inactive":
-        q = q.filter(EndProduct.is_active == False)
-    if pending == "1":
-        q = q.filter(EndProduct.approval_status == "PENDING")
-    q = q.order_by(EndProduct.name)
+    q = _end_products_filtered_query(db, user.tenant_id, status, pending).order_by(EndProduct.name)
     total = q.count()
     products = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
     # Setup <-> Sales cross-link (Phase 5 of the UX redesign): EndProduct and
@@ -929,7 +970,10 @@ def _variant_transaction_blockers(db: Session, variant_id: str) -> list:
 
 @router.post("/setup/end-products/bulk-delete")
 def bulk_delete_end_products(
-    prod_ids: list[str] = Form(...),
+    prod_ids: list[str] = Form(default=[]),
+    select_all_filtered: str = Form(""),
+    status: str = Form(""),
+    pending: str = Form(""),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -937,7 +981,12 @@ def bulk_delete_end_products(
     data before a clean re-upload. Also cascades to the paired Catalog
     ProductVariant (and its stock row) so the SKU is fully freed up. If that
     variant has real transaction history (orders, purchases, price history),
-    the whole row is skipped and reported rather than destroying that history."""
+    the whole row is skipped and reported rather than destroying that history.
+
+    select_all_filtered: resolves every product matching the current list
+    filters (not just the current page) — the "select all N matching" affordance."""
+    if select_all_filtered:
+        prod_ids = [p.id for p in _end_products_filtered_query(db, user.tenant_id, status, pending).all()]
     deleted, skipped = 0, []
     for pid in prod_ids:
         p = db.query(EndProduct).filter(EndProduct.id == pid, EndProduct.tenant_id == user.tenant_id).first()
@@ -1434,17 +1483,21 @@ def deployed_config_page(
 # VENDORS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.get("/setup/vendors", response_class=HTMLResponse)
-def vendors_page(request: Request, page: int = 1, status: str = "", pending: str = "",
-                 user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
-    q = db.query(Vendor).filter(Vendor.tenant_id == user.tenant_id, Vendor.is_deleted == False)
+def _vendors_filtered_query(db: Session, tenant_id: str, status: str, pending: str):
+    q = db.query(Vendor).filter(Vendor.tenant_id == tenant_id, Vendor.is_deleted == False)
     if status == "active":
         q = q.filter(Vendor.is_active == True)
     elif status == "inactive":
         q = q.filter(Vendor.is_active == False)
     if pending == "1":
         q = q.filter(Vendor.approval_status == "PENDING")
-    q = q.order_by(Vendor.name)
+    return q
+
+
+@router.get("/setup/vendors", response_class=HTMLResponse)
+def vendors_page(request: Request, page: int = 1, status: str = "", pending: str = "",
+                 user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
+    q = _vendors_filtered_query(db, user.tenant_id, status, pending).order_by(Vendor.name)
     total = q.count()
     vendors = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
     return templates.TemplateResponse(request, "setup/vendors.html", {
@@ -1514,13 +1567,21 @@ def delete_vendor(vendor_id: str, user: User = Depends(require_admin), db: Sessi
 
 @router.post("/setup/vendors/bulk-delete")
 def bulk_delete_vendors(
-    vendor_ids: list[str] = Form(...),
+    vendor_ids: list[str] = Form(default=[]),
+    select_all_filtered: str = Form(""),
+    status: str = Form(""),
+    pending: str = Form(""),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Hard-delete selected vendors — permanent. Vendors with existing
     purchase orders are skipped and reported, to avoid destroying real
-    purchase history."""
+    purchase history.
+
+    select_all_filtered: resolves every vendor matching the current list
+    filters (not just the current page) — the "select all N matching" affordance."""
+    if select_all_filtered:
+        vendor_ids = [v.id for v in _vendors_filtered_query(db, user.tenant_id, status, pending).all()]
     deleted, skipped = 0, []
     for vid in vendor_ids:
         v = db.query(Vendor).filter(Vendor.id == vid, Vendor.tenant_id == user.tenant_id).first()
@@ -1679,17 +1740,21 @@ async def vendors_bulk_confirm(request: Request, user: User = Depends(require_ad
 # RAW MATERIALS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.get("/setup/raw-materials", response_class=HTMLResponse)
-def raw_materials_page(request: Request, page: int = 1, status: str = "", pending: str = "",
-                       user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
-    q = db.query(RawMaterial).filter(RawMaterial.tenant_id == user.tenant_id, RawMaterial.is_deleted == False)
+def _raw_materials_filtered_query(db: Session, tenant_id: str, status: str, pending: str):
+    q = db.query(RawMaterial).filter(RawMaterial.tenant_id == tenant_id, RawMaterial.is_deleted == False)
     if status == "active":
         q = q.filter(RawMaterial.is_active == True)
     elif status == "inactive":
         q = q.filter(RawMaterial.is_active == False)
     if pending == "1":
         q = q.filter(RawMaterial.approval_status == "PENDING")
-    q = q.order_by(RawMaterial.name)
+    return q
+
+
+@router.get("/setup/raw-materials", response_class=HTMLResponse)
+def raw_materials_page(request: Request, page: int = 1, status: str = "", pending: str = "",
+                       user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
+    q = _raw_materials_filtered_query(db, user.tenant_id, status, pending).order_by(RawMaterial.name)
     total = q.count()
     items = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
     return templates.TemplateResponse(request, "setup/raw_materials.html", {
@@ -1748,12 +1813,20 @@ def delete_raw_material(item_id: str, user: User = Depends(require_admin), db: S
 
 @router.post("/setup/raw-materials/bulk-delete")
 def bulk_delete_raw_materials(
-    item_ids: list[str] = Form(...),
+    item_ids: list[str] = Form(default=[]),
+    select_all_filtered: str = Form(""),
+    status: str = Form(""),
+    pending: str = Form(""),
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Hard-delete selected raw materials — permanent. No other table
-    references raw_materials, so this is always safe."""
+    references raw_materials, so this is always safe.
+
+    select_all_filtered: resolves every item matching the current list
+    filters (not just the current page) — the "select all N matching" affordance."""
+    if select_all_filtered:
+        item_ids = [m.id for m in _raw_materials_filtered_query(db, user.tenant_id, status, pending).all()]
     deleted = 0
     for iid in item_ids:
         m = db.query(RawMaterial).filter(RawMaterial.id == iid, RawMaterial.tenant_id == user.tenant_id).first()

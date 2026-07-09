@@ -8,7 +8,7 @@
     <p style="font-size:13px;color:var(--text-faint);margin-top:2px">
       {{ user.role | title }}
       {% if user.department %} · {{ user.department.name }}{% endif %}
-      &nbsp;·&nbsp; {{ now.strftime('%d %b %Y') }}
+      &nbsp;·&nbsp; {{ now | ist('%d %b %Y') }}
     </p>
   </div>
   <div style="display:flex;gap:8px">
@@ -98,7 +98,7 @@
     <tr>
       <td style="font-weight:500;color:var(--text-primary)"><a href="/tickets/{{ t.id }}" style="color:inherit">{{ t.title }}</a></td>
       <td style="font-size:12px;{% if t.due_at and t.due_at < now %}color:#f87171{% else %}color:var(--text-muted){% endif %}">
-        {{ t.due_at.strftime('%d %b') if t.due_at else '—' }}
+        {{ t.due_at | ist('%d %b') if t.due_at else '—' }}
       </td>
       <td style="font-size:12px;color:#f87171">{% if t.due_at and t.due_at < now %}{{ (now - t.due_at).days }}{% else %}—{% endif %}</td>
     </tr>
@@ -170,7 +170,7 @@
         </span>
       </td>
       <td style="font-size:12px;{% if t.due_at and t.due_at < now %}color:#f87171{% else %}color:var(--text-muted){% endif %}">
-        {{ t.due_at.strftime('%d %b') if t.due_at else '—' }}
+        {{ t.due_at | ist('%d %b') if t.due_at else '—' }}
         {% if t.due_at and t.due_at < now %}<span style="font-size:10px"> OVERDUE</span>{% endif %}
       </td>
       <td><a href="/tickets/{{ t.id }}" class="btn btn-sm btn-outline">View</a></td>
@@ -305,7 +305,7 @@
         {% if a.status=='OVERDUE' %}⚠ {% endif %}{{ a.template.title if a.template else '—' }}
       </div>
       <div style="font-size:11px;color:var(--text-faint);margin-top:3px">
-        Due: {{ a.due_at.strftime('%d %b, %I:%M %p') if a.due_at else '—' }}
+        Due: {{ a.due_at | ist if a.due_at else '—' }}
         {% if a.status == 'OVERDUE' %}<span style="color:#f87171;font-weight:600"> · OVERDUE</span>{% endif %}
       </div>
     </div>
@@ -376,7 +376,7 @@ new Chart(document.getElementById('complianceChart'), {
         </span>
       </td>
       <td style="font-size:12px;color:var(--text-faint)">
-        {{ t.updated_at.strftime('%d %b') if t.updated_at else '—' }}
+        {{ t.updated_at | ist('%d %b') if t.updated_at else '—' }}
       </td>
       <td><a href="/tickets/{{ t.id }}" class="btn btn-sm btn-outline">View</a></td>
     </tr>

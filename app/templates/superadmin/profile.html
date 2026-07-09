@@ -40,11 +40,11 @@
         </div>
         <div style="display:flex;justify-content:space-between;font-size:13px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.05)">
           <span style="color:#64748b">Account Created</span>
-          <span style="color:#94a3b8">{{ sa.created_at.strftime('%d %b %Y') }}</span>
+          <span style="color:#94a3b8">{{ sa.created_at | ist('%d %b %Y') }}</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:13px">
           <span style="color:#64748b">Last Login</span>
-          <span style="color:#94a3b8">{{ sa.last_login.strftime('%d %b %Y, %H:%M') if sa.last_login else 'First session' }}</span>
+          <span style="color:#94a3b8">{{ (sa.last_login | ist('%d %b %Y, %H:%M')) if sa.last_login else 'First session' }}</span>
         </div>
       </div>
     </div>

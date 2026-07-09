@@ -1516,21 +1516,21 @@ class ProductVariant(Base):
 
 class ProductStock(Base):
     """
-    Live stock snapshot per variant, optionally split by department.
+    Live stock snapshot per variant, optionally split by branch.
 
-    department_id IS NULL: the tenant-wide aggregate row — always exactly
+    branch_id IS NULL: the tenant-wide aggregate row — always exactly
         one per variant (enforced in code, not just the composite unique
         index below). This is the ONLY row order reservation/fulfillment,
         PO receiving, and in-transit tracking ever touch — those flows are
-        intentionally department-agnostic.
-    department_id = X: a per-department breakdown row, written alongside
+        intentionally branch-agnostic.
+    branch_id = X: a per-branch breakdown row, written alongside
         (never instead of) the aggregate row whenever stock-in/adjustment
-        specifies a department — see handle_stock_in/handle_stock_adjustment.
+        specifies a branch — see handle_stock_in/handle_stock_adjustment.
 
     qty_available  = physical stock minus active reservations
     qty_reserved   = sum of ACTIVE stock_reservations (added in Brief 04;
         only meaningful on the aggregate row — reservations are never
-        department-scoped)
+        branch-scoped)
     qty_in_transit = sum of open PO items not yet received (aggregate row only)
     avg_cost       = weighted average buy cost (updated on every STOCK_IN)
     """
@@ -1538,7 +1538,7 @@ class ProductStock(Base):
     id              = Column(String,  primary_key=True, default=new_id)
     variant_id      = Column(String,  ForeignKey("product_variants.id"), nullable=False)
     tenant_id       = Column(String,  ForeignKey("tenants.id"),  nullable=False)
-    department_id   = Column(String,  ForeignKey("departments.id"), nullable=True)
+    branch_id       = Column(String,  ForeignKey("branches.id"), nullable=True)
     qty_available   = Column(Float,   default=0.0)
     qty_reserved    = Column(Float,   default=0.0)   # managed in Brief 04
     qty_in_transit  = Column(Float,   default=0.0)
@@ -1546,12 +1546,12 @@ class ProductStock(Base):
     last_updated_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
-        UniqueConstraint("variant_id", "department_id", name="uq_product_stock_variant_department"),
+        UniqueConstraint("variant_id", "branch_id", name="uq_product_stock_variant_branch"),
     )
 
-    variant    = relationship("ProductVariant")
-    tenant     = relationship("Tenant")
-    department = relationship("Department")
+    variant = relationship("ProductVariant")
+    tenant  = relationship("Tenant")
+    branch  = relationship("Branch")
 
 
 class StockLedgerEntry(Base):
@@ -1628,6 +1628,34 @@ class InventoryPOItem(Base):
     po      = relationship("InventoryPurchaseOrder", back_populates="items")
     variant = relationship("ProductVariant")
     unit    = relationship("UnitOfMeasure", foreign_keys=[unit_id])
+
+
+class PurchaseRequest(Base):
+    """
+    Sales-agent-raised "please reorder this" request, surfaced when a
+    catalog product has zero available stock AND no open PO already covers
+    it. Shows up in Inventory's Purchase Orders page for approval; approving
+    one is the trigger to actually create a PurchaseOrder for it.
+    status lifecycle: PENDING -> APPROVED | DISMISSED
+    """
+    __tablename__ = "purchase_requests"
+    id              = Column(String,   primary_key=True, default=new_id)
+    tenant_id       = Column(String,   ForeignKey("tenants.id"), nullable=False)
+    variant_id      = Column(String,   ForeignKey("product_variants.id"), nullable=False)
+    requested_by_id = Column(String,   ForeignKey("users.id"), nullable=False)
+    qty_requested   = Column(Float,    nullable=True)
+    notes           = Column(Text,     nullable=True)
+    status          = Column(String,   default="PENDING")
+    po_id           = Column(String,   ForeignKey("inventory_purchase_orders.id"), nullable=True)
+    resolved_by_id  = Column(String,   ForeignKey("users.id"), nullable=True)
+    resolved_at     = Column(DateTime, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    tenant       = relationship("Tenant")
+    variant      = relationship("ProductVariant")
+    requested_by = relationship("User", foreign_keys=[requested_by_id])
+    resolved_by  = relationship("User", foreign_keys=[resolved_by_id])
+    po           = relationship("InventoryPurchaseOrder", foreign_keys=[po_id])
 
 
 class PriceList(Base):

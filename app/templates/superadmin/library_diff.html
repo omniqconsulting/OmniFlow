@@ -15,7 +15,7 @@
     <h2 style="color:#fcd34d">Deployed to Tenant</h2>
     <div style="font-size:13px;color:#94a3b8">Version: <strong style="color:#f1f5f9">v{{ deployed_version or '—' }}</strong></div>
     {% if deployed %}
-    <div style="font-size:12px;color:#64748b;margin-top:4px">Deployed {{ deployed.deployed_at.strftime('%d %b %Y %H:%M') }}</div>
+    <div style="font-size:12px;color:#64748b;margin-top:4px">Deployed {{ deployed.deployed_at | ist('%d %b %Y %H:%M') }}</div>
     {% endif %}
   </div>
   <div class="card" style="flex:1;margin:0">

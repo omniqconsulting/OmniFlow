@@ -43,6 +43,9 @@
 
     <div id="vendor-bulk-bar" style="display:none;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:12px;flex-wrap:wrap">
       <span id="vendor-bulk-count" style="font-size:13px;font-weight:600;color:#a5b4fc">0 selected</span>
+      {% if total > page_size %}
+      <a href="javascript:void(0)" onclick="vendorSelectAllFilteredMode()" style="font-size:12px;color:#a5b4fc;text-decoration:underline">Select all {{ total }} matching (not just this page)</a>
+      {% endif %}
       <button type="button" onclick="vendorBulkDelete()" class="btn btn-sm" style="font-size:11px;background:#dc2626;color:#fff;border-color:#dc2626">🗑 Delete</button>
       <button type="button" onclick="vendorClearBulkSelection()" class="btn btn-sm btn-gray" style="font-size:11px;margin-left:auto">✕ Clear</button>
     </div>
@@ -243,9 +246,12 @@ function validatePhone(input) {
   input.style.borderColor = ok ? '' : '#f87171';
 }
 
+var vendorSelectAllFiltered = false;
+
 function vendorUpdateBulkBar() {
   var table = document.getElementById('vendorTable');
   if (!table) return;
+  vendorSelectAllFiltered = false;
   var checked = table.querySelectorAll('.vendor-chk:checked');
   var all    = table.querySelectorAll('.vendor-chk');
   var bar    = document.getElementById('vendor-bulk-bar');
@@ -263,6 +269,19 @@ function vendorUpdateBulkBar() {
   }
 }
 
+function vendorSelectAllFilteredMode() {
+  var table = document.getElementById('vendorTable');
+  if (!table) return;
+  table.querySelectorAll('.vendor-chk').forEach(function(cb) { cb.checked = true; });
+  var selAll = document.getElementById('vendor-select-all');
+  if (selAll) { selAll.checked = true; selAll.indeterminate = false; }
+  vendorSelectAllFiltered = true;
+  var bar = document.getElementById('vendor-bulk-bar');
+  var count = document.getElementById('vendor-bulk-count');
+  bar.style.display = 'flex';
+  count.textContent = '{{ total }} selected (all pages)';
+}
+
 function vendorToggleAll(masterCb) {
   var table = document.getElementById('vendorTable');
   if (!table) return;
@@ -275,6 +294,7 @@ function vendorClearBulkSelection() {
   if (table) table.querySelectorAll('.vendor-chk').forEach(function(cb){ cb.checked = false; });
   var selAll = document.getElementById('vendor-select-all');
   if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+  vendorSelectAllFiltered = false;
   vendorUpdateBulkBar();
 }
 
@@ -282,15 +302,23 @@ function vendorBulkDelete() {
   var table = document.getElementById('vendorTable');
   var checked = table ? Array.from(table.querySelectorAll('.vendor-chk:checked')) : [];
   if (!checked.length) return;
-  if (!confirm('Permanently delete ' + checked.length + ' vendor(s)? This cannot be undone. Vendors with existing purchase orders will be skipped.')) return;
+  var countLabel = vendorSelectAllFiltered ? '{{ total }}' : checked.length;
+  if (!confirm('Permanently delete ' + countLabel + ' vendor(s)? This cannot be undone. Vendors with existing purchase orders will be skipped.')) return;
   var form = document.createElement('form');
   form.method = 'post';
   form.action = '/setup/vendors/bulk-delete';
-  checked.forEach(function(cb) {
+  function addField(name, value) {
     var inp = document.createElement('input');
-    inp.type = 'hidden'; inp.name = 'vendor_ids'; inp.value = cb.value;
+    inp.type = 'hidden'; inp.name = name; inp.value = value;
     form.appendChild(inp);
-  });
+  }
+  if (vendorSelectAllFiltered) {
+    addField('select_all_filtered', '1');
+    addField('status', {{ status_filter|tojson }});
+    addField('pending', {{ pending_filter|tojson }});
+  } else {
+    checked.forEach(function(cb) { addField('vendor_ids', cb.value); });
+  }
   document.body.appendChild(form);
   form.submit();
 }
