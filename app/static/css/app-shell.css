@@ -297,6 +297,12 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
 .help-fab{position:fixed;bottom:28px;right:28px;z-index:900;background:#ef4444;color:#fff;border:none;border-radius:99px;padding:12px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(239,68,68,0.45);display:flex;align-items:center;gap:7px;transition:background .15s,transform .15s;animation:help-pulse 2.4s infinite}
 .help-fab:hover{background:#dc2626;transform:scale(1.05);animation:none}
 @keyframes help-pulse{0%,100%{box-shadow:0 4px 16px rgba(239,68,68,0.45)}50%{box-shadow:0 4px 28px rgba(239,68,68,0.75)}}
+/* Draggable on mobile/PWA layouts only (app-shell.js adds this class there) —
+   so the user can park the SOS button wherever it doesn't collide with a
+   module's own floating "+" button instead of every module routing around
+   a fixed SOS position. */
+.help-fab-draggable{touch-action:none;user-select:none}
+.help-fab-dragging{transition:none;animation:none;box-shadow:0 8px 28px rgba(239,68,68,0.6);z-index:950;will-change:transform}
 /* P6-04: mobile-only — shrink to an icon-only FAB and give scrollable content
    clearance at the bottom so the last card/row is never hidden underneath it. */
 @media (max-width: 700px) {

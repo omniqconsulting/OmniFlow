@@ -83,7 +83,10 @@ html.light .tm-theme-light{display:inline}
 .tm-due{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--text-faint)}
 .tm-due-late{color:#f87171}
 
-.tm-fab{position:fixed;right:18px;bottom:calc(90px + env(safe-area-inset-bottom));width:52px;height:52px;border-radius:26px;background:var(--accent);border:none;display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;box-shadow:0 10px 24px rgba(59,130,246,0.45);cursor:pointer;z-index:120}
+/* Left-positioned (not right) so it never stacks directly above the global
+   "Need Help" SOS button, which is fixed bottom-right (see .help-fab in
+   app-shell.css) — mirrors the fix used for the Checklists FAB (.cl-fab). */
+.tm-fab{position:fixed;left:18px;bottom:calc(90px + env(safe-area-inset-bottom));width:52px;height:52px;border-radius:26px;background:var(--accent);border:none;display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;box-shadow:0 10px 24px rgba(59,130,246,0.45);cursor:pointer;z-index:120}
 
 /* ══════════════════════════════════════════════════════════════════════
    Ticket detail (section 2 — stepper + sticky action bar)

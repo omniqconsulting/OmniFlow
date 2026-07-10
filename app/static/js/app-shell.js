@@ -483,6 +483,120 @@ document.addEventListener('DOMContentLoaded', function(){
   if(document.querySelector('.bottom-nav')) document.body.classList.add('has-bottom-nav');
 });
 
+// Checklists Redesign (2026-07): make the "Need Help" SOS button a draggable
+// floating button on mobile/PWA layouts only (desktop keeps the static
+// bottom-right pill — see .help-fab in app-shell.css, unaffected here). This
+// lets the user park it wherever it doesn't collide with a module's own FAB
+// (Tickets/Delegation "+", Checklists "+", etc.) instead of every module
+// having to route around a fixed SOS position. Position persists across
+// visits via localStorage; a tap still opens the help modal — only a real
+// drag (past a small movement threshold) suppresses the click.
+(function(){
+  const DRAG_THRESHOLD = 6; // px — anything less is treated as a tap
+  const POS_KEY = 'help_fab_pos';
+
+  function isMobileLayout(){
+    return document.body.classList.contains('has-bottom-nav');
+  }
+
+  function clamp(val, min, max){ return Math.min(Math.max(val, min), max); }
+
+  function applyStoredPosition(fab){
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem(POS_KEY)); } catch(e) { saved = null; }
+    if(!saved) return;
+    const w = fab.offsetWidth || 46, h = fab.offsetHeight || 46;
+    const left = clamp(saved.left, 4, window.innerWidth - w - 4);
+    const top = clamp(saved.top, 4, window.innerHeight - h - 4);
+    fab.style.left = left + 'px';
+    fab.style.top = top + 'px';
+    fab.style.right = 'auto';
+    fab.style.bottom = 'auto';
+  }
+
+  function initDraggableFab(){
+    const fab = document.querySelector('.help-fab');
+    if(!fab || !isMobileLayout()) return;
+    fab.classList.add('help-fab-draggable');
+    applyStoredPosition(fab);
+
+    // Perf note: the previous version read fab.offsetWidth/offsetHeight (a
+    // layout read) on every single pointermove, right after a style write —
+    // that forces a synchronous reflow per event and is what made the drag
+    // feel janky. Fix: cache the fab's size once per drag (it can't change
+    // mid-drag), and move it via `transform` (compositor-only, no layout/
+    // paint) instead of writing left/top on every event; left/top are only
+    // committed once, on pointerup. Frames are also coalesced through rAF so
+    // a burst of touch events collapses into at most one paint per frame.
+    let dragging = false, moved = false;
+    let startX = 0, startY = 0, startLeft = 0, startTop = 0, fabW = 0, fabH = 0;
+    let pendingDx = 0, pendingDy = 0, rafId = null;
+
+    function applyFrame(){
+      rafId = null;
+      if(!dragging) return;
+      const left = clamp(startLeft + pendingDx, 4, window.innerWidth - fabW - 4);
+      const top = clamp(startTop + pendingDy, 4, window.innerHeight - fabH - 4);
+      fab.style.transform = 'translate3d(' + (left - startLeft) + 'px,' + (top - startTop) + 'px,0)';
+    }
+
+    function pointerDown(e){
+      const rect = fab.getBoundingClientRect();
+      dragging = true; moved = false;
+      startX = e.clientX; startY = e.clientY;
+      startLeft = rect.left; startTop = rect.top;
+      fabW = fab.offsetWidth; fabH = fab.offsetHeight; // read once, before any writes
+      fab.setPointerCapture(e.pointerId);
+    }
+    function pointerMove(e){
+      if(!dragging) return;
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if(!moved && Math.hypot(dx, dy) > DRAG_THRESHOLD){
+        moved = true;
+        fab.classList.add('help-fab-dragging');
+      }
+      if(!moved) return;
+      pendingDx = dx; pendingDy = dy;
+      if(rafId === null) rafId = requestAnimationFrame(applyFrame);
+    }
+    function pointerUp(e){
+      if(!dragging) return;
+      dragging = false;
+      if(rafId !== null){ cancelAnimationFrame(rafId); rafId = null; }
+      fab.classList.remove('help-fab-dragging');
+      if(moved){
+        const left = clamp(startLeft + pendingDx, 4, window.innerWidth - fabW - 4);
+        const top = clamp(startTop + pendingDy, 4, window.innerHeight - fabH - 4);
+        // Commit the transform into a real left/top so it survives reflows
+        // (e.g. keyboard open/close, orientation change) the same way the
+        // stored position does, then drop the transform.
+        fab.style.transform = '';
+        fab.style.left = left + 'px';
+        fab.style.top = top + 'px';
+        fab.style.right = 'auto';
+        fab.style.bottom = 'auto';
+        try {
+          localStorage.setItem(POS_KEY, JSON.stringify({ left, top }));
+        } catch(err) {}
+      }
+    }
+    // Suppress the click that follows a real drag, so openHelpModal() only
+    // fires on an actual tap.
+    fab.addEventListener('click', function(e){
+      if(moved){ e.preventDefault(); e.stopImmediatePropagation(); moved = false; }
+    }, true);
+    fab.addEventListener('pointerdown', pointerDown);
+    fab.addEventListener('pointermove', pointerMove);
+    fab.addEventListener('pointerup', pointerUp);
+    fab.addEventListener('pointercancel', pointerUp);
+
+    // Keep it on-screen across viewport/orientation changes.
+    window.addEventListener('resize', function(){ applyStoredPosition(fab); });
+  }
+
+  document.addEventListener('DOMContentLoaded', initDraggableFab);
+})();
+
 // 5.4 — Install prompt capture: stash the deferred prompt so a future
 // "Install OmniFlow" button (not part of this brief) can trigger it on
 // demand instead of relying on the browser's own mini-infobar timing.
