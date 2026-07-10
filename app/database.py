@@ -1976,7 +1976,7 @@ def create_tables():
         command.upgrade(alembic_cfg, "head")
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning("Alembic upgrade skipped: %s", e)
+        logging.getLogger(__name__).error("Alembic upgrade FAILED — DB schema may be behind models: %s", e)
     # PostgreSQL column additions — must run before any seed that queries these columns
     _pg_add_columns()
     # Auto-migrate: add any columns present in models but missing from the DB (SQLite)
@@ -2074,6 +2074,17 @@ def _pg_add_columns():
             created_by_id VARCHAR REFERENCES users(id),
             created_at TIMESTAMP DEFAULT NOW()
         )""",
+        # Product catalog hierarchy — End Products / Variants / per-branch stock
+        # (alembic e1p2r3o4d5c6 / b2r4nch5t0ck stalled behind the pre-fix
+        # d1sp4tch5qu6u migration on Postgres, so these never landed — see
+        # bulk-upload "Internal Server Error" investigation)
+        "ALTER TABLE end_products ADD COLUMN IF NOT EXISTS category_id VARCHAR REFERENCES categories(id)",
+        "ALTER TABLE end_products ADD COLUMN IF NOT EXISTS sub_category_id VARCHAR REFERENCES sub_categories(id)",
+        "ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS end_product_id VARCHAR REFERENCES end_products(id)",
+        "ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS product_tier VARCHAR DEFAULT 'UNRANKED'",
+        "ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS low_stock_threshold FLOAT",
+        "ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS media_urls_json TEXT DEFAULT '[]'",
+        "ALTER TABLE product_stock ADD COLUMN IF NOT EXISTS branch_id VARCHAR REFERENCES branches(id)",
     ]
     try:
         with engine.begin() as conn:

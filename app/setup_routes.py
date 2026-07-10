@@ -1190,48 +1190,48 @@ async def end_products_bulk_confirm(request: Request, user: User = Depends(requi
     rows = body.get("rows", [])
     created = 0
     warnings = []
-    for r in rows:
-        sku = r.get("sku_code")
-        if sku:
-            exists = db.query(EndProduct).filter(
-                EndProduct.tenant_id == user.tenant_id,
-                EndProduct.sku_code == sku, EndProduct.is_deleted == False,
-            ).first()
-            if exists:
-                warnings.append(f"SKU {sku} already exists — skipped")
-                continue
-        else:
-            sku = _generate_end_product_sku(
-                db, user.tenant_id, r["name"],
-                r.get("category") or "", r.get("sub_category") or "",
-            )
-        end_product = EndProduct(
-            tenant_id=user.tenant_id, name=r["name"], sku_code=sku,
-            unit=r.get("unit"),
-            description=r.get("description"),
-            created_by_id=user.id,
-        )
-        db.add(end_product)
-        db.flush()
-        category = r.get("category") or ""
-        sub_category = r.get("sub_category") or ""
-        if category or sub_category:
-            end_product.category_id, end_product.sub_category_id = _resolve_end_product_category(
-                db, user.tenant_id, category, sub_category,
-            )
-        low_stock_raw = r.get("low_stock_threshold")
-        variant = sync_variant_from_end_product(
-            db, end_product,
-            variant_label=r.get("variant_label"),
-            low_stock_threshold=float(low_stock_raw) if low_stock_raw else None,
-        )
-        drive_link = r.get("photo_drive_link")
-        if variant and drive_link:
-            photo_err = await attach_drive_photo(variant, drive_link)
-            if photo_err:
-                warnings.append(f"{r['name']}: photo not attached — {photo_err}")
-        created += 1
     try:
+        for r in rows:
+            sku = r.get("sku_code")
+            if sku:
+                exists = db.query(EndProduct).filter(
+                    EndProduct.tenant_id == user.tenant_id,
+                    EndProduct.sku_code == sku, EndProduct.is_deleted == False,
+                ).first()
+                if exists:
+                    warnings.append(f"SKU {sku} already exists — skipped")
+                    continue
+            else:
+                sku = _generate_end_product_sku(
+                    db, user.tenant_id, r["name"],
+                    r.get("category") or "", r.get("sub_category") or "",
+                )
+            end_product = EndProduct(
+                tenant_id=user.tenant_id, name=r["name"], sku_code=sku,
+                unit=r.get("unit"),
+                description=r.get("description"),
+                created_by_id=user.id,
+            )
+            db.add(end_product)
+            db.flush()
+            category = r.get("category") or ""
+            sub_category = r.get("sub_category") or ""
+            if category or sub_category:
+                end_product.category_id, end_product.sub_category_id = _resolve_end_product_category(
+                    db, user.tenant_id, category, sub_category,
+                )
+            low_stock_raw = r.get("low_stock_threshold")
+            variant = sync_variant_from_end_product(
+                db, end_product,
+                variant_label=r.get("variant_label"),
+                low_stock_threshold=float(low_stock_raw) if low_stock_raw else None,
+            )
+            drive_link = r.get("photo_drive_link")
+            if variant and drive_link:
+                photo_err = await attach_drive_photo(variant, drive_link)
+                if photo_err:
+                    warnings.append(f"{r['name']}: photo not attached — {photo_err}")
+            created += 1
         db.commit()
     except Exception as e:
         db.rollback()

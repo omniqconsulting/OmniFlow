@@ -927,60 +927,60 @@ async def bulk_upload_confirm(request: Request, user: User = Depends(_require_sa
     skipped = 0
     photo_warnings = []
 
-    for row in rows:
-        errors = _validate_variant_row(row, user.tenant_id, db, existing_skus)
-        if errors:
-            skipped += 1
-            continue
-
-        cat_name = (row.get("category") or "").strip() or "Uncategorized"
-        sub_name = (row.get("sub_category") or "").strip() or "General"
-        product_name = (row.get("product_name") or "").strip()
-        key = (cat_name, sub_name, product_name)
-
-        if key not in product_cache:
-            product_cache[key] = resolve_or_create_hierarchy(
-                db, user.tenant_id, cat_name, sub_name, product_name,
-                row.get("product_description"), user.id,
-            )
-        product = product_cache[key]
-
-        unit_abbr = (row.get("unit_abbreviation") or "").strip()
-        unit = None
-        if unit_abbr:
-            unit = db.query(UnitOfMeasure).filter(
-                UnitOfMeasure.tenant_id == user.tenant_id,
-                UnitOfMeasure.abbreviation == unit_abbr,
-                UnitOfMeasure.is_active == True,
-            ).first()
-
-        sku = row.get("sku_code", "").strip()
-        if not sku:
-            sku = generate_product_sku(db, user.tenant_id, cat_name, sub_name)
-        variant = ProductVariant(
-            id=new_id(), tenant_id=user.tenant_id, product_id=product.id,
-            sku_code=sku,
-            variant_label=(row.get("variant_label") or "").strip() or sku,
-            base_unit_id=unit.id if unit else None,
-            low_stock_threshold=float(row["low_stock_threshold"]) if (row.get("low_stock_threshold") or "").strip() else None,
-            created_by_id=user.id,
-        )
-        db.add(variant)
-        db.flush()
-        db.add(ProductStock(variant_id=variant.id, tenant_id=user.tenant_id))
-        sync_end_product_from_variant(db, variant)
-        db.flush()
-
-        drive_link = (row.get("photo_drive_link") or "").strip()
-        if drive_link:
-            err = await attach_drive_photo(variant, drive_link)
-            if err:
-                photo_warnings.append({"sku": sku, "error": err})
-
-        existing_skus.add(sku)
-        created += 1
-
     try:
+        for row in rows:
+            errors = _validate_variant_row(row, user.tenant_id, db, existing_skus)
+            if errors:
+                skipped += 1
+                continue
+
+            cat_name = (row.get("category") or "").strip() or "Uncategorized"
+            sub_name = (row.get("sub_category") or "").strip() or "General"
+            product_name = (row.get("product_name") or "").strip()
+            key = (cat_name, sub_name, product_name)
+
+            if key not in product_cache:
+                product_cache[key] = resolve_or_create_hierarchy(
+                    db, user.tenant_id, cat_name, sub_name, product_name,
+                    row.get("product_description"), user.id,
+                )
+            product = product_cache[key]
+
+            unit_abbr = (row.get("unit_abbreviation") or "").strip()
+            unit = None
+            if unit_abbr:
+                unit = db.query(UnitOfMeasure).filter(
+                    UnitOfMeasure.tenant_id == user.tenant_id,
+                    UnitOfMeasure.abbreviation == unit_abbr,
+                    UnitOfMeasure.is_active == True,
+                ).first()
+
+            sku = row.get("sku_code", "").strip()
+            if not sku:
+                sku = generate_product_sku(db, user.tenant_id, cat_name, sub_name)
+            variant = ProductVariant(
+                id=new_id(), tenant_id=user.tenant_id, product_id=product.id,
+                sku_code=sku,
+                variant_label=(row.get("variant_label") or "").strip() or sku,
+                base_unit_id=unit.id if unit else None,
+                low_stock_threshold=float(row["low_stock_threshold"]) if (row.get("low_stock_threshold") or "").strip() else None,
+                created_by_id=user.id,
+            )
+            db.add(variant)
+            db.flush()
+            db.add(ProductStock(variant_id=variant.id, tenant_id=user.tenant_id))
+            sync_end_product_from_variant(db, variant)
+            db.flush()
+
+            drive_link = (row.get("photo_drive_link") or "").strip()
+            if drive_link:
+                err = await attach_drive_photo(variant, drive_link)
+                if err:
+                    photo_warnings.append({"sku": sku, "error": err})
+
+            existing_skus.add(sku)
+            created += 1
+
         db.commit()
     except Exception as e:
         db.rollback()
