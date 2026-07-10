@@ -1570,7 +1570,13 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
             ).distinct().all()
         }
 
-    return templates.TemplateResponse(request, "tickets.html", {
+    # Tickets Redesign (2026-07): installed-PWA sessions get the redesigned
+    # mobile-only templates (tickets_mobile.html), detected via the `pwa_ui`
+    # cookie set by app-shell.js's standalone-mode check. Desktop/browser-tab
+    # traffic is unaffected — same context, same tickets.html as before.
+    template_name = "tickets_mobile.html" if request.cookies.get("pwa_ui") == "1" else "tickets.html"
+
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "tickets": tickets, "employees": employees,
@@ -1944,7 +1950,10 @@ def ticket_detail(ticket_id: str, request: Request,
     knowledge_items = db.query(KnowledgeItem).filter(
         KnowledgeItem.tenant_id == user.tenant_id, KnowledgeItem.is_deleted == False,
     ).order_by(KnowledgeItem.title).all()
-    return templates.TemplateResponse(request, "ticket_detail.html", {
+    # Tickets Redesign (2026-07): see tickets_list() above for the same
+    # installed-PWA branching via the `pwa_ui` cookie.
+    template_name = "ticket_detail_mobile.html" if request.cookies.get("pwa_ui") == "1" else "ticket_detail.html"
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "ticket": ticket, "employees": employees,

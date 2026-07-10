@@ -1,0 +1,260 @@
+{# ── tickets_mobile.html ──────────────────────────────────────────────────
+   PWA-only "Clean Feed" Tickets list (Design: OmniFlow Tickets Redesign,
+   option 1a — screenshots/1a-check.png). Served only when the `pwa_ui`
+   cookie is set (installed-standalone sessions), from the same route/
+   context as the desktop tickets.html — see app/main.py::tickets_list().
+   Do not port changes here back into tickets.html or vice versa; they are
+   intentionally independent templates for independent surfaces. #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/tickets-mobile.css">
+
+<div id="tm-toast" class="tm-toast"></div>
+
+<div class="tm-header">
+  <div class="tm-title">{{ L.Tickets }}</div>
+  <div class="tm-header-actions">
+    {% if user.role in ('ADMIN','MANAGER') %}
+    <button type="button" class="tm-icon-btn" onclick="tmToggleFilters()" title="Filters">
+      ⚙
+      {% if dept_id or manager_id or branch_id or priority or ticket_category or assignee_id or date_from or date_to %}
+      <span class="tm-icon-dot"></span>
+      {% endif %}
+    </button>
+    {% endif %}
+    <button type="button" class="tm-icon-btn" onclick="toggleTheme()" title="Switch theme">
+      <span class="tm-theme-dark">🌙</span><span class="tm-theme-light">☀️</span>
+    </button>
+  </div>
+</div>
+
+{% if request.query_params.get('advanced') %}
+<div class="tm-alert tm-alert-green">✓ {{ L.Ticket }} status updated.</div>
+{% endif %}
+{% if request.query_params.get('bulk_created') %}
+<div class="tm-alert tm-alert-green">✓ {{ request.query_params.get('bulk_created') }} {{ L.tickets }} created successfully.</div>
+{% endif %}
+{% if request.query_params.get('evidence_error') %}
+<div class="tm-alert tm-alert-red">Evidence file is required before marking as Done.</div>
+{% endif %}
+
+<div class="tm-tabs" data-tabsscroll>
+  {% for s in tab_statuses %}
+  {% set url = "/tickets?status=" + s %}
+  {% for d in dept_id %}{% set url = url + "&dept_id=" + d %}{% endfor %}
+  {% for m in manager_id %}{% set url = url + "&manager_id=" + m %}{% endfor %}
+  {% for b in branch_id %}{% set url = url + "&branch_id=" + b %}{% endfor %}
+  {% for p in priority %}{% set url = url + "&priority=" + p %}{% endfor %}
+  {% for c in ticket_category %}{% set url = url + "&ticket_category=" + c %}{% endfor %}
+  {% for a in assignee_id %}{% set url = url + "&assignee_id=" + a %}{% endfor %}
+  {% if date_from %}{% set url = url + "&date_from=" + date_from %}{% endif %}
+  {% if date_to %}{% set url = url + "&date_to=" + date_to %}{% endif %}
+  <a href="{{ url }}" class="tm-tab {% if status_filter == s %}tm-tab-active{% endif %}">
+    {{ 'Ack' if s == 'ACKNOWLEDGED' else s.replace('_',' ')|title }}
+    <span class="tm-tab-count">{{ status_counts[s] }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="tm-list">
+  {% if not tickets %}
+  <div class="tm-empty">No {{ L.tickets }} in this view.</div>
+  {% endif %}
+  {% for t in tickets %}
+  {% set prColor = {'CRITICAL':'#ef4444','HIGH':'#f59e0b','MEDIUM':'#3b82f6','LOW':'#64748b'}.get(t.priority, '#64748b') %}
+  {% set status_styles = {'OPEN':('tm-badge-gray','Open'),'DONE':('tm-badge-green','Done'),'CLOSED':('tm-badge-gray','Closed')} %}
+  {% set sty = status_styles.get(t.status, ('tm-badge-gray', t.status)) %}
+  {% set cat = t.ticket_category if t.ticket_category is defined else 'NORMAL' %}
+  {% set overdue = t.due_at and t.due_at < now and t.status not in ('CLOSED','DONE') %}
+  <a class="tm-card" href="/tickets/{{ t.id }}">
+    <div class="tm-card-top">
+      <div class="tm-card-lead">
+        <span class="tm-dot" style="background:{{ prColor }}"></span>
+        <div>
+          <div class="tm-card-title">{{ t.title }}</div>
+          <div class="tm-card-sub">{{ t.display_id or '—' }} · {{ t.current_assignee.name if t.current_assignee else 'Unassigned' }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="tm-card-meta">
+      <span class="tm-badge {{ sty[0] }}">{{ sty[1] }}</span>
+      {% if cat == 'HELP' %}<span class="tm-badge tm-badge-amber">HELP</span>{% endif %}
+      {% if t.acknowledged_at %}<span class="tm-badge tm-badge-green">✓ Acked</span>{% endif %}
+      {% if t.is_flagged %}<span class="tm-flag">🚩</span>{% endif %}
+      {% if t.id in ticket_has_comments %}<span class="tm-comment-dot" title="Has comments">💬</span>{% endif %}
+      <span class="tm-due {% if overdue %}tm-due-late{% endif %}">
+        {{ t.due_at | ist('%d %b, %I:%M %p') if t.due_at else '—' }}{% if overdue %} · Overdue{% endif %}
+      </span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+{% if user.role in ('ADMIN','MANAGER','EMPLOYEE') %}
+<button type="button" class="tm-fab" onclick="tmToggleCreate()" title="New {{ L.Ticket }}">+</button>
+{% endif %}
+
+<!-- ── Filter bottom sheet ──────────────────────────────────────────────── -->
+{% if user.role in ('ADMIN','MANAGER') %}
+<div class="tm-sheet-backdrop" id="tm-filters-backdrop" onclick="if(event.target===this)tmToggleFilters(false)">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr">
+      <div class="tm-sheet-title">Filters</div>
+      <button type="button" class="tm-sheet-done" onclick="tmToggleFilters(false)">Done</button>
+    </div>
+    <form method="get" action="/tickets" id="tm-filter-form">
+      <input type="hidden" name="status" value="{{ status_filter }}">
+
+      <div class="tm-sheet-label">Priority</div>
+      <div class="tm-chip-row">
+        {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+        <label class="tm-chip {% if p in priority %}tm-chip-active{% endif %}">
+          <input type="checkbox" name="priority" value="{{ p }}" {% if p in priority %}checked{% endif %} onchange="tmChipToggle(this)" hidden>
+          {{ p | priority_label }}
+        </label>
+        {% endfor %}
+      </div>
+
+      <div class="tm-sheet-label">Category</div>
+      <div class="tm-chip-row">
+        {% for cat,lbl in [('NORMAL','Normal'),('HELP','Help')] %}
+        <label class="tm-chip {% if cat in ticket_category %}tm-chip-active{% endif %}">
+          <input type="checkbox" name="ticket_category" value="{{ cat }}" {% if cat in ticket_category %}checked{% endif %} onchange="tmChipToggle(this)" hidden>
+          {{ lbl }}
+        </label>
+        {% endfor %}
+      </div>
+
+      <div class="tm-sheet-grid">
+        {% if branches %}
+        <div>
+          <div class="tm-sheet-label">{{ L.Branch }}</div>
+          <select name="branch_id" class="tm-select" multiple size="1" onmousedown="event.preventDefault();this.size=this.size==1?6:1">
+            {% for b in branches %}
+            <option value="{{ b.id }}" {% if b.id in branch_id %}selected{% endif %}>{{ b.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        {% if employees %}
+        <div>
+          <div class="tm-sheet-label">Assignee</div>
+          <select name="assignee_id" class="tm-select" multiple size="1" onmousedown="event.preventDefault();this.size=this.size==1?6:1">
+            {% for e in employees %}
+            <option value="{{ e.id }}" {% if e.id in assignee_id %}selected{% endif %}>{{ e.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="tm-sheet-label">Due Date</div>
+      <div class="tm-sheet-grid">
+        <input type="date" name="date_from" value="{{ date_from }}" class="tm-select" placeholder="From">
+        <input type="date" name="date_to" value="{{ date_to }}" class="tm-select" placeholder="To">
+      </div>
+
+      <div class="tm-sheet-footer">
+        <a href="/tickets?status={{ status_filter }}" class="tm-btn tm-btn-outline">Clear</a>
+        <button type="submit" class="tm-btn tm-btn-primary">Apply Filters</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Create ticket sheet ──────────────────────────────────────────────── -->
+{% if user.role in ('ADMIN','MANAGER','EMPLOYEE') %}
+<div class="tm-sheet-backdrop" id="tm-create-backdrop" onclick="if(event.target===this)tmToggleCreate(false)">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr">
+      <div class="tm-sheet-title">{% if user.role == 'EMPLOYEE' %}Raise Help {{ L.Ticket }}{% else %}New {{ L.Ticket }}{% endif %}</div>
+      <button type="button" class="tm-sheet-done" onclick="tmToggleCreate(false)">Cancel</button>
+    </div>
+    <form method="post" action="/tickets/create" enctype="multipart/form-data">
+      {% if user.role in ('ADMIN','MANAGER') %}
+      <div class="tm-chip-row" style="margin-bottom:14px">
+        <label class="tm-chip tm-chip-active"><input type="radio" name="ticket_category" value="NORMAL" checked hidden onclick="tmRadioChip(this)">Normal</label>
+        <label class="tm-chip"><input type="radio" name="ticket_category" value="HELP" hidden onclick="tmRadioChip(this)">Help</label>
+      </div>
+      {% else %}
+      <input type="hidden" name="ticket_category" value="HELP">
+      {% endif %}
+
+      <div class="tm-field"><label>Title *</label>
+        <input name="title" required maxlength="200" placeholder="e.g. Fix machine #3 oil leak" class="tm-input"></div>
+      <div class="tm-field"><label>Description *</label>
+        <textarea name="description" required rows="3" placeholder="Describe the task…" class="tm-input"></textarea></div>
+
+      <div class="tm-sheet-grid">
+        <div class="tm-field">
+          <label>Priority</label>
+          <select name="priority" class="tm-input">
+            <option>LOW</option><option selected>MEDIUM</option><option>HIGH</option><option value="CRITICAL">TOP PRIORITY</option>
+          </select>
+        </div>
+        <div class="tm-field">
+          <label>Due Date *</label>
+          <input type="datetime-local" name="due_at" required class="tm-input">
+        </div>
+      </div>
+
+      {% if user.role in ('ADMIN','MANAGER') %}
+      <div class="tm-field">
+        <label>Assign To *</label>
+        <select name="assignee_id" required class="tm-input">
+          <option value="">Select employee…</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}">{{ e.name }} ({{ e.role }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% else %}
+      <input type="hidden" name="assignee_id" value="{{ user.id }}">
+      {% endif %}
+
+      <label class="tm-check">
+        <input type="checkbox" name="evidence_required" value="true"> Evidence required (photo/file upload before completion)
+      </label>
+
+      <div class="tm-field">
+        <label>Attach document (PDF/photo)</label>
+        <input type="file" name="file" accept=".pdf,image/*" class="tm-input">
+      </div>
+
+      {% set parent_type = 'TICKET' %}
+      {% set parent_id = '' %}
+      {% set readonly = false %}
+      {% include "components/linked_entities.html" %}
+
+      <div class="tm-sheet-footer">
+        <button type="button" class="tm-btn tm-btn-outline" onclick="tmToggleCreate(false)">Cancel</button>
+        <button type="submit" class="tm-btn tm-btn-primary">Create {{ L.Ticket }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function tmToggleFilters(open){
+  const el = document.getElementById('tm-filters-backdrop');
+  if(!el) return;
+  el.classList.toggle('tm-open', open === undefined ? !el.classList.contains('tm-open') : open);
+}
+function tmToggleCreate(open){
+  const el = document.getElementById('tm-create-backdrop');
+  if(!el) return;
+  el.classList.toggle('tm-open', open === undefined ? !el.classList.contains('tm-open') : open);
+}
+function tmChipToggle(input){
+  input.closest('.tm-chip').classList.toggle('tm-chip-active', input.checked);
+}
+function tmRadioChip(input){
+  input.closest('.tm-chip-row').querySelectorAll('.tm-chip').forEach(c => c.classList.remove('tm-chip-active'));
+  input.closest('.tm-chip').classList.add('tm-chip-active');
+}
+</script>
+{% endblock %}

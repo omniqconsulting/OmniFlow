@@ -460,6 +460,19 @@ if (document.body.classList.contains('is-authed')) (function(){
     (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
     window.navigator.standalone === true; // iOS Safari
   if(isStandalone) document.documentElement.classList.add('is-standalone');
+
+  // Tickets Redesign (2026-07): mirror standalone-ness into a `pwa_ui` cookie
+  // so server routes can pick the PWA-only templates without any UA sniffing.
+  // Only flips (and reloads) when the signal actually changes, so this never
+  // loops and never affects a normal browser tab (isStandalone stays false there).
+  const hasPwaCookie = document.cookie.split('; ').some(c => c === 'pwa_ui=1');
+  if(isStandalone && !hasPwaCookie){
+    document.cookie = 'pwa_ui=1;path=/;max-age=31536000';
+    window.location.reload();
+  } else if(!isStandalone && hasPwaCookie){
+    document.cookie = 'pwa_ui=;path=/;max-age=0';
+    window.location.reload();
+  }
 })();
 
 // 5.1 — Bottom-nav active state: the partial already renders `.active` from

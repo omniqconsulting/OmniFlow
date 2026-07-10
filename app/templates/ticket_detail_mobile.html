@@ -1,0 +1,460 @@
+{# ── ticket_detail_mobile.html ────────────────────────────────────────────
+   PWA-only Ticket Detail (Design: OmniFlow Tickets Redesign, section 2 —
+   "carrying forward 1a's Clean Feed language"). Served only when the
+   `pwa_ui` cookie is set — see app/main.py::ticket_detail(). Replaces the
+   desktop's always-visible 7-button action row with one primary action
+   (sized to the ticket's stage) + Remind + a "⋯" overflow sheet holding the
+   rest, filtered by the same role/status rules as ticket_detail.html.
+   Attachments/Helpers/Knowledge/Journey become tap-to-expand cards. #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/tickets-mobile.css">
+
+<div class="tmd-header">
+  <a href="/tickets?status={{ ticket.status }}" class="tmd-back">←</a>
+  <span class="tmd-id">{{ ticket.display_id or '—' }}</span>
+  <button type="button" class="tmd-more" onclick="tmdToggleOverflow()">⋯</button>
+</div>
+
+{% if request.query_params.get('reminded') %}
+<div class="tm-alert tm-alert-green">✓ Reminder sent to {{ ticket.current_assignee.name if ticket.current_assignee else 'assignee' }}.</div>
+{% endif %}
+{% if request.query_params.get('delay_logged') %}
+<div class="tm-alert tm-alert-green">✓ Delay logged. Manager and Admin have been notified.</div>
+{% endif %}
+{% if request.query_params.get('evidence_error') %}
+<div class="tm-alert tm-alert-red">Evidence file is required before marking this {{ L.ticket }} as Done.</div>
+{% endif %}
+{% if request.query_params.get('delete_error') == 'activity' %}
+<div class="tm-alert tm-alert-red">This {{ L.ticket }} has activity and cannot be deleted. Use Close instead.</div>
+{% elif request.query_params.get('delete_error') == 'status' %}
+<div class="tm-alert tm-alert-red">Only OPEN {{ L.tickets }} can be deleted.</div>
+{% endif %}
+
+<div class="tmd-body">
+
+  <div class="tmd-title-block">
+    <div class="tmd-title">{% if ticket.is_flagged %}🚩 {% endif %}{{ ticket.title }}</div>
+    <div class="tm-chip-row">
+      {% set cat = ticket.ticket_category if ticket.ticket_category is defined else 'NORMAL' %}
+      {% if cat == 'HELP' %}<span class="tm-badge tm-badge-amber">HELP</span>{% endif %}
+      <span class="tm-badge {% if ticket.priority=='CRITICAL' %}tm-badge-red{% elif ticket.priority=='HIGH' %}tm-badge-amber{% else %}tm-badge-gray{% endif %}">{{ ticket.priority | priority_label }}</span>
+      <span class="tm-badge tm-badge-gray">{{ ticket.status.replace('_',' ')|title }}</span>
+      {% if ticket.evidence_required is defined and ticket.evidence_required %}<span class="tm-badge tm-badge-amber">Evidence Required</span>{% endif %}
+    </div>
+  </div>
+
+  {# Stepper — same derivation as ticket_detail.html's tk-stepper #}
+  {% set _ack_state = 'done' if ticket.acknowledged_at else ('skipped' if ticket.status in ('DONE','CLOSED') else 'pending') %}
+  {% set _done_state = 'done' if ticket.status in ('DONE','CLOSED') else ('current' if _ack_state != 'pending' else 'pending') %}
+  {% set _closed_state = 'done' if ticket.status == 'CLOSED' else ('current' if ticket.status == 'DONE' else 'pending') %}
+  <div class="tmd-card">
+    <div class="tmd-stepper">
+      <div class="tmd-step tmd-step-done">
+        <div class="tmd-step-dot">✓</div><div class="tmd-step-label">Open</div>
+      </div>
+      <div class="tmd-step-line {{ 'tmd-line-done' if _ack_state == 'done' else '' }}"></div>
+      <div class="tmd-step tmd-step-{{ _ack_state }}">
+        <div class="tmd-step-dot">{% if _ack_state == 'done' %}✓{% elif _ack_state == 'skipped' %}–{% else %}2{% endif %}</div>
+        <div class="tmd-step-label">Ack{% if _ack_state == 'skipped' %}(skip){% endif %}</div>
+      </div>
+      <div class="tmd-step-line {{ 'tmd-line-done' if _done_state == 'done' else '' }}"></div>
+      <div class="tmd-step tmd-step-{{ _done_state }}">
+        <div class="tmd-step-dot">{% if _done_state == 'done' %}✓{% else %}3{% endif %}</div>
+        <div class="tmd-step-label">Done</div>
+      </div>
+      <div class="tmd-step-line {{ 'tmd-line-done' if _closed_state == 'done' else '' }}"></div>
+      <div class="tmd-step tmd-step-{{ _closed_state }}">
+        <div class="tmd-step-dot">{% if _closed_state == 'done' %}✓{% else %}4{% endif %}</div>
+        <div class="tmd-step-label">Closed</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tmd-meta">
+    <div><div class="tmd-meta-label">Assignee</div><div class="tmd-meta-value">{{ ticket.current_assignee.name if ticket.current_assignee else '—' }}</div></div>
+    <div><div class="tmd-meta-label">Due</div>
+      <div class="tmd-meta-value" {% if ticket.due_at and ticket.due_at < now and ticket.status not in ('CLOSED','DONE') %}style="color:#f87171"{% endif %}>
+        {{ ticket.due_at | ist('%d %b %Y, %I:%M %p') if ticket.due_at else '—' }}
+        {% if ticket.due_at and ticket.due_at < now and ticket.status not in ('CLOSED','DONE') %}· Overdue{% endif %}
+      </div>
+    </div>
+    <div><div class="tmd-meta-label">Created by</div><div class="tmd-meta-value">{{ ticket.created_by.name if ticket.created_by else '—' }}</div></div>
+    {% if ticket.acknowledged_at %}
+    <div><div class="tmd-meta-label">Acked</div><div class="tmd-meta-value">{{ ticket.acknowledged_at | ist('%d %b, %H:%M') }}</div></div>
+    {% endif %}
+    {% if ticket.is_flagged and ticket.flagged_reason %}
+    <div class="tmd-flag-reason">🚩 {{ ticket.flagged_reason }}</div>
+    {% endif %}
+  </div>
+
+  {# Acknowledge — quick action, same rule as desktop #}
+  {% if (ticket.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER')) and not ticket.acknowledged_at and ticket.status != 'CLOSED' %}
+  <form method="post" action="/tickets/{{ ticket.id }}/acknowledge">
+    <button type="submit" class="tm-btn tm-btn-outline" style="width:100%;margin-bottom:14px">✓ Acknowledge</button>
+  </form>
+  {% endif %}
+
+  <!-- Description -->
+  <div class="tmd-card">
+    <div class="tmd-card-title">Description</div>
+    <div class="tmd-desc">{{ ticket.description }}</div>
+  </div>
+
+  {% set readonly = true %}
+  {% include "components/linked_entities.html" %}
+
+  <!-- Attachments -->
+  <div class="tmd-card">
+    <div class="tmd-card-hdr">
+      <div class="tmd-card-title">Evidence / Attachments</div>
+      {% if ticket.current_assignee_id == user.id or user.id in helper_ids or user.role in ('ADMIN','MANAGER') %}
+      <button type="button" class="tmd-link-btn" onclick="tmdShow('tmd-upload-form')">+ Upload</button>
+      {% endif %}
+    </div>
+    {% if media %}
+    <div class="tmd-attach-row">
+      {% for m in media %}
+      {% if m.file_type and 'image' in m.file_type %}
+      <div class="tmd-attach-thumb" onclick="openPhotoLightbox('{{ m.file_path }}', '{{ m.file_name or '' }}')">
+        <img src="{{ m.file_path }}" alt="{{ m.file_name or '' }}">
+      </div>
+      {% else %}
+      <a class="tmd-attach-thumb tmd-attach-file" href="{{ m.file_path }}" target="_blank">📎</a>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="tmd-empty-hint">No attachments yet.</p>
+    {% endif %}
+    <div id="tmd-upload-form" class="tmd-inline-form">
+      <form method="post" action="/tickets/{{ ticket.id }}/upload" enctype="multipart/form-data">
+        <input type="file" name="file" accept="image/*,.pdf,.doc,.docx" required class="tm-input">
+        <div class="tmd-inline-actions">
+          <button type="submit" class="tm-btn tm-btn-primary">Upload</button>
+          <button type="button" class="tm-btn tm-btn-outline" onclick="tmdHide('tmd-upload-form')">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Helpers -->
+  <div class="tmd-card">
+    <div class="tmd-card-hdr">
+      <div class="tmd-card-title">Helpers</div>
+      {% if user.role in ('ADMIN','MANAGER') %}
+      <button type="button" class="tmd-link-btn" onclick="tmdShow('tmd-helper-form')">+ Add</button>
+      {% endif %}
+    </div>
+    {% if ticket.helpers %}
+    {% for h in ticket.helpers %}
+    <div class="tmd-row">
+      <div>{{ h.user.name if h.user else '—' }}{% if h.note %} <span class="tmd-row-note">· {{ h.note }}</span>{% endif %}</div>
+      {% if user.role in ('ADMIN','MANAGER') %}
+      <form method="post" action="/tickets/{{ ticket.id }}/remove-helper">
+        <input type="hidden" name="helper_id" value="{{ h.user_id }}">
+        <button type="submit" class="tmd-row-x">×</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="tmd-empty-hint">No helpers assigned yet.</p>
+    {% endif %}
+    {% if user.role in ('ADMIN','MANAGER') %}
+    <div id="tmd-helper-form" class="tmd-inline-form">
+      <form method="post" action="/tickets/{{ ticket.id }}/add-helper">
+        <select name="helper_id" required class="tm-input" style="margin-bottom:8px">
+          <option value="">Select employee…</option>
+          {% for e in employees %}
+          {% if e.id not in helper_ids and e.id != ticket.current_assignee_id %}
+          <option value="{{ e.id }}">{{ e.name }} ({{ e.role }})</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+        <input name="note" placeholder="Note (optional)" class="tm-input">
+        <div class="tmd-inline-actions">
+          <button type="submit" class="tm-btn tm-btn-primary">Add Helper</button>
+          <button type="button" class="tm-btn tm-btn-outline" onclick="tmdHide('tmd-helper-form')">Cancel</button>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Knowledge links -->
+  <div class="tmd-card">
+    <div class="tmd-card-title">Linked Knowledge / Training</div>
+    {% if ticket.knowledge_links %}
+    {% for kl in ticket.knowledge_links %}
+    <div class="tmd-row">
+      <a href="/knowledge?id={{ kl.knowledge_item.id }}" class="tmd-know-link">📚 {{ kl.knowledge_item.title if kl.knowledge_item else '—' }}</a>
+      {% if user.role in ('ADMIN','MANAGER') %}
+      <form method="post" action="/tickets/{{ ticket.id }}/unlink-knowledge">
+        <input type="hidden" name="link_id" value="{{ kl.id }}">
+        <button type="submit" class="tmd-row-x">×</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="tmd-empty-hint">No knowledge content linked yet.</p>
+    {% endif %}
+    {% if user.role in ('ADMIN','MANAGER') and knowledge_items %}
+    <form method="post" action="/tickets/{{ ticket.id }}/link-knowledge" class="tmd-inline-actions" style="margin-top:8px">
+      <select name="knowledge_item_id" required class="tm-input">
+        <option value="">Select knowledge item…</option>
+        {% for k in knowledge_items %}
+        <option value="{{ k.id }}">{{ k.title }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="tm-btn tm-btn-outline">Link</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <!-- Journey -->
+  <div class="tmd-card">
+    <div class="tmd-card-title">{{ L.Ticket }} Journey</div>
+    {% set journey_events = ticket.events | selectattr('event_type', 'ne', 'COMMENT') | list %}
+    {% set all_items = (journey_events | list) + (ticket.comments | list) + (ticket.whatsapp_logs | list) %}
+    {% set all_sorted = all_items | sort(attribute='created_at') %}
+    {% if all_sorted %}
+    {% for item in all_sorted %}
+    <div class="tmd-journey-item">
+      <div class="tmd-journey-dot"></div>
+      <div class="tmd-journey-body">
+        {% if item.__tablename__ == 'whatsapp_message_log' %}
+        <div class="tmd-journey-meta">{{ item.created_at | ist }} · WhatsApp</div>
+        <div class="tmd-journey-text">
+          {% if item.status == 'SENT' %}WhatsApp sent to {{ item.recipient.name if item.recipient else item.recipient_phone }}
+          {% elif item.status == 'SKIPPED_UNVERIFIED' %}WhatsApp skipped — number not validated
+          {% else %}WhatsApp not sent — {{ item.error_message or 'unknown error' }}{% endif %}
+        </div>
+        {% else %}
+        <div class="tmd-journey-meta">
+          {% if item.__tablename__ == 'ticket_events' %}<strong>{{ item.actor.name if item.actor else '—' }}</strong> · {{ item.event_type.replace('_',' ')|lower }}
+          {% else %}<strong>{{ item.user.name if item.user else '—' }}</strong> · comment{% endif %}
+          · {{ item.created_at | ist }}
+        </div>
+        {% if item.__tablename__ == 'ticket_comments' %}
+        <div class="tmd-journey-text">{{ item.body }}</div>
+        {% elif item.detail %}
+        <div class="tmd-journey-detail">{{ item.detail }}</div>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="tmd-empty-hint">No activity yet.</p>
+    {% endif %}
+  </div>
+
+  <!-- Comment -->
+  <div class="tmd-card">
+    <div class="tmd-card-title">Add Comment</div>
+    <form method="post" action="/tickets/{{ ticket.id }}/action">
+      <input type="hidden" name="action" value="comment">
+      <textarea name="comment" required placeholder="Write a comment…" rows="3" class="tm-input" style="margin-bottom:8px"></textarea>
+      <button type="submit" class="tm-btn tm-btn-primary" style="width:100%">Post →</button>
+    </form>
+  </div>
+
+</div>
+
+<!-- ── Sticky action bar ────────────────────────────────────────────────── -->
+<div class="tmd-actionbar">
+  {% if user.role in ('ADMIN','MANAGER') and ticket.status not in ('DONE','CLOSED') %}
+  <form method="post" action="/tickets/{{ ticket.id }}/remind">
+    <button type="submit" class="tmd-icon-action" title="Send reminder">🔔</button>
+  </form>
+  {% endif %}
+  <button type="button" class="tmd-icon-action" onclick="tmdToggleOverflow()" title="More actions">⋯</button>
+
+  {% if ticket.status == 'OPEN' and (ticket.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER')) %}
+    {% if ticket.evidence_required is defined and ticket.evidence_required %}
+    <button type="button" class="tmd-primary-cta" style="background:#10b981" onclick="tmdShow('tmd-evidence-form')">📎 Submit with Evidence</button>
+    {% else %}
+    <form method="post" action="/tickets/{{ ticket.id }}/action" style="flex:1">
+      <input type="hidden" name="action" value="done">
+      <button type="submit" class="tmd-primary-cta" style="background:#10b981;width:100%">✓ Mark as Done</button>
+    </form>
+    {% endif %}
+  {% elif ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
+  <button type="button" class="tmd-primary-cta" style="background:#334155" onclick="tmdShow('tmd-close-form')">Close {{ L.Ticket }}</button>
+  {% elif ticket.status == 'CLOSED' and user.role == 'ADMIN' %}
+  <form method="post" action="/tickets/{{ ticket.id }}/action" style="flex:1">
+    <input type="hidden" name="action" value="reopen">
+    <button type="submit" class="tmd-primary-cta" style="background:var(--bg-elevated);color:var(--text-primary)">Reopen</button>
+  </form>
+  {% endif %}
+</div>
+
+<!-- ── Overflow sheet ───────────────────────────────────────────────────── -->
+<div class="tm-sheet-backdrop" id="tmd-overflow-backdrop" onclick="if(event.target===this)tmdToggleOverflow(false)">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr"><div class="tm-sheet-title">More Actions</div><button type="button" class="tm-sheet-done" onclick="tmdToggleOverflow(false)">Close</button></div>
+
+    {% if ticket.status == 'OPEN' and ticket.current_assignee_id == user.id %}
+    <button type="button" class="tmd-overflow-item" onclick="tmdToggleOverflow(false);tmdShow('tmd-delay-form')"><span>⏱</span>Log a Delay</button>
+    {% endif %}
+    {% if ticket.status == 'OPEN' and (ticket.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER')) %}
+    <button type="button" class="tmd-overflow-item" onclick="tmdToggleOverflow(false);tmdShow('tmd-reassign-form')"><span>↩</span>Reassign</button>
+    {% endif %}
+    {% if ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
+    <button type="button" class="tmd-overflow-item" onclick="tmdToggleOverflow(false);tmdShow('tmd-closedirect-form')"><span>⏭</span>Close Directly</button>
+    {% endif %}
+    {% if user.role in ('ADMIN','MANAGER') and ticket.status != 'CLOSED' %}
+    <button type="button" class="tmd-overflow-item" onclick="tmdToggleOverflow(false);tmdShow('tmd-edit-form')"><span>✏</span>Edit {{ L.Ticket }}</button>
+    {% endif %}
+    {% if user.role in ('ADMIN','MANAGER') %}
+      {% if not ticket.is_flagged %}
+      <button type="button" class="tmd-overflow-item" onclick="tmdToggleOverflow(false);tmdShow('tmd-flag-form')"><span>🚩</span>Flag {{ L.Ticket }}</button>
+      {% else %}
+      <form method="post" action="/tickets/{{ ticket.id }}/action">
+        <input type="hidden" name="action" value="unflag">
+        <button type="submit" class="tmd-overflow-item"><span>🚩</span>Remove Flag</button>
+      </form>
+      {% endif %}
+    {% endif %}
+    {% if user.role == 'ADMIN' and ticket.status == 'OPEN' %}
+    <form method="post" action="/tickets/{{ ticket.id }}/delete"
+          onsubmit="return confirm('Soft-delete this {{ L.ticket }}? It will be hidden but retained in the database.')">
+      <button type="submit" class="tmd-overflow-item tmd-overflow-danger"><span>🗑</span>Delete</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Secondary forms (opened from overflow) ───────────────────────────── -->
+<div class="tm-sheet-backdrop" id="tmd-delay-form" onclick="if(event.target===this)tmdHide('tmd-delay-form')">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr"><div class="tm-sheet-title">Log a Delay</div><button type="button" class="tm-sheet-done" onclick="tmdHide('tmd-delay-form')">Cancel</button></div>
+    <form method="post" action="/tickets/{{ ticket.id }}/log-delay">
+      <textarea name="reason" required rows="3" placeholder="Describe why this {{ L.ticket }} is delayed…" class="tm-input" style="margin-bottom:12px"></textarea>
+      <button type="submit" class="tm-btn tm-btn-primary" style="width:100%">Submit Delay Log</button>
+    </form>
+  </div>
+</div>
+
+<div class="tm-sheet-backdrop" id="tmd-reassign-form" onclick="if(event.target===this)tmdHide('tmd-reassign-form')">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr"><div class="tm-sheet-title">Reassign {{ L.Ticket }}</div><button type="button" class="tm-sheet-done" onclick="tmdHide('tmd-reassign-form')">Cancel</button></div>
+    <form method="post" action="/tickets/{{ ticket.id }}/action">
+      <input type="hidden" name="action" value="reassign">
+      <textarea name="what_completed" required placeholder="What did you complete?" class="tm-input" style="margin-bottom:8px"></textarea>
+      <textarea name="why_reassigning" required placeholder="Why are you reassigning?" class="tm-input" style="margin-bottom:8px"></textarea>
+      <select name="new_assignee_id" required class="tm-input" style="margin-bottom:12px">
+        <option value="">Select person…</option>
+        {% for e in employees %}{% if e.id != user.id %}<option value="{{ e.id }}">{{ e.name }} ({{ e.role }})</option>{% endif %}{% endfor %}
+      </select>
+      <button type="submit" class="tm-btn tm-btn-primary" style="width:100%">Confirm Reassign</button>
+    </form>
+  </div>
+</div>
+
+<div class="tm-sheet-backdrop" id="tmd-flag-form" onclick="if(event.target===this)tmdHide('tmd-flag-form')">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr"><div class="tm-sheet-title">Flag {{ L.Ticket }}</div><button type="button" class="tm-sheet-done" onclick="tmdHide('tmd-flag-form')">Cancel</button></div>
+    <form method="post" action="/tickets/{{ ticket.id }}/action">
+      <input type="hidden" name="action" value="flag">
+      <input name="flag_reason" required placeholder="e.g. Missed deadline, quality issue…" class="tm-input" style="margin-bottom:12px">
+      <button type="submit" class="tm-btn tm-btn-primary" style="width:100%;background:#ef4444">Confirm Flag</button>
+    </form>
+  </div>
+</div>
+
+{% if user.role in ('ADMIN','MANAGER') and ticket.status != 'CLOSED' %}
+<div class="tm-sheet-backdrop" id="tmd-edit-form" onclick="if(event.target===this)tmdHide('tmd-edit-form')">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr"><div class="tm-sheet-title">Edit {{ L.Ticket }}</div><button type="button" class="tm-sheet-done" onclick="tmdHide('tmd-edit-form')">Cancel</button></div>
+    <form method="post" action="/tickets/{{ ticket.id }}/edit">
+      <div class="tm-field"><label>Title</label><input name="title" required maxlength="200" value="{{ ticket.title }}" class="tm-input"></div>
+      <div class="tm-field"><label>Description</label><textarea name="description" required rows="3" class="tm-input">{{ ticket.description }}</textarea></div>
+      <div class="tm-sheet-grid">
+        <div class="tm-field"><label>Priority</label>
+          <select name="priority" class="tm-input">
+            {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}<option value="{{ p }}" {% if p == ticket.priority %}selected{% endif %}>{{ p | priority_label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="tm-field"><label>Category</label>
+          <select name="ticket_category" class="tm-input">
+            <option value="NORMAL" {% if (ticket.ticket_category if ticket.ticket_category is defined else 'NORMAL') == 'NORMAL' %}selected{% endif %}>Normal</option>
+            <option value="HELP" {% if (ticket.ticket_category if ticket.ticket_category is defined else '') == 'HELP' %}selected{% endif %}>Help</option>
+          </select>
+        </div>
+      </div>
+      <div class="tm-field"><label>Assignee</label>
+        <select name="assignee_id" required class="tm-input">
+          {% for e in employees %}<option value="{{ e.id }}" {% if e.id == ticket.current_assignee_id %}selected{% endif %}>{{ e.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="tm-field"><label>Due Date & Time</label>
+        <input type="datetime-local" name="due_at" class="tm-input" value="{{ ticket.due_at.strftime('%Y-%m-%dT%H:%M') if ticket.due_at else '' }}">
+      </div>
+      <label class="tm-check"><input type="checkbox" name="evidence_required" value="true" {% if ticket.evidence_required is defined and ticket.evidence_required %}checked{% endif %}> Evidence Required</label>
+      <button type="submit" class="tm-btn tm-btn-primary" style="width:100%">Save Changes</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="tm-sheet-backdrop" id="tmd-close-form" onclick="if(event.target===this)tmdHide('tmd-close-form')">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr"><div class="tm-sheet-title">Close {{ L.Ticket }}</div><button type="button" class="tm-sheet-done" onclick="tmdHide('tmd-close-form')">Cancel</button></div>
+    <form method="post" action="/tickets/{{ ticket.id }}/action" enctype="multipart/form-data">
+      <input type="hidden" name="action" value="close">
+      <div class="tm-field"><label>Attach supporting document (optional)</label><input type="file" name="closing_file" class="tm-input"></div>
+      <button type="submit" class="tm-btn tm-btn-primary" style="width:100%">Confirm Close</button>
+    </form>
+  </div>
+</div>
+
+{% if ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
+<div class="tm-sheet-backdrop" id="tmd-closedirect-form" onclick="if(event.target===this)tmdHide('tmd-closedirect-form')">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr"><div class="tm-sheet-title">Close {{ L.Ticket }} Directly</div><button type="button" class="tm-sheet-done" onclick="tmdHide('tmd-closedirect-form')">Cancel</button></div>
+    <form method="post" action="/tickets/{{ ticket.id }}/close-direct" enctype="multipart/form-data"
+          onsubmit="return confirm('Close this {{ L.ticket }} directly, skipping the Done stage?')">
+      <div class="tm-field"><label>Attach supporting document (optional)</label><input type="file" name="closing_file" class="tm-input"></div>
+      <button type="submit" class="tm-btn tm-btn-primary" style="width:100%;background:#ef4444">Confirm Close Directly</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if ticket.evidence_required is defined and ticket.evidence_required %}
+<div class="tm-sheet-backdrop" id="tmd-evidence-form" onclick="if(event.target===this)tmdHide('tmd-evidence-form')">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr"><div class="tm-sheet-title">Submit with Evidence</div><button type="button" class="tm-sheet-done" onclick="tmdHide('tmd-evidence-form')">Cancel</button></div>
+    <form method="post" action="/tickets/{{ ticket.id }}/advance" enctype="multipart/form-data">
+      <p class="tmd-empty-hint" style="margin-bottom:12px">An evidence file is required before this {{ L.ticket }} can be marked Done.</p>
+      <input type="file" name="evidence_file" required accept="image/*,.pdf,.doc,.docx" class="tm-input" style="margin-bottom:12px">
+      <button type="submit" class="tm-btn tm-btn-primary" style="width:100%">Submit & Mark Done</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function tmdToggleOverflow(open){
+  const el = document.getElementById('tmd-overflow-backdrop');
+  el.classList.toggle('tm-open', open === undefined ? !el.classList.contains('tm-open') : open);
+}
+function tmdShow(id){
+  const el = document.getElementById(id);
+  el.classList.add('tm-open');
+  el.classList.contains('tmd-inline-form') && el.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+function tmdHide(id){ document.getElementById(id).classList.remove('tm-open'); }
+</script>
+{% endblock %}
