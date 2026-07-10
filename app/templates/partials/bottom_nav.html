@@ -4,19 +4,16 @@
    768px or in display-mode: standalone) — this partial always renders in
    the DOM so it degrades gracefully if that CSS feature isn't supported.
    On mobile/standalone the top .nav is hidden entirely (app-shell.css) so
-   this partial is the sole nav surface there — anything not promoted to a
-   primary tab lives in the "Others" sheet below, using the exact same
-   has_*/user.role conditionals as the desktop nav in base.html.
+   this partial is the sole nav surface there.
 
-   Note: the brief's example module list ("Delegations, Checklists, FMS,
-   Inventory") assumes a has_feature() flag and a standalone "Delegations"
-   module that don't exist in this codebase — delegation tickets are a
-   filtered view within Tickets (and "Delegations" is often just this
-   tenant's configured label for Tickets, via L.Tickets), not a separate
-   route/flag. Inventory is real but demoted to the Others sheet here to
-   keep the primary tab bar to 4 destinations + Others. #}
+   All destinations render as one horizontally-scrollable row (no "Others"
+   overflow sheet) — same has_*/user.role conditionals as the desktop nav
+   in base.html. Notifications/theme/sound/profile/logout live in the
+   mobile-topbar's account menu (base.html) instead of duplicating here. #}
 <nav class="bottom-nav">
-  <div class="bottom-nav-inner">
+  <div class="bottom-nav-fade bottom-nav-fade-l"></div>
+  <div class="bottom-nav-fade bottom-nav-fade-r"></div>
+  <div class="bottom-nav-inner" data-tabsscroll id="bottom-nav-inner">
     <a href="/dashboard" {% if request.url.path=='/dashboard' %}class="active"{% endif %}>
       <span class="bn-icon">🏠</span>Dashboard
     </a>
@@ -35,44 +32,52 @@
       <span class="bn-icon">🔀</span>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}
     </a>
     {% endif %}
-    <button type="button" class="bn-others" onclick="toggleOthersSheet()">
-      <span class="bn-icon">⋯</span>Others
-    </button>
-  </div>
-</nav>
-
-{# Overflow sheet — everything else the desktop nav shows, same conditionals #}
-<div class="others-backdrop" id="others-backdrop">
-  <div class="others-sheet">
-    <div class="others-sheet-handle"></div>
-
-    <div class="os-section-label">Modules</div>
     {% if has_knowledge_repo %}
-    <a href="/knowledge" onclick="toggleOthersSheet(false)"><span class="os-icon">🎓</span>Training</a>
+    <a href="/knowledge" {% if '/knowledge' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">🎓</span>Training
+    </a>
     {% endif %}
     {% if has_inventory_module %}
-    <a href="/inventory-v2" onclick="toggleOthersSheet(false)"><span class="os-icon">📦</span>Inventory</a>
+    <a href="/inventory-v2" {% if '/inventory-v2' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">📦</span>Inventory
+    </a>
     {% endif %}
     {% if has_sales %}
-    <a href="/sales/contacts" onclick="toggleOthersSheet(false)"><span class="os-icon">🧑‍💼</span>Customers</a>
-    <a href="/sales/orders" onclick="toggleOthersSheet(false)"><span class="os-icon">🧾</span>Sell</a>
+    <a href="/sales/contacts" {% if '/sales/contacts' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">🧑‍💼</span>Customers
+    </a>
+    <a href="/sales/orders" {% if '/sales/orders' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">🧾</span>Sell
+    </a>
     {% if user.role in ('ADMIN', 'MANAGER') %}
-    <a href="/sales/catalog" onclick="toggleOthersSheet(false)"><span class="os-icon">📚</span>Sales · Catalog</a>
-    <a href="/sales/pricing" onclick="toggleOthersSheet(false)"><span class="os-icon">💰</span>Sales · Pricing &amp; Margin</a>
+    <a href="/sales/catalog" {% if '/sales/catalog' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">📚</span>Catalog
+    </a>
+    <a href="/sales/pricing" {% if '/sales/pricing' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">💰</span>Pricing
+    </a>
     {% if has_sales_analytics %}
-    <a href="/sales/analytics" onclick="toggleOthersSheet(false)"><span class="os-icon">📈</span>Sales · Insights</a>
+    <a href="/sales/analytics" {% if '/sales/analytics' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">📈</span>Insights
+    </a>
     {% endif %}
     {% endif %}
     {% endif %}
     {% if user.role in ('ADMIN','MANAGER') %}
-    <a href="/employees" onclick="toggleOthersSheet(false)"><span class="os-icon">👥</span>{{ L.Employees if L is defined else 'Employees' }}</a>
+    <a href="/employees" {% if '/employees' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">👥</span>{{ L.Employees if L is defined else 'Employees' }}
+    </a>
     {% endif %}
     {% if user.role == 'ADMIN' %}
-    <a href="/setup" onclick="toggleOthersSheet(false)"><span class="os-icon">⚙️</span>Setup</a>
-    <a href="/plan" onclick="toggleOthersSheet(false)"><span class="os-icon">✉️</span>Contact Us</a>
-    <a href="/ai" onclick="toggleOthersSheet(false)"><span class="os-icon">✦</span>Ask AI</a>
+    <a href="/setup" {% if '/setup' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">⚙️</span>Setup
+    </a>
+    <a href="/plan" {% if '/plan' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">✉️</span>Contact Us
+    </a>
+    <a href="/ai" {% if '/ai' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">✦</span>Ask AI
+    </a>
     {% endif %}
-    {# Notifications/theme/sound/profile/logout now live in the mobile-topbar's
-       account menu (base.html) instead of duplicating them here. #}
   </div>
-</div>
+</nav>

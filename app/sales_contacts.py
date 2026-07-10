@@ -256,13 +256,19 @@ def contacts_queue(
         PriceList.is_active == True,
     ).order_by(PriceList.name).all()
 
-    return templates.TemplateResponse(request, "sales/contacts_queue.html", _ctx(
+    # PWA-installed sessions get the mobile-redesigned "Priority Feed" (design
+    # section 4a); desktop keeps contacts_queue.html — see tickets_list() /
+    # checklists_list() in app/main.py for the same pwa_ui-cookie pattern.
+    template_name = "sales/contacts_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/contacts_queue.html"
+
+    return templates.TemplateResponse(request, template_name, _ctx(
         db, user,
         queue=queue, agents=agents, selected_agent_id=target_agent_id,
         outcome_choices=OUTCOME_CHOICES, tier_choices=TIER_CHOICES,
         tier=tier, search=search, price_lists=price_lists,
         price_list_id=price_list_id, date_from=date_from, date_to=date_to,
         horizon=horizon, today_display=date.today().strftime('%A, %d %b %Y'),
+        now=datetime.utcnow(),
     ))
 
 
@@ -845,7 +851,11 @@ def contact_detail(
         PriceList.is_active == True,
     ).order_by(PriceList.name).all()
 
-    return templates.TemplateResponse(request, "sales/contact_detail.html", _ctx(
+    # PWA-installed sessions get the mobile-redesigned "record view" (design
+    # section 5a); desktop keeps contact_detail.html.
+    template_name = "sales/contact_detail_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/contact_detail.html"
+
+    return templates.TemplateResponse(request, template_name, _ctx(
         db, user,
         customer=customer, call_logs=call_logs, orders=orders,
         outcome_choices=OUTCOME_CHOICES,
@@ -856,7 +866,7 @@ def contact_detail(
         date_from=date_from, date_to=date_to, product=product,
         order_count=order_count, order_total=order_total,
         days_since_last_order=days_since_last_order, avg_cycle_days=avg_cycle_days,
-        trend=trend,
+        trend=trend, now=datetime.utcnow(),
     ))
 
 

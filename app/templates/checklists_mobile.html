@@ -1,0 +1,531 @@
+{# ── checklists_mobile.html ───────────────────────────────────────────────
+   PWA-only "Task Feed" Checklists worklist (Design: OmniFlow Tickets
+   Redesign, option 3a — segmented tabs, tap a card for full detail sheet).
+   Served only when the `pwa_ui` cookie is set, from the same route/context
+   as the desktop checklists.html — see app/main.py::checklists(). Mobile is
+   always "my tasks" (Overdue / Upcoming / History) regardless of role —
+   template creation, bulk upload and team compliance tables stay desktop-only.
+   Do not port changes here back into checklists.html or vice versa. #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/tickets-mobile.css">
+<link rel="stylesheet" href="/static/css/checklists-mobile.css">
+
+<div id="cl-toast" class="tm-toast"></div>
+
+<div class="tm-header">
+  <div class="tm-title">Checklists</div>
+  <div class="tm-header-actions">
+    <button type="button" class="tm-icon-btn" onclick="clToggleFilters()" title="Filters">
+      ⚙
+      {% if frequency %}<span class="tm-icon-dot"></span>{% endif %}
+    </button>
+  </div>
+</div>
+
+{% if request.query_params.get('err') %}
+<div class="tm-alert tm-alert-red">{{ request.query_params.get('err') }}</div>
+{% endif %}
+{% if request.query_params.get('msg') %}
+<div class="tm-alert tm-alert-green">✓ {{ request.query_params.get('msg') }}</div>
+{% endif %}
+
+<div class="tm-tabs" data-tabsscroll>
+  <div class="tm-tab cl-seg tm-tab-active" data-seg="overdue" onclick="clSwitchSeg('overdue', this)">
+    Overdue <span class="tm-tab-count">{{ my_overdue|length }}</span>
+  </div>
+  <div class="tm-tab cl-seg" data-seg="upcoming" onclick="clSwitchSeg('upcoming', this)">
+    Upcoming <span class="tm-tab-count">{{ my_upcoming|length }}</span>
+  </div>
+  <div class="tm-tab cl-seg" data-seg="history" onclick="clSwitchSeg('history', this)">
+    History
+  </div>
+</div>
+
+{# ── shared card+sheet renderer for an assignment ───────────────────────── #}
+{% macro cl_card(a, seg) %}
+{% set overdue = a.status in ('PENDING','IN_PROGRESS','OVERDUE') and a.due_at and a.due_at < today_start %}
+{% set ev_required = a.evidence_required if a.evidence_required is not none else (a.template.evidence_required if a.template else false) %}
+{% set status_styles = {'PENDING':('tm-badge-gray','Pending'),'IN_PROGRESS':('tm-badge-amber','In Progress'),'OVERDUE':('tm-badge-red','Overdue'),'DONE':('tm-badge-green','Done'),'FAILED':('tm-badge-red','Failed')} %}
+{% set sty = status_styles.get(a.status, ('tm-badge-gray', a.status)) %}
+{% set dotColor = '#ef4444' if (overdue or a.status=='FAILED') else ('#10b981' if a.status=='DONE' else ('#f59e0b' if a.status=='IN_PROGRESS' else '#3b82f6')) %}
+<div class="tm-card cl-card" data-freq="{{ a.template.frequency if a.template else '' }}" data-evidence="{{ '1' if ev_required else '0' }}" data-flagged="{{ '1' if a.is_flagged else '0' }}" onclick="clOpenDetail('{{ a.id }}')">
+  <div class="tm-card-top">
+    <div class="tm-card-lead">
+      <span class="tm-dot" style="background:{{ dotColor }}"></span>
+      <div>
+        <div class="tm-card-title">{{ a.template.title if a.template else '—' }}</div>
+        <div class="tm-card-sub">{{ (a.template.frequency|title) if a.template else '' }}{% if ev_required %} · 📎 evidence{% endif %}</div>
+      </div>
+    </div>
+  </div>
+  <div class="tm-card-meta">
+    <span class="tm-badge {{ sty[0] }}">{{ 'Overdue' if overdue and a.status != 'DONE' and a.status != 'FAILED' else sty[1] }}</span>
+    {% if a.is_flagged %}<span class="tm-flag">🚩</span>{% endif %}
+    <span class="tm-due {% if overdue %}tm-due-late{% endif %}">
+      {% if a.status == 'DONE' or a.status == 'FAILED' %}{{ a.completed_at | ist('%d %b, %I:%M %p') if a.completed_at else '—' }}
+      {% else %}{{ a.due_at | ist('%d %b, %I:%M %p') if a.due_at else '—' }}{% if overdue %} · Overdue{% endif %}{% endif %}
+    </span>
+    {% if a.status == 'PENDING' %}
+    <form method="post" action="/checklists/start/{{ a.id }}" onclick="event.stopPropagation()" class="cl-inline-form">
+      <button type="submit" class="cl-quick-action" style="background:#0891b2">▶ Start</button>
+    </form>
+    {% elif a.status == 'IN_PROGRESS' %}
+    <div onclick="event.stopPropagation();clOpenDetail('{{ a.id }}','complete')" class="cl-quick-action" style="background:#10b981">✓ Complete</div>
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+<div class="tm-list" id="cl-list-overdue">
+  {% if not my_overdue %}<div class="tm-empty">Nothing here right now.</div>{% endif %}
+  {% for a in my_overdue %}{{ cl_card(a, 'overdue') }}{% endfor %}
+</div>
+<div class="tm-list" id="cl-list-upcoming" style="display:none">
+  {% if not my_upcoming %}<div class="tm-empty">Nothing here right now.</div>{% endif %}
+  {% for a in my_upcoming %}{{ cl_card(a, 'upcoming') }}{% endfor %}
+</div>
+<div class="tm-list" id="cl-list-history" style="display:none">
+  {% if not my_history %}<div class="tm-empty">Nothing here right now.</div>{% endif %}
+  {% for a in my_history %}{{ cl_card(a, 'history') }}{% endfor %}
+</div>
+
+<!-- ── Filter bottom sheet ──────────────────────────────────────────────── -->
+<div class="tm-sheet-backdrop" id="cl-filters-backdrop" onclick="if(event.target===this)clToggleFilters(false)">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr">
+      <div class="tm-sheet-title">Filters</div>
+      <button type="button" class="tm-sheet-done" onclick="clToggleFilters(false)">Done</button>
+    </div>
+
+    <div class="tm-sheet-label">Frequency</div>
+    <div class="tm-chip-row" id="cl-freq-chips">
+      {% for f in ['DAILY','WEEKLY','MONTHLY'] %}
+      <label class="tm-chip {% if frequency == f %}tm-chip-active{% endif %}" data-freq-chip="{{ f }}">
+        <input type="checkbox" hidden onchange="clFilterChipToggle(this)"> {{ f|title }}
+      </label>
+      {% endfor %}
+    </div>
+
+    <div class="tm-sheet-label">Evidence</div>
+    <div class="tm-chip-row" id="cl-evidence-chips">
+      <label class="tm-chip" data-evidence-chip="1"><input type="checkbox" hidden onchange="clFilterChipToggle(this)"> Required</label>
+    </div>
+
+    <div class="tm-sheet-label">Flagged only</div>
+    <div class="tm-chip-row" id="cl-flagged-chips">
+      <label class="tm-chip" data-flagged-chip="1"><input type="checkbox" hidden onchange="clFilterChipToggle(this)"> Flagged</label>
+    </div>
+
+    <div class="tm-sheet-footer">
+      <button type="button" class="tm-btn tm-btn-outline" onclick="clClearFilters()">Clear</button>
+      <button type="button" class="tm-btn tm-btn-primary" onclick="clApplyFilters()">Apply Filters</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Detail bottom sheets (one per assignment) ───────────────────────── -->
+{% for a in (my_overdue + my_upcoming + my_history) %}
+{% set overdue = a.status in ('PENDING','IN_PROGRESS','OVERDUE') and a.due_at and a.due_at < today_start %}
+{% set ev_required = a.evidence_required if a.evidence_required is not none else (a.template.evidence_required if a.template else false) %}
+{% set status_styles = {'PENDING':('tm-badge-gray','Pending'),'IN_PROGRESS':('tm-badge-amber','In Progress'),'OVERDUE':('tm-badge-red','Overdue'),'DONE':('tm-badge-green','Done'),'FAILED':('tm-badge-red','Failed')} %}
+{% set sty = status_styles.get(a.status, ('tm-badge-gray', a.status)) %}
+<div class="tm-sheet-backdrop" id="cl-detail-backdrop-{{ a.id }}" onclick="if(event.target===this)clCloseDetail('{{ a.id }}')">
+  <div class="tm-sheet cl-detail-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr">
+      <div class="tm-sheet-title">{{ a.template.title if a.template else '—' }}</div>
+      <button type="button" class="tm-sheet-done" onclick="clCloseDetail('{{ a.id }}')" style="font-size:20px;line-height:1">×</button>
+    </div>
+
+    <div class="tm-chip-row" style="margin-bottom:14px">
+      <span class="tm-badge {{ sty[0] }}">{{ 'Overdue' if overdue and a.status not in ('DONE','FAILED') else sty[1] }}</span>
+      <span class="tm-badge tm-badge-gray">{{ (a.template.frequency|title) if a.template else '' }}</span>
+      {% if ev_required %}<span class="tm-badge tm-badge-amber">📎 Evidence Required</span>{% endif %}
+    </div>
+
+    {% if a.template and a.template.description %}
+    <div class="cl-desc">{{ a.template.description }}</div>
+    {% endif %}
+
+    {% if a.template and a.template.knowledge_links %}
+    <div class="cl-knowledge">📚 Reference:
+      {% for kl in a.template.knowledge_links %}<a href="/knowledge?search={{ kl.knowledge_item.title }}">{{ kl.knowledge_item.title if kl.knowledge_item else '—' }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+    </div>
+    {% endif %}
+
+    {% if a.failure_note %}
+    <div class="cl-failure-note">✗ Failed: {{ a.failure_note }}</div>
+    {% endif %}
+
+    {% if a.proof_url %}
+    <div class="tmd-attach-row" style="margin-bottom:14px">
+      <a class="tmd-attach-thumb" href="{{ a.proof_url }}" target="_blank"><img src="{{ a.proof_url }}"></a>
+    </div>
+    {% endif %}
+
+    {% if a.comments %}
+    <div class="cl-comments">
+      {% for c in a.comments %}
+      <div class="cl-comment-row"><span class="cl-comment-who">{{ c.user.name if c.user else '—' }}</span>: {{ c.body }}
+        <span class="cl-comment-time">{{ c.created_at | ist('%d %b, %I:%M %p') if c.created_at else '' }}</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/checklists/comment/{{ a.id }}" class="cl-comment-form">
+      <input type="text" name="body" placeholder="Add a comment…" class="tm-input" required>
+      <button type="submit" class="tm-btn tm-btn-outline">Post</button>
+    </form>
+
+    <!-- view mode: action row -->
+    <div class="cl-mode cl-mode-view" id="cl-mode-view-{{ a.id }}">
+      <div class="cl-action-row">
+        {% if a.status == 'PENDING' %}
+        <form method="post" action="/checklists/start/{{ a.id }}" style="flex:1;min-width:100px">
+          <button type="submit" class="tm-btn" style="width:100%;background:#0891b2;color:#fff">▶ Start</button>
+        </form>
+        {% endif %}
+        {% if a.status in ('PENDING','IN_PROGRESS') %}
+        <div onclick="clSwitchMode('{{ a.id }}','complete')" class="tm-btn" style="flex:1;min-width:100px;background:#10b981;color:#fff;cursor:pointer">{{ '✓ Confirm Done' if a.status=='IN_PROGRESS' else '✓ Mark Done' }}</div>
+        <div onclick="clSwitchMode('{{ a.id }}','fail')" class="tm-btn" style="flex:1;min-width:100px;background:rgba(239,68,68,0.14);color:#f87171;cursor:pointer">✗ Mark Failed</div>
+        {% endif %}
+        {% if not a.is_flagged and a.status in ('PENDING','IN_PROGRESS','OVERDUE') %}
+        <div onclick="clSwitchMode('{{ a.id }}','flag')" class="tm-btn tm-btn-outline" style="flex:1;min-width:100px;cursor:pointer">🚩 Flag</div>
+        {% elif a.is_flagged %}
+        <form method="post" action="/checklists/unflag/{{ a.id }}" style="flex:1;min-width:100px">
+          <button type="submit" class="tm-btn tm-btn-outline" style="width:100%">Remove Flag</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- complete mode -->
+    <div class="cl-mode cl-mode-complete" id="cl-mode-complete-{{ a.id }}" style="display:none">
+      <form method="post" action="/checklists/complete/{{ a.id }}" enctype="multipart/form-data">
+        {% if ev_required %}
+        <label class="cl-evidence-box" for="cl-ev-{{ a.id }}">
+          <div class="cl-evidence-icon">📷</div>
+          <div class="cl-evidence-hint">Tap to attach evidence photo</div>
+          <input type="file" id="cl-ev-{{ a.id }}" name="evidence_file" accept="image/*,.pdf" required style="display:none" onchange="clEvidencePicked(this,'{{ a.id }}')">
+        </label>
+        {% endif %}
+        {% if overdue %}
+        <div class="cl-hint-box">Reason for delay is required since this task is overdue.</div>
+        <input type="text" name="delay_reason" placeholder="Reason for delay…" class="tm-input" required style="margin-bottom:12px">
+        {% endif %}
+        <div class="cl-action-row">
+          <div onclick="clSwitchMode('{{ a.id }}','view')" class="tm-btn tm-btn-outline" style="flex:1;cursor:pointer">Cancel</div>
+          <button type="submit" class="tm-btn" style="flex:1;background:#10b981;color:#fff">Confirm Complete</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- fail mode -->
+    <div class="cl-mode cl-mode-fail" id="cl-mode-fail-{{ a.id }}" style="display:none">
+      <form method="post" action="/checklists/fail/{{ a.id }}">
+        <div class="cl-hint-box">Reason for failure (optional) — noted for the manager's review.</div>
+        <textarea name="failure_note" placeholder="What went wrong…" class="tm-input" rows="2" style="margin-bottom:12px"></textarea>
+        <div class="cl-action-row">
+          <div onclick="clSwitchMode('{{ a.id }}','view')" class="tm-btn tm-btn-outline" style="flex:1;cursor:pointer">Cancel</div>
+          <button type="submit" class="tm-btn" style="flex:1;background:#ef4444;color:#fff">Confirm Failed</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- flag mode -->
+    <div class="cl-mode cl-mode-flag" id="cl-mode-flag-{{ a.id }}" style="display:none">
+      <form method="post" action="/checklists/flag/{{ a.id }}">
+        <textarea name="flag_reason" placeholder="Why are you flagging this?" class="tm-input" rows="2" required style="margin-bottom:12px"></textarea>
+        <div class="cl-action-row">
+          <div onclick="clSwitchMode('{{ a.id }}','view')" class="tm-btn tm-btn-outline" style="flex:1;cursor:pointer">Cancel</div>
+          <button type="submit" class="tm-btn" style="flex:1;background:#f59e0b;color:#fff">Submit Flag</button>
+        </div>
+      </form>
+    </div>
+
+  </div>
+</div>
+{% endfor %}
+
+{# FAB — checklist template creation is ADMIN/MANAGER (backend now uses
+   require_manager on /checklists/templates/create); positioned on the
+   opposite (left) edge from the global "Need Help" SOS button so the two
+   floating actions never stack on top of each other. #}
+{% if user.role in ('ADMIN', 'MANAGER') %}
+<div class="cl-fab" onclick="clOpenCreate()" title="New Checklist">+</div>
+{% endif %}
+
+<!-- ── New Checklist — full-screen create flow ─────────────────────────── -->
+{% if user.role in ('ADMIN', 'MANAGER') %}
+<div class="cl-create-overlay" id="cl-create-overlay">
+
+  <div class="cl-create-form" id="cl-create-form">
+    <div class="cl-create-hdr">
+      <div onclick="clCloseCreate()" class="cl-create-back">×</div>
+      <div class="cl-create-title">New Checklist</div>
+      <div style="width:24px"></div>
+    </div>
+
+    <form method="post" action="/checklists/templates/create" id="cl-create-form-el">
+      <div class="cl-create-body">
+
+        <div class="tm-sheet-label">Title</div>
+        <input type="text" name="title" required maxlength="200" placeholder="e.g. Daily Machine Inspection" class="tm-input" style="margin-bottom:14px">
+
+        <div class="tm-sheet-label">Instructions</div>
+        <textarea name="description" required rows="3" placeholder="Step-by-step instructions for this task…" class="tm-input" style="margin-bottom:16px"></textarea>
+
+        <div class="tm-sheet-label">Frequency</div>
+        <select name="frequency_type" id="cl-freq-type" class="tm-input" style="margin-bottom:10px" onchange="clFreqTypeChange(this)">
+          <option value="DAILY">Daily</option>
+          <option value="WEEKLY">Weekly</option>
+          <option value="MONTHLY">Monthly</option>
+          <option value="YEARLY">Yearly</option>
+          <option value="WEEKLY_CUSTOM">Custom — Days of Week</option>
+          <option value="MONTHLY_DATE">Custom — Day of Month</option>
+          <option value="YEARLY_DATE">Custom — Day of Year</option>
+        </select>
+        <input type="hidden" name="frequency" id="cl-freq-hidden" value="DAILY">
+
+        <div id="cl-freq-dow" style="display:none;margin-bottom:14px">
+          <div class="tm-sheet-label">Select days (at least one required)</div>
+          <div class="tm-chip-row">
+            {% for day_i, day_n in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+            <label class="tm-chip">
+              <input type="checkbox" id="cl-dow-{{ day_i }}" value="{{ day_i }}" onchange="clDowChange()"> {{ day_n }}
+            </label>
+            {% endfor %}
+          </div>
+          <input type="hidden" name="frequency_config_days" id="cl-cfg-days" value="">
+        </div>
+
+        <div id="cl-freq-dom" style="display:none;margin-bottom:14px">
+          <div class="tm-sheet-label">Day of month (1–31)</div>
+          <input type="number" name="frequency_config_day" id="cl-cfg-day" min="1" max="31" class="tm-input" placeholder="e.g. 15">
+          <div id="cl-dom-note" style="display:none;font-size:11px;color:#fbbf24;margin-top:4px">Months with fewer days will skip this date.</div>
+        </div>
+
+        <div id="cl-freq-doy" style="display:none;margin-bottom:14px">
+          <div class="tm-sheet-label">Day of year</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select name="frequency_config_month" id="cl-cfg-month" class="tm-input">
+              {% for mi, mn in [(1,'January'),(2,'February'),(3,'March'),(4,'April'),(5,'May'),(6,'June'),(7,'July'),(8,'August'),(9,'September'),(10,'October'),(11,'November'),(12,'December')] %}
+              <option value="{{ mi }}">{{ mn }}</option>
+              {% endfor %}
+            </select>
+            <input type="number" name="frequency_config_doy_day" id="cl-cfg-doy-day" min="1" max="31" class="tm-input" placeholder="Day">
+          </div>
+        </div>
+
+        <div class="cl-hint-note">Custom recurrence follows the same rules as the desktop builder.</div>
+
+        <div class="tm-sheet-label">Repeats</div>
+        <div class="cl-segtoggle" style="margin-bottom:16px">
+          <label class="cl-segtoggle-opt cl-segtoggle-active"><input type="radio" name="is_recurring" value="true" checked hidden onclick="clSegToggle(this)"> Yes — auto-repeat</label>
+          <label class="cl-segtoggle-opt"><input type="radio" name="is_recurring" value="false" hidden onclick="clSegToggle(this)"> One-time only</label>
+        </div>
+
+        <div class="tm-sheet-label">Assign To</div>
+        <div class="cl-segtoggle" style="margin-bottom:10px">
+          <label class="cl-segtoggle-opt cl-segtoggle-active" onclick="clAssignMode('role')">Role / Dept</label>
+          <label class="cl-segtoggle-opt" onclick="clAssignMode('person')">Specific Person</label>
+        </div>
+
+        <div id="cl-assign-role-panel">
+          <div class="tm-sheet-label">Role</div>
+          <select name="assigned_to_role" id="cl-role-select" class="tm-input" style="margin-bottom:12px">
+            {% for r in ['EMPLOYEE','MANAGER','ADMIN'] %}
+            <option value="{{ r }}">{{ r|title }}</option>
+            {% endfor %}
+          </select>
+          <div class="tm-sheet-label">Department</div>
+          <select name="assigned_to_dept_id" id="cl-dept-select" class="tm-input" style="margin-bottom:16px">
+            <option value="">All Depts</option>
+            {% for d in departments %}
+            <option value="{{ d.id }}">{{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div id="cl-assign-person-panel" style="display:none;margin-bottom:16px">
+          <div class="tm-sheet-label">Employee</div>
+          <select name="assigned_to_user_id" id="cl-person-select" class="tm-input">
+            <option value="">Select employee…</option>
+            {% for e in employees %}
+            <option value="{{ e.id }}">{{ e.name }} ({{ e.role }})</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="cl-toggle-row" onclick="clToggleSwitch(this)">
+          <div>
+            <div class="cl-toggle-title">Evidence Required</div>
+            <div class="cl-toggle-sub">Employee must attach a photo to complete</div>
+          </div>
+          <div class="cl-toggle-switch">
+            <input type="checkbox" name="evidence_required" value="true" hidden onchange="clToggleSync(this)">
+            <div class="cl-toggle-knob"></div>
+          </div>
+        </div>
+
+        {% if knowledge_items %}
+        <div class="tm-sheet-label" style="margin-top:16px">📚 Link Knowledge (optional)</div>
+        <div class="tm-chip-row" style="margin-bottom:8px">
+          {% for k in knowledge_items %}
+          <label class="tm-chip">
+            <input type="checkbox" name="knowledge_item_ids" value="{{ k.id }}" hidden onchange="tmChipToggle(this)"> {{ k.title }}
+          </label>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+      </div>
+
+      <div class="cl-create-footer">
+        <div onclick="clCloseCreate()" class="tm-btn tm-btn-outline" style="flex:1;cursor:pointer">Cancel</div>
+        <button type="submit" class="tm-btn" style="flex:1;background:#3b82f6;color:#fff">Create Checklist</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="cl-create-success" id="cl-create-success" style="display:none">
+    <div style="font-size:44px">✅</div>
+    <div class="cl-success-title">Checklist created</div>
+    <div class="cl-success-sub" id="cl-success-sub"></div>
+    <div onclick="clCloseCreate()" class="tm-btn" style="margin-top:10px;padding:12px 32px;background:#3b82f6;color:#fff;flex:none">Done</div>
+  </div>
+
+</div>
+{% endif %}
+
+<script>
+{% if request.query_params.get('created') == '1' %}
+document.addEventListener('DOMContentLoaded', function(){
+  document.getElementById('cl-create-overlay').classList.add('cl-open');
+  document.getElementById('cl-create-form').style.display = 'none';
+  document.getElementById('cl-create-success').style.display = 'flex';
+  document.getElementById('cl-success-sub').textContent = '"{{ request.query_params.get("created_title") }}" was added and now appears in Upcoming.';
+});
+{% endif %}
+function clOpenCreate(){
+  document.getElementById('cl-create-overlay').classList.add('cl-open');
+  document.getElementById('cl-create-form').style.display = 'flex';
+  document.getElementById('cl-create-success').style.display = 'none';
+}
+function clCloseCreate(){
+  document.getElementById('cl-create-overlay').classList.remove('cl-open');
+  if (window.location.search.includes('created=1')) window.location.href = '/checklists';
+}
+function tmChipToggle(input){
+  input.closest('.tm-chip').classList.toggle('tm-chip-active', input.checked);
+}
+function clFreqTypeChange(sel){
+  const val = sel.value;
+  document.getElementById('cl-freq-hidden').value = ['DAILY','WEEKLY','MONTHLY','YEARLY'].includes(val) ? val : 'DAILY';
+  ['dow','dom','doy'].forEach(t => { const el = document.getElementById('cl-freq-' + t); if (el) el.style.display = 'none'; });
+  if (val === 'WEEKLY_CUSTOM') {
+    document.getElementById('cl-freq-dow').style.display = '';
+  } else if (val === 'MONTHLY_DATE') {
+    document.getElementById('cl-freq-dom').style.display = '';
+    const dayEl = document.getElementById('cl-cfg-day');
+    dayEl.oninput = function(){
+      document.getElementById('cl-dom-note').style.display = parseInt(this.value) >= 29 ? '' : 'none';
+    };
+  } else if (val === 'YEARLY_DATE') {
+    document.getElementById('cl-freq-doy').style.display = '';
+  }
+}
+function clDowChange(){
+  const days = [];
+  for (let i = 0; i <= 6; i++) {
+    const cb = document.getElementById('cl-dow-' + i);
+    if (cb && cb.checked) days.push(i);
+  }
+  document.getElementById('cl-cfg-days').value = days.join(',');
+}
+function clSegToggle(input){
+  const row = input.closest('.cl-segtoggle');
+  row.querySelectorAll('.cl-segtoggle-opt').forEach(o => o.classList.remove('cl-segtoggle-active'));
+  input.closest('.cl-segtoggle-opt').classList.add('cl-segtoggle-active');
+}
+function clAssignMode(mode){
+  document.querySelectorAll('#cl-create-form-el .cl-segtoggle')[1].querySelectorAll('.cl-segtoggle-opt').forEach(o => o.classList.remove('cl-segtoggle-active'));
+  event.currentTarget.classList.add('cl-segtoggle-active');
+  document.getElementById('cl-assign-role-panel').style.display = (mode === 'role') ? '' : 'none';
+  document.getElementById('cl-assign-person-panel').style.display = (mode === 'person') ? '' : 'none';
+  // Clear whichever panel is now hidden so its (invisible) select can't
+  // silently override the visible one's choice when the form submits.
+  if (mode === 'role') document.getElementById('cl-person-select').value = '';
+  if (mode === 'person') document.getElementById('cl-dept-select').value = '';
+}
+function clToggleSwitch(row){
+  const input = row.querySelector('input[type=checkbox]');
+  input.checked = !input.checked;
+  clToggleSync(input);
+}
+function clToggleSync(input){
+  input.closest('.cl-toggle-row').classList.toggle('cl-toggle-on', input.checked);
+}
+function clSwitchSeg(seg, el){
+  document.querySelectorAll('.cl-seg').forEach(s => s.classList.remove('tm-tab-active'));
+  el.classList.add('tm-tab-active');
+  ['overdue','upcoming','history'].forEach(s => {
+    document.getElementById('cl-list-' + s).style.display = (s === seg) ? '' : 'none';
+  });
+}
+function clOpenDetail(id, mode){
+  const el = document.getElementById('cl-detail-backdrop-' + id);
+  if(!el) return;
+  el.classList.add('tm-open');
+  clSwitchMode(id, mode || 'view');
+}
+function clCloseDetail(id){
+  const el = document.getElementById('cl-detail-backdrop-' + id);
+  if(el) el.classList.remove('tm-open');
+}
+function clSwitchMode(id, mode){
+  ['view','complete','fail','flag'].forEach(m => {
+    const el = document.getElementById('cl-mode-' + m + '-' + id);
+    if(el) el.style.display = (m === mode) ? '' : 'none';
+  });
+}
+function clEvidencePicked(input, id){
+  const box = input.closest('.cl-evidence-box');
+  if(input.files && input.files.length){
+    box.querySelector('.cl-evidence-icon').textContent = '✅';
+    box.querySelector('.cl-evidence-hint').textContent = 'Photo attached — tap to change';
+    box.classList.add('cl-evidence-attached');
+  }
+}
+function clToggleFilters(open){
+  const el = document.getElementById('cl-filters-backdrop');
+  if(!el) return;
+  el.classList.toggle('tm-open', open === undefined ? !el.classList.contains('tm-open') : open);
+}
+function clFilterChipToggle(input){
+  input.closest('.tm-chip').classList.toggle('tm-chip-active', input.checked);
+}
+function clClearFilters(){
+  document.querySelectorAll('#cl-filters-backdrop input[type=checkbox]').forEach(c => {
+    c.checked = false; c.closest('.tm-chip').classList.remove('tm-chip-active');
+  });
+  clApplyFilters();
+}
+function clApplyFilters(){
+  const freqChip = document.querySelector('#cl-freq-chips .tm-chip-active');
+  const freq = freqChip ? freqChip.dataset.freqChip : null;
+  const evOn = !!document.querySelector('#cl-evidence-chips .tm-chip-active');
+  const flOn = !!document.querySelector('#cl-flagged-chips .tm-chip-active');
+  document.querySelectorAll('.cl-card').forEach(card => {
+    let show = true;
+    if(freq && card.dataset.freq !== freq) show = false;
+    if(evOn && card.dataset.evidence !== '1') show = false;
+    if(flOn && card.dataset.flagged !== '1') show = false;
+    card.style.display = show ? '' : 'none';
+  });
+  clToggleFilters(false);
+}
+</script>
+{% endblock %}

@@ -1570,7 +1570,13 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
             ).distinct().all()
         }
 
-    return templates.TemplateResponse(request, "tickets.html", {
+    # Tickets Redesign (2026-07): installed-PWA sessions get the redesigned
+    # mobile-only templates (tickets_mobile.html), detected via the `pwa_ui`
+    # cookie set by app-shell.js's standalone-mode check. Desktop/browser-tab
+    # traffic is unaffected — same context, same tickets.html as before.
+    template_name = "tickets_mobile.html" if request.cookies.get("pwa_ui") == "1" else "tickets.html"
+
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "tickets": tickets, "employees": employees,
@@ -1944,7 +1950,10 @@ def ticket_detail(ticket_id: str, request: Request,
     knowledge_items = db.query(KnowledgeItem).filter(
         KnowledgeItem.tenant_id == user.tenant_id, KnowledgeItem.is_deleted == False,
     ).order_by(KnowledgeItem.title).all()
-    return templates.TemplateResponse(request, "ticket_detail.html", {
+    # Tickets Redesign (2026-07): see tickets_list() above for the same
+    # installed-PWA branching via the `pwa_ui` cookie.
+    template_name = "ticket_detail_mobile.html" if request.cookies.get("pwa_ui") == "1" else "ticket_detail.html"
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "ticket": ticket, "employees": employees,
@@ -2880,12 +2889,32 @@ def checklists(request: Request, user: User = Depends(get_current_user_or_redire
     knowledge_items = db.query(KnowledgeItem).filter(
         KnowledgeItem.tenant_id == tid, KnowledgeItem.is_deleted == False,
     ).order_by(KnowledgeItem.title).all()
-    return templates.TemplateResponse(request, "checklists.html", {
+
+    # Checklists Redesign (2026-07): installed-PWA sessions get the
+    # redesigned mobile-only template (checklists_mobile.html — design
+    # option 3a "Task Feed"), detected via the `pwa_ui` cookie set by
+    # app-shell.js's standalone-mode check. On mobile this is always the
+    # viewer's own worklist (Overdue / Upcoming / History) regardless of
+    # role — template creation, bulk upload and team compliance tables
+    # stay desktop-only. Desktop/browser-tab traffic is unaffected — same
+    # context, same checklists.html as before.
+    template_name = "checklists_mobile.html" if request.cookies.get("pwa_ui") == "1" else "checklists.html"
+    my_history = []
+    if template_name == "checklists_mobile.html":
+        my_history = db.query(ChecklistAssignment).filter(
+            ChecklistAssignment.tenant_id == tid,
+            ChecklistAssignment.user_id == user.id,
+            ChecklistAssignment.status.in_(["DONE", "FAILED"]),
+            ChecklistAssignment.is_deleted == False,
+        ).order_by(ChecklistAssignment.completed_at.desc()).limit(50).all()
+
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "my_assignments": my_assignments,
         "my_overdue": my_overdue,
         "my_upcoming": my_upcoming,
+        "my_history": my_history,
         "upcoming": upcoming,
         "overdue_team": overdue_team,
         "failed_team": failed_team,
@@ -2923,7 +2952,7 @@ async def create_template(
     reminder_repeat_hours: int = Form(4),
     is_recurring: bool = Form(True),
     knowledge_item_ids: List[str] = Form([]),
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_manager), db: Session = Depends(get_db),
 ):
     import json as _json
     role = assigned_to_role
@@ -2960,7 +2989,8 @@ async def create_template(
             ))
     if knowledge_item_ids:
         db.commit()
-    return redirect("/checklists")
+    from urllib.parse import quote as _quote
+    return redirect(f"/checklists?created=1&created_title={_quote(title)}")
 
 @app.post("/checklists/assign/{template_id}")
 def assign_checklist(template_id: str, due_at: str = Form(...),

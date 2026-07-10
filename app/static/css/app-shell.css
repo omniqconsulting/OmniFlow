@@ -297,6 +297,12 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
 .help-fab{position:fixed;bottom:28px;right:28px;z-index:900;background:#ef4444;color:#fff;border:none;border-radius:99px;padding:12px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(239,68,68,0.45);display:flex;align-items:center;gap:7px;transition:background .15s,transform .15s;animation:help-pulse 2.4s infinite}
 .help-fab:hover{background:#dc2626;transform:scale(1.05);animation:none}
 @keyframes help-pulse{0%,100%{box-shadow:0 4px 16px rgba(239,68,68,0.45)}50%{box-shadow:0 4px 28px rgba(239,68,68,0.75)}}
+/* Draggable on mobile/PWA layouts only (app-shell.js adds this class there) —
+   so the user can park the SOS button wherever it doesn't collide with a
+   module's own floating "+" button instead of every module routing around
+   a fixed SOS position. */
+.help-fab-draggable{touch-action:none;user-select:none}
+.help-fab-dragging{transition:none;animation:none;box-shadow:0 8px 28px rgba(239,68,68,0.6);z-index:950;will-change:transform}
 /* P6-04: mobile-only — shrink to an icon-only FAB and give scrollable content
    clearance at the bottom so the last card/row is never hidden underneath it. */
 @media (max-width: 700px) {
@@ -377,7 +383,7 @@ html{-webkit-tap-highlight-color:transparent}
    browser window) — their trigger buttons are hidden there, but the .open
    state alone shouldn't be enough to show them past this point. */
 @media (min-width: 768px) {
-  .others-backdrop, .account-menu-backdrop{display:none !important}
+  .account-menu-backdrop{display:none !important}
 }
 
 .bottom-nav{
@@ -392,9 +398,23 @@ html{-webkit-tap-highlight-color:transparent}
 @media (display-mode: standalone), (max-width: 767px) {
   .bottom-nav{display:flex}
 }
-.bottom-nav-inner{display:flex;width:100%}
-.bottom-nav a, .bottom-nav button.bn-others{
-  flex:1;
+.bottom-nav-inner{display:flex;width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.bottom-nav-inner::-webkit-scrollbar{display:none}
+
+/* Scroll affordance: a soft edge fade + a small nudging chevron hint that
+   there are more modules off-screen. Shown/hidden via JS (bn-fade-l/r
+   "show" class) based on actual scroll position, so it disappears once
+   you've scrolled all the way to that edge. */
+.bottom-nav-fade{position:absolute;top:0;bottom:0;width:26px;pointer-events:none;z-index:5;opacity:0;transition:opacity .2s;display:flex;align-items:center;font-size:13px;color:var(--text-faint)}
+.bottom-nav-fade.show{opacity:1}
+.bottom-nav-fade-l{left:0;background:linear-gradient(to right, var(--bg-card), transparent);justify-content:flex-start}
+.bottom-nav-fade-r{right:0;background:linear-gradient(to left, var(--bg-card), transparent);justify-content:flex-end}
+.bottom-nav-fade-r::after{content:'›';padding-right:2px;animation:bn-nudge 1.4s ease-in-out infinite}
+@keyframes bn-nudge{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
+.bottom-nav a{
+  flex:0 0 auto;
+  width:20%;
+  min-width:78px;
   display:flex;
   flex-direction:column;
   align-items:center;
@@ -405,60 +425,11 @@ html{-webkit-tap-highlight-color:transparent}
   font-size:10px;
   font-weight:600;
   text-decoration:none;
-  background:none;
-  border:none;
-  font-family:inherit;
-  cursor:pointer;
+  text-align:center;
 }
-.bottom-nav a .bn-icon, .bottom-nav button.bn-others .bn-icon{font-size:19px;line-height:1}
-.bottom-nav a.active, .bottom-nav button.bn-others.open{color:var(--color-primary)}
+.bottom-nav a .bn-icon{font-size:19px;line-height:1}
+.bottom-nav a.active{color:var(--color-primary)}
 html.light .bottom-nav{box-shadow:0 -1px 2px rgba(0,0,0,0.08)}
-
-/* 5.1 — "Others" overflow sheet: everything the desktop nav shows that
-   isn't a primary bottom-tab destination (Training, Inventory, Sales,
-   Employees, Setup, Ask AI, notifications, theme/sound, profile, logout). */
-.others-backdrop{
-  display:none;
-  position:fixed; inset:0;
-  background:rgba(0,0,0,0.55);
-  backdrop-filter:blur(2px);
-  z-index:150;
-}
-.others-backdrop.open{display:block}
-.others-sheet{
-  position:fixed; left:0; right:0; bottom:0;
-  background:var(--bg-card);
-  border-top-left-radius:16px;
-  border-top-right-radius:16px;
-  padding:8px 0 calc(env(safe-area-inset-bottom) + 8px);
-  max-height:70vh;
-  overflow-y:auto;
-  transform:translateY(100%);
-  transition:transform .25s ease;
-  z-index:151;
-}
-.others-backdrop.open .others-sheet{transform:translateY(0)}
-.others-sheet-handle{width:36px;height:4px;border-radius:99px;background:var(--border-strong);margin:8px auto 4px}
-.others-sheet .os-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);padding:14px 20px 6px}
-.others-sheet a, .others-sheet button.os-item{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  width:100%;
-  text-align:left;
-  background:none;
-  border:none;
-  font-family:inherit;
-  padding:12px 20px;
-  font-size:14px;
-  color:var(--text-primary);
-  text-decoration:none;
-  cursor:pointer;
-  min-height:44px;
-}
-.others-sheet a:active, .others-sheet button.os-item:active{background:var(--hover-bg)}
-.others-sheet .os-icon{font-size:17px;width:22px;text-align:center;flex-shrink:0}
-.others-sheet .os-badge{margin-left:auto;background:#ef4444;color:#fff;font-size:11px;font-weight:700;border-radius:99px;padding:1px 7px}
 
 /* Mobile/standalone-only top bar: branding (left) + notifications/mute/
    account (right). Replaces the desktop .nav's branding+controls there,
