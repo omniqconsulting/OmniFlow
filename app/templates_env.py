@@ -8,10 +8,13 @@ which router renders it.
 """
 import json as _json
 import os as _os
+import urllib.parse as _urlparse
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup as _Markup
+
+from .services.msg91 import normalize_mobile as _normalize_mobile
 
 _BASE_DIR = _os.path.dirname(__file__)
 templates = Jinja2Templates(directory=_os.path.join(_BASE_DIR, "templates"))
@@ -109,6 +112,26 @@ def _priority_label(p):
     return "TOP PRIORITY" if p == "CRITICAL" else p
 
 
+def _tel_link(phone):
+    """tel: URI for a stored customer/contact phone number — triggers the
+    device's native dialer with the number pre-filled."""
+    if not phone:
+        return ""
+    return "tel:+" + _normalize_mobile(phone)
+
+
+def _wa_link(phone, text=""):
+    """wa.me deep link for a stored phone number, opening the native WhatsApp
+    app (mobile) or WhatsApp Web (desktop) with the message pre-filled but
+    not sent — the user still taps Send inside WhatsApp itself."""
+    if not phone:
+        return ""
+    url = f"https://wa.me/{_normalize_mobile(phone)}"
+    if text:
+        url += "?text=" + _urlparse.quote(text)
+    return url
+
+
 def _format_tat(hours):
     """Format TAT hours as '30m', '2h', '1d', '1d 4h' etc. Returns '' for null/zero."""
     if not hours:
@@ -130,3 +153,5 @@ templates.env.filters["ist"]        = _to_ist
 templates.env.filters["format_tat"] = _format_tat
 templates.env.filters["cond_format"] = _cond_format_style
 templates.env.filters["priority_label"] = _priority_label
+templates.env.filters["tel_link"] = _tel_link
+templates.env.filters["wa_link"] = _wa_link

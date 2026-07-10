@@ -610,25 +610,6 @@ window.omniVibrate = function(pattern){
   try{ if(navigator.vibrate) navigator.vibrate(pattern || 15); }catch(e){}
 };
 
-// 5.1 — "Others" overflow sheet (bottom_nav.html): tap the tab to open, tap
-// the backdrop or any item to close. Kept simple — no focus trap/animation
-// library, just a CSS transform toggle scoped to mobile/standalone widths.
-window.toggleOthersSheet = function(force){
-  const bd = document.getElementById('others-backdrop');
-  if(!bd) return;
-  const willOpen = typeof force === 'boolean' ? force : !bd.classList.contains('open');
-  bd.classList.toggle('open', willOpen);
-  const tab = document.querySelector('.bn-others');
-  if(tab) tab.classList.toggle('open', willOpen);
-};
-document.addEventListener('DOMContentLoaded', function(){
-  const bd = document.getElementById('others-backdrop');
-  if(bd) bd.addEventListener('click', function(e){ if(e.target === bd) toggleOthersSheet(false); });
-});
-document.addEventListener('keydown', function(e){
-  if(e.key === 'Escape') toggleOthersSheet(false);
-});
-
 // Shared modal helpers (components/modal.html and any hand-rolled modal using
 // the same display:none/flex + backdrop pattern from setup/customers.html).
 window.openModal = function(modalId){
@@ -650,8 +631,8 @@ document.addEventListener('keydown', function(e){
   });
 });
 
-// Mobile top bar's account menu (base.html): same open/close pattern as the
-// Others sheet above, tap the account icon to open, backdrop/Escape to close.
+// Mobile top bar's account menu (base.html): tap the account icon to open,
+// backdrop/Escape to close.
 window.toggleAccountMenu = function(force){
   const bd = document.getElementById('account-menu-backdrop');
   if(!bd) return;
@@ -664,4 +645,26 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 document.addEventListener('keydown', function(e){
   if(e.key === 'Escape') toggleAccountMenu(false);
+});
+
+// Bottom nav horizontal scroll (bottom_nav.html): each full page load starts
+// scrolled to the left, so on a page whose tab lives further right (e.g.
+// Inventory, Setup) we scroll it into view instead of leaving the user to
+// find it again. We also toggle a soft edge fade + nudge on whichever side
+// still has more content, so it's clear the row scrolls.
+document.addEventListener('DOMContentLoaded', function(){
+  const inner = document.getElementById('bottom-nav-inner');
+  if(!inner) return;
+  const active = inner.querySelector('a.active');
+  if(active) active.scrollIntoView({ inline: 'center', block: 'nearest' });
+
+  const fadeL = document.querySelector('.bottom-nav-fade-l');
+  const fadeR = document.querySelector('.bottom-nav-fade-r');
+  function updateFades(){
+    if(fadeL) fadeL.classList.toggle('show', inner.scrollLeft > 4);
+    if(fadeR) fadeR.classList.toggle('show', inner.scrollLeft < inner.scrollWidth - inner.clientWidth - 4);
+  }
+  updateFades();
+  inner.addEventListener('scroll', updateFades, { passive: true });
+  window.addEventListener('resize', updateFades);
 });

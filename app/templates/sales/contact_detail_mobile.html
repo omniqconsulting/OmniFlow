@@ -1,0 +1,172 @@
+{# ── contact_detail_mobile.html ───────────────────────────────────────────
+   PWA-only Customer Detail "record view" (Design: OmniFlow Tickets Redesign,
+   section 5a). Served only when the `pwa_ui` cookie is set — see
+   app/sales_contacts.py::contact_detail(). Adds real click-to-call
+   (tel:) and click-to-WhatsApp (wa.me) links against the customer's saved
+   phone number — the design mockup simulated an in-app dialer/composer,
+   but a PWA cannot place calls or send SMS/WhatsApp itself, so these hand
+   off to the device's native phone/WhatsApp app instead. #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/contacts-mobile.css">
+
+{% set tel_href = customer.phone | tel_link %}
+{% set wa_href = customer.phone | wa_link %}
+{% set wa_svg %}<svg viewBox="0 0 24 24" width="15" height="15" fill="#fff"><path d="M12.04 2c-5.46 0-9.9 4.44-9.9 9.9 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.9-4.44 9.9-9.9 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2m0 1.67c2.23 0 4.33.87 5.9 2.45a8.23 8.23 0 0 1 2.43 5.86c0 4.57-3.72 8.29-8.3 8.29a8.27 8.27 0 0 1-4.22-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.25 8.25 0 0 1-1.27-4.4c0-4.58 3.72-8.34 8.25-8.34m-4.53 4.7c-.16 0-.43.06-.65.31-.23.25-.86.85-.86 2.06 0 1.22.89 2.39 1.01 2.55.12.17 1.75 2.67 4.25 3.74.6.26 1.06.41 1.43.53.6.19 1.14.16 1.57.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.07.14-1.18-.06-.1-.23-.16-.48-.29-.25-.12-1.47-.72-1.7-.81-.23-.08-.39-.12-.56.13-.17.25-.64.81-.78.97-.15.17-.29.19-.54.06-.25-.12-1.04-.38-1.98-1.22-.73-.65-1.23-1.45-1.37-1.7-.14-.25-.01-.38.11-.51.11-.11.25-.29.37-.44.12-.14.16-.25.24-.42.08-.16.04-.31-.02-.43-.06-.13-.55-1.36-.77-1.86-.2-.48-.4-.42-.56-.42h-.42Z"/></svg>{% endset %}
+
+<div class="cmd-header">
+  <a href="/sales/contacts" class="cmd-back">←</a>
+  <span class="cmd-eyebrow">CUSTOMER</span>
+  <div class="cmd-header-actions">
+    {% if can_edit %}
+    <a href="/sales/contacts/{{ customer.id }}/edit" class="cmd-edit-link">Edit</a>
+    {% endif %}
+    <button type="button" class="cmd-logcall-link" onclick="cmdToggleLogCall(true)">☎ Log Call</button>
+  </div>
+</div>
+
+{% if msg %}<div class="cm-alert cm-alert-green">✓ {{ msg }}</div>{% endif %}
+{% if err %}<div class="cm-alert cm-alert-red">{{ err }}</div>{% endif %}
+
+<div class="cmd-body">
+
+  <div class="cmd-name-row">
+    <div class="cmd-name">{{ customer.name }}</div>
+    <span class="cm-badge" style="background:{{ {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b'}.get(customer.customer_tier, '#64748b') }}">{{ customer.customer_tier or 'UNRANKED' }}</span>
+  </div>
+  <div class="cmd-sub">Assigned to {{ customer.assigned_agent.name if customer.assigned_agent else '—' }} · {{ customer.phone or 'No phone on file' }}</div>
+
+  <div class="cmd-quick">
+    {% if customer.phone %}
+    <a href="{{ tel_href }}" class="cmd-quick-item"><span class="cmd-quick-icon-badge cmd-badge-call">📞</span><span class="cmd-quick-label">Call</span></a>
+    <a href="{{ wa_href }}" class="cmd-quick-item"><span class="cmd-quick-icon-badge cmd-badge-wa">{{ wa_svg }}</span><span class="cmd-quick-label">WhatsApp</span></a>
+    {% else %}
+    <div class="cmd-quick-item" style="opacity:.5;cursor:not-allowed"><span class="cmd-quick-icon-badge cmd-badge-call">📞</span><span class="cmd-quick-label">Call</span></div>
+    <div class="cmd-quick-item" style="opacity:.5;cursor:not-allowed"><span class="cmd-quick-icon-badge cmd-badge-wa">{{ wa_svg }}</span><span class="cmd-quick-label">WhatsApp</span></div>
+    {% endif %}
+    <a href="/sales/orders/new?customer_id={{ customer.id }}" class="cmd-quick-item"><span class="cmd-quick-icon">🧾</span><span class="cmd-quick-label">+ Order</span></a>
+  </div>
+
+  <div class="cmd-kpi-grid">
+    <div class="cmd-kpi"><div class="cmd-kpi-val">{{ order_count }}</div><div class="cmd-kpi-label">Total Orders</div></div>
+    <div class="cmd-kpi"><div class="cmd-kpi-val">₹{{ '%.0f'|format(order_total) }}</div><div class="cmd-kpi-label">Total Order Value</div></div>
+    <div class="cmd-kpi"><div class="cmd-kpi-val" style="color:#f59e0b">{{ days_since_last_order if days_since_last_order is not none else '—' }}</div><div class="cmd-kpi-label">Days Since Last Order</div></div>
+    <div class="cmd-kpi"><div class="cmd-kpi-val">{{ avg_cycle_days if avg_cycle_days is not none else '—' }}</div><div class="cmd-kpi-label">Typical Cycle (days)</div></div>
+  </div>
+
+  <div class="cmd-card">
+    <div class="cmd-card-title">Engagement — last 6 months</div>
+    {% set max_v = (trend | map(attribute='orders') | list + trend | map(attribute='calls') | list) | max %}
+    {% set max_v = max_v if max_v and max_v > 0 else 1 %}
+    <div class="cmd-chart-bars">
+      {% for m in trend %}
+      <div class="cmd-chart-col">
+        <div class="cmd-chart-stack">
+          <div class="cmd-chart-bar" style="background:#3b82f6;height:{{ (m.orders / max_v * 56) | round(1) }}px"></div>
+          <div class="cmd-chart-bar" style="background:#f59e0b;height:{{ (m.calls / max_v * 56) | round(1) }}px"></div>
+        </div>
+        <div class="cmd-chart-month">{{ m.label[5:] }}/{{ m.label[2:4] }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="cmd-chart-legend">
+      <span><span class="cmd-legend-dot" style="background:#3b82f6"></span>Orders</span>
+      <span><span class="cmd-legend-dot" style="background:#f59e0b"></span>Calls</span>
+    </div>
+  </div>
+
+  <div class="cmd-card">
+    <div class="cmd-card-title">Customer Info</div>
+    <div class="cmd-info-grid">
+      <div><div class="cmd-info-label">Email</div><div class="cmd-info-value">{{ customer.email or '—' }}</div></div>
+      <div><div class="cmd-info-label">GSTIN</div><div class="cmd-info-value">{{ customer.gstin or '—' }}</div></div>
+      <div><div class="cmd-info-label">Credit Limit</div><div class="cmd-info-value">{{ '₹%.0f'|format(customer.credit_limit) if customer.credit_limit else '—' }}</div></div>
+      <div><div class="cmd-info-label">Payment Terms</div><div class="cmd-info-value">{{ customer.default_payment_terms or '—' }}</div></div>
+    </div>
+  </div>
+
+  <div class="cmd-card">
+    <div class="cmd-card-hdr">
+      <div class="cmd-card-title">Recent Orders</div>
+      <a href="/sales/orders?customer_id={{ customer.id }}" class="cmd-link-btn">View all</a>
+    </div>
+    {% for o in orders %}
+    <div class="cmd-row">
+      <div style="flex:1;min-width:0">
+        <div class="cmd-row-title">{{ o.display_id or o.id }}</div>
+        <div class="cmd-row-sub">{{ o.created_at.strftime('%d %b %Y') if o.created_at else '—' }} · {{ o.items|length }} items</div>
+      </div>
+      <span class="cm-badge" style="background:{{ {'DRAFT':'#64748b','CONFIRMED':'#3b82f6','DISPATCHED':'#f59e0b','DELIVERED':'#22c55e','CANCELLED':'#ef4444'}.get(o.status, '#64748b') }}">{{ o.status }}</span>
+      <div class="cmd-row-value">₹{{ '%.0f'|format(o.total_amount or 0) }}</div>
+    </div>
+    {% else %}
+    <div class="cm-empty" style="padding:12px 0">No orders yet.</div>
+    {% endfor %}
+  </div>
+
+  <div class="cmd-card">
+    <div class="cmd-card-title">Call History</div>
+    {% for c in call_logs[:10] %}
+    <div class="cmd-row" style="flex-direction:column;align-items:flex-start;gap:3px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="cm-badge" style="background:{{ {'CONNECTED':'#22c55e','NO_ANSWER':'#64748b','CALLBACK':'#f59e0b','ORDER_PLACED':'#3b82f6','NOT_INTERESTED':'#ef4444'}.get(c.outcome, '#64748b') }}">{{ c.outcome.replace('_',' ')|title }}</span>
+        <span class="cmd-row-sub">{{ c.contacted_at.strftime('%d %b %Y') if c.contacted_at else '—' }}</span>
+      </div>
+      {% if c.notes %}<div class="cmd-row-note">{{ c.notes }}</div>{% endif %}
+    </div>
+    {% else %}
+    <div class="cm-empty" style="padding:12px 0">No calls logged yet.</div>
+    {% endfor %}
+  </div>
+
+</div>
+
+<!-- ── Log call sheet ────────────────────────────────────────────────────── -->
+<div class="cm-sheet-backdrop" id="cmd-logcall-backdrop" onclick="if(event.target===this)cmdToggleLogCall(false)">
+  <div class="cm-sheet">
+    <div class="cm-sheet-handle"></div>
+    <div class="cm-sheet-hdr">
+      <div class="cm-sheet-title">Log Call — {{ customer.name }}</div>
+      <button type="button" class="cm-sheet-done" onclick="cmdToggleLogCall(false)">×</button>
+    </div>
+    <form method="post" action="/sales/contacts/{{ customer.id }}/log-call">
+      <div class="cm-sheet-label">Outcome</div>
+      <div class="cm-chip-row">
+        {% for o in outcome_choices %}
+        <label class="cm-chip">
+          <input type="radio" name="outcome" value="{{ o }}" hidden onclick="cmdOutcomeChosen(this)">
+          {{ o.replace('_',' ')|title }}
+        </label>
+        {% endfor %}
+      </div>
+
+      <div class="cm-field" id="cmd-followup-field" style="display:none">
+        <label>Follow-up Date</label>
+        <input type="date" name="follow_up_at" class="cm-input">
+      </div>
+
+      <div class="cm-field">
+        <label>Notes</label>
+        <textarea name="notes" rows="3" placeholder="Write a quick note…" class="cm-input"></textarea>
+      </div>
+
+      <div class="cm-sheet-footer">
+        <button type="button" class="cm-btn cm-btn-outline" onclick="cmdToggleLogCall(false)">Cancel</button>
+        <button type="submit" class="cm-btn cm-btn-primary">Save Call Log</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function cmdToggleLogCall(open){
+  const el = document.getElementById('cmd-logcall-backdrop');
+  el.classList.toggle('cm-open', open === undefined ? !el.classList.contains('cm-open') : open);
+}
+function cmdOutcomeChosen(input){
+  input.closest('.cm-chip-row').querySelectorAll('.cm-chip').forEach(c => c.classList.remove('cm-chip-active'));
+  input.closest('.cm-chip').classList.add('cm-chip-active');
+  document.getElementById('cmd-followup-field').style.display = (input.value === 'CALLBACK') ? 'block' : 'none';
+}
+</script>
+{% endblock %}
