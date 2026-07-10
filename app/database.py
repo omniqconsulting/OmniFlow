@@ -2085,6 +2085,19 @@ def _pg_add_columns():
         "ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS low_stock_threshold FLOAT",
         "ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS media_urls_json TEXT DEFAULT '[]'",
         "ALTER TABLE product_stock ADD COLUMN IF NOT EXISTS branch_id VARCHAR REFERENCES branches(id)",
+        # Legacy pre-rename columns (product_id -> variant_id, migration
+        # g1h2i3j4k5l6) left over from the same stalled migration chain — the
+        # ORM never writes product_id anymore, so drop the NOT NULL
+        # constraint on each rather than leave every insert failing.
+        "ALTER TABLE product_stock ALTER COLUMN product_id DROP NOT NULL",
+        "ALTER TABLE stock_ledger ALTER COLUMN product_id DROP NOT NULL",
+        "ALTER TABLE inventory_po_items ALTER COLUMN product_id DROP NOT NULL",
+        "ALTER TABLE price_list_items ALTER COLUMN product_id DROP NOT NULL",
+        "ALTER TABLE price_list_item_history ALTER COLUMN product_id DROP NOT NULL",
+        "ALTER TABLE customer_price_overrides ALTER COLUMN product_id DROP NOT NULL",
+        "ALTER TABLE cost_entries ALTER COLUMN product_id DROP NOT NULL",
+        "ALTER TABLE sales_order_items ALTER COLUMN product_id DROP NOT NULL",
+        "ALTER TABLE stock_reservations ALTER COLUMN product_id DROP NOT NULL",
     ]
     try:
         with engine.begin() as conn:
