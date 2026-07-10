@@ -26,43 +26,6 @@
 .tk-step.skipped .tk-step-label{color:#f59e0b}
 .tk-step-line{flex:1;height:2px;background:var(--border-med);margin:0 8px;min-width:20px}
 .tk-step-line.done{background:#10b981}
-/* ── Overflow ("⋯") — desktop: flat inline row (unchanged); mobile: collapsible panel ── */
-.row-more{display:contents}
-.row-more > summary{display:none}
-.row-more > *:not(summary){display:contents !important}
-/* ── Mobile / standalone restyle ("Clean Feed") — desktop untouched above 767px ────────── */
-@media (display-mode: standalone), (max-width: 767px) {
-  .tpl-grid{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
-
-  .row-more{display:inline-block;position:relative}
-  .row-more > summary{
-    list-style:none;display:inline-flex;align-items:center;justify-content:center;
-    width:38px;height:38px;border-radius:8px;border:1px solid var(--border-subtle);
-    color:var(--text-muted);cursor:pointer;background:var(--bg-elevated);
-  }
-  .row-more > summary::-webkit-details-marker{display:none}
-  .row-more > *:not(summary){display:none !important}
-  .row-more[open] > *:not(summary){
-    display:flex !important;flex-direction:column;gap:6px;
-    position:absolute;right:0;top:44px;min-width:190px;
-    background:var(--bg-modal);border:1px solid var(--border-med);border-radius:10px;
-    padding:8px;box-shadow:0 8px 24px rgba(0,0,0,0.45);z-index:120;
-  }
-  .row-more .row-more-panel .btn,.row-more .row-more-panel form .btn{width:100%;justify-content:center}
-
-  /* header actions: keep Acknowledge visible, fold the rest into ⋯ */
-  .header-more[open] > .row-more-panel{top:auto;bottom:44px}
-
-  /* Actions card's primary + overflow row becomes a sticky bottom bar */
-  .mob-action-bar{
-    position:fixed;left:0;right:0;bottom:0;z-index:70;
-    background:var(--bg-card);border-top:1px solid var(--border-subtle);
-    padding:10px 14px calc(10px + env(safe-area-inset-bottom));
-    margin:0 !important;flex-wrap:nowrap !important;box-shadow:0 -4px 16px rgba(0,0,0,0.25);
-  }
-  .mob-action-bar > form,.mob-action-bar > button{flex:1}
-  .mob-action-bar .btn{width:100%;justify-content:center}
-}
 </style>
 
 <a href="/tickets?status={{ ticket.status }}" style="font-size:13px;color:var(--text-faint)">← Back to {{ L.Tickets }}</a>
@@ -106,29 +69,22 @@
       <button type="submit" class="btn btn-sm btn-green">✓ Acknowledge</button>
     </form>
     {% endif %}
-    {% if (user.role in ('ADMIN','MANAGER') and ticket.status not in ('DONE','CLOSED')) or (user.role in ('ADMIN','MANAGER') and ticket.status != 'CLOSED') or (user.role == 'ADMIN' and ticket.status == 'OPEN') %}
-    <details class="row-more header-more">
-      <summary title="More actions">⋯</summary>
-      <div class="row-more-panel">
-        {# P5-06: Send Reminder #}
-        {% if user.role in ('ADMIN','MANAGER') and ticket.status not in ('DONE','CLOSED') %}
-        <form method="post" action="/tickets/{{ ticket.id }}/remind" style="display:inline">
-          <button type="submit" class="btn btn-sm btn-outline" title="Send reminder to assignee">🔔 Remind</button>
-        </form>
-        {% endif %}
-        {# P5-08: Edit button #}
-        {% if user.role in ('ADMIN','MANAGER') and ticket.status != 'CLOSED' %}
-        <button onclick="show('edit-form')" class="btn btn-sm btn-outline">✏ Edit</button>
-        {% endif %}
-        {# E-02: Delete button (Admin only, OPEN tickets with no activity) #}
-        {% if user.role == 'ADMIN' and ticket.status == 'OPEN' %}
-        <form method="post" action="/tickets/{{ ticket.id }}/delete"
-              onsubmit="return confirm('Soft-delete this {{ L.ticket }}? It will be hidden but retained in the database.')">
-          <button type="submit" class="btn btn-sm btn-red">Delete</button>
-        </form>
-        {% endif %}
-      </div>
-    </details>
+    {# P5-06: Send Reminder #}
+    {% if user.role in ('ADMIN','MANAGER') and ticket.status not in ('DONE','CLOSED') %}
+    <form method="post" action="/tickets/{{ ticket.id }}/remind" style="display:inline">
+      <button type="submit" class="btn btn-sm btn-outline" title="Send reminder to assignee">🔔 Remind</button>
+    </form>
+    {% endif %}
+    {# P5-08: Edit button #}
+    {% if user.role in ('ADMIN','MANAGER') and ticket.status != 'CLOSED' %}
+    <button onclick="show('edit-form')" class="btn btn-sm btn-outline">✏ Edit</button>
+    {% endif %}
+    {# E-02: Delete button (Admin only, OPEN tickets with no activity) #}
+    {% if user.role == 'ADMIN' and ticket.status == 'OPEN' %}
+    <form method="post" action="/tickets/{{ ticket.id }}/delete"
+          onsubmit="return confirm('Soft-delete this {{ L.ticket }}? It will be hidden but retained in the database.')">
+      <button type="submit" class="btn btn-sm btn-red">Delete</button>
+    </form>
     {% endif %}
   </div>
 </div>
@@ -365,8 +321,8 @@
     <!-- Actions -->
     <div class="card">
       <h2>Actions</h2>
-      <div class="mob-action-bar" style="display:flex;flex-wrap:wrap;gap:8px">
-        {# E-01: Simplified delegation status flow — primary action for the current status #}
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        {# E-01: Simplified delegation status flow #}
         {% if ticket.status == 'OPEN' %}
           {# Mark as Done — assignee, manager, or admin; requires acknowledgement first #}
           {% if ticket.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER') %}
@@ -379,49 +335,43 @@
             </form>
             {% endif %}
           {% endif %}
-        {% elif ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
+          {# Log a Delay — current assignee only #}
+          {% if ticket.current_assignee_id == user.id %}
+          <button onclick="show('delay-form')" class="btn btn-sm btn-amber">⏱ Log a Delay</button>
+          {% endif %}
+          {# Reassign — assignee or admin/manager #}
+          {% if ticket.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER') %}
+          <button onclick="show('reassign-form')" class="btn btn-sm btn-purple">↩ Reassign</button>
+          {% endif %}
+        {% endif %}
+
         {# Close — Admin or Manager, on DONE tickets #}
+        {% if ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
         <button onclick="show('close-form')" class="btn btn-sm btn-gray">Close {{ L.Ticket }}</button>
-        {% elif ticket.status == 'CLOSED' and user.role == 'ADMIN' %}
+        {% endif %}
+
+        {# Phase 3: Close Directly — Admin or Manager, DONE tickets only.
+           On OPEN tickets, "Mark as Done" above already covers moving it forward. #}
+        {% if ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
+        <button onclick="show('close-direct-form')" class="btn btn-sm btn-red">⏭ Close Directly</button>
+        {% endif %}
+
+        {% if ticket.status == 'CLOSED' and user.role == 'ADMIN' %}
         <form method="post" action="/tickets/{{ ticket.id }}/action">
           <input type="hidden" name="action" value="reopen">
           <button class="btn btn-sm btn-outline">Reopen</button>
         </form>
         {% endif %}
 
-        {# Overflow — everything else that isn't the current status's primary action #}
-        {% if user.role in ('ADMIN','MANAGER') or ticket.current_assignee_id == user.id %}
-        <details class="row-more">
-          <summary title="More actions">⋯</summary>
-          <div class="row-more-panel">
-            {% if ticket.status == 'OPEN' %}
-              {# Log a Delay — current assignee only #}
-              {% if ticket.current_assignee_id == user.id %}
-              <button onclick="show('delay-form')" class="btn btn-sm btn-amber">⏱ Log a Delay</button>
-              {% endif %}
-              {# Reassign — assignee or admin/manager #}
-              {% if ticket.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER') %}
-              <button onclick="show('reassign-form')" class="btn btn-sm btn-purple">↩ Reassign</button>
-              {% endif %}
-            {% endif %}
-
-            {# Phase 3: Close Directly — Admin or Manager, DONE tickets only. #}
-            {% if ticket.status == 'DONE' and user.role in ('ADMIN','MANAGER') %}
-            <button onclick="show('close-direct-form')" class="btn btn-sm btn-red">⏭ Close Directly</button>
-            {% endif %}
-
-            {% if user.role in ('ADMIN','MANAGER') %}
-              {% if not ticket.is_flagged %}
-              <button onclick="show('flag-form')" class="btn btn-sm btn-red">🚩 Flag</button>
-              {% else %}
-              <form method="post" action="/tickets/{{ ticket.id }}/action">
-                <input type="hidden" name="action" value="unflag">
-                <button class="btn btn-sm btn-gray">Remove Flag</button>
-              </form>
-              {% endif %}
-            {% endif %}
-          </div>
-        </details>
+        {% if user.role in ('ADMIN','MANAGER') %}
+          {% if not ticket.is_flagged %}
+          <button onclick="show('flag-form')" class="btn btn-sm btn-red">🚩 Flag</button>
+          {% else %}
+          <form method="post" action="/tickets/{{ ticket.id }}/action">
+            <input type="hidden" name="action" value="unflag">
+            <button class="btn btn-sm btn-gray">Remove Flag</button>
+          </form>
+          {% endif %}
         {% endif %}
       </div>
 
