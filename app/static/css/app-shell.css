@@ -414,20 +414,21 @@ html{-webkit-tap-highlight-color:transparent}
 .bottom-nav a{
   flex:0 0 auto;
   width:20%;
-  min-width:78px;
+  min-width:84px;
   display:flex;
   flex-direction:column;
   align-items:center;
   justify-content:center;
-  gap:2px;
-  padding:8px 4px 6px;
+  gap:4px;
+  padding:9px 4px 7px;
   color:var(--text-muted);
-  font-size:10px;
+  font-size:11.5px;
   font-weight:600;
   text-decoration:none;
   text-align:center;
+  letter-spacing:0.01em;
 }
-.bottom-nav a .bn-icon{font-size:19px;line-height:1}
+.bottom-nav a .bn-icon{font-size:21px;line-height:1}
 .bottom-nav a.active{color:var(--color-primary)}
 html.light .bottom-nav{box-shadow:0 -1px 2px rgba(0,0,0,0.08)}
 
@@ -493,3 +494,4 @@ html.light .bottom-nav{box-shadow:0 -1px 2px rgba(0,0,0,0.08)}
 }
 .account-menu .am-item:active{background:var(--hover-bg)}
 .am-icon{font-size:16px;width:20px;text-align:center;flex-shrink:0}
+.am-divider{height:1px;background:var(--border-subtle);margin:2px 0}
