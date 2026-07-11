@@ -1,0 +1,71 @@
+/* ── inventory-mobile.css ─────────────────────────────────────────────────
+   PWA-only Inventory screens (Design: OmniFlow Tickets Redesign, options
+   6a/7a/8a/9a — Godown, Catalog, Purchase Orders, Dispatch Queue). Shared
+   with tickets-mobile.css's tm-* classes; this file only adds what those
+   four screens need on top of that shared vocabulary. #}
+
+/* persistent Godown/Catalog/Purchase Orders/Dispatch cross-link pill row —
+   same visual language as tm-tabs, but plain <a> links, not filter tabs */
+.inv-subnav{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;padding-bottom:2px}
+.inv-subnav::-webkit-scrollbar{display:none}
+.inv-subnav a{padding:7px 14px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap;background:var(--bg-elevated);color:var(--text-muted);text-decoration:none;flex-shrink:0}
+.inv-subnav a.inv-subnav-active{background:var(--accent);color:#fff;font-weight:700}
+
+/* KPI horizontal-scroll strip (6a) */
+.inv-kpi-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:14px}
+.inv-kpi-row::-webkit-scrollbar{display:none}
+.inv-kpi{flex-shrink:0;min-width:104px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:10px 14px}
+.inv-kpi-val{font-size:20px;font-weight:700;line-height:1.1}
+.inv-kpi-val.red{color:#f87171}
+.inv-kpi-val.amber{color:#fbbf24}
+.inv-kpi-val.green{color:#34d399}
+.inv-kpi-label{font-size:10px;color:var(--text-faint);margin-top:4px;font-weight:600;white-space:nowrap}
+
+.inv-section-label{padding:0 2px 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-faint)}
+
+/* stock/status meta row inside a tm-card (avail/reserved/transit) */
+.inv-meta-row{display:flex;align-items:center;gap:14px;font-size:11.5px;color:var(--text-faint);flex-wrap:wrap}
+.inv-meta-row b{color:var(--text-primary);font-weight:600}
+.inv-adjust-btn{font-size:11.5px;font-weight:700;color:var(--text-primary);background:var(--bg-elevated);padding:7px 13px;border-radius:8px;cursor:pointer}
+
+/* +/- stepper (Adjust Stock sheet) */
+.inv-stepper{display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:20px}
+.inv-stepper-btn{width:44px;height:44px;border-radius:12px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--text-primary);cursor:pointer;user-select:none;border:none}
+.inv-stepper-val{font-size:26px;font-weight:700;color:var(--text-strong);min-width:64px;text-align:center}
+.inv-stepper-input{font-size:26px;font-weight:700;color:var(--text-strong);width:88px;text-align:center;background:var(--bg-input);border:1px solid var(--border-med);border-radius:10px;padding:6px 4px;outline:none;font-family:inherit}
+.inv-stepper-input:focus{border-color:var(--accent)}
+/* hide native number spinners so it doesn't collide with the +/- buttons */
+.inv-stepper-input::-webkit-outer-spin-button,.inv-stepper-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.inv-stepper-input[type=number]{-moz-appearance:textfield}
+
+/* catalog card feed (7a) */
+.inv-cat-card{background:var(--bg-card);border-radius:16px;padding:14px 16px;margin:0 0 10px;border:1px solid var(--border-subtle);display:flex;gap:12px;align-items:flex-start;cursor:pointer}
+.inv-cat-photo{width:52px;height:52px;flex-shrink:0;border-radius:12px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;font-size:22px;opacity:.5;overflow:hidden}
+.inv-cat-photo img{width:100%;height:100%;object-fit:cover}
+
+/* purchase request cards (8a) — urgent amber framing */
+.inv-request-card{background:var(--bg-card);border:1px solid rgba(245,158,11,0.4);border-radius:16px;padding:14px 16px;margin:0 0 10px;display:flex;flex-direction:column;gap:8px}
+.inv-request-notes{font-size:11.5px;color:#93c5fd;font-style:italic}
+
+/* dispatch queue reorder controls (9a) */
+.inv-reorder{display:flex;flex-direction:column;gap:4px;flex-shrink:0}
+.inv-reorder-btn{width:26px;height:22px;border-radius:6px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text-primary);cursor:pointer;border:none}
+.inv-reorder-btn:disabled{opacity:.35;cursor:default}
+
+/* demand projection compact rows (9a) */
+.inv-demand-row{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border-subtle)}
+.inv-demand-product{flex:1;min-width:0;font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inv-demand-need{font-size:11px;color:var(--text-faint);flex-shrink:0}
+.inv-demand-gap{font-size:12px;font-weight:700;flex-shrink:0;min-width:36px;text-align:right}
+
+/* full-screen create flow (New Product / New PO) — mirrors checklists_mobile's cl-create-* */
+.inv-create-overlay{display:none;position:fixed;inset:0;background:var(--bg-base);z-index:500;flex-direction:column}
+.inv-create-overlay.inv-open{display:flex}
+.inv-create-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 12px;border-bottom:1px solid var(--border-subtle);flex-shrink:0}
+.inv-create-back{font-size:20px;color:var(--text-faint);cursor:pointer;width:24px}
+.inv-create-title{font-size:15px;font-weight:700;color:var(--text-strong)}
+.inv-create-body{flex:1;overflow-y:auto;padding:16px 18px 12px}
+.inv-create-footer{display:flex;gap:10px;padding:12px 18px 26px;border-top:1px solid var(--border-subtle);flex-shrink:0;background:var(--bg-base)}
+.inv-create-footer .tm-btn{flex:1}
+.inv-create-success{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:0 30px;text-align:center}
+.inv-hint{font-size:11px;color:var(--text-faint)}
