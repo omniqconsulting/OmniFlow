@@ -2223,6 +2223,9 @@ def setup_flow_edit_get(
             "evidence_required": s.evidence_required,
             "is_terminal": s.is_terminal,
             "custom_fields": cf,
+            "split_enabled": s.split_enabled,
+            "split_target_field": s.split_target_field or "",
+            "split_actual_field": s.split_actual_field or "",
         })
 
     employees = _get_active_employees(db, user.tenant_id)
@@ -2329,6 +2332,9 @@ async def setup_flow_create(
             evidence_required=bool(s.get("evidence_required")),
             is_terminal=bool(s.get("is_terminal")),
             custom_fields_json=_jf.dumps(cf),
+            split_enabled=bool(s.get("split_enabled")),
+            split_target_field=(s.get("split_target_field") or None),
+            split_actual_field=(s.get("split_actual_field") or None),
         ))
 
     db.commit()
@@ -2416,6 +2422,9 @@ async def setup_flow_update(
             stage.color = (s.get("color") or "#3b82f6").strip()
             stage.is_terminal = bool(s.get("is_terminal"))
             stage.custom_fields_json = _jf.dumps(cf)
+            stage.split_enabled = bool(s.get("split_enabled"))
+            stage.split_target_field = s.get("split_target_field") or None
+            stage.split_actual_field = s.get("split_actual_field") or None
         else:
             db.add(FMSStage(
                 id=new_id(),
@@ -2431,6 +2440,9 @@ async def setup_flow_update(
                 evidence_required=bool(s.get("evidence_required")),
                 is_terminal=bool(s.get("is_terminal")),
                 custom_fields_json=_jf.dumps(cf),
+                split_enabled=bool(s.get("split_enabled")),
+                split_target_field=(s.get("split_target_field") or None),
+                split_actual_field=(s.get("split_actual_field") or None),
             ))
 
     db.commit()

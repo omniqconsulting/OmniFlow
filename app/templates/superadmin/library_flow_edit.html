@@ -473,7 +473,31 @@ function renderStages() {
                      onchange="stages[${i}].is_terminal=this.checked;syncJson();renderPipeline();renderStages()">
               Terminal stage
             </label>
+            <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:#60a5fa;cursor:pointer">
+              <input type="checkbox" ${s.split_enabled?'checked':''}
+                     onchange="stages[${i}].split_enabled=this.checked;syncJson();renderStages()">
+              Split on this stage
+            </label>
           </div>
+
+          ${s.split_enabled ? `
+          <div class="stage-field" style="grid-column:1/-1;display:flex;gap:16px;flex-wrap:wrap;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.25);border-radius:8px;padding:10px 12px">
+            <div style="flex:1;min-width:180px">
+              <label>Target / expected field</label>
+              <select onchange="stages[${i}].split_target_field=this.value;syncJson()">
+                <option value="">— select field —</option>
+                ${splitFieldOptGroups(s, s.split_target_field)}
+              </select>
+            </div>
+            <div style="flex:1;min-width:180px">
+              <label>Actual / entered field</label>
+              <select onchange="stages[${i}].split_actual_field=this.value;syncJson()">
+                <option value="">— select field —</option>
+                ${splitFieldOptGroups(s, s.split_actual_field)}
+              </select>
+            </div>
+          </div>
+          ` : ''}
 
           <!-- Custom Fields -->
           <div class="stage-field" style="grid-column:1/-1">
@@ -506,6 +530,7 @@ function addStage() {
   stages.push({name: 'New Stage', color: '#3b82f6', is_terminal: false,
                description: '', target_tat_hours: null,
                completion_note_required: false, evidence_required: false,
+               split_enabled: false, split_target_field: '', split_actual_field: '',
                custom_fields: [], order: stages.length});
   syncJson();
   renderStages();
@@ -532,6 +557,20 @@ function syncJson() {
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function splitFieldOptGroups(stage, selected) {
+  var html = '<optgroup label="Ticket Fields">' +
+    '<option value="__target_qty__" ' + (selected === '__target_qty__' ? 'selected' : '') + '>Target Qty (built-in)</option>' +
+  '</optgroup>';
+  if ((stage.custom_fields || []).length) {
+    html += '<optgroup label="Stage Columns">' +
+      (stage.custom_fields || []).map(function(f) {
+        return '<option value="' + f.id + '" ' + (selected === f.id ? 'selected' : '') + '>' + escHtml(f.label || f.id) + '</option>';
+      }).join('') +
+    '</optgroup>';
+  }
+  return html;
 }
 
 renderStages();

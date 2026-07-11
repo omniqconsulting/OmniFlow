@@ -717,7 +717,27 @@ function buildStageEl(s, i) {
         '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer">' +
           '<input type="checkbox" ' + (s.is_terminal ? 'checked' : '') + ' onchange="stages[' + i + '].is_terminal=this.checked;renderStages()" style="accent-color:#3b82f6"> Terminal Stage' +
         '</label>' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer">' +
+          '<input type="checkbox" ' + (s.split_enabled ? 'checked' : '') + ' onchange="stages[' + i + '].split_enabled=this.checked;renderStages()" style="accent-color:#3b82f6"> ⑂ {{ L.get("Split","Split") }} on this stage' +
+        '</label>' +
       '</div>' +
+      (s.split_enabled ?
+      '<div style="display:flex;gap:20px;margin-bottom:14px;flex-wrap:wrap;background:var(--bg-subtle);padding:10px;border-radius:8px">' +
+        '<div class="fe-group">' +
+          '<label class="fe-label">{{ L.get("Split","Split") }} Target Field</label>' +
+          '<select class="fe-input" onchange="stages[' + i + '].split_target_field=this.value">' +
+            '<option value="">— Select —</option>' +
+            _splitFieldOptGroups(s, s.split_target_field) +
+          '</select>' +
+        '</div>' +
+        '<div class="fe-group">' +
+          '<label class="fe-label">{{ L.get("Split","Split") }} Actual/Entered Field</label>' +
+          '<select class="fe-input" onchange="stages[' + i + '].split_actual_field=this.value">' +
+            '<option value="">— Select —</option>' +
+            _splitFieldOptGroups(s, s.split_actual_field) +
+          '</select>' +
+        '</div>' +
+      '</div>' : '') +
       '<div style="border-top:1px solid var(--border-subtle);padding-top:12px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
           '<span style="font-size:12px;font-weight:600;color:var(--text-strong)">Custom Columns</span>' +
@@ -742,6 +762,23 @@ function _formulaDesc(col) {
   }).join('');
 }
 
+function _splitFieldOpt(id, label, selected) {
+  return '<option value="' + _esc(id) + '"' + (selected === id ? ' selected' : '') + '>' + _esc(label) + '</option>';
+}
+function _splitFieldOptGroups(stage, selected) {
+  var html = '';
+  html += '<optgroup label="Ticket Fields">' +
+    _splitFieldOpt('__target_qty__', 'Target Qty (built-in)', selected) +
+    (tfbFields || []).filter(function(f){ return f.field_type !== '__priority__' && f.field_type !== '__due_date__'; })
+      .map(function(f){ return _splitFieldOpt(f.id, f.label, selected); }).join('') +
+  '</optgroup>';
+  if ((stage.custom_fields || []).length) {
+    html += '<optgroup label="Stage Columns">' +
+      (stage.custom_fields || []).map(function(c){ return _splitFieldOpt(c.id, c.label, selected); }).join('') +
+    '</optgroup>';
+  }
+  return html;
+}
 function _colLabelById(id) {
   var tf = (tfbFields || []).find(function(c){ return c.id === id; });
   if (tf) return tf.label;
@@ -798,6 +835,7 @@ function addStage() {
   stages.push({ id: uuid(), name: '', order: stages.length, color: '#3b82f6',
     default_assignee_id: '', target_tat_hours: null, target_tat_unit: 'hours',
     completion_note_required: false, evidence_required: false, is_terminal: false,
+    split_enabled: false, split_target_field: '', split_actual_field: '',
     custom_fields: [], _open: true });
   renderStages();
   setTimeout(function() {
