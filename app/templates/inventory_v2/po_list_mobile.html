@@ -1,0 +1,257 @@
+{# ── po_list_mobile.html ──────────────────────────────────────────────────
+   PWA-only "Purchase Orders" screen (Design: OmniFlow Tickets Redesign,
+   option 8a — requests queue, status cards, Receive sheet). Served only
+   when the `pwa_ui` cookie is set, from the same route/context as the
+   desktop inventory_v2/po_list.html — see app/sales_inventory.py::po_list().
+   Do not port changes here back into po_list.html or vice versa. #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/tickets-mobile.css">
+<link rel="stylesheet" href="/static/css/inventory-mobile.css">
+
+<div id="inv-toast" class="tm-toast"></div>
+
+<div class="tm-header">
+  <div class="tm-title">Purchase Orders</div>
+  <div class="tm-header-actions">
+    <button type="button" class="tm-icon-btn" onclick="poToggleFilters()" title="Filters">
+      ⚙
+      {% if status or po_no or vendor or order_date_from or order_date_to or expected_from or expected_to %}
+      <span class="tm-icon-dot"></span>
+      {% endif %}
+    </button>
+  </div>
+</div>
+
+{% if msg %}<div class="tm-alert tm-alert-green">✓ {{ msg }}</div>{% endif %}
+{% if err %}<div class="tm-alert tm-alert-red">{{ err }}</div>{% endif %}
+
+<div class="inv-subnav" data-tabsscroll>
+  <a href="/inventory-v2">Godown</a>
+  <a href="/sales/catalog">Catalog</a>
+  <a href="/inventory-v2/purchase-orders" class="inv-subnav-active">Purchase Orders</a>
+  <a href="/inventory-v2/dispatch-queue">Dispatch</a>
+</div>
+
+{% set status_colors = {'DRAFT':'#94a3b8','SUBMITTED':'#3b82f6','APPROVED':'#8b5cf6','PARTIALLY_RECEIVED':'#f59e0b','RECEIVED':'#22c55e','CANCELLED':'#ef4444'} %}
+
+{% if purchase_requests %}
+<div class="inv-section-label" style="color:#fbbf24">📨 Purchase Requests</div>
+{% for r in purchase_requests %}
+<div class="inv-request-card">
+  <div>
+    <div class="tm-card-title">{{ r.variant.product.name if r.variant and r.variant.product else '—' }}</div>
+    <div class="tm-card-sub">{{ r.variant.sku_code if r.variant else '—' }} · Qty {{ r.qty_requested if r.qty_requested is not none else '—' }} · {{ r.requested_by.name if r.requested_by else '—' }}, {{ r.created_at | ist('%d %b') if r.created_at else '—' }}</div>
+  </div>
+  {% if r.notes %}<div class="inv-request-notes">📌 {{ r.notes }}</div>{% endif %}
+  <div style="display:flex;gap:8px">
+    <form method="post" action="/inventory-v2/purchase-requests/{{ r.id }}/approve" style="flex:1">
+      <button type="submit" class="tm-btn tm-btn-primary" style="width:100%">Approve → Create PO</button>
+    </form>
+    <form method="post" action="/inventory-v2/purchase-requests/{{ r.id }}/dismiss">
+      <button type="submit" class="tm-btn tm-btn-outline">Dismiss</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<div class="inv-section-label">Orders</div>
+<div class="tm-list">
+  {% if not pos %}
+  <div class="tm-empty">No purchase orders match the current filters.</div>
+  {% endif %}
+  {% for po in pos %}
+  <div class="tm-card" onclick="window.location.href='/inventory-v2/purchase-orders/{{ po.id }}'" style="cursor:pointer">
+    <div class="tm-card-top">
+      <div>
+        <div class="tm-card-title">{{ po.display_id }}</div>
+        <div class="tm-card-sub">{{ po.vendor_name_snapshot or '—' }}</div>
+      </div>
+      <span class="tm-badge" style="background:{{ status_colors.get(po.status,'#94a3b8') }};color:#fff">{{ po.status.replace('_',' ') }}</span>
+    </div>
+    <div class="inv-meta-row">
+      <div>Ordered {{ po.created_at | ist('%d %b %Y') if po.created_at else '—' }}</div>
+      <div>Exp. {{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</div>
+      <div>{{ po.items|length }} item(s)</div>
+    </div>
+    {% if po.status in ('SUBMITTED', 'APPROVED', 'PARTIALLY_RECEIVED') %}
+    <div class="tm-btn tm-btn-primary" style="text-align:center;cursor:pointer" onclick="event.stopPropagation();poOpenReceive('{{ po.id }}')">Receive</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<button type="button" class="tm-fab" style="left:auto;right:18px" onclick="poOpenCreate()" title="New PO">+</button>
+
+<!-- ── Filter bottom sheet ──────────────────────────────────────────────── -->
+<div class="tm-sheet-backdrop" id="po-filters-backdrop" onclick="if(event.target===this)poToggleFilters(false)">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr">
+      <div class="tm-sheet-title">Filters</div>
+      <button type="button" class="tm-sheet-done" onclick="poToggleFilters(false)">Done</button>
+    </div>
+    <form method="get" action="/inventory-v2/purchase-orders">
+      <div class="tm-sheet-label">Status</div>
+      <div class="tm-chip-row">
+        {% for s in status_choices %}
+        <label class="tm-chip {% if status == s %}tm-chip-active{% endif %}">
+          <input type="radio" name="status" value="{{ s }}" {% if status == s %}checked{% endif %} onchange="tmChipToggle(this)" hidden>
+          {{ s.replace('_',' ')|title }}
+        </label>
+        {% endfor %}
+      </div>
+      <div class="tm-sheet-footer">
+        <a href="/inventory-v2/purchase-orders" class="tm-btn tm-btn-outline">Clear</a>
+        <button type="submit" class="tm-btn tm-btn-primary">Apply Filters</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Receive sheet ────────────────────────────────────────────────────── -->
+<div class="tm-sheet-backdrop" id="po-receive-backdrop" onclick="if(event.target===this)poCloseReceive()">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-title" style="margin-bottom:4px" id="po-receive-title">Receive</div>
+    <div style="font-size:12px;color:var(--text-faint);margin-bottom:14px" id="po-receive-sub"></div>
+    <div class="inv-hint" style="margin-bottom:12px">Adjust quantity per item for a partial receipt, or leave as-is to receive everything remaining.</div>
+    <div id="po-receive-items"></div>
+    <div style="display:flex;gap:10px;margin-top:6px">
+      <div onclick="poCloseReceive()" class="tm-btn tm-btn-outline" style="flex:1;cursor:pointer">Cancel</div>
+      <div onclick="poConfirmReceive()" class="tm-btn tm-btn-primary" style="flex:1;cursor:pointer">Record Receipt</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── New PO — full-screen create flow ────────────────────────────────── -->
+<div class="inv-create-overlay" id="po-create-overlay">
+  <div id="po-create-form">
+    <div class="inv-create-hdr">
+      <div onclick="poCloseCreate()" class="inv-create-back">×</div>
+      <div class="inv-create-title">New Purchase Order</div>
+      <div style="width:24px"></div>
+    </div>
+    <form method="post" action="/inventory-v2/purchase-orders/create" id="po-create-form-el">
+      <input type="hidden" name="mobile" value="1">
+      <div class="inv-create-body">
+        <div class="tm-sheet-label">Vendor</div>
+        <input type="text" name="vendor_name" required placeholder="e.g. Shree Packaging Co." class="tm-input" style="margin-bottom:16px">
+
+        <div class="tm-sheet-label">Item</div>
+        <select name="variant_id[]" required class="tm-input" style="margin-bottom:12px">
+          <option value="">Select product / SKU…</option>
+          {% for v in variants %}
+          <option value="{{ v.id }}">{{ (v.product.name + ' — ' if v.product else '') }}{{ v.sku_code }}</option>
+          {% endfor %}
+        </select>
+        <div class="tm-sheet-grid">
+          <div class="tm-field"><label>Quantity</label>
+            <input type="number" step="any" min="0.01" name="qty_ordered[]" required placeholder="e.g. 100" class="tm-input"></div>
+          <div class="tm-field"><label>Unit Cost</label>
+            <input type="number" step="any" min="0.01" name="unit_cost[]" required placeholder="e.g. 25.50" class="tm-input"></div>
+        </div>
+        <div class="inv-hint">Additional line items, vendor selection and expected arrival date stay on the desktop create form for now — this starts a draft your team can complete there.</div>
+      </div>
+      <div class="inv-create-footer">
+        <div onclick="poCloseCreate()" class="tm-btn tm-btn-outline" style="cursor:pointer">Cancel</div>
+        <button type="submit" class="tm-btn tm-btn-primary">Create Draft PO</button>
+      </div>
+    </form>
+  </div>
+  <div class="inv-create-success" id="po-create-success" style="display:none">
+    <div style="font-size:44px">✅</div>
+    <div style="font-size:16px;font-weight:700;color:var(--text-strong)">Draft PO started</div>
+    <div style="font-size:12.5px;color:var(--text-faint)">A draft order was created and can be submitted for approval.</div>
+    <div onclick="poCloseCreate()" class="tm-btn tm-btn-primary" style="margin-top:10px;padding:12px 32px;flex:none">Done</div>
+  </div>
+</div>
+
+<script>
+const PO_DATA = {
+  {% for po in pos %}
+  "{{ po.id }}": {
+    display: {{ po.display_id | tojson }},
+    vendor: {{ (po.vendor_name_snapshot or '—') | tojson }},
+    items: [
+      {% for item in po.items %}
+      {% set remaining = item.qty_ordered - item.qty_received %}
+      {% if remaining > 0 %}
+      {
+        id: {{ item.id | tojson }},
+        label: {{ ((item.variant.product.name if item.variant and item.variant.product else '') + ' — ' + (item.variant.sku_code if item.variant else '')) | tojson }},
+        remaining: {{ remaining }},
+      },
+      {% endif %}
+      {% endfor %}
+    ],
+  },
+  {% endfor %}
+};
+{% if request.query_params.get('msg') == 'PO created' %}
+document.addEventListener('DOMContentLoaded', function(){
+  document.getElementById('po-create-overlay').classList.add('inv-open');
+  document.getElementById('po-create-form').style.display = 'none';
+  document.getElementById('po-create-success').style.display = 'flex';
+});
+{% endif %}
+function poToggleFilters(open){
+  const el = document.getElementById('po-filters-backdrop');
+  if(!el) return;
+  el.classList.toggle('tm-open', open === undefined ? !el.classList.contains('tm-open') : open);
+}
+function tmChipToggle(input){
+  if (input.type === 'radio') {
+    input.closest('.tm-chip-row').querySelectorAll('.tm-chip').forEach(c => c.classList.remove('tm-chip-active'));
+  }
+  input.closest('.tm-chip').classList.toggle('tm-chip-active', input.checked);
+}
+let poReceiveId = null;
+function poOpenReceive(poId){
+  poReceiveId = poId;
+  const po = PO_DATA[poId];
+  document.getElementById('po-receive-title').textContent = 'Receive — ' + po.display;
+  document.getElementById('po-receive-sub').textContent = po.vendor;
+  const container = document.getElementById('po-receive-items');
+  container.innerHTML = po.items.map(function(it){
+    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+      '<div style="flex:1;min-width:0;font-size:12.5px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + it.label + '</div>' +
+      '<input type="number" step="any" min="0" max="' + it.remaining + '" value="' + it.remaining + '" data-item-id="' + it.id + '" class="tm-input" style="width:88px;flex-shrink:0">' +
+      '</div>';
+  }).join('');
+  document.getElementById('po-receive-backdrop').classList.add('tm-open');
+}
+function poCloseReceive(){
+  document.getElementById('po-receive-backdrop').classList.remove('tm-open');
+}
+async function poConfirmReceive(){
+  const fd = new FormData();
+  fd.append('ajax', '1');
+  let any = false;
+  document.querySelectorAll('#po-receive-items input[data-item-id]').forEach(function(inp){
+    const qty = parseFloat(inp.value);
+    if (!isNaN(qty) && qty > 0) {
+      fd.append('po_item_id[]', inp.dataset.itemId);
+      fd.append('qty_received[]', qty);
+      fd.append('unit_cost[]', '');
+      any = true;
+    }
+  });
+  if (!any) { alert('Enter a received quantity for at least one item'); return; }
+  const res = await fetch('/inventory-v2/purchase-orders/' + poReceiveId + '/receive', { method: 'POST', body: fd });
+  const d = await res.json().catch(function(){ return {}; });
+  if (!res.ok) { alert((d && d.error) || 'Could not record receipt'); return; }
+  window.location.href = '/inventory-v2/purchase-orders?msg=Receipt+recorded';
+}
+function poOpenCreate(){
+  document.getElementById('po-create-overlay').classList.add('inv-open');
+  document.getElementById('po-create-form').style.display = 'block';
+  document.getElementById('po-create-success').style.display = 'none';
+}
+function poCloseCreate(){
+  document.getElementById('po-create-overlay').classList.remove('inv-open');
+  if (window.location.search.includes('msg=')) window.location.href = '/inventory-v2/purchase-orders';
+}
+</script>
+{% endblock %}

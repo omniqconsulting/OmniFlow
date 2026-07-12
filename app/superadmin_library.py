@@ -348,6 +348,9 @@ def lib_flow_deploy(flow_id: str, tenant_id: str = Form(...),
             is_terminal=bool(lib_stage.is_terminal),
             custom_fields_json=lib_stage.custom_fields_json or '[]',
             is_deleted=False,
+            split_enabled=bool(getattr(lib_stage, 'split_enabled', False)),
+            split_target_field=getattr(lib_stage, 'split_target_field', None),
+            split_actual_field=getattr(lib_stage, 'split_actual_field', None),
         ))
 
     _upsert_deployed(db, tenant_id, "flow", flow_id, flow.name, flow.version,
@@ -966,6 +969,9 @@ def _stage_to_dict(s: LibraryFlowStage) -> dict:
         "completion_note_required": bool(s.completion_note_required),
         "evidence_required": bool(s.evidence_required),
         "custom_fields": _json.loads(s.custom_fields_json or "[]"),
+        "split_enabled": bool(getattr(s, "split_enabled", False)),
+        "split_target_field": getattr(s, "split_target_field", None) or "",
+        "split_actual_field": getattr(s, "split_actual_field", None) or "",
     }
 
 
@@ -989,6 +995,9 @@ def _save_stages(db, template_id: str, stages_json: str):
             completion_note_required=bool(s.get("completion_note_required")),
             evidence_required=bool(s.get("evidence_required")),
             custom_fields_json=_json.dumps(custom_fields) if custom_fields else "[]",
+            split_enabled=bool(s.get("split_enabled")),
+            split_target_field=(s.get("split_target_field") or None) if s.get("split_enabled") else None,
+            split_actual_field=(s.get("split_actual_field") or None) if s.get("split_enabled") else None,
         ))
 
 

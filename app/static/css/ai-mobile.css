@@ -1,0 +1,74 @@
+/* ── ai-mobile.css ─────────────────────────────────────────────────────────
+   PWA-only Ask AI screen styling, layered on top of tickets-mobile.css's
+   shared tm-* primitives (tabs, chips, cards). Own prefix `aim-` for
+   AI-specific pieces (hero, buttons, chat) — same convention as
+   contacts-mobile.css / checklists-mobile.css. */
+
+.aim-hero {
+  margin: 6px 16px 14px;
+  border-radius: 18px;
+  padding: 20px 18px;
+  background: linear-gradient(135deg, #0f0c29 0%, #1a0533 40%, #0d1b4b 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+.aim-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(139, 92, 246, 0.4);
+  border-radius: 20px; padding: 4px 11px; font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: #a5b4fc; margin-bottom: 10px;
+}
+.aim-badge-dot { width: 6px; height: 6px; border-radius: 99px; background: #818cf8; display: inline-block; }
+.aim-title { font-size: 19px; font-weight: 800; color: #f1f5f9; line-height: 1.25; margin-bottom: 8px; }
+.aim-title span {
+  background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.aim-sub { font-size: 11.5px; color: #94a3b8; line-height: 1.55; }
+
+.aim-warning {
+  margin: 0 16px 14px; padding: 12px 14px; border-radius: 10px;
+  background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fcd34d; font-size: 12px; line-height: 1.5;
+}
+.aim-warning code { background: rgba(245, 158, 11, 0.18); border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+
+.aim-card-label {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: #818cf8; margin-bottom: 10px;
+}
+
+.aim-btn {
+  text-align: center; padding: 12px 0; border-radius: 10px; border: none; cursor: pointer;
+  font-size: 13.5px; font-weight: 700; color: #fff;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+.aim-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.aim-textarea {
+  width: 100%; box-sizing: border-box; background: var(--bg-input);
+  border: 1px solid var(--border-subtle); border-radius: 10px; padding: 11px 13px;
+  font-size: 13px; color: var(--text-strong); outline: none; font-family: inherit;
+  min-height: 56px; resize: none;
+}
+
+.aim-prompt-chip {
+  flex-shrink: 0; padding: 7px 13px; border-radius: 99px; font-size: 11px; color: #818cf8;
+  background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25);
+  white-space: nowrap; cursor: pointer;
+}
+
+.aim-rpt-card { padding: 16px 18px }
+.aim-rpt-title { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+.aim-rpt-body { font-size: 12px; color: var(--text-faint); line-height: 1.65; }
+
+.aim-answer-header {
+  display: flex; align-items: center; gap: 8px; padding: 11px 16px;
+  background: rgba(99, 102, 241, 0.1); border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px; font-weight: 600; color: #a5b4fc;
+}
+.aim-answer-avatar {
+  width: 22px; height: 22px; border-radius: 99px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff;
+}
+.aim-answer-body { padding: 16px; font-size: 12.5px; line-height: 1.65; color: var(--text-faint); }

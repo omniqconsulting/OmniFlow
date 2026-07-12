@@ -47,6 +47,15 @@
     <div class="am-user">{{ user.name }} · {{ user.role }}</div>
     <button type="button" class="am-item" onclick="toggleTheme()"><span class="am-icon">🌙</span>Switch theme</button>
     <a href="/profile" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">👤</span>Profile</a>
+    {% if user.role in ('ADMIN','MANAGER') %}
+    <div class="am-divider"></div>
+    <a href="/employees" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">👥</span>{{ L.Employees if L is defined else 'Employees' }}</a>
+    {% endif %}
+    {% if user.role == 'ADMIN' %}
+    <a href="/setup" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">⚙️</span>Setup</a>
+    <a href="/plan" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">✉️</span>Contact Us</a>
+    {% endif %}
+    <div class="am-divider"></div>
     <a href="/logout" class="am-item"><span class="am-icon">↪️</span>Logout</a>
   </div>
 </div>

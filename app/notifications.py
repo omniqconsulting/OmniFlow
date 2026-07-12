@@ -533,6 +533,29 @@ def notify_fms_stage_transition(tenant_id: str, ticket_id: str, ticket_title: st
     })
 
 
+def notify_fms_split_created(tenant_id: str, ticket_id: str, ticket_display_id: str,
+                              split_display_id: str, stage_name: str, actor_id: str,
+                              admin_ids: list, manager_ids: list, new_assignee_id: str):
+    """
+    FMS Auto-Split Engine (brief §5/§9-E): real-time broadcast fired whenever
+    the split engine auto-creates a moved-forward split. Mirrors
+    notify_fms_stage_transition's audience pattern (admin + scoped managers +
+    new assignee). Never raises — broadcast_sync is already fire-and-forget;
+    callers must still wrap this call in try/except (see app/fms.py) so a
+    WS-layer failure can never block split creation.
+    """
+    from .ws_manager import SPLIT_CREATED
+    audience = list(set((admin_ids or []) + (manager_ids or []) + [new_assignee_id or ""]))
+    audience = [uid for uid in audience if uid]
+    broadcast_sync(tenant_id, audience, SPLIT_CREATED, {
+        "ticket_id":         ticket_id,
+        "ticket_display_id": ticket_display_id,
+        "split_display_id":  split_display_id,
+        "stage_name":        stage_name,
+        "actor_id":          actor_id,
+    })
+
+
 def notify_store_alert(tenant_id: str, alert_type: str, message: str,
                         store_manager_ids: list):
     """

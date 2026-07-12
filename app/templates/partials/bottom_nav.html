@@ -6,10 +6,11 @@
    On mobile/standalone the top .nav is hidden entirely (app-shell.css) so
    this partial is the sole nav surface there.
 
-   All destinations render as one horizontally-scrollable row (no "Others"
-   overflow sheet) — same has_*/user.role conditionals as the desktop nav
-   in base.html. Notifications/theme/sound/profile/logout live in the
-   mobile-topbar's account menu (base.html) instead of duplicating here. #}
+   All destinations render as one horizontally-scrollable row — same
+   has_*/user.role conditionals as the desktop nav in base.html.
+   Notifications/theme/sound/profile/logout, plus Employees/Setup/Contact Us,
+   live in the mobile-topbar's account menu (base.html, opened via the 👤
+   icon) instead of duplicating here. #}
 <nav class="bottom-nav">
   <div class="bottom-nav-fade bottom-nav-fade-l"></div>
   <div class="bottom-nav-fade bottom-nav-fade-r"></div>
@@ -49,32 +50,8 @@
     <a href="/sales/orders" {% if '/sales/orders' in request.url.path %}class="active"{% endif %}>
       <span class="bn-icon">🧾</span>Sell
     </a>
-    {% if user.role in ('ADMIN', 'MANAGER') %}
-    <a href="/sales/catalog" {% if '/sales/catalog' in request.url.path %}class="active"{% endif %}>
-      <span class="bn-icon">📚</span>Catalog
-    </a>
-    <a href="/sales/pricing" {% if '/sales/pricing' in request.url.path %}class="active"{% endif %}>
-      <span class="bn-icon">💰</span>Pricing
-    </a>
-    {% if has_sales_analytics %}
-    <a href="/sales/analytics" {% if '/sales/analytics' in request.url.path %}class="active"{% endif %}>
-      <span class="bn-icon">📈</span>Insights
-    </a>
-    {% endif %}
-    {% endif %}
-    {% endif %}
-    {% if user.role in ('ADMIN','MANAGER') %}
-    <a href="/employees" {% if '/employees' in request.url.path %}class="active"{% endif %}>
-      <span class="bn-icon">👥</span>{{ L.Employees if L is defined else 'Employees' }}
-    </a>
     {% endif %}
     {% if user.role == 'ADMIN' %}
-    <a href="/setup" {% if '/setup' in request.url.path %}class="active"{% endif %}>
-      <span class="bn-icon">⚙️</span>Setup
-    </a>
-    <a href="/plan" {% if '/plan' in request.url.path %}class="active"{% endif %}>
-      <span class="bn-icon">✉️</span>Contact Us
-    </a>
     <a href="/ai" {% if '/ai' in request.url.path %}class="active"{% endif %}>
       <span class="bn-icon">✦</span>Ask AI
     </a>

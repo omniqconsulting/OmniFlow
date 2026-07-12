@@ -759,7 +759,8 @@ async def submit_help_request(
 def help_page(request: Request, user: User = Depends(get_current_user_or_redirect),
               db: Session = Depends(get_db)):
     unread = _unread_count(db, user)
-    return templates.TemplateResponse(request, "help.html", {
+    template_name = "help_mobile.html" if request.cookies.get("pwa_ui") == "1" else "help.html"
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": unread, "L": _L(db, user),
         **_nav_ctx(db, user),
     })
@@ -780,7 +781,8 @@ def profile_page(request: Request, user: User = Depends(get_current_user_or_redi
     unread = _unread_count(db, user)
     msg = request.query_params.get("msg", "")
     error = request.query_params.get("error", "")
-    return templates.TemplateResponse(request, "profile.html", {
+    template_name = "profile_mobile.html" if request.cookies.get("pwa_ui") == "1" else "profile.html"
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": unread, "L": _L(db, user),
         "msg": msg, "error": error,
         **_nav_ctx(db, user),
@@ -3984,7 +3986,8 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_red
         e.gadget_list = gadgets_by_user.get(e.id, [])
         e.effective_tabs = get_user_tabs(e, tenant, db)
 
-    return templates.TemplateResponse(request, "employees.html", {
+    template_name = "employees_mobile.html" if request.cookies.get("pwa_ui") == "1" else "employees.html"
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "employees": all_users, "departments": departments_unique,
@@ -5301,7 +5304,8 @@ def notifications_page(request: Request, user: User = Depends(get_current_user_o
     notifs = db.query(Notification).filter(
         Notification.user_id == user.id,
     ).order_by(Notification.created_at.desc()).limit(100).all()
-    return templates.TemplateResponse(request, "notifications.html", {
+    template_name = "notifications_mobile.html" if request.cookies.get("pwa_ui") == "1" else "notifications.html"
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "notifications": notifs,

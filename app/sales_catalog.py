@@ -303,7 +303,8 @@ def catalog_list(
             "state": "NONE", "variant_id": variant_ids[0] if variant_ids else None, "in_transit": total_in_transit,
         }
 
-    return templates.TemplateResponse(request, "sales/catalog_list.html", _ctx(
+    cat_template_name = "sales/catalog_list_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/catalog_list.html"
+    return templates.TemplateResponse(request, cat_template_name, _ctx(
         db, user,
         products=products, total=total, page=page, page_size=PAGE_SIZE,
         q=q, category_id=category_id, sub_category_id=sub_category_id, tier=tier, active=active,
@@ -437,7 +438,18 @@ async def catalog_create(
             "threshold": thresholds[i] if i < len(thresholds) and thresholds[i] else None,
         })
 
-    if not has_row:
+    if not has_row and source == "mobile":
+        # Mobile's "New Product" sheet only collects name + category (full
+        # variant/SKU entry stays desktop-only per design) — auto-generate a
+        # single blank variant so the product is still sellable immediately.
+        has_row = True
+        auto_sku = generate_product_sku(
+            db, user.tenant_id,
+            category.name if category else None,
+            sub_category.name if sub_category else None,
+        )
+        variant_rows.append({"sku": auto_sku, "label": "", "unit_id": None, "threshold": None})
+    elif not has_row:
         return RedirectResponse(
             f"{err_redirect}?err=At+least+one+Variant+row+is+required+-+a+Product+alone+isn't+sellable",
             status_code=303,
@@ -471,6 +483,8 @@ async def catalog_create(
     db.commit()
     if source == "setup":
         return RedirectResponse("/setup/end-products?msg=Product+created", status_code=303)
+    if source == "mobile":
+        return RedirectResponse("/sales/catalog?msg=Product+created", status_code=303)
     return RedirectResponse(f"/sales/catalog/{product.id}?msg=Product+created", status_code=303)
 
 

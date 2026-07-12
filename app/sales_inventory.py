@@ -497,7 +497,8 @@ def inventory_dashboard(
     ).order_by(SubCategory.name).all()
 
     can_edit = user.role in ("ADMIN", "MANAGER")
-    return templates.TemplateResponse(request, "inventory_v2/dashboard.html", _ctx(
+    template_name = "inventory_v2/dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/dashboard.html"
+    return templates.TemplateResponse(request, template_name, _ctx(
         db, user,
         stock_rows=stock_rows,
         show_branch_col=bool(branch_id),
@@ -821,7 +822,8 @@ def po_list(
         PurchaseRequest.tenant_id == user.tenant_id, PurchaseRequest.status == "PENDING",
     ).order_by(PurchaseRequest.created_at.asc()).all()
 
-    return templates.TemplateResponse(request, "inventory_v2/po_list.html", _ctx(
+    po_template_name = "inventory_v2/po_list_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/po_list.html"
+    return templates.TemplateResponse(request, po_template_name, _ctx(
         db, user, pos=pos, variants=variants, vendors=vendors, units=units,
         purchase_requests=purchase_requests,
         prefill_variant=request.query_params.get("prefill_variant", ""),
@@ -875,8 +877,9 @@ async def po_create(
     qtys = form.getlist("qty_ordered[]")
     unit_costs = form.getlist("unit_cost[]")
     unit_ids = form.getlist("unit_id[]")
+    is_mobile_draft = form.get("mobile") == "1"
 
-    if not variant_ids:
+    if not variant_ids and not is_mobile_draft:
         return RedirectResponse("/inventory-v2/purchase-orders?err=Add+at+least+one+line+item", status_code=303)
 
     vendor_name_snapshot = vendor_name.strip() or None
@@ -921,7 +924,7 @@ async def po_create(
             )
         line_items.append((vid, qty, unit_cost, uid))
 
-    if not line_items:
+    if not line_items and not is_mobile_draft:
         db.rollback()
         return RedirectResponse("/inventory-v2/purchase-orders?err=Add+at+least+one+line+item", status_code=303)
 
@@ -933,6 +936,8 @@ async def po_create(
         ))
 
     db.commit()
+    if is_mobile_draft:
+        return RedirectResponse("/inventory-v2/purchase-orders?msg=PO+created", status_code=303)
     return RedirectResponse(f"/inventory-v2/purchase-orders/{po.id}?msg=PO+created", status_code=303)
 
 
@@ -1452,7 +1457,8 @@ def dispatch_queue(
     branches = _active_branches(db, user.tenant_id)
     demand_projection = get_demand_projection(db, user.tenant_id)
 
-    return templates.TemplateResponse(request, "inventory_v2/dispatch_queue.html", _ctx(
+    dq_template_name = "inventory_v2/dispatch_queue_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/dispatch_queue.html"
+    return templates.TemplateResponse(request, dq_template_name, _ctx(
         db, user, rows=rows, branches=branches, demand_projection=demand_projection,
         order_no=order_no, customer=customer, sku=sku,
         order_date_from=order_date_from, order_date_to=order_date_to,

@@ -801,6 +801,18 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
               </button>
               {% endif %}
 
+              {# Manage Splits — merge/close individual splits. The read-only
+                 Splits popup (R8/§6.3) has zero action buttons, so this is the
+                 entry point that keeps the existing manual merge/close-split
+                 features reachable. #}
+              {% if row.split_count and row.split_count > 1 %}
+              <button type="button" data-splits='{{ row.splits_payload | tojson | replace("'", "&#39;") }}'
+                      onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openManageSplitsModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}',JSON.parse(this.dataset.splits))"
+                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#60a5fa;cursor:pointer;font-family:inherit">
+                ⑂ {{ L.get('ManageSplits','Manage Splits') }}
+              </button>
+              {% endif %}
+
               {# Notify — admin/manager #}
               {% if user.role in ('ADMIN','MANAGER') %}
               <button onclick="submitNotify('{{ t.id }}','{{ active_flow.id if active_flow else '' }}','{{ active_stage.id }}')"
@@ -1558,6 +1570,16 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
                style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
       </div>
 
+      <!-- FMS Auto-Split Engine (R7): optional per-split evidence — never
+           mandatory. Uploaded via a separate fire-and-forget request (see
+           scForm submit handler) so it can never block split creation. -->
+      <div class="fm-group">
+        <label>{{ L.get('SplitEvidence','Split evidence (optional)') }}</label>
+        <input type="file" name="split_evidence_file" id="scSplitEvidenceFile"
+               accept="image/*,.pdf,audio/*,video/*"
+               style="width:100%;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
+      </div>
+
       <input type="hidden" name="qty_completed" value="0">
       <input type="hidden" name="return_reason" value="">
 
@@ -1747,15 +1769,17 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
   </div>
 </div>
 
-<!-- ── Phase 0: Splits list modal — shown when a ticket has >1 active split.
-     Each split gets the same action set as a main ticket row (Mark Done,
-     Return to earlier stage, Reassign, Help, Flag, Enter Data, Split, Close),
-     plus a checkbox to select 2+ splits and merge them back into one. ── -->
+<!-- ── FMS Auto-Split Engine (R8/§6.3): read-only splits table. No action
+     buttons of any kind here — this view exists purely to show ticket-creation
+     columns plus the value entered per split, for audit/visibility. Manual
+     split actions (reassign/return/flag/close/merge/etc.) remain available
+     from the main ticket row and its own modals; they are intentionally not
+     reachable from this view. ── -->
 <div id="fmsSplitsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
-  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:900px;max-width:96vw;max-height:88vh;overflow-y:auto">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:1040px;max-width:96vw;max-height:88vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div>
-        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">⑂ Active Splits</div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">⑂ {{ L.get('Splits','Splits') }}</div>
         <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="fmsSplitsSubtitle"></div>
       </div>
       <button onclick="closeSplitsModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
@@ -1763,19 +1787,58 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
     <div style="overflow-x:auto">
     <table class="table" style="font-size:12px">
       <thead>
-        <tr>
-          <th style="width:28px"></th>
-          <th>Split</th><th>Stage</th><th>Assignee</th><th>Status</th><th>Qty</th><th>Last action</th><th>Actions</th>
+        <tr id="fmsSplitsHeadRow">
+          <th>{{ L.get('Split','Split') }}</th>
+          <!-- ticket-creation-form columns injected here dynamically, since
+               they vary per flow (id="fmsSplitsHeadDynamic" marker below) -->
+          <th id="fmsSplitsHeadDynamic" style="display:none"></th>
+          <th>{{ L.get('TargetQty','Target Qty') }}</th>
+          <th>{{ L.get('ValueEntered','Value Entered') }}</th>
+          <th>{{ L.get('Stage','Stage') }}</th>
+          <th>{{ L.get('Assignee','Assignee') }}</th>
+          <th>{{ L.get('Status','Status') }}</th>
+          <th>{{ L.get('Evidence','Evidence') }}</th>
+          <th>{{ L.get('Timestamp','Timestamp') }}</th>
         </tr>
       </thead>
       <tbody id="fmsSplitsBody"></tbody>
     </table>
     </div>
+    <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:16px">
+      <button type="button" onclick="closeSplitsModal()" class="btn btn-sm">{{ L.get('Close','Close') }}</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Manage Splits modal (dot-menu entry): the manual merge/close-split
+     actions still need somewhere to live now that the read-only Splits popup
+     above has none (R8/§6.3). This is NOT the "splits popup" the brief asks
+     to redesign — it's a separate, purpose-built actions panel. ── -->
+<div id="fmsManageSplitsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:640px;max-width:96vw;max-height:88vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">⑂ {{ L.get('ManageSplits','Manage Splits') }}</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="fmsManageSplitsSubtitle"></div>
+      </div>
+      <button onclick="closeManageSplitsModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <div style="overflow-x:auto">
+    <table class="table" style="font-size:12px">
+      <thead>
+        <tr>
+          <th style="width:28px"></th>
+          <th>{{ L.get('Split','Split') }}</th><th>{{ L.get('Stage','Stage') }}</th><th>{{ L.get('Status','Status') }}</th><th>{{ L.get('Qty','Qty') }}</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="fmsManageSplitsBody"></tbody>
+    </table>
+    </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px">
-      <button type="button" id="fmsSplitsMergeBtn" onclick="openMergeSplitsModal()" class="btn btn-sm" style="display:none;border-color:rgba(96,165,250,.5);color:#60a5fa">
-        ⑂ Merge Selected (<span id="fmsSplitsMergeCount">0</span>)
+      <button type="button" id="fmsManageSplitsMergeBtn" onclick="openMergeSplitsModal()" class="btn btn-sm" style="display:none;border-color:rgba(96,165,250,.5);color:#60a5fa">
+        ⑂ {{ L.get('MergeSelected','Merge Selected') }} (<span id="fmsManageSplitsMergeCount">0</span>)
       </button>
-      <button type="button" onclick="closeSplitsModal()" class="btn btn-sm">Close</button>
+      <button type="button" onclick="closeManageSplitsModal()" class="btn btn-sm">{{ L.get('Close','Close') }}</button>
     </div>
   </div>
 </div>
@@ -2378,6 +2441,16 @@ const STAGE_CF_DEFS = {
   {% endfor %}
 };
 const REF_LISTS = {{ ref_lists_json | safe }};
+const STAGE_SPLIT_CONFIG = {
+  {% for s in stage_table_stages %}
+  {{ s.id | tojson }}: { enabled: {{ 'true' if s.split_enabled else 'false' }}, target_field: {{ (s.split_target_field or '') | tojson }}, actual_field: {{ (s.split_actual_field or '') | tojson }} }{% if not loop.last %},{% endif %}
+  {% endfor %}
+};
+// Last cumulative value already recorded server-side for a remainder split's
+// actual/entered field — used to warn before submitting an unchanged value,
+// since an unchanged cumulative produces delta<=0 and silently creates no
+// new split (correct engine behavior, but confusing without a warning).
+const SPLIT_LAST_CUMULATIVE = {{ split_last_cumulative_json | safe }};
 
 // ── Stage data store: {ticketId: {fieldId: value, ...}} ──────────────────
 var stageDataStore = {};
@@ -2436,9 +2509,19 @@ function openStageDataModal(ticketId, displayId, stageName, stageId, splitId) {
       return;
     }
 
+    var _splitCfg = STAGE_SPLIT_CONFIG[stageId] || {};
+    var _isSplitActualField = _splitCfg.enabled && _splitCfg.actual_field === f.id;
+
     var lbl = document.createElement('label');
     lbl.innerHTML = f.label + (f.required ? ' <span style="color:#f87171">*</span>' : '');
     grp.appendChild(lbl);
+
+    if (_isSplitActualField) {
+      var hint = document.createElement('div');
+      hint.style.cssText = 'font-size:11px;color:#f59e0b;margin:-2px 0 6px 0';
+      hint.textContent = '⑂ Enter the TOTAL cumulative quantity received so far (not just this visit\'s increment). The system automatically works out what\'s new since your last entry and splits that portion forward.';
+      grp.appendChild(hint);
+    }
 
     var inp;
     if (f.field_type === 'dropdown') {
@@ -2585,6 +2668,7 @@ function closeSDModal() {
 }
 document.addEventListener('keydown', function(e){ if(e.key==='Escape' && document.getElementById('stageDataModal').classList.contains('open')) closeSDModal(); });
 
+var _scCurrentStageId = null;
 function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired, noteRequired, stageId, splitId) {
   var modal = document.getElementById('stageCompleteModal');
   var form  = document.getElementById('scForm');
@@ -2595,6 +2679,7 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
   document.getElementById('scModalSubtitle').textContent = displayId;
 
   var activeStageId = stageId || "{{ active_stage.id if active_stage else '' }}";
+  _scCurrentStageId = activeStageId;
   var ns = NEXT_STAGE_MAP[activeStageId];
   var sel = document.getElementById('scNextStageId');
   var nextStageGroup = document.getElementById('scNextStageGroup');
@@ -2696,7 +2781,7 @@ document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeSCMo
 // submitted cf__ fields (it doesn't re-read the /stage-data pre-save), so
 // this injection is what actually commits whatever was entered via
 // ✏ Enter Data — per split, using the same _sdKey the pill check used.
-document.getElementById('scForm').addEventListener('submit', function() {
+document.getElementById('scForm').addEventListener('submit', function(e) {
   // Remove any previously injected cf__ hiddens to avoid duplicates
   this.querySelectorAll('.sc-cf-inject').forEach(function(el){ el.remove(); });
   // Find the ticket id from the form action: /fms/tickets/<id>/transition
@@ -2705,12 +2790,40 @@ document.getElementById('scForm').addEventListener('submit', function() {
   var ticketId = match[1];
   var splitId  = document.getElementById('scSplitId').value || '';
   var saved = stageDataStore[_sdKey(ticketId, splitId)] || {};
+
+  // Auto-split guard: if this stage's actual/entered field hasn't changed
+  // since the last recorded cumulative value, no new split will be created
+  // (delta<=0 is a correct no-op) — warn before submitting so a "small
+  // entry" that never actually got re-saved via ✏ Enter Data doesn't
+  // silently vanish with no feedback.
+  var _guardCfg = STAGE_SPLIT_CONFIG[_scCurrentStageId];
+  if (_guardCfg && _guardCfg.enabled && _guardCfg.actual_field && splitId && SPLIT_LAST_CUMULATIVE[splitId] !== undefined) {
+    var newVal = saved[_guardCfg.actual_field];
+    if (newVal !== undefined && parseFloat(newVal) === parseFloat(SPLIT_LAST_CUMULATIVE[splitId])) {
+      var proceed = confirm('The cumulative quantity you entered (' + newVal + ') is the same as last time — no new split will be created. Did you forget to update it? Click Cancel to go back and update it, or OK to proceed anyway.');
+      if (!proceed) { e.preventDefault(); return; }
+    }
+  }
+
   Object.keys(saved).forEach(function(fieldId) {
     var inp = document.createElement('input');
     inp.type = 'hidden'; inp.name = 'cf__' + fieldId; inp.value = saved[fieldId];
     inp.className = 'sc-cf-inject';
     document.getElementById('scForm').appendChild(inp);
   });
+
+  // FMS Auto-Split Engine (R7): fire-and-forget optional split evidence
+  // upload — deliberately NOT awaited and NOT part of the transition
+  // request itself, so a failed/slow upload can never block or delay the
+  // split-creating stage submit. Attached to the split_id that was active
+  // for this entry (the split whose shortfall, if any, drove the split).
+  var evFileInput = document.getElementById('scSplitEvidenceFile');
+  if (evFileInput && evFileInput.files && evFileInput.files.length && splitId) {
+    var fd = new FormData();
+    fd.append('file', evFileInput.files[0]);
+    fetch('/fms/splits/' + splitId + '/evidence', { method: 'POST', body: fd })
+      .catch(function() { /* non-blocking — evidence never gates split creation */ });
+  }
 });
 </script>
 
@@ -2841,9 +2954,83 @@ function closeHelpModal() {
    plus multi-select + merge back into one split. ─────────────────────────── */
 var _fmsSplitsTicketId = null;
 function openSplitsModal(ticketId, displayId, splits) {
+  // R8/§6.3: plain read-only rendering — ticket-creation columns + value
+  // entered per split + timestamp + evidence indicator. No checkboxes, no
+  // action buttons, no click handlers of any kind on this table.
   _fmsSplitsTicketId = ticketId;
   document.getElementById('fmsSplitsSubtitle').textContent = displayId;
+
+  // Dynamic header — one <th> per field actually configured on this flow's
+  // ticket-creation form (varies per flow, so built at render time rather
+  // than hardcoded like the old WO#/Priority columns).
+  var formCols = (splits[0] && splits[0].ticket_form_columns) || [];
+  var headRow = document.getElementById('fmsSplitsHeadRow');
+  headRow.querySelectorAll('th.fms-splits-form-col').forEach(function(th){ th.remove(); });
+  var headAnchor = document.getElementById('fmsSplitsHeadDynamic');
+  headAnchor.style.display = 'none';
+  formCols.forEach(function(fc) {
+    var th = document.createElement('th');
+    th.className = 'fms-splits-form-col';
+    th.textContent = fc.label;
+    headRow.insertBefore(th, headAnchor);
+  });
+
   var body = document.getElementById('fmsSplitsBody');
+  body.innerHTML = '';
+  splits.forEach(function(s) {
+    var tr = document.createElement('tr');
+
+    function td(text) { var el = document.createElement('td'); el.textContent = (text === null || text === undefined || text === '') ? '—' : text; return el; }
+
+    var tdLabel = document.createElement('td');
+    tdLabel.innerHTML = '<span style="font-weight:600;color:var(--text-primary)">' + (s.split_display_id || s.label) + '</span>'
+      + (s.is_remainder ? ' <span style="font-size:10px;color:#fbbf24">(remainder)</span>' : '');
+    tr.appendChild(tdLabel);
+
+    (s.ticket_form_columns || []).forEach(function(fc) { tr.appendChild(td(fc.value)); });
+    tr.appendChild(td(s.target_value_at_split !== null && s.target_value_at_split !== undefined ? s.target_value_at_split : s.ticket_target_qty));
+    // s.qty is NOT a valid fallback for "value entered" — for an open
+    // remainder it means "how much is still outstanding", the opposite of
+    // what this column claims. Only fall back to s.qty for splits that
+    // predate the auto-split engine entirely (manual splits, which never
+    // populate entered_value and aren't remainders either).
+    tr.appendChild(td(s.entered_value !== null && s.entered_value !== undefined ? s.entered_value : (s.is_remainder ? null : s.qty)));
+    tr.appendChild(td(s.stage_name));
+    tr.appendChild(td(s.assignee_name));
+
+    var tdStatus = document.createElement('td');
+    tdStatus.innerHTML = '<span class="st-badge st-' + s.status + '">' + s.status.replace(/_/g,' ') + '</span>';
+    tr.appendChild(tdStatus);
+
+    var tdEvidence = document.createElement('td');
+    tdEvidence.innerHTML = s.has_evidence ? '<span style="color:#4ade80">📎 Yes</span>' : '<span style="color:var(--text-faint)">—</span>';
+    tr.appendChild(tdEvidence);
+
+    var tdWhen = document.createElement('td'); tdWhen.style.cssText = 'font-size:11px;color:var(--text-faint);white-space:nowrap';
+    tdWhen.textContent = s.created_at || s.updated_at || '—'; tr.appendChild(tdWhen);
+
+    body.appendChild(tr);
+  });
+  document.getElementById('fmsSplitsModal').style.display = 'flex';
+}
+function mkBtn(label, color, onclick) {
+  var b = document.createElement('button');
+  b.type = 'button'; b.className = 'btn btn-sm';
+  b.style.cssText = 'font-size:11px;white-space:nowrap' + (color ? (';color:' + color) : '');
+  b.textContent = label;
+  b.onclick = onclick;
+  return b;
+}
+function closeSplitsModal() {
+  document.getElementById('fmsSplitsModal').style.display = 'none';
+}
+
+/* ── Manage Splits modal (dot-menu): merge / close-split actions live here
+   now that the read-only Splits popup above has none (R8/§6.3). ─────────── */
+function openManageSplitsModal(ticketId, displayId, splits) {
+  _fmsSplitsTicketId = ticketId;
+  document.getElementById('fmsManageSplitsSubtitle').textContent = displayId;
+  var body = document.getElementById('fmsManageSplitsBody');
   body.innerHTML = '';
   splits.forEach(function(s) {
     var tr = document.createElement('tr');
@@ -2860,62 +3047,33 @@ function openSplitsModal(ticketId, displayId, splits) {
     tr.appendChild(tdCb);
 
     var tdLabel = document.createElement('td');
-    tdLabel.innerHTML = '<span style="font-weight:600;color:var(--text-primary)">' + s.label + '</span>';
+    tdLabel.innerHTML = '<span style="font-weight:600;color:var(--text-primary)">' + (s.split_display_id || s.label) + '</span>';
     tr.appendChild(tdLabel);
 
     var tdStage = document.createElement('td'); tdStage.textContent = s.stage_name; tr.appendChild(tdStage);
-    var tdAssignee = document.createElement('td'); tdAssignee.textContent = s.assignee_name; tr.appendChild(tdAssignee);
     var tdStatus = document.createElement('td');
     tdStatus.innerHTML = '<span class="st-badge st-' + s.status + '">' + s.status.replace(/_/g,' ') + '</span>';
     tr.appendChild(tdStatus);
     var tdQty = document.createElement('td'); tdQty.textContent = (s.qty === null || s.qty === undefined) ? '—' : s.qty; tr.appendChild(tdQty);
-    var tdUpdated = document.createElement('td'); tdUpdated.style.cssText = 'font-size:11px;color:var(--text-faint);white-space:nowrap';
-    tdUpdated.textContent = s.updated_at || '—'; tr.appendChild(tdUpdated);
 
     var tdActions = document.createElement('td');
-    var actions = document.createElement('div');
-    actions.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap';
     if (isOpen) {
-      var stageCfDefs = (typeof STAGE_CF_DEFS !== 'undefined') ? (STAGE_CF_DEFS[s.stage_id] || []) : [];
-      if (stageCfDefs.length) {
-        actions.appendChild(mkBtn('✏ Data', '#a78bfa', function() { openStageDataModal(ticketId, displayId, s.stage_name, s.stage_id, s.id); }));
-      }
-      var ns = NEXT_STAGE_MAP[s.stage_id];
-      if (ns) {
-        actions.appendChild(mkBtn('→ ' + ns.name, null, function() { openStageCompleteModal(ticketId, displayId, s.stage_name, 'false', 'false', s.stage_id, s.id); closeSplitsModal(); }));
-      }
-      if (earlierStagesFor(s.stage_id).length) {
-        actions.appendChild(mkBtn('← Return', '#fbbf24', function() { openMoveBackwardModal(ticketId, displayId, s.assignee_id, s.id, s.stage_id); closeSplitsModal(); }));
-      }
-      actions.appendChild(mkBtn('👤 Reassign', null, function() { openAssigneeModal(ticketId, displayId, s.assignee_id, s.id); closeSplitsModal(); }));
-      actions.appendChild(mkBtn('🆘 Help', '#a78bfa', function() { openHelpModal(ticketId, displayId, s.id); closeSplitsModal(); }));
-      actions.appendChild(mkBtn('✂ Split', '#60a5fa', function() { openSplitActionModal(ticketId, displayId, s.id, s.stage_id, s.qty !== null && s.qty !== undefined); closeSplitsModal(); }));
-      actions.appendChild(mkBtn('🚩 Flag', '#f87171', function() { openFlagModal(ticketId, displayId, s.id); closeSplitsModal(); }));
-      actions.appendChild(mkBtn('Close', '#f59e0b', function() { openCloseSplitModal(ticketId, displayId, s.id, s.label); }));
+      tdActions.appendChild(mkBtn('Close', '#f59e0b', function() { openCloseSplitModal(ticketId, displayId, s.id, s.label); }));
     }
-    tdActions.appendChild(actions);
     tr.appendChild(tdActions);
 
     body.appendChild(tr);
   });
   updateMergeSelectedCount();
-  document.getElementById('fmsSplitsModal').style.display = 'flex';
+  document.getElementById('fmsManageSplitsModal').style.display = 'flex';
 }
-function mkBtn(label, color, onclick) {
-  var b = document.createElement('button');
-  b.type = 'button'; b.className = 'btn btn-sm';
-  b.style.cssText = 'font-size:11px;white-space:nowrap' + (color ? (';color:' + color) : '');
-  b.textContent = label;
-  b.onclick = onclick;
-  return b;
-}
-function closeSplitsModal() {
-  document.getElementById('fmsSplitsModal').style.display = 'none';
+function closeManageSplitsModal() {
+  document.getElementById('fmsManageSplitsModal').style.display = 'none';
 }
 function updateMergeSelectedCount() {
   var n = document.querySelectorAll('.fms-split-cb:checked').length;
-  document.getElementById('fmsSplitsMergeCount').textContent = n;
-  document.getElementById('fmsSplitsMergeBtn').style.display = n >= 2 ? 'inline-block' : 'none';
+  document.getElementById('fmsManageSplitsMergeCount').textContent = n;
+  document.getElementById('fmsManageSplitsMergeBtn').style.display = n >= 2 ? 'inline-block' : 'none';
 }
 
 /* ── Merge Splits modal ──────────────────────────────────────────────────── */

@@ -1,0 +1,170 @@
+{# ── dashboard_mobile.html ────────────────────────────────────────────────
+   PWA-only "Godown" dashboard (Design: OmniFlow Tickets Redesign, option
+   6a — KPI strip, filter sheet, Adjust stepper sheet). Served only when the
+   `pwa_ui` cookie is set, from the same route/context as the desktop
+   inventory_v2/dashboard.html — see app/sales_inventory.py::inventory_dashboard().
+   Do not port changes here back into dashboard.html or vice versa; they are
+   intentionally independent templates for independent surfaces. #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/tickets-mobile.css">
+<link rel="stylesheet" href="/static/css/inventory-mobile.css">
+
+<div id="inv-toast" class="tm-toast"></div>
+
+<div class="tm-header">
+  <div class="tm-title">Godown</div>
+  <div class="tm-header-actions">
+    <button type="button" class="tm-icon-btn" onclick="godToggleFilters()" title="Filters">
+      ⚙
+      {% if category_id or sub_category_id or branch_id or stock_status or active or search %}
+      <span class="tm-icon-dot"></span>
+      {% endif %}
+    </button>
+  </div>
+</div>
+
+{% if msg %}<div class="tm-alert tm-alert-green">✓ {{ msg }}</div>{% endif %}
+{% if err %}<div class="tm-alert tm-alert-red">{{ err }}</div>{% endif %}
+
+<div class="inv-subnav" data-tabsscroll>
+  <a href="/inventory-v2" class="inv-subnav-active">Godown</a>
+  <a href="/sales/catalog">Catalog</a>
+  <a href="/inventory-v2/purchase-orders">Purchase Orders</a>
+  <a href="/inventory-v2/dispatch-queue">Dispatch</a>
+</div>
+
+<div class="inv-kpi-row">
+  <div class="inv-kpi"><div class="inv-kpi-val">{{ kpi_total_skus }}</div><div class="inv-kpi-label">Total SKUs</div></div>
+  <div class="inv-kpi"><div class="inv-kpi-val green">{{ kpi_active_skus }}</div><div class="inv-kpi-label">Active SKUs</div></div>
+  <div class="inv-kpi"><div class="inv-kpi-val amber">{{ kpi_below_threshold_skus }}</div><div class="inv-kpi-label">Below Threshold</div></div>
+  <div class="inv-kpi"><div class="inv-kpi-val red">{{ kpi_out_of_stock_skus }}</div><div class="inv-kpi-label">Out of Stock</div></div>
+  <div class="inv-kpi"><div class="inv-kpi-val">{{ kpi_open_pos }}</div><div class="inv-kpi-label">Open POs</div></div>
+  <div class="inv-kpi"><div class="inv-kpi-val">{{ kpi_open_dispatches }}</div><div class="inv-kpi-label">Open Dispatch</div></div>
+</div>
+
+<div class="inv-section-label">Stock Status</div>
+
+{% set badge_colors = {'red': '#ef4444', 'amber': '#f59e0b', 'green': '#22c55e'} %}
+<div class="tm-list">
+  {% if not stock_rows %}
+  <div class="tm-empty">No products match these filters.</div>
+  {% endif %}
+  {% for v, s, label, color in stock_rows %}
+  <div class="tm-card" onclick="window.location.href='/sales/catalog/{{ v.product_id }}'" style="cursor:pointer">
+    <div class="tm-card-top">
+      <div>
+        <div class="tm-card-title">{{ v.product.name if v.product else '—' }}</div>
+        <div class="tm-card-sub">{{ v.sku_code }}{% if s.branch %} · {{ s.branch.name }}{% endif %}</div>
+      </div>
+      <span class="tm-badge" style="background:{{ badge_colors.get(color,'#94a3b8') }};color:#fff">{{ label }}</span>
+    </div>
+    <div class="inv-meta-row">
+      <div>Avail: <b>{{ s.qty_available }}</b></div>
+      <div>Reserved: <b>{{ s.qty_reserved }}</b></div>
+      <div>Transit: <b>{{ s.qty_in_transit }}</b></div>
+    </div>
+    <div class="tm-card-meta" style="justify-content:space-between">
+      <span style="font-size:11px;color:var(--text-faint)">Updated {{ s.last_updated_at | ist('%d %b %Y') if s.last_updated_at else '—' }}</span>
+      {% if can_edit %}
+      <div class="inv-adjust-btn" onclick="event.stopPropagation();godOpenAdjust('{{ v.id }}','{{ v.product.name|e if v.product else '' }}','{{ v.sku_code|e }}',{{ s.qty_available }})">Adjust</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ── Filter bottom sheet ──────────────────────────────────────────────── -->
+<div class="tm-sheet-backdrop" id="god-filters-backdrop" onclick="if(event.target===this)godToggleFilters(false)">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr">
+      <div class="tm-sheet-title">Filters</div>
+      <button type="button" class="tm-sheet-done" onclick="godToggleFilters(false)">Done</button>
+    </div>
+    <form method="get" action="/inventory-v2">
+      {% if categories %}
+      <div class="tm-sheet-label">Category</div>
+      <div class="tm-chip-row">
+        {% for c in categories %}
+        <label class="tm-chip {% if c.id in category_id %}tm-chip-active{% endif %}">
+          <input type="checkbox" name="category_id" value="{{ c.id }}" {% if c.id in category_id %}checked{% endif %} onchange="tmChipToggle(this)" hidden>
+          {{ c.name }}
+        </label>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="tm-sheet-label">Stock Status</div>
+      <div class="tm-chip-row">
+        {% for st in stock_status_choices %}
+        <label class="tm-chip {% if st in stock_status %}tm-chip-active{% endif %}">
+          <input type="checkbox" name="stock_status" value="{{ st }}" {% if st in stock_status %}checked{% endif %} onchange="tmChipToggle(this)" hidden>
+          {{ st }}
+        </label>
+        {% endfor %}
+      </div>
+
+      <div class="tm-sheet-footer">
+        <a href="/inventory-v2" class="tm-btn tm-btn-outline">Clear</a>
+        <button type="submit" class="tm-btn tm-btn-primary">Apply Filters</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Adjust Stock sheet ───────────────────────────────────────────────── -->
+{% if can_edit %}
+<div class="tm-sheet-backdrop" id="god-adjust-backdrop" onclick="if(event.target===this)godCloseAdjust()">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-title" style="margin-bottom:2px">Adjust Stock</div>
+    <div style="font-size:12px;color:var(--text-faint);margin-bottom:18px" id="god-adjust-sub"></div>
+    <div class="inv-stepper">
+      <button type="button" class="inv-stepper-btn" onclick="godStep(-1)">−</button>
+      <input type="number" step="any" class="inv-stepper-input" id="god-adjust-qty" value="0" oninput="godQtyTyped(this)">
+      <button type="button" class="inv-stepper-btn" onclick="godStep(1)">+</button>
+    </div>
+    <form method="post" id="god-adjust-form" style="display:flex;gap:10px">
+      <input type="hidden" name="new_qty" id="god-adjust-input">
+      <input type="hidden" name="reason" value="Adjusted via mobile">
+      <div onclick="godCloseAdjust()" class="tm-btn tm-btn-outline" style="flex:1;cursor:pointer">Cancel</div>
+      <button type="submit" class="tm-btn tm-btn-primary" style="flex:1">Save</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function godToggleFilters(open){
+  const el = document.getElementById('god-filters-backdrop');
+  if(!el) return;
+  el.classList.toggle('tm-open', open === undefined ? !el.classList.contains('tm-open') : open);
+}
+function tmChipToggle(input){
+  input.closest('.tm-chip').classList.toggle('tm-chip-active', input.checked);
+}
+let godAdjustQty = 0;
+function godOpenAdjust(variantId, productName, sku, currentQty){
+  godAdjustQty = currentQty;
+  document.getElementById('god-adjust-sub').textContent = productName + ' · ' + sku;
+  document.getElementById('god-adjust-qty').value = godAdjustQty;
+  document.getElementById('god-adjust-form').action = '/inventory-v2/stock/' + variantId + '/adjust';
+  document.getElementById('god-adjust-backdrop').classList.add('tm-open');
+}
+function godCloseAdjust(){
+  document.getElementById('god-adjust-backdrop').classList.remove('tm-open');
+}
+function godStep(delta){
+  godAdjustQty = Math.max(0, godAdjustQty + delta);
+  document.getElementById('god-adjust-qty').value = godAdjustQty;
+}
+function godQtyTyped(input){
+  const v = parseFloat(input.value);
+  godAdjustQty = isNaN(v) ? 0 : Math.max(0, v);
+}
+document.getElementById('god-adjust-form') && document.getElementById('god-adjust-form').addEventListener('submit', function(){
+  document.getElementById('god-adjust-input').value = godAdjustQty;
+});
+</script>
+{% endblock %}

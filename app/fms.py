@@ -3,9 +3,11 @@ Phase 2 — FMS Core  (§10, §11, §12, §19.3)
 Full ticket lifecycle: flow builder, stage transitions, swimlane dashboard,
 reassignment, help requests, flagging, manager override, and analytics.
 """
-import csv, io, json as _json
+import csv, io, json as _json, logging
 from datetime import datetime, timedelta
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
@@ -17,7 +19,7 @@ from .database import (
     get_db, new_id,
     Tenant, User, Department, Branch,
     FMSFlow, FMSStage, FMSTicket, FMSStageHistory, FMSEvent, FMSTicketHelper,
-    FMSTicketSplit, FMSFieldEditLog,
+    FMSTicketSplit, FMSFieldEditLog, FMSSplitEvidence,
     LibrarySubmoduleDefinition, TenantDeployedItem,
     Notification, MediaUpload,
     PMSDailyLog, DispatchRecord, InvoiceRecord,
@@ -40,6 +42,7 @@ from .notifications import (
     send_whatsapp_for_fms_stage_transition,
     send_whatsapp_for_fms_ticket_created,
     notify_fms_ticket_opened,
+    notify_fms_split_created,
 )
 from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION
 import json as _json_module
@@ -467,6 +470,180 @@ def _next_split_label(db, ticket_id) -> str:
     collide even after a split is fully carved away."""
     n = db.query(FMSTicketSplit).filter(FMSTicketSplit.ticket_id == ticket_id).count()
     return f"S{n + 1}"
+
+
+# ── FMS Auto-Split Engine (R1-R6) ────────────────────────────────────────────
+
+def _next_auto_split_sequence(db, ticket_id: str, parent_split_id: str) -> int:
+    """Sibling order under a given parent split, for split_display_id suffixes."""
+    n = db.query(FMSTicketSplit).filter(
+        FMSTicketSplit.ticket_id == ticket_id,
+        FMSTicketSplit.parent_split_id == parent_split_id,
+    ).count()
+    return n + 1
+
+
+def _resolve_split_field_value(field_id: str, custom_fields_data: dict,
+                                formula_lookup: dict, fallback):
+    """Resolve a configured split_target_field/split_actual_field's numeric
+    value from the entry just submitted (custom_fields_data), falling back to
+    cross-stage/ticket values (formula_lookup), falling back to `fallback`
+    when unconfigured or unparsable. `fallback` is returned as-is (not
+    coerced) so callers can pass None to detect "no usable value"."""
+    if not field_id:
+        return float(fallback) if fallback is not None else None
+    raw = None
+    if custom_fields_data and field_id in custom_fields_data:
+        raw = custom_fields_data.get(field_id)
+    elif formula_lookup and field_id in formula_lookup:
+        raw = formula_lookup.get(field_id)
+    if raw is None:
+        return float(fallback) if fallback is not None else None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return float(fallback) if fallback is not None else None
+
+
+def _evaluate_auto_split(db, ticket, split, cur_stage, qty: int,
+                          custom_fields_data: dict, formula_lookup: dict,
+                          next_stage_id: str, new_assignee_id: str, user):
+    """
+    FMS Auto-Split Engine — inline evaluation at the point a stage data entry
+    is submitted (brief §5), called from the FORWARD/non-terminal branch of
+    fms_transition, right before the current split progresses to next_stage.
+
+    R1  Opt-in: no-op unless cur_stage.split_enabled.
+    R2  entered_value < target_value -> auto-split: the newly-received
+        portion moves forward (returned split); the shortfall remains on
+        `split` itself, which stays at cur_stage as a remainder
+        (is_remainder=True) and keeps an OPEN stage-history row there so it
+        can receive further entries.
+    R3  Recursive: each subsequent partial entry against that same remainder
+        creates another moved-forward split — no upper bound, handled simply
+        by this function being called again on the next submit.
+    R4  Cumulative across visits: state lives on the persistent remainder
+        split row (never reset), so non-linear re-entry to this stage just
+        resumes it via the normal _open_history()/split lookup path.
+    R5  Over-delivery (entered_value >= target_value): no split; the caller's
+        existing progression logic just moves the whole `split` forward /
+        completes it cleanly — no flag, no exception UI.
+
+    The configured "actual/entered" field is a CUMULATIVE running total
+    (e.g. "Issued Quantity" = total delivered so far, not just this visit's
+    increment — that's what the person entering data actually has in front
+    of them, a scale/count reading, not a mental diff). The engine derives
+    each visit's real increment as
+        delta = this_visit_cumulative - split.last_cumulative_entered
+    and treats `target_value` as the fixed original target (falls back to
+    ticket.target_qty), not a per-visit shrinking number — the remainder's
+    own `qty` is what tracks "how much is still outstanding" for display.
+
+    Returns the FMSTicketSplit that should progress to next_stage_id: either
+    `split` unchanged (no split triggered) or a newly created moved-forward
+    split (remainder case).
+    """
+    if not getattr(cur_stage, "split_enabled", False):
+        return split
+
+    target_val = _resolve_split_field_value(
+        cur_stage.split_target_field, custom_fields_data, formula_lookup, ticket.target_qty)
+    cumulative_val = _resolve_split_field_value(
+        cur_stage.split_actual_field, custom_fields_data, formula_lookup, qty)
+
+    if target_val is None or cumulative_val is None:
+        return split  # unconfigured / unparsable — behave as today
+
+    prev_cumulative = split.last_cumulative_entered or 0
+    delta = cumulative_val - prev_cumulative
+    if delta <= 0:
+        # Same or lower cumulative re-submitted (no new quantity this visit,
+        # or a correction) — nothing new to split off; leave state as-is.
+        return split
+
+    if cumulative_val >= target_val:
+        # R5: fully satisfied (or over-delivered) as of this visit — the
+        # whole remainder `split` completes and moves forward as-is, no new
+        # split entity, no flag/exception UI. Record the final increment for
+        # the audit trail / splits-table display.
+        split.entered_value = delta
+        split.last_cumulative_entered = cumulative_val
+        split.is_remainder = False
+        return split
+
+    # R2/R3: shortfall -> create the moved-forward split for THIS VISIT's
+    # increment (delta), not the running total.
+    base_display = split.split_display_id or ticket.display_id or ticket.id[:8]
+    seq = _next_auto_split_sequence(db, ticket.id, split.id)
+    moved = FMSTicketSplit(
+        tenant_id=ticket.tenant_id, ticket_id=ticket.id,
+        root_ticket_id=split.root_ticket_id or ticket.id,
+        parent_split_id=split.id,
+        split_label=_next_split_label(db, ticket.id),
+        split_display_id=f"{base_display}-{seq}",
+        split_sequence=seq,
+        split_stage_id=cur_stage.id,
+        target_value_at_split=target_val,
+        entered_value=delta,
+        is_remainder=False,
+        is_auto_split=True,
+        qty=int(delta),
+        current_stage_id=next_stage_id,
+        current_assignee_id=new_assignee_id,
+        status="ACTIVE",
+    )
+    db.add(moved)
+    db.flush()
+
+    # R4: the remainder stays on the ORIGINAL split row (never a new entity),
+    # at the current stage, with a fresh open history row awaiting the next
+    # entry — this is what makes cumulative-across-visits state work without
+    # any extra bookkeeping: the normal _open_history(split_id=split.id, ...)
+    # lookup just finds it next time. last_cumulative_entered is what lets
+    # the NEXT visit compute its own delta correctly.
+    remaining_qty = target_val - cumulative_val
+    split.qty = int(remaining_qty) if remaining_qty == int(remaining_qty) else remaining_qty
+    # Explicitly cleared (not just "left alone") — the remainder itself
+    # hasn't been "entered" yet, it's still open awaiting further entries.
+    # entered_value belongs to the moved-forward split that delta actually
+    # produced; the remainder's row shows "—" (like target_value_at_split
+    # already does) until it fully closes. This used to be set to the last
+    # delta, which made the splits table show a confusing stale number on
+    # the remainder — explicit None here also self-heals any row that still
+    # carries that stale value from before this fix.
+    split.entered_value = None
+    split.last_cumulative_entered = cumulative_val
+    split.is_remainder = True
+    split.status = "ACTIVE"
+    split.current_stage_id = cur_stage.id
+    split.updated_at = datetime.utcnow()
+    db.add(FMSStageHistory(
+        ticket_id=ticket.id, split_id=split.id, stage_id=cur_stage.id,
+        stage_name=cur_stage.name, assignee_id=split.current_assignee_id,
+        direction="FORWARD", from_stage_id=cur_stage.id, from_stage_name=cur_stage.name,
+    ))
+
+    _log(db, ticket.id, user.id, "SPLIT_CREATED",
+         f"Auto-split at '{cur_stage.name}': +{delta:g} this visit (cumulative {cumulative_val:g} of target {target_val:g}) — "
+         f"{moved.split_display_id} moves forward, remainder "
+         f"({remaining_qty:g}) stays as {split.split_display_id or split.split_label}",
+         meta={"moved_split_id": moved.id, "remainder_split_id": split.id,
+               "entered_value": delta, "cumulative_value": cumulative_val, "target_value": target_val,
+               "auto_split": True})
+
+    # §5/§9-E: real-time broadcast; §5/Section-9-F non-blocking wrapper — a
+    # notification failure must never roll back or block split creation.
+    try:
+        admins = _admin_ids(db, ticket.tenant_id)
+        managers = _manager_ids_for(db, new_assignee_id)
+        notify_fms_split_created(
+            ticket.tenant_id, ticket.id, ticket.display_id or ticket.id[:8],
+            moved.split_display_id, cur_stage.name, user.id,
+            admins, managers, new_assignee_id)
+    except Exception:
+        logger.exception("notify_fms_split_created failed (non-blocking, split already committed)")
+
+    return moved
 
 
 _STATUS_PRIORITY = ["FLAGGED", "HELP_REQUESTED", "ON_HOLD", "IN_TRANSITION",
@@ -1626,6 +1803,43 @@ def _fms_dashboard_inner(
                 if active_stage.id in pd:
                     planned_end = pd[active_stage.id][1]
                 row_assignee = row_split.current_assignee if row_split else t.current_assignee
+                # R8: splits popup is a read-only table of ticket-creation columns
+                # + value entered per split — evidence-indicator lookup is a single
+                # cheap query per ticket row (typically 1-3 splits).
+                _split_ids_for_evidence = [s.id for s in all_active_splits]
+                _evidence_split_ids = set()
+                if _split_ids_for_evidence:
+                    _evidence_split_ids = {
+                        row[0] for row in db.query(FMSSplitEvidence.split_id).filter(
+                            FMSSplitEvidence.split_id.in_(_split_ids_for_evidence)
+                        ).distinct().all()
+                    }
+                # R8: ticket-creation columns — just Priority as a base field
+                # (Title/WO#/Target Qty/Qty Unit dropped per explicit request:
+                # not useful in this popup, and Target Qty already has its
+                # own dedicated split-detail column further right) plus any
+                # additional per-flow custom fields configured on the
+                # ticket-creation form (flow.ticket_form_fields_json, used by
+                # bulk-create).
+                ticket_form_columns = [
+                    {"label": "Priority", "value": t.priority or "—"},
+                ]
+                _tff_defs = []
+                try:
+                    _tff_defs = _json.loads(t.flow.ticket_form_fields_json or "[]") if t.flow else []
+                except Exception:
+                    _tff_defs = []
+                _tff_vals = {}
+                try:
+                    _tff_vals = _json.loads(t.ticket_custom_fields_json or "{}")
+                except Exception:
+                    _tff_vals = {}
+                ticket_form_columns += [
+                    {"label": fd.get("label", ""), "value": _tff_vals.get(fd.get("id", ""), "—")}
+                    for fd in _tff_defs
+                    if fd.get("field_type") not in ("__priority__", "__due_date__") and fd.get("label")
+                ]
+
                 splits_payload = [
                     {
                         "id": s.id, "label": s.split_label, "qty": s.qty,
@@ -1636,6 +1850,21 @@ def _fms_dashboard_inner(
                         "assignee_name": s.current_assignee.name if s.current_assignee else "—",
                         "status": s.status,
                         "updated_at": s.updated_at.strftime("%d %b %Y, %H:%M") if s.updated_at else None,
+                        # Ticket-creation columns (R8) — driven by this flow's
+                        # actual ticket-creation form, same on every split row
+                        # since they belong to the parent ticket.
+                        "ticket_display_id": t.display_id or t.id[:8],
+                        "ticket_target_qty": t.target_qty,
+                        "ticket_form_columns": ticket_form_columns,
+                        "ticket_created_at": t.created_at.strftime("%d %b %Y, %H:%M") if t.created_at else None,
+                        # Auto-split engine / split-detail fields
+                        "split_display_id": s.split_display_id or s.split_label,
+                        "entered_value": s.entered_value,
+                        "target_value_at_split": s.target_value_at_split,
+                        "is_remainder": bool(s.is_remainder),
+                        "is_auto_split": bool(s.is_auto_split),
+                        "created_at": s.created_at.strftime("%d %b %Y, %H:%M") if s.created_at else None,
+                        "has_evidence": s.id in _evidence_split_ids,
                     }
                     for s in all_active_splits
                 ] if split_count > 1 else []
@@ -1649,6 +1878,7 @@ def _fms_dashboard_inner(
                     "cf_all": cf_all,
                     "planned_end": planned_end,
                     "split_id": row_split.id if row_split else None,
+                    "split_last_cumulative": row_split.last_cumulative_entered if row_split else None,
                     "split_count": split_count,
                     "splits_payload": splits_payload,
                     "evidence_url": latest_evidence.evidence_url if latest_evidence else None,
@@ -1924,12 +2154,19 @@ def _fms_dashboard_inner(
         except Exception:
             ticket_form_fields = []
 
+    split_last_cumulative_json = _json_module.dumps({
+        row["split_id"]: row["split_last_cumulative"]
+        for row in stage_tickets
+        if row.get("split_id") and row.get("split_last_cumulative") is not None
+    })
+
     return templates.TemplateResponse(request, "fms/dashboard.html", _ctx(
         request, user, db,
         flows=flows, active_flow=active_flow,
         flow_counts=flow_counts,
         view=view,
         ticket_form_fields=ticket_form_fields,
+        split_last_cumulative_json=split_last_cumulative_json,
         # Stage view (formerly stage_table)
         stage_table_stages=stage_table_stages,
         active_stage=active_stage,
@@ -3603,6 +3840,25 @@ async def fms_transition(
     _nps = datetime.fromisoformat(_ns["planned_start"]) if _ns.get("planned_start") else None
     _npe = datetime.fromisoformat(_ns["planned_end"])   if _ns.get("planned_end")   else None
 
+    # FMS Auto-Split Engine (R1-R6) — evaluated inline, only for a genuine
+    # FORWARD stage completion (not BACKWARD/MANAGER_OVERRIDE, which aren't
+    # "finishing" the stage's work). Reassigns `split` to the moved-forward
+    # split when a shortfall triggers a split; otherwise `split` is unchanged
+    # and everything below behaves exactly as it did before this engine.
+    if cur_stage is not None and direction == "FORWARD":
+        _split_lookup = dict(formula_lookup) if formula_lookup else {}
+        if ticket.ticket_custom_fields_json:
+            try:
+                _split_lookup.update(_json2.loads(ticket.ticket_custom_fields_json))
+            except Exception:
+                pass
+        _split_lookup["__target_qty__"] = ticket.target_qty
+        split = _evaluate_auto_split(
+            db, ticket, split, cur_stage, qty,
+            custom_fields_data, _split_lookup,
+            next_stage_id, new_assignee_id, user)
+        split_label_suffix = f" [{split.split_label}]" if len(_active_splits(db, ticket_id)) > 1 else ""
+
     # Create new stage history row (2-C-5: non-linear — always new row)
     db.add(FMSStageHistory(
         ticket_id=ticket_id, split_id=split.id, stage_id=next_stage_id,
@@ -4693,6 +4949,51 @@ async def fms_save_stage_data(
     history.custom_fields_data_json = _json.dumps(existing)
     db.commit()
     return JSONResponse({"ok": True, "computed": {k: v for k, v in existing.items()}})
+
+
+@router.post("/splits/{split_id}/evidence")
+async def fms_upload_split_evidence(
+    split_id: str,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """R7: optional per-split evidence upload — photo/pdf/audio/video, never
+    mandatory, traceable to the specific split (not the parent ticket).
+    Stored on local disk via app/uploads.py::save_upload — this repo has no
+    Cloudinary integration anywhere (see deviation note in final report)."""
+    split = db.query(FMSTicketSplit).filter(
+        FMSTicketSplit.id == split_id,
+        FMSTicketSplit.tenant_id == user.tenant_id,
+        FMSTicketSplit.is_deleted == False,
+    ).first()
+    if not split:
+        return JSONResponse({"ok": False, "error": "Split not found"}, status_code=404)
+
+    from .uploads import save_upload as _save_upload
+    result = await _save_upload(file, user.tenant_id)
+
+    ctype = (file.content_type or "").lower()
+    if ctype.startswith("image/"):
+        ftype = "photo"
+    elif ctype.startswith("audio/"):
+        ftype = "audio"
+    elif ctype.startswith("video/"):
+        ftype = "video"
+    else:
+        ftype = "pdf"
+
+    ev = FMSSplitEvidence(
+        tenant_id=user.tenant_id, split_id=split.id,
+        file_type=ftype, file_url=result["file_path"],
+        file_name=result["file_name"], uploaded_by=user.id,
+    )
+    db.add(ev)
+    db.commit()
+    return JSONResponse({"ok": True, "evidence": {
+        "id": ev.id, "file_type": ev.file_type,
+        "file_url": ev.file_url, "file_name": ev.file_name,
+    }})
 
 
 @router.post("/tickets/{ticket_id}/cell-edit")

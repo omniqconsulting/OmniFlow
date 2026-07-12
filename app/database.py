@@ -543,6 +543,9 @@ class LibraryFlowStage(Base):
     completion_note_required     = Column(Boolean, default=False)
     evidence_required            = Column(Boolean, default=False)   # P1-07
     custom_fields_json           = Column(Text,    default="[]")    # JSON array of custom field defs
+    split_enabled                = Column(Boolean, default=False)   # FMS Auto-Split Engine
+    split_target_field           = Column(String,  nullable=True)   # custom field name holding target/expected value
+    split_actual_field           = Column(String,  nullable=True)   # custom field name holding entered/received value
 
     template   = relationship("LibraryFlowTemplate", back_populates="stages")
     submodule  = relationship("LibrarySubmoduleDefinition", foreign_keys=[submodule_id])
@@ -732,6 +735,9 @@ class FMSStage(Base):
     evidence_required       = Column(Boolean, default=False)         # P1-07: stage-level evidence
     custom_fields_json      = Column(Text,    default="[]")          # JSON array of custom field defs
     is_deleted              = Column(Boolean, default=False)
+    split_enabled           = Column(Boolean, default=False)         # FMS Auto-Split Engine (opt-in per stage)
+    split_target_field      = Column(String,  nullable=True)         # custom field name holding target/expected value
+    split_actual_field      = Column(String,  nullable=True)         # custom field name holding entered/received value
 
     flow              = relationship("FMSFlow", back_populates="stages")
     default_assignee  = relationship("User", foreign_keys=[default_assignee_id])
@@ -861,11 +867,44 @@ class FMSTicketSplit(Base):
     created_at          = Column(DateTime, default=datetime.utcnow)
     updated_at          = Column(DateTime, default=datetime.utcnow)
 
+    # FMS Auto-Split Engine additions (additive, nullable — do not break existing manual-split flow)
+    root_ticket_id        = Column(String,  ForeignKey("fms_tickets.id"), nullable=True)  # = ticket_id for 1st-level splits
+    split_display_id      = Column(String,  nullable=True)   # hierarchical human id e.g. F-0042-1, F-0042-1-1
+    split_sequence         = Column(Integer, nullable=True)   # order among siblings
+    split_stage_id         = Column(String,  ForeignKey("fms_stages.id"), nullable=True)  # stage where auto-generated
+    target_value_at_split  = Column(Float,   nullable=True)   # snapshot of target at time of split
+    entered_value           = Column(Float,   nullable=True)   # value entered that produced this split
+    is_remainder            = Column(Boolean, default=False)   # True = shortfall portion staying at current stage
+    is_auto_split           = Column(Boolean, default=False)   # True = created by auto-split engine (vs manual)
+    last_cumulative_entered = Column(Float,   nullable=True)   # last cumulative total-delivered-so-far submitted for this remainder's actual field; next visit's split amount = new_cumulative - this
+
     tenant           = relationship("Tenant")
     ticket           = relationship("FMSTicket", foreign_keys=[ticket_id], back_populates="splits")
     parent_split     = relationship("FMSTicketSplit", remote_side=[id])
     current_stage    = relationship("FMSStage", foreign_keys=[current_stage_id])
     current_assignee = relationship("User",     foreign_keys=[current_assignee_id])
+    split_stage      = relationship("FMSStage", foreign_keys=[split_stage_id])
+
+
+class FMSSplitEvidence(Base):
+    """
+    FMS Auto-Split Engine: optional evidence (photo/pdf/audio/video) attached
+    to a specific split entry. Never mandatory (R7). Stored on local disk via
+    app/uploads.py::save_upload — traceable to the split, not the parent ticket.
+    """
+    __tablename__ = "fms_split_evidence"
+    id          = Column(String,  primary_key=True, default=new_id)
+    tenant_id   = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    split_id    = Column(String,  ForeignKey("fms_ticket_splits.id"), nullable=False)
+    file_type   = Column(String,  nullable=False)   # photo|pdf|audio|video
+    file_url    = Column(String,  nullable=False)
+    file_name   = Column(String,  nullable=True)
+    uploaded_by = Column(String,  ForeignKey("users.id"), nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    tenant = relationship("Tenant")
+    split  = relationship("FMSTicketSplit", foreign_keys=[split_id])
+    uploader = relationship("User", foreign_keys=[uploaded_by])
 
 
 class FMSEvent(Base):
