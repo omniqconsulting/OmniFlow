@@ -37,11 +37,18 @@
 
 .tm-select{width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border-med);border-radius:9px;padding:10px 13px;font-size:14px;color:var(--text-primary);outline:none;font-family:inherit}
 
-/* ── Bottom sheets (filters / create / overflow / secondary forms) ── */
+/* ── Bottom sheets (create / overflow / secondary forms) ── */
 .tm-sheet-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;align-items:flex-end;justify-content:center}
 .tm-sheet-backdrop.tm-open{display:flex}
 .tm-sheet{width:100%;max-width:520px;max-height:82vh;overflow-y:auto;background:var(--bg-card);border-radius:22px 22px 0 0;padding:10px 18px calc(22px + env(safe-area-inset-bottom));box-sizing:border-box}
 .tm-sheet-handle{width:36px;height:4px;border-radius:99px;background:var(--border-med);margin:6px auto 14px}
+
+/* ── Full-screen panel — filters only, anchored from the top to use the
+   available space more efficiently. Applied via .tm-sheet-backdrop-full /
+   .tm-sheet-full alongside the base classes above. ── */
+.tm-sheet-backdrop-full{background:var(--bg-card);align-items:flex-start}
+.tm-sheet-full{max-width:520px;height:100%;max-height:none;border-radius:0;padding:calc(14px + env(safe-area-inset-top)) 18px calc(22px + env(safe-area-inset-bottom))}
+.tm-sheet-full .tm-sheet-handle{display:none}
 .tm-sheet-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
 .tm-sheet-title{font-size:16px;font-weight:700;color:var(--text-strong)}
 .tm-sheet-done{background:none;border:none;font-size:13.5px;font-weight:600;color:var(--accent);cursor:pointer;font-family:inherit}
@@ -68,6 +75,13 @@ html.light .tm-theme-light{display:inline}
 .tm-tab-active{background:var(--accent);color:#fff}
 .tm-tab-count{font-size:11px;background:rgba(255,255,255,0.15);border-radius:99px;padding:1px 6px}
 .tm-tab:not(.tm-tab-active) .tm-tab-count{background:var(--border-med)}
+
+/* Fixed 2-3 way segmented control (e.g. List/Org Chart, Report/Ask) — unlike
+   .tm-tab (display:flex, built for scrollable pill tabs), these are plain
+   block items so text-align:center actually centers the label. */
+.tm-seg-row{display:flex;gap:8px;margin-bottom:16px}
+.tm-seg{flex:1;text-align:center;padding:9px 0;border-radius:9px;font-size:12.5px;font-weight:700;background:var(--bg-elevated);color:var(--text-muted);cursor:pointer}
+.tm-seg-active{background:var(--accent);color:#fff}
 
 .tm-list{display:flex;flex-direction:column;gap:12px;padding-bottom:24px}
 .tm-empty{padding:40px 0;text-align:center;color:var(--text-faint);font-size:13.5px}

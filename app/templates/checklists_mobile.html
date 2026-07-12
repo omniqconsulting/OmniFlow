@@ -17,7 +17,7 @@
   <div class="tm-title">Checklists</div>
   <div class="tm-header-actions">
     <button type="button" class="tm-icon-btn" onclick="clToggleFilters()" title="Filters">
-      ⚙
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z"/></svg>
       {% if frequency %}<span class="tm-icon-dot"></span>{% endif %}
     </button>
   </div>
@@ -91,8 +91,8 @@
 </div>
 
 <!-- ── Filter bottom sheet ──────────────────────────────────────────────── -->
-<div class="tm-sheet-backdrop" id="cl-filters-backdrop" onclick="if(event.target===this)clToggleFilters(false)">
-  <div class="tm-sheet">
+<div class="tm-sheet-backdrop tm-sheet-backdrop-full" id="cl-filters-backdrop" onclick="if(event.target===this)clToggleFilters(false)">
+  <div class="tm-sheet tm-sheet-full">
     <div class="tm-sheet-handle"></div>
     <div class="tm-sheet-hdr">
       <div class="tm-sheet-title">Filters</div>

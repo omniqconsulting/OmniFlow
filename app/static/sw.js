@@ -11,7 +11,7 @@
 // it in the same commit as the asset change. On 'activate' below, every
 // cache that doesn't match this exact name is deleted, so stale versions
 // never persist on a user's device.
-const SHELL_CACHE = "omniflow-shell-v7";
+const SHELL_CACHE = "omniflow-shell-v12";
 const SHELL_ASSETS = [
   "/static/icon-192.png",
   "/static/icon-512.png",

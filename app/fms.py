@@ -1878,6 +1878,7 @@ def _fms_dashboard_inner(
                     "cf_all": cf_all,
                     "planned_end": planned_end,
                     "split_id": row_split.id if row_split else None,
+                    "split_label": row_split.split_label if row_split else None,
                     "split_last_cumulative": row_split.last_cumulative_entered if row_split else None,
                     "split_count": split_count,
                     "splits_payload": splits_payload,
@@ -2160,7 +2161,8 @@ def _fms_dashboard_inner(
         if row.get("split_id") and row.get("split_last_cumulative") is not None
     })
 
-    return templates.TemplateResponse(request, "fms/dashboard.html", _ctx(
+    template_name = "fms/dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "fms/dashboard.html"
+    return templates.TemplateResponse(request, template_name, _ctx(
         request, user, db,
         flows=flows, active_flow=active_flow,
         flow_counts=flow_counts,
