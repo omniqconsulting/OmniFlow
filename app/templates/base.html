@@ -52,7 +52,7 @@
     <a href="/employees" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">👥</span>{{ L.Employees if L is defined else 'Employees' }}</a>
     {% endif %}
     {% if user.role == 'ADMIN' %}
-    <a href="/setup" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">⚙️</span>Setup</a>
+    {# Setup is web-only — not offered in the PWA account menu. #}
     <a href="/plan" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">✉️</span>Contact Us</a>
     {% endif %}
     <div class="am-divider"></div>

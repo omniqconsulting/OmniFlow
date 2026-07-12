@@ -1878,6 +1878,7 @@ def _fms_dashboard_inner(
                     "cf_all": cf_all,
                     "planned_end": planned_end,
                     "split_id": row_split.id if row_split else None,
+                    "split_label": row_split.split_label if row_split else None,
                     "split_last_cumulative": row_split.last_cumulative_entered if row_split else None,
                     "split_count": split_count,
                     "splits_payload": splits_payload,

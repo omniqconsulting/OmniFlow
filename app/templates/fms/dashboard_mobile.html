@@ -72,9 +72,10 @@
           data-title="{{ t.title }}" data-priority="{{ t.priority }}" data-prclass="{{ prClass }}"
           data-desc="{{ t.description or '' }}" data-assignee="{{ t.current_assignee.name if t.current_assignee else 'Unassigned' }}"
           data-stage="{{ active_stage.name if active_stage else '' }}" data-tat="{{ row.tat_pct if row.tat_pct is not none else '' }}"
+          data-splitlabel="{{ row.split_label or '' }}" data-splitcount="{{ row.split_count or 1 }}"
           data-splitid="{{ row.split_id or '' }}" data-canact="{{ 'true' if can_act else 'false' }}">
     <div class="fb-card-top">
-      <span class="fb-card-id">{{ t.display_id or t.id[:8] }}</span>
+      <span class="fb-card-id">{{ t.display_id or t.id[:8] }}{% if row.split_count and row.split_count > 1 and row.split_label %} · {{ row.split_label }}{% endif %}</span>
       <span class="fb-badge {{ prClass }}">{{ t.priority }}</span>
     </div>
     <div class="fb-card-title">{{ t.title }}</div>
@@ -92,44 +93,45 @@
 <!-- ── Ticket detail overlay — mirrors ticket_detail_mobile.html's Delegation
      layout: title/badges, meta, description, then history at the bottom,
      with a sticky primary CTA + "⋯" overflow for the rest ─────────────── -->
-<div class="fb-detail" id="fb-detail">
-  <div class="fb-detail-hdr">
-    <button type="button" class="fb-detail-back" onclick="fbCloseTicket()">←</button>
-    <span class="fb-detail-title" id="fb-t-id"></span>
-    <button type="button" class="fb-detail-more" onclick="fbToggleOverflow(true)" title="More actions">⋯</button>
-  </div>
-  <div class="fb-detail-body">
-    <div class="fb-detail-title-block">
-      <div class="fb-detail-title-text" id="fb-t-title"></div>
-      <div class="fb-chip-row" style="display:flex;gap:6px;flex-wrap:wrap">
-        <span class="fb-badge" id="fb-t-priority"></span>
-        <span class="fb-badge fb-badge-medium" id="fb-t-stage"></span>
+<div class="fb-detail-backdrop" id="fb-detail" onclick="if(event.target===this)fbCloseTicket()">
+  <div class="fb-detail-sheet">
+    <div class="fb-detail-hdr">
+      <button type="button" class="fb-detail-back" onclick="fbCloseTicket()">←</button>
+      <span class="fb-detail-title" id="fb-t-id"></span>
+      <button type="button" class="fb-detail-more" onclick="fbToggleOverflow(true)" title="More actions">⋯</button>
+    </div>
+    <div class="fb-detail-body">
+      <div class="fb-detail-title-block">
+        <div class="fb-detail-title-text" id="fb-t-title"></div>
+        <div class="fb-chip-row" style="display:flex;gap:6px;flex-wrap:wrap">
+          <span class="fb-badge" id="fb-t-priority"></span>
+          <span class="fb-badge fb-badge-medium" id="fb-t-stage"></span>
+        </div>
+      </div>
+
+      <div class="fb-detail-card">
+        <div class="fb-detail-meta">
+          <div><div class="fb-detail-meta-label">Assignee</div><div class="fb-detail-meta-value" id="fb-t-assignee"></div></div>
+          <div><div class="fb-detail-meta-label">Stage TAT</div><div class="fb-detail-meta-value" id="fb-t-tat"></div></div>
+          <div id="fb-t-split-row" style="display:none;grid-column:1 / -1">
+            <div class="fb-detail-meta-label">Split</div>
+            <div class="fb-detail-meta-value" id="fb-t-split"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="fb-detail-card" id="fb-t-desc-card">
+        <div class="fb-section-label" style="margin-bottom:6px">Description</div>
+        <div class="fb-detail-desc" id="fb-t-desc"></div>
       </div>
     </div>
 
-    <div class="fb-detail-card">
-      <div class="fb-detail-meta">
-        <div><div class="fb-detail-meta-label">Assignee</div><div class="fb-detail-meta-value" id="fb-t-assignee"></div></div>
-        <div><div class="fb-detail-meta-label">Stage TAT</div><div class="fb-detail-meta-value" id="fb-t-tat"></div></div>
-      </div>
+    <div class="fb-actionbar">
+      {% if active_stage and not active_stage.is_terminal and next_stage %}
+      <button type="button" class="fb-actionbar-cta" id="fb-move-cta" onclick="fbToggleMove(true)">Move to {{ next_stage.name }} →</button>
+      {% endif %}
+      <button type="button" class="fb-actionbar-icon" onclick="fbToggleOverflow(true)" title="More actions">⋯</button>
     </div>
-
-    <div class="fb-detail-card" id="fb-t-desc-card">
-      <div class="fb-section-label" style="margin-bottom:6px">Description</div>
-      <div class="fb-detail-desc" id="fb-t-desc"></div>
-    </div>
-
-    <div class="fb-section-label">History</div>
-    <div class="fb-journey" id="fb-journey">
-      <div class="fb-journey-empty">Loading…</div>
-    </div>
-  </div>
-
-  <div class="fb-actionbar">
-    {% if active_stage and not active_stage.is_terminal and next_stage %}
-    <button type="button" class="fb-actionbar-cta" id="fb-move-cta" onclick="fbToggleMove(true)">Move to {{ next_stage.name }} →</button>
-    {% endif %}
-    <button type="button" class="fb-actionbar-icon" onclick="fbToggleOverflow(true)" title="More actions">⋯</button>
   </div>
 </div>
 
@@ -141,6 +143,7 @@
       <button type="button" class="fb-sheet-done" onclick="fbToggleOverflow(false)">Close</button>
     </div>
     <div class="fb-action-list">
+      <button type="button" class="fb-action-item" onclick="fbToggleOverflow(false);fbToggleUpload(true)">📎 Upload Data / Evidence</button>
       <button type="button" class="fb-action-item" onclick="fbToggleOverflow(false);fbToggleAction('comment')">💬 Add Comment</button>
       <button type="button" class="fb-action-item" id="fb-act-reassign" onclick="fbToggleOverflow(false);fbToggleAction('reassign')">↩ Reassign</button>
       <button type="button" class="fb-action-item fb-action-item-amber" id="fb-act-help" onclick="fbToggleOverflow(false);fbToggleAction('help')">⚑ Request Help</button>
@@ -148,6 +151,29 @@
       {% if user.role in ('ADMIN','MANAGER') %}
       <button type="button" class="fb-action-item fb-action-item-danger" onclick="fbToggleOverflow(false);fbToggleAction('close')">✕ Close Ticket</button>
       {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Upload Data / Evidence sheet — fire-and-forget, traceable to the
+     specific split (not the parent ticket), never blocks any other action.
+     Same endpoint desktop's "Splits" evidence upload uses
+     (POST /fms/splits/{split_id}/evidence). ── -->
+<div class="fb-sheet-backdrop" id="fb-upload-backdrop" onclick="if(event.target===this)fbToggleUpload(false)">
+  <div class="fb-sheet">
+    <div class="fb-sheet-handle"></div>
+    <div class="fb-sheet-hdr">
+      <div class="fb-sheet-title">Upload Data / Evidence</div>
+      <button type="button" class="fb-sheet-done" onclick="fbToggleUpload(false)">Cancel</button>
+    </div>
+    <div class="fb-field">
+      <label>File</label>
+      <input type="file" id="fb-upload-file" accept="image/*,.pdf,.doc,.docx,audio/*,video/*" class="fb-input">
+    </div>
+    <div id="fb-upload-status" style="font-size:12.5px;color:var(--text-faint);margin-bottom:10px"></div>
+    <div class="fb-sheet-footer">
+      <button type="button" class="fb-btn fb-btn-outline" onclick="fbToggleUpload(false)">Cancel</button>
+      <button type="button" class="fb-btn fb-btn-primary" onclick="fbSubmitUpload()">Upload</button>
     </div>
   </div>
 </div>
@@ -173,6 +199,50 @@
           {% endfor %}
         </select>
       </div>
+
+      {# Stage custom fields ("form creation columns") — same data captured
+         on desktop's Complete Stage modal. Formula columns are read-only/
+         computed there and are skipped here (no client formula engine on
+         mobile yet); every other field type posts straight through as
+         cf__{id}, which /fms/tickets/{id}/transition already parses
+         (app/fms.py ~3665-3690) — no separate endpoint needed. #}
+      {% set stage_cf_defs = active_stage.custom_fields_json | from_json if active_stage.custom_fields_json else [] %}
+      {% set ref_lists = ref_lists_json | from_json if ref_lists_json else [] %}
+      {% if stage_cf_defs %}
+      <div class="fb-section-label">Stage Data</div>
+      {% for fdef in stage_cf_defs %}
+      {% if fdef.field_type != 'formula' %}
+      <div class="fb-field">
+        <label>{{ fdef.label }}{% if fdef.required %} *{% endif %}</label>
+        {% if fdef.field_type == 'dropdown' %}
+        <select name="cf__{{ fdef.id }}" class="fb-input" {% if fdef.required %}required{% endif %}>
+          <option value="">— select —</option>
+          {% for opt in fdef.options %}<option value="{{ opt }}">{{ opt }}</option>{% endfor %}
+        </select>
+        {% elif fdef.field_type == 'yesno' %}
+        <select name="cf__{{ fdef.id }}" class="fb-input" {% if fdef.required %}required{% endif %}>
+          <option value="">— select —</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+        {% elif fdef.field_type == 'ref_list' %}
+        {% set rl = ref_lists | selectattr('id', 'equalto', fdef.ref_list_id) | list | first %}
+        <select name="cf__{{ fdef.id }}" class="fb-input" {% if fdef.required %}required{% endif %}>
+          <option value="">— select —</option>
+          {% if rl %}{% for item in rl.items %}<option value="{{ item }}">{{ item }}</option>{% endfor %}{% endif %}
+        </select>
+        {% elif fdef.field_type == 'date' %}
+        <input type="date" name="cf__{{ fdef.id }}" class="fb-input" {% if fdef.required %}required{% endif %}>
+        {% elif fdef.field_type == 'number' %}
+        <input type="number" name="cf__{{ fdef.id }}" class="fb-input" {% if fdef.required %}required{% endif %}>
+        {% else %}
+        <input type="text" name="cf__{{ fdef.id }}" class="fb-input" {% if fdef.required %}required{% endif %}>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% endfor %}
+      {% endif %}
+
       <div class="fb-field">
         <label>Completion Note{% if active_stage.completion_note_required %} *{% endif %}</label>
         <textarea name="completion_note" rows="2" class="fb-input" {% if active_stage.completion_note_required %}required{% endif %}></textarea>
@@ -286,14 +356,38 @@ function fbToggleMove(open){
   if(!el) return;
   el.classList.toggle('fb-open', open === undefined ? !el.classList.contains('fb-open') : open);
 }
+function fbToggleUpload(open){
+  var el = document.getElementById('fb-upload-backdrop');
+  if(!el) return;
+  if (open) {
+    document.getElementById('fb-upload-file').value = '';
+    document.getElementById('fb-upload-status').textContent = '';
+  }
+  el.classList.toggle('fb-open', open === undefined ? !el.classList.contains('fb-open') : open);
+}
+function fbSubmitUpload(){
+  var fileEl = document.getElementById('fb-upload-file');
+  var statusEl = document.getElementById('fb-upload-status');
+  if (!fileEl.files.length) { statusEl.textContent = 'Choose a file first.'; return; }
+  if (!FB_CURRENT_SPLIT_ID) { statusEl.textContent = 'No split found for this ticket.'; return; }
+  var fd = new FormData();
+  fd.append('file', fileEl.files[0]);
+  statusEl.textContent = 'Uploading…';
+  fetch('/fms/splits/' + FB_CURRENT_SPLIT_ID + '/evidence', { method: 'POST', body: fd })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data && data.ok) {
+        statusEl.textContent = '✓ Uploaded.';
+        setTimeout(function(){ fbToggleUpload(false); }, 700);
+      } else {
+        statusEl.textContent = (data && data.error) || 'Upload failed.';
+      }
+    })
+    .catch(function(){ statusEl.textContent = 'Upload failed — check your connection.'; });
+}
 
 var FB_CURRENT_TICKET = null;
-
-function fbEsc(s){
-  var d = document.createElement('div');
-  d.textContent = s == null ? '' : String(s);
-  return d.innerHTML;
-}
+var FB_CURRENT_SPLIT_ID = null;
 
 function fbOpenTicket(cardEl){
   var id = cardEl.dataset.id;
@@ -301,21 +395,43 @@ function fbOpenTicket(cardEl){
   var title = cardEl.dataset.title;
   var priority = cardEl.dataset.priority;
   var prClass = cardEl.dataset.prclass;
+  var desc = cardEl.dataset.desc;
+  var assignee = cardEl.dataset.assignee;
+  var stage = cardEl.dataset.stage;
+  var tat = cardEl.dataset.tat;
   var splitId = cardEl.dataset.splitid;
   var canAct = cardEl.dataset.canact === 'true';
 
   FB_CURRENT_TICKET = id;
+  FB_CURRENT_SPLIT_ID = splitId || null;
   document.getElementById('fb-t-id').textContent = displayId;
   document.getElementById('fb-t-title').textContent = title;
   var prEl = document.getElementById('fb-t-priority');
   prEl.textContent = priority;
   prEl.className = 'fb-badge ' + prClass;
+  document.getElementById('fb-t-stage').textContent = stage || '—';
+  document.getElementById('fb-t-assignee').textContent = assignee || 'Unassigned';
+  document.getElementById('fb-t-tat').textContent = tat ? (tat + '%') : '—';
+  var descCard = document.getElementById('fb-t-desc-card');
+  if (desc) { document.getElementById('fb-t-desc').textContent = desc; descCard.style.display = ''; }
+  else { descCard.style.display = 'none'; }
+
+  var splitLabel = cardEl.dataset.splitlabel;
+  var splitCount = parseInt(cardEl.dataset.splitcount || '1', 10);
+  var splitRow = document.getElementById('fb-t-split-row');
+  if (splitCount > 1 && splitLabel) {
+    document.getElementById('fb-t-split').textContent = splitLabel + ' (' + splitCount + ' active splits on this ticket)';
+    splitRow.style.display = '';
+  } else {
+    splitRow.style.display = 'none';
+  }
+
   var moveSplitEl = document.getElementById('fb-move-split-id');
   if (moveSplitEl) moveSplitEl.value = splitId || '';
   document.getElementById('fb-action-split-id').value = splitId || '';
 
-  var moveSection = document.getElementById('fb-move-section');
-  if (moveSection) moveSection.style.display = canAct ? '' : 'none';
+  var moveCta = document.getElementById('fb-move-cta');
+  if (moveCta) moveCta.style.display = canAct ? '' : 'none';
   ['fb-act-reassign','fb-act-help','fb-act-flag'].forEach(function(elId){
     var b = document.getElementById(elId);
     if (b) b.style.display = canAct ? '' : 'none';
@@ -325,33 +441,16 @@ function fbOpenTicket(cardEl){
   if (moveForm) moveForm.action = '/fms/tickets/' + id + '/transition';
   document.getElementById('fb-action-form').action = '/fms/tickets/' + id + '/action';
 
-  var journey = document.getElementById('fb-journey');
-  journey.innerHTML = '<div class="fb-journey-empty">Loading…</div>';
-  fetch('/fms/tickets/' + id + '/events').then(function(r){ return r.json(); }).then(function(data){
-    var events = data.events || [];
-    if (!events.length) { journey.innerHTML = '<div class="fb-journey-empty">No activity yet.</div>'; return; }
-    journey.innerHTML = events.map(function(e, i){
-      var showLine = i < events.length - 1;
-      var stageLine = fbEsc(e.event_type.replace(/_/g,' ')) + (e.detail ? ' — ' + fbEsc(e.detail) : '');
-      return '<div class="fb-journey-row">' +
-        '<div class="fb-journey-dot-col"><span class="fb-journey-dot"></span>' +
-          (showLine ? '<span class="fb-journey-line"></span>' : '') +
-        '</div>' +
-        '<div style="flex:1">' +
-          '<div class="fb-journey-stage">' + stageLine + '</div>' +
-          '<div class="fb-journey-meta">' + fbEsc(e.actor_name) + ' · ' + fbEsc(e.created_at) + '</div>' +
-        '</div>' +
-      '</div>';
-    }).join('');
-  }).catch(function(){
-    journey.innerHTML = '<div class="fb-journey-empty">Could not load journey.</div>';
-  });
-
   document.getElementById('fb-detail').classList.add('fb-open');
 }
 function fbCloseTicket(){
   document.getElementById('fb-detail').classList.remove('fb-open');
   FB_CURRENT_TICKET = null;
+}
+function fbToggleOverflow(open){
+  var el = document.getElementById('fb-overflow-backdrop');
+  if(!el) return;
+  el.classList.toggle('fb-open', open === undefined ? !el.classList.contains('fb-open') : open);
 }
 
 var FB_ACTION_TITLES = {

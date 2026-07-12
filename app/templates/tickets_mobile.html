@@ -93,8 +93,8 @@
 
 <!-- ── Filter bottom sheet ──────────────────────────────────────────────── -->
 {% if user.role in ('ADMIN','MANAGER') %}
-<div class="tm-sheet-backdrop" id="tm-filters-backdrop" onclick="if(event.target===this)tmToggleFilters(false)">
-  <div class="tm-sheet">
+<div class="tm-sheet-backdrop tm-sheet-backdrop-full" id="tm-filters-backdrop" onclick="if(event.target===this)tmToggleFilters(false)">
+  <div class="tm-sheet tm-sheet-full">
     <div class="tm-sheet-handle"></div>
     <div class="tm-sheet-hdr">
       <div class="tm-sheet-title">Filters</div>
