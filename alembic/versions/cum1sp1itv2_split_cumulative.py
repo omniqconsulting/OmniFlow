@@ -15,7 +15,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('fms_ticket_splits', sa.Column('last_cumulative_entered', sa.Float(), nullable=True))
+    existing = {c["name"] for c in sa.inspect(op.get_bind()).get_columns('fms_ticket_splits')}
+    if 'last_cumulative_entered' not in existing:
+        op.add_column('fms_ticket_splits', sa.Column('last_cumulative_entered', sa.Float(), nullable=True))
 
 
 def downgrade() -> None:
