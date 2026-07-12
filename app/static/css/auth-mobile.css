@@ -1,0 +1,95 @@
+/* ── auth-mobile.css ───────────────────────────────────────────────────────
+ * PWA-only styling for login_mobile.html / register_mobile.html /
+ * onboarding_wizard_mobile.html (Design: OmniFlow Tickets Redesign — option
+ * 15b "Branded Hero"). Only defines the `am-` prefixed classes used by the
+ * gradient hero header + card-sheet pattern; relies on the same
+ * --bg-card/--text-strong/--border-subtle/etc. custom properties already
+ * defined either inline (login_mobile.html/register_mobile.html, which don't
+ * extend base.html) or via theme-tokens.css (onboarding_wizard_mobile.html,
+ * which does) — both use identical variable names, so this file works in
+ * either context unmodified.
+ * Not loaded by, and does not affect, the desktop login.html / register.html
+ * / onboarding_wizard.html.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.am-phone-body{width:100%;min-height:100vh;display:flex;flex-direction:column;background:var(--bg-base)}
+
+.am-hero{flex-shrink:0;background:linear-gradient(135deg,#3b82f6,#2563eb);padding-bottom:20px}
+.am-hero-tall{padding-bottom:56px}
+.am-hero-mark{width:48px;height:48px;border-radius:14px;background:rgba(255,255,255,0.16);display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;margin:0 auto 10px}
+.am-hero-title{font-size:19px;font-weight:700;color:#fff;text-align:center}
+.am-hero-sub{font-size:12px;color:rgba(255,255,255,0.82);text-align:center;margin-top:4px}
+.am-hero-body{padding:18px 24px 4px;display:flex;flex-direction:column;align-items:center;gap:2px}
+.am-hero-heading{padding:2px 24px 0}
+.am-hero-heading .am-hero-title{text-align:left;font-size:17px}
+.am-hero-heading .am-hero-sub{text-align:left;margin-top:3px}
+
+.am-sheet{flex:1;background:var(--bg-card);border-radius:22px 22px 0 0;margin-top:-20px;padding:24px 24px 32px;position:relative}
+.am-sheet-flush{margin-top:-14px}
+
+.am-progress-track{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.28);overflow:hidden}
+.am-progress-fill{height:100%;background:#fff;border-radius:3px;transition:width .25s}
+.am-progress-row{display:flex;gap:6px;margin-top:10px}
+
+.am-card-title{font-size:15px;font-weight:700;color:var(--text-strong);margin-bottom:14px}
+.am-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:12px}
+
+.am-field{margin-bottom:12px}
+.am-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin-bottom:5px}
+.am-input,.am-select{width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border-med);border-radius:9px;padding:10px 12px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit}
+.am-input:focus,.am-select:focus{border-color:var(--accent)}
+.am-input::placeholder{color:var(--text-faint)}
+.am-pw-field{position:relative}
+.am-pw-field .am-input{padding-right:36px}
+.am-pw-toggle{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;opacity:.65;color:var(--text-muted)}
+.am-phone-row{display:flex;gap:8px}
+.am-phone-row select{width:80px;flex-shrink:0;font-size:12px;padding:10px 8px}
+.am-phone-row input{flex:1}
+.am-hint{font-size:10.5px;color:var(--text-faint);margin-top:4px}
+
+.am-btn{width:100%;box-sizing:border-box;text-align:center;padding:12px 0;border-radius:9px;font-size:13.5px;font-weight:700;font-family:inherit;cursor:pointer;border:none;text-decoration:none;display:block}
+.am-btn-primary{background:#3b82f6;color:#fff}
+.am-btn-outline{background:var(--bg-elevated,var(--hover-bg));color:var(--text-primary)}
+.am-btn-row{display:flex;gap:10px;margin-top:18px}
+.am-btn-row .am-btn{flex:1}
+
+.am-divider{border:none;border-top:1px solid var(--border-subtle);margin:18px 0}
+.am-footer{text-align:center;font-size:11.5px;color:var(--text-faint)}
+.am-footer a,.am-link{color:#3b82f6;text-decoration:none;cursor:pointer}
+.am-footer a:hover,.am-link:hover{text-decoration:underline}
+.am-footer-sep{margin:0 8px;color:var(--text-faint)}
+
+.am-status{position:fixed;left:0;right:0;top:0;height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;color:#fff;font-size:14px;font-weight:600;pointer-events:none}
+.am-status-fixed{position:static;height:44px}
+
+/* ── Modals (forgot password / contact admin) ── */
+.am-modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;align-items:flex-end;justify-content:center}
+.am-modal-backdrop.am-open{display:flex}
+.am-modal{width:100%;max-width:520px;max-height:78vh;overflow-y:auto;background:var(--bg-card);border-radius:22px 22px 0 0;padding:10px 22px calc(24px + env(safe-area-inset-bottom));box-sizing:border-box}
+.am-modal-handle{width:36px;height:4px;border-radius:99px;background:var(--border-med);margin:6px auto 16px}
+.am-modal-title{font-size:15px;font-weight:700;color:var(--text-strong);margin-bottom:6px}
+.am-modal-body{font-size:12.5px;color:var(--text-muted);line-height:1.6;margin-bottom:14px}
+.am-modal-step{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-subtle)}
+.am-modal-step:last-child{border-bottom:none}
+.am-step-num{width:22px;height:22px;border-radius:99px;background:rgba(59,130,246,0.16);color:#60a5fa;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.am-step-text{font-size:12px;color:var(--text-muted);line-height:1.55}
+.am-step-text strong{color:var(--text-primary);display:block;margin-bottom:2px}
+.am-modal-close{width:100%;background:var(--bg-elevated,var(--hover-bg));color:var(--text-primary);border:none;border-radius:9px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:16px}
+.am-contact-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:none;border-radius:9px;padding:10px;font-size:12.5px;font-weight:700;text-decoration:none;font-family:inherit;margin-top:8px}
+
+.am-error{background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25);border-radius:9px;padding:10px 12px;font-size:12.5px;margin-bottom:14px}
+html.light .am-error{color:#dc2626}
+
+/* ── Setup-wizard step pills (in the hero band) ── */
+.am-pill-row{display:flex;gap:8px;overflow-x:auto;padding:0 22px 2px}
+.am-pill-row::-webkit-scrollbar{display:none}
+.am-pill{flex-shrink:0;width:32px;height:32px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;text-decoration:none;cursor:pointer}
+.am-pill-done{background:#fff;color:#1d4ed8}
+.am-pill-current{background:rgba(255,255,255,0.28);color:#fff;border:2px solid #fff}
+.am-pill-pending{background:rgba(255,255,255,0.16);color:rgba(255,255,255,0.75)}
+
+.am-step-icon{width:44px;height:44px;border-radius:12px;background:var(--bg-elevated,var(--hover-bg));display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.am-step-status{font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px}
+.am-step-status-done{background:rgba(16,185,129,0.16);color:#34d399}
+.am-step-status-current{background:rgba(59,130,246,0.16);color:#60a5fa}
+.am-step-status-pending{background:var(--border-med);color:var(--text-faint)}

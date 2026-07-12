@@ -1,0 +1,72 @@
+/* ── employee-dashboard-mobile.css ─────────────────────────────────────────
+ * PWA-only styling for employee_dashboard_mobile.html (Design: OmniFlow
+ * Tickets Redesign — option 17b "Tabbed Focus": Overview / Tickets /
+ * Checklists / Trend). Built entirely from theme-tokens.css custom
+ * properties so light/dark both work automatically via the existing
+ * html.light toggle.
+ * Not loaded by, and does not affect, the desktop employee_dashboard.html.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.ed-header{margin:4px 0 12px}
+.ed-name{font-size:19px;font-weight:700;color:var(--text-strong)}
+.ed-role{font-size:11px;color:var(--text-faint);margin-top:2px}
+
+.ed-tabs{display:flex;gap:8px;overflow-x:auto;margin-bottom:16px;padding-bottom:2px}
+.ed-tabs::-webkit-scrollbar{display:none}
+.ed-tab{padding:7px 14px;border-radius:99px;font-size:12.5px;font-weight:600;white-space:nowrap;cursor:pointer;background:var(--bg-elevated);color:var(--text-muted);border:none;font-family:inherit;flex-shrink:0}
+.ed-tab-active{background:var(--accent);color:#fff}
+.ed-panel{display:none}
+.ed-panel.ed-panel-active{display:block}
+
+/* Score */
+.ed-score-row{display:flex;gap:10px;margin-bottom:14px}
+.ed-score-card{width:104px;flex-shrink:0;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.ed-score-label{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint)}
+.ed-score-ring{width:64px;height:64px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700}
+.ed-score-sub{font-size:9.5px;color:var(--text-faint)}
+.ed-breakdown-card{flex:1;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:9px;justify-content:center}
+.ed-bd-row{display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:3px}
+.ed-bd-track{height:5px;border-radius:3px;background:var(--hover-bg);overflow:hidden}
+.ed-bd-fill{height:100%;border-radius:3px}
+
+/* KPI grid */
+.ed-kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.ed-kpi-cell{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:12px;text-align:center}
+.ed-kpi-value{font-size:20px;font-weight:700}
+.ed-kpi-label{font-size:10px;color:var(--text-faint);margin-top:3px}
+.ed-kpi-sub{font-size:9px;color:var(--text-faint);margin-top:1px}
+
+/* Hot tasks */
+.ed-hot-card{background:var(--bg-card);border:1px solid rgba(239,68,68,0.25);border-radius:14px;padding:14px;margin-bottom:14px}
+.ed-hot-hdr{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+.ed-hot-title{font-size:12.5px;font-weight:700;color:#f87171}
+.ed-hot-count{margin-left:auto;background:rgba(239,68,68,0.18);color:#f87171;border-radius:99px;padding:1px 8px;font-size:10px;font-weight:700}
+.ed-hot-row{padding:8px 0;border-bottom:1px solid var(--border-subtle)}
+.ed-hot-row:last-child{border-bottom:none}
+.ed-hot-item-title{font-size:12.5px;font-weight:600;color:var(--text-strong)}
+.ed-hot-item-sub{font-size:10.5px;color:#f87171;margin-top:2px}
+
+/* Tickets tab */
+.ed-section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin:14px 0 8px}
+.ed-section-label:first-child{margin-top:0}
+.ed-ticket-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:11px 13px;margin-bottom:8px}
+.ed-ticket-top{display:flex;justify-content:space-between;gap:8px}
+.ed-ticket-title{font-size:12.5px;font-weight:600;color:var(--text-strong);line-height:1.35}
+.ed-ticket-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;flex-shrink:0;height:fit-content}
+.ed-ticket-meta{display:flex;justify-content:space-between;margin-top:6px}
+.ed-ticket-id{font-size:10.5px;color:var(--text-faint)}
+.ed-ticket-due{font-size:10.5px;font-weight:600}
+.ed-empty{padding:18px 0;color:var(--text-faint);font-size:12.5px;text-align:center}
+
+/* Checklists tab */
+.ed-cl-row{display:flex;align-items:center;gap:10px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:11px 13px;margin-bottom:8px}
+.ed-cl-title{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ed-cl-sub{font-size:10.5px;margin-top:2px}
+.ed-cl-done-btn{flex-shrink:0;padding:7px 12px;border-radius:8px;background:#22c55e;color:#fff;font-size:11px;font-weight:700;border:none;cursor:pointer;font-family:inherit}
+
+/* Trend tab */
+.ed-trend-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:14px;display:flex;align-items:flex-end;gap:6px;height:150px}
+.ed-trend-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end}
+.ed-trend-value{font-size:9px;color:var(--text-faint);font-weight:600}
+.ed-trend-bar{width:100%;border-radius:3px 3px 0 0;background:#3b82f6}
+.ed-trend-label{font-size:8px;color:var(--text-faint)}

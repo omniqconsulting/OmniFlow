@@ -1,0 +1,80 @@
+/* ── dashboard-mobile.css ──────────────────────────────────────────────────
+ * PWA-only styling for dashboard_summary_mobile.html (Design: OmniFlow
+ * Tickets Redesign — option 16a "Score & Modules": desktop analytics shape
+ * carried to mobile, filter rail collapsed into a ⚙ bottom sheet). Built
+ * entirely from theme-tokens.css custom properties so light/dark both work
+ * automatically via the existing html.light toggle.
+ * Not loaded by, and does not affect, the desktop dashboard_summary.html.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.dm-header{display:flex;align-items:center;justify-content:space-between;margin:4px 0 4px}
+.dm-title{font-size:22px;font-weight:700;color:var(--text-strong)}
+.dm-header-actions{display:flex;gap:8px;align-items:center}
+.dm-icon-btn{position:relative;width:34px;height:34px;border-radius:10px;background:var(--bg-elevated);border:none;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--text-primary);cursor:pointer}
+.dm-icon-dot{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:99px;background:var(--accent);border:1.5px solid var(--bg-base)}
+.dm-subtitle{font-size:11.5px;color:var(--text-faint);margin-bottom:14px}
+
+/* ── Score row ── */
+.dm-score-row{display:grid;grid-template-columns:100px 1fr;gap:12px;margin-bottom:16px}
+.dm-score-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:14px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.dm-score-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint)}
+.dm-score-ring{width:62px;height:62px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700}
+.dm-score-sub{font-size:9px;color:var(--text-faint)}
+.dm-breakdown-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;justify-content:center}
+.dm-bd-row{display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px}
+.dm-bd-track{height:4px;border-radius:3px;background:var(--hover-bg);overflow:hidden}
+.dm-bd-fill{height:100%;border-radius:3px}
+
+/* ── Module cards ── */
+.dm-module{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;overflow:hidden;margin-bottom:12px}
+.dm-module-hdr{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--bg-elevated);border-bottom:1px solid var(--border-subtle)}
+.dm-module-hdr.dm-module-hdr-red{background:var(--bg-card);border-bottom:1px solid rgba(239,68,68,0.18)}
+.dm-module-icon{font-size:14px}
+.dm-module-title{font-size:12.5px;font-weight:700;color:var(--text-strong)}
+.dm-module-cells{display:grid;grid-template-columns:1fr 1fr}
+.dm-module-cells.dm-module-cells-1{grid-template-columns:1fr}
+.dm-cell{padding:11px 14px;border-right:1px solid var(--border-subtle);border-bottom:1px solid var(--border-subtle)}
+.dm-cell:nth-child(2n){border-right:none}
+.dm-cell:nth-last-child(-n+2){border-bottom:none}
+.dm-module-cells-1 .dm-cell{border-right:none;text-align:center}
+.dm-cell-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin-bottom:5px}
+.dm-cell-value{font-size:19px;font-weight:700;color:var(--text-strong)}
+.dm-cell-value.dm-good{color:#10b981}
+.dm-cell-value.dm-warn{color:#f59e0b}
+.dm-cell-value.dm-bad{color:#f87171}
+.dm-cell-sub{font-size:9.5px;color:var(--text-faint);margin-top:2px}
+
+/* ── Priority tasks ── */
+.dm-badge-count{margin-left:auto;background:rgba(239,68,68,0.18);color:#f87171;border-radius:99px;padding:1px 8px;font-size:10px;font-weight:700}
+.dm-task-row{padding:10px 14px;border-bottom:1px solid var(--border-subtle)}
+.dm-task-row:last-child{border-bottom:none}
+.dm-task-top{display:flex;justify-content:space-between;gap:8px}
+.dm-task-title{font-size:12.5px;font-weight:600;color:var(--text-strong)}
+.dm-task-badge{font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:99px;background:rgba(239,68,68,0.16);color:#f87171;flex-shrink:0;height:fit-content}
+.dm-task-sub{font-size:10.5px;color:var(--text-faint);margin-top:3px}
+.dm-empty{padding:18px 14px;color:var(--text-faint);font-size:12.5px;text-align:center}
+
+/* ── Department health chips ── */
+.dm-section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin-bottom:8px}
+.dm-dept-strip{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.dm-dept-chip{padding:7px 12px;border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;display:block}
+.dm-dept-chip span{font-size:10px;opacity:.8}
+.dm-dept-green{background:rgba(16,185,129,0.15);color:#6ee7b7}
+.dm-dept-amber{background:rgba(245,158,11,0.15);color:#fcd34d}
+.dm-dept-red{background:rgba(239,68,68,0.15);color:#fca5a5}
+html.light .dm-dept-green{color:#065f46}
+html.light .dm-dept-amber{color:#92400e}
+html.light .dm-dept-red{color:#991b1b}
+
+/* ── Filter bottom sheet (shared visual language with tm-sheet) ── */
+.dm-sheet-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;align-items:flex-end;justify-content:center}
+.dm-sheet-backdrop.dm-open{display:flex}
+.dm-sheet{width:100%;max-width:520px;max-height:80vh;overflow-y:auto;background:var(--bg-card);border-radius:22px 22px 0 0;padding:10px 18px calc(22px + env(safe-area-inset-bottom));box-sizing:border-box}
+.dm-sheet-handle{width:36px;height:4px;border-radius:99px;background:var(--border-med);margin:6px auto 14px}
+.dm-sheet-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.dm-sheet-title{font-size:15px;font-weight:700;color:var(--text-strong)}
+.dm-sheet-done{background:none;border:none;font-size:13px;font-weight:600;color:var(--accent);cursor:pointer;font-family:inherit}
+.dm-chip-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.dm-chip{padding:7px 13px;border-radius:99px;font-size:12px;font-weight:600;cursor:pointer;background:var(--bg-elevated);color:var(--text-primary);text-decoration:none;display:inline-block;border:none;font-family:inherit}
+.dm-chip-active{background:var(--accent);color:#fff}
+.dm-apply-btn{text-align:center;padding:11px 0;border-radius:10px;background:var(--accent);font-size:13px;font-weight:700;color:#fff;border:none;width:100%;cursor:pointer;font-family:inherit}

@@ -69,6 +69,13 @@ html.light .tm-theme-light{display:inline}
 .tm-tab-count{font-size:11px;background:rgba(255,255,255,0.15);border-radius:99px;padding:1px 6px}
 .tm-tab:not(.tm-tab-active) .tm-tab-count{background:var(--border-med)}
 
+/* Fixed 2-3 way segmented control (e.g. List/Org Chart, Report/Ask) — unlike
+   .tm-tab (display:flex, built for scrollable pill tabs), these are plain
+   block items so text-align:center actually centers the label. */
+.tm-seg-row{display:flex;gap:8px;margin-bottom:16px}
+.tm-seg{flex:1;text-align:center;padding:9px 0;border-radius:9px;font-size:12.5px;font-weight:700;background:var(--bg-elevated);color:var(--text-muted);cursor:pointer}
+.tm-seg-active{background:var(--accent);color:#fff}
+
 .tm-list{display:flex;flex-direction:column;gap:12px;padding-bottom:24px}
 .tm-empty{padding:40px 0;text-align:center;color:var(--text-faint);font-size:13.5px}
 .tm-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:16px;padding:15px 17px;display:flex;flex-direction:column;gap:9px;text-decoration:none;color:inherit}

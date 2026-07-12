@@ -19,6 +19,7 @@ from .database import (
     LoginEvent, PerformanceFormula,
     EmployeeDocument, EmployeeGadget, EmployeeGadgetDocument,
     KnowledgeItem, TicketKnowledgeLink, ChecklistKnowledgeLink,
+    PushSubscription,
 )
 from .auth import (
     hash_password, verify_password, create_token,
@@ -627,22 +628,24 @@ def root():
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    return templates.TemplateResponse(request, "login.html", {"error": None})
+    template_name = "login_mobile.html" if request.cookies.get("pwa_ui") == "1" else "login.html"
+    return templates.TemplateResponse(request, template_name, {"error": None})
 
 @app.post("/login")
 def login(request: Request, slug: str = Form(...), phone: str = Form(...),
           password: str = Form(...), db: Session = Depends(get_db)):
+    template_name = "login_mobile.html" if request.cookies.get("pwa_ui") == "1" else "login.html"
     tenant = db.query(Tenant).filter(Tenant.slug == slug).first()
     if not tenant:
-        return templates.TemplateResponse(request, "login.html", {"error": "Factory not found"})
+        return templates.TemplateResponse(request, template_name, {"error": "Factory not found"})
     if getattr(tenant, "is_suspended", False):
-        return templates.TemplateResponse(request, "login.html",
+        return templates.TemplateResponse(request, template_name,
                                           {"error": "This factory account has been suspended. Contact support."})
     user = db.query(User).filter(
         User.tenant_id == tenant.id, User.phone == phone, User.is_deleted == False
     ).first()
     if not user or not verify_password(password, user.password_hash):
-        return templates.TemplateResponse(request, "login.html", {"error": "Invalid credentials"})
+        return templates.TemplateResponse(request, template_name, {"error": "Invalid credentials"})
     user.last_login = datetime.utcnow()
     db.add(LoginEvent(tenant_id=tenant.id, user_id=user.id))
     db.commit()
@@ -663,15 +666,17 @@ def check_slug_public(slug: str, db: Session = Depends(get_db)):
 
 @app.get("/register", response_class=HTMLResponse)
 def register_page(request: Request):
-    return templates.TemplateResponse(request, "register.html", {"error": None})
+    template_name = "register_mobile.html" if request.cookies.get("pwa_ui") == "1" else "register.html"
+    return templates.TemplateResponse(request, template_name, {"error": None})
 
 @app.post("/register")
 def register(request: Request, factory_name: str = Form(...), slug: str = Form(...),
              name: str = Form(...), phone: str = Form(...), password: str = Form(...),
              contact_email: str = Form(""),
              db: Session = Depends(get_db)):
+    template_name = "register_mobile.html" if request.cookies.get("pwa_ui") == "1" else "register.html"
     if db.query(Tenant).filter(Tenant.slug == slug).first():
-        return templates.TemplateResponse(request, "register.html",
+        return templates.TemplateResponse(request, template_name,
                                           {"error": "Factory ID already taken"})
     # Self-registered tenants start as TRIAL + unapproved
     tenant = Tenant(
@@ -1213,7 +1218,8 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
             hot_tasks_count = len(hot_tasks)
             hot_tasks = hot_tasks[:10]
 
-            return templates.TemplateResponse(request, "dashboard_summary.html", {
+            template_name = "dashboard_summary_mobile.html" if request.cookies.get("pwa_ui") == "1" else "dashboard_summary.html"
+            return templates.TemplateResponse(request, template_name, {
                 "user": user, "unread": unread, "L": _L(db, user),
                 "now": datetime.utcnow(),
                 **_nav_ctx(db, user, tenant=tenant),
@@ -1407,7 +1413,8 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
         _emp_fw = _get_active_formula(db, user.tenant_id)
         emp_perf_score, emp_perf_components = _compute_perf_score(_emp_kv, _emp_fw)
 
-        return templates.TemplateResponse(request, "employee_dashboard.html", {
+        template_name = "employee_dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "employee_dashboard.html"
+        return templates.TemplateResponse(request, template_name, {
             "user": user, "unread": unread, "L": _L(db, user),
             "now": datetime.utcnow(),
             **_nav_ctx(db, user),
@@ -5286,7 +5293,8 @@ def onboarding_wizard(request: Request, step: Optional[int] = None,
         5: checklist_count > 0,
     }
 
-    return templates.TemplateResponse(request, "onboarding_wizard.html", {
+    template_name = "onboarding_wizard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "onboarding_wizard.html"
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         "tenant": tenant, "step": step,
         "branches": branches, "departments": departments,
@@ -5304,11 +5312,14 @@ def notifications_page(request: Request, user: User = Depends(get_current_user_o
     notifs = db.query(Notification).filter(
         Notification.user_id == user.id,
     ).order_by(Notification.created_at.desc()).limit(100).all()
+    push_subscribed = db.query(PushSubscription).filter(
+        PushSubscription.user_id == user.id,
+    ).first() is not None
     template_name = "notifications_mobile.html" if request.cookies.get("pwa_ui") == "1" else "notifications.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
-        "notifications": notifs,
+        "notifications": notifs, "push_subscribed": push_subscribed,
     })
 
 @app.post("/notifications/read/{notif_id}")

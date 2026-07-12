@@ -17,9 +17,9 @@
   <div class="aim-sub">Generate a structured report or ask any question — grounded in your live data.</div>
 </div>
 
-<div class="tm-tabs" style="display:flex;gap:8px;padding:0 0 14px">
-  <div class="tm-tab tm-tab-active" id="aim-tab-btn-report" style="flex:1;text-align:center" onclick="aimSwitchTab('report')">📊 Report</div>
-  <div class="tm-tab" id="aim-tab-btn-chat" style="flex:1;text-align:center" onclick="aimSwitchTab('chat')">💬 Ask</div>
+<div class="tm-seg-row">
+  <div class="tm-seg tm-seg-active" id="aim-tab-btn-report" onclick="aimSwitchTab('report')">📊 Report</div>
+  <div class="tm-seg" id="aim-tab-btn-chat" onclick="aimSwitchTab('chat')">💬 Ask</div>
 </div>
 
 {% if not api_configured %}
@@ -91,8 +91,8 @@ function aimSwitchTab(tab){
   const isReport = tab === 'report';
   document.getElementById('aim-tab-report').style.display = isReport ? '' : 'none';
   document.getElementById('aim-tab-chat').style.display = isReport ? 'none' : '';
-  document.getElementById('aim-tab-btn-report').className = 'tm-tab' + (isReport ? ' tm-tab-active' : '');
-  document.getElementById('aim-tab-btn-chat').className = 'tm-tab' + (isReport ? '' : ' tm-tab-active');
+  document.getElementById('aim-tab-btn-report').className = 'tm-seg' + (isReport ? ' tm-seg-active' : '');
+  document.getElementById('aim-tab-btn-chat').className = 'tm-seg' + (isReport ? '' : ' tm-seg-active');
 }
 function aimSelectChip(rowId, el){
   document.querySelectorAll('#'+rowId+' .tm-chip').forEach(c => c.classList.remove('tm-chip-active'));
@@ -103,7 +103,7 @@ function aimSetPrompt(el){
 }
 function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function aimRenderList(items){
-  return '<ul style="margin:0;padding-left:16px">' + (items||[]).map(x => `<li style="font-size:12px;color:var(--text-faint);line-height:1.6;margin-bottom:4px">${esc(x)}</li>`).join('') + '</ul>';
+  return '<ul style="margin:0;padding-left:16px">' + (items||[]).map(x => `<li style="font-size:12.5px;color:var(--text-muted);line-height:1.7;margin-bottom:4px">${esc(x)}</li>`).join('') + '</ul>';
 }
 
 async function aimGenerateReport(){

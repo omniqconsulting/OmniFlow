@@ -26,9 +26,9 @@
 <div class="tm-alert tm-alert-green">✓ {{ request.query_params.get('msg').replace('+',' ') }}</div>
 {% endif %}
 
-<div class="tm-tabs" style="padding:0 0 10px">
-  <div class="tm-tab tm-tab-active" id="emp-view-list-btn" style="flex:1;text-align:center" onclick="empSetView('list')">List</div>
-  <div class="tm-tab" id="emp-view-org-btn" style="flex:1;text-align:center" onclick="empSetView('org')">Org Chart</div>
+<div class="tm-seg-row">
+  <div class="tm-seg tm-seg-active" id="emp-view-list-btn" onclick="empSetView('list')">List</div>
+  <div class="tm-seg" id="emp-view-org-btn" onclick="empSetView('org')">Org Chart</div>
 </div>
 
 <div class="tm-tabs" data-tabsscroll style="margin-bottom:6px">
@@ -43,7 +43,7 @@
   {% for emp in employees %}
   <div class="tm-card emp-card"
        data-name="{{ emp.name|lower }}" data-phone="{{ emp.phone }}" data-dept="{{ (emp.department.name if emp.department else '')|lower }}"
-       data-detail="{{ {
+       data-detail='{{ {
          'id': emp.id, 'name': emp.name, 'phone': emp.phone, 'role': emp.role,
          'dept': (emp.department.name if emp.department else ''), 'dept_id': (emp.department_id or ''),
          'manager_id': (emp.manager_id or ''), 'manager_name': (emp.manager.name if emp.manager else ''),
@@ -51,7 +51,7 @@
          'joining_date': (emp.joining_date.isoformat() if emp.joining_date else ''),
          'address': (emp.address or ''), 'status': (emp.status or 'ACTIVE'),
          'is_self': (emp.id == user.id),
-       } | tojson }}"
+       } | tojson }}'
        onclick="empOpenDetail(this)">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
       <div>
@@ -195,8 +195,8 @@ function empApplySearch(q){
 function empSetView(view){
   document.getElementById('emp-view-list').style.display = view === 'list' ? '' : 'none';
   document.getElementById('emp-view-org').style.display = view === 'org' ? '' : 'none';
-  document.getElementById('emp-view-list-btn').className = 'tm-tab' + (view === 'list' ? ' tm-tab-active' : '');
-  document.getElementById('emp-view-org-btn').className = 'tm-tab' + (view === 'org' ? ' tm-tab-active' : '');
+  document.getElementById('emp-view-list-btn').className = 'tm-seg' + (view === 'list' ? ' tm-seg-active' : '');
+  document.getElementById('emp-view-org-btn').className = 'tm-seg' + (view === 'org' ? ' tm-seg-active' : '');
   if(view === 'org') empRenderOrg();
 }
 

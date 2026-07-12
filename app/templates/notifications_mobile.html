@@ -18,7 +18,11 @@
   </form>
 </div>
 
-<button type="button" class="tm-btn tm-btn-primary" data-push-btn onclick="enablePushNotifications(this)" style="width:100%;margin-bottom:14px">📲 Enable push notifications</button>
+{% if push_subscribed %}
+<div class="tm-alert tm-alert-green" id="notif-push-enabled" style="text-align:center">✓ Push notifications enabled</div>
+{% else %}
+<button type="button" class="tm-btn tm-btn-primary" id="notif-push-btn" onclick="notifEnablePush(this)" style="width:100%;margin-bottom:14px">📲 Enable push notifications</button>
+{% endif %}
 
 {% if not notifications %}
 <div class="tm-empty">No notifications yet.</div>
@@ -45,4 +49,17 @@
   {% endfor %}
 </div>
 {% endif %}
+
+<script>
+async function notifEnablePush(btn){
+  await window.enablePushNotifications(btn);
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    const pill = document.createElement('div');
+    pill.className = 'tm-alert tm-alert-green';
+    pill.style.textAlign = 'center';
+    pill.textContent = '✓ Push notifications enabled';
+    btn.replaceWith(pill);
+  }
+}
+</script>
 {% endblock %}

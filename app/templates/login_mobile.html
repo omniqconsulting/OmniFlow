@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OmniFlow — Sign In</title>
+{# PWA-only "Branded Hero" login (Design: OmniFlow Tickets Redesign, option
+   15b). Served only when the pwa_ui cookie is set — see
+   app/main.py::login_page()/login(). Doesn't extend base.html (same as
+   login.html), so it carries its own PWA/install meta tags and its own
+   self-contained light/dark toggle (localStorage['omniflow-theme']),
+   independent of the app shell's. Do not port changes here back into
+   login.html or vice versa; they are intentionally independent templates. #}
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#3b82f6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="OmniFlow">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/auth-mobile.css">
+<style>
+:root {
+  --bg-base:       #0b0f1a;
+  --bg-card:       #111827;
+  --bg-input:      #0d1424;
+  --bg-elevated:   #1e293b;
+  --text-primary:  #e2e8f0;
+  --text-strong:   #f1f5f9;
+  --text-muted:    #94a3b8;
+  --text-faint:    #64748b;
+  --border-subtle: rgba(255,255,255,0.08);
+  --border-med:    rgba(255,255,255,0.12);
+  --accent:        #3b82f6;
+}
+html.light {
+  --bg-base:       #f0f4f8;
+  --bg-card:       #ffffff;
+  --bg-input:      #f8fafc;
+  --bg-elevated:   #e8edf4;
+  --text-primary:  #1e3a5f;
+  --text-strong:   #0c2340;
+  --text-muted:    #3a5a7a;
+  --text-faint:    #5a7a9a;
+  --border-subtle: rgba(30,58,95,0.10);
+  --border-med:    rgba(30,58,95,0.18);
+  --accent:        #1d4ed8;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text-primary);transition:background .2s,color .2s}
+</style>
+</head>
+<body>
+<div class="am-phone-body">
+
+  <div class="am-hero am-hero-tall">
+    <div class="am-status">
+      <span>9:41</span>
+      <span>📶 🔋</span>
+    </div>
+    <div class="am-hero-body">
+      <div class="am-hero-mark">◆</div>
+      <div class="am-hero-title">OmniFlow</div>
+      <div class="am-hero-sub">Workforce accountability platform</div>
+    </div>
+  </div>
+
+  <div class="am-sheet">
+    <div class="am-card-title">Sign in</div>
+    {% if error %}<div class="am-error">{{ error }}</div>{% endif %}
+    <form method="post" action="/login">
+      <div class="am-field">
+        <label class="am-label">Organization ID</label>
+        <input class="am-input" name="slug" placeholder="your-org-id" required autocomplete="organization">
+      </div>
+      <div class="am-field">
+        <label class="am-label">Phone</label>
+        <input class="am-input" name="phone" placeholder="+91XXXXXXXXXX" required autocomplete="tel">
+      </div>
+      <div class="am-field">
+        <label class="am-label">Password</label>
+        <div class="am-pw-field">
+          <input class="am-input" type="password" name="password" required autocomplete="current-password">
+          <button type="button" class="am-pw-toggle" tabindex="-1" onclick="togglePwVisibility(this)" aria-label="Show password">👁</button>
+        </div>
+      </div>
+      <button class="am-btn am-btn-primary" type="submit" style="margin-top:18px">Sign in →</button>
+    </form>
+
+    <div style="display:flex;flex-direction:column;gap:9px;align-items:center;margin-top:18px">
+      <span class="am-link" onclick="openModal('forgotModal')">Forgot password?</span>
+      <span class="am-link" onclick="openModal('contactModal')">Contact your administrator</span>
+      <span class="am-footer">New here? <a class="am-link" href="/register">Create account</a></span>
+    </div>
+  </div>
+</div>
+
+<!-- Forgot Password Modal -->
+<div class="am-modal-backdrop" id="forgotModal" onclick="if(event.target===this)closeModal('forgotModal')">
+  <div class="am-modal">
+    <div class="am-modal-handle"></div>
+    <div class="am-modal-title">🔐 Reset Your Password</div>
+    <div class="am-modal-body">
+      Passwords can't be reset by yourself for security reasons. Your organization admin or platform support can generate a temporary password for you.
+    </div>
+    <div class="am-modal-step">
+      <div class="am-step-num">1</div>
+      <div class="am-step-text"><strong>Contact your organization admin</strong>Ask them to go to the Employees page and generate a temporary password for your account.</div>
+    </div>
+    <div class="am-modal-step">
+      <div class="am-step-num">2</div>
+      <div class="am-step-text"><strong>Sign in with the temporary password</strong>Use the temporary password you receive to sign in, then change it from your profile immediately.</div>
+    </div>
+    <div class="am-modal-step">
+      <div class="am-step-num">3</div>
+      <div class="am-step-text"><strong>No admin access? Contact platform support</strong>If you are the admin and are locked out, reach out to your OmniFlow account manager: call +91 99714 53045 or email customersupport@omniqconsulting.com</div>
+    </div>
+    <button class="am-modal-close" onclick="closeModal('forgotModal')">Close</button>
+  </div>
+</div>
+
+<!-- Contact Administrator Modal -->
+<div class="am-modal-backdrop" id="contactModal" onclick="if(event.target===this)closeModal('contactModal')">
+  <div class="am-modal">
+    <div class="am-modal-handle"></div>
+    <div class="am-modal-title">📞 Contact Your Administrator</div>
+    <div class="am-modal-body">
+      Reach out to your organization administrator for account help, access issues, or onboarding support.
+    </div>
+    <div class="am-modal-step">
+      <div class="am-step-num">1</div>
+      <div class="am-step-text"><strong>Organization Admin</strong>Your organization admin can reset passwords, create accounts, and manage roles on the Employees page.</div>
+    </div>
+    <div class="am-modal-step">
+      <div class="am-step-num">2</div>
+      <div class="am-step-text"><strong>Platform Support</strong>If your admin is unavailable or you are the admin and are locked out, contact OmniFlow support directly.</div>
+    </div>
+    <a href="tel:+919971453045" class="am-contact-btn" style="background:#3b82f6;color:#fff">📞 Call · +91 99714 53045</a>
+    <a href="mailto:customersupport@omniqconsulting.com" class="am-contact-btn" style="background:var(--bg-elevated);color:var(--text-primary)">✉️ Email · customersupport@omniqconsulting.com</a>
+    <button class="am-modal-close" onclick="closeModal('contactModal')">Close</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var t = localStorage.getItem('omniflow-theme') || 'dark';
+  if(t === 'light') document.documentElement.classList.add('light');
+})();
+function togglePwVisibility(btn) {
+  var inp = btn.previousElementSibling;
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; btn.setAttribute('aria-label', 'Hide password'); }
+  else { inp.type = 'password'; btn.textContent = '👁'; btn.setAttribute('aria-label', 'Show password'); }
+}
+function openModal(id){ document.getElementById(id).classList.add('am-open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('am-open'); }
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){
+    document.querySelectorAll('.am-modal-backdrop.am-open').forEach(function(m){ m.classList.remove('am-open'); });
+  }
+});
+</script>
+</body>
+</html>

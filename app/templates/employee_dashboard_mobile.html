@@ -1,0 +1,181 @@
+{# ── employee_dashboard_mobile.html ───────────────────────────────────────
+   PWA-only Employee Dashboard & Performance (Design: OmniFlow Tickets
+   Redesign, option 17b "Tabbed Focus" — Overview / Tickets / Checklists /
+   Trend). Served only for EMPLOYEE role when the pwa_ui cookie is set, from
+   the same route/context as employee_dashboard.html — see
+   app/main.py::dashboard(). Do not port changes here back into
+   employee_dashboard.html or vice versa. #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/employee-dashboard-mobile.css">
+
+<div class="ed-header">
+  <div class="ed-name">{{ user.name }}</div>
+  <div class="ed-role">{{ user.role | title }}{% if user.department %} · {{ user.department.name }}{% endif %}</div>
+</div>
+
+<div class="ed-tabs" data-tabsscroll>
+  <button type="button" class="ed-tab ed-tab-active" data-tab="overview" onclick="edSwitchTab('overview')">Overview</button>
+  <button type="button" class="ed-tab" data-tab="tickets" onclick="edSwitchTab('tickets')">Tickets</button>
+  <button type="button" class="ed-tab" data-tab="checklists" onclick="edSwitchTab('checklists')">Checklists</button>
+  <button type="button" class="ed-tab" data-tab="trend" onclick="edSwitchTab('trend')">Trend</button>
+</div>
+
+<!-- ══════════ Overview ══════════ -->
+<div class="ed-panel ed-panel-active" data-panel="overview">
+  <div class="ed-score-row">
+    <div class="ed-score-card">
+      <div class="ed-score-label">My Score</div>
+      <div class="ed-score-ring" style="background:conic-gradient({% if perf_score >= 80 %}#10b981{% elif perf_score >= 60 %}#f59e0b{% else %}#ef4444{% endif %} {{ perf_score * 3.6 }}deg, var(--bg-elevated) 0deg);color:{% if perf_score >= 80 %}#6ee7b7{% elif perf_score >= 60 %}#fbbf24{% else %}#f87171{% endif %}">{{ perf_score }}%</div>
+      <div class="ed-score-sub">{% if perf_score >= 80 %}Excellent{% elif perf_score >= 60 %}Good{% elif perf_score > 0 %}Needs Attention{% else %}No Data{% endif %}</div>
+    </div>
+    <div class="ed-breakdown-card">
+      {% for c in perf_components %}
+      <div>
+        <div class="ed-bd-row">
+          <span style="color:{{ c.color }};font-weight:500">{{ c.label }}</span>
+          <span style="color:{% if c.value >= 80 %}#10b981{% elif c.value >= 60 %}#fbbf24{% else %}#f87171{% endif %};font-weight:700">{{ c.value }}%</span>
+        </div>
+        <div class="ed-bd-track"><div class="ed-bd-fill" style="width:{{ c.value }}%;background:{{ c.color }}"></div></div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="ed-kpi-grid">
+    <div class="ed-kpi-cell">
+      <div class="ed-kpi-value" style="color:var(--text-primary)">{{ kpis.active_count }}</div>
+      <div class="ed-kpi-label">Active Tickets</div>
+    </div>
+    {% set otr = kpis.on_time_rate | round(0) | int %}
+    <div class="ed-kpi-cell">
+      <div class="ed-kpi-value" style="color:{% if otr>=80 %}#10b981{% elif otr>=60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ otr }}%</div>
+      <div class="ed-kpi-label">On-Time Rate</div>
+      <div class="ed-kpi-sub">30d</div>
+    </div>
+    {% set cr = kpis.compliance_rate | round(0) | int %}
+    <div class="ed-kpi-cell">
+      <div class="ed-kpi-value" style="color:{% if cr>=80 %}#10b981{% elif cr>=60 %}#f59e0b{% else %}#ef4444{% endif %}">{{ cr }}%</div>
+      <div class="ed-kpi-label">Checklist Compliance</div>
+    </div>
+    {% set tat = kpis.avg_tat_hours %}
+    <div class="ed-kpi-cell">
+      <div class="ed-kpi-value" style="color:var(--text-primary)">{{ tat | round(1) }}h</div>
+      <div class="ed-kpi-label">Avg TAT</div>
+      {% if org_avg is not none %}
+      <div class="ed-kpi-sub" style="color:{% if tat <= org_avg %}#10b981{% else %}#f59e0b{% endif %}">Org avg {{ org_avg | round(1) }}h</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if hot_tasks %}
+  <div class="ed-hot-card">
+    <div class="ed-hot-hdr">
+      <span>🔥</span>
+      <span class="ed-hot-title">Hot Tasks</span>
+      <span class="ed-hot-count">{{ hot_tasks_count }}</span>
+    </div>
+    {% for t in hot_tasks %}
+    <div class="ed-hot-row">
+      <div class="ed-hot-item-title">{{ t.title }}</div>
+      <div class="ed-hot-item-sub">{{ t.due_at | ist('%d %b') if t.due_at else '—' }}{% if t.due_at and t.due_at < now %} · {{ (now - t.due_at).days }}d overdue{% endif %}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- ══════════ Tickets ══════════ -->
+<div class="ed-panel" data-panel="tickets">
+  <div class="ed-section-label">My Active Tickets</div>
+  {% if active_tickets %}
+  {% for t in active_tickets %}
+  {% set prBg = {'CRITICAL':'rgba(239,68,68,0.16)','HIGH':'rgba(245,158,11,0.16)','MEDIUM':'rgba(59,130,246,0.16)','LOW':'var(--border-med)'}.get(t.priority, 'var(--border-med)') %}
+  {% set prFg = {'CRITICAL':'#f87171','HIGH':'#f59e0b','MEDIUM':'#60a5fa','LOW':'var(--text-muted)'}.get(t.priority, 'var(--text-muted)') %}
+  <a href="/tickets/{{ t.id }}" class="ed-ticket-card" style="text-decoration:none;display:block;color:inherit">
+    <div class="ed-ticket-top">
+      <div class="ed-ticket-title">{% if t.is_flagged %}🚩 {% endif %}{{ t.title }}</div>
+      <span class="ed-ticket-badge" style="background:{{ prBg }};color:{{ prFg }}">{{ t.priority | priority_label }}</span>
+    </div>
+    <div class="ed-ticket-meta">
+      <span class="ed-ticket-id">{{ t.display_id or '—' }}</span>
+      <span class="ed-ticket-due" style="color:{% if t.due_at and t.due_at < now %}#f87171{% else %}var(--text-faint){% endif %}">{{ t.due_at | ist('%d %b') if t.due_at else '—' }}{% if t.due_at and t.due_at < now %} · Overdue{% endif %}</span>
+    </div>
+  </a>
+  {% endfor %}
+  {% else %}
+  <div class="ed-empty">No active tickets — all caught up!</div>
+  {% endif %}
+
+  {% if has_fms and (active_fms or complete_fms) %}
+  <div class="ed-section-label">My Flow Tickets</div>
+  {% for t in active_fms %}
+  <a href="/fms/{{ t.id }}" class="ed-ticket-card" style="text-decoration:none;display:block;color:inherit">
+    <div class="ed-ticket-top">
+      <div class="ed-ticket-title">{{ t.title }}</div>
+      <span class="ed-ticket-badge" style="background:rgba(59,130,246,0.16);color:#60a5fa">{{ t.status }}</span>
+    </div>
+    <div class="ed-ticket-meta">
+      <span class="ed-ticket-id">{{ t.display_id or '—' }}</span>
+      <span class="ed-ticket-due" style="color:var(--text-faint)">{{ t.current_stage.name if t.current_stage else '—' }}</span>
+    </div>
+  </a>
+  {% endfor %}
+  {% for t in complete_fms %}
+  <a href="/fms/{{ t.id }}" class="ed-ticket-card" style="text-decoration:none;display:block;color:inherit;opacity:.6">
+    <div class="ed-ticket-top">
+      <div class="ed-ticket-title">{{ t.title }}</div>
+      <span class="ed-ticket-badge" style="background:rgba(16,185,129,0.16);color:#34d399">{{ t.status }}</span>
+    </div>
+    <div class="ed-ticket-meta">
+      <span class="ed-ticket-id">{{ t.display_id or '—' }}</span>
+      <span class="ed-ticket-due" style="color:var(--text-faint)">{{ t.current_stage.name if t.current_stage else '—' }}</span>
+    </div>
+  </a>
+  {% endfor %}
+  {% endif %}
+</div>
+
+<!-- ══════════ Checklists ══════════ -->
+<div class="ed-panel" data-panel="checklists">
+  {% if my_checklists %}
+  {% set overdue = my_checklists | selectattr('status','eq','OVERDUE') | list %}
+  {% set pending = my_checklists | rejectattr('status','eq','OVERDUE') | list %}
+  {% for a in overdue + pending %}
+  <div class="ed-cl-row" style="{% if a.status=='OVERDUE' %}background:rgba(248,113,113,0.06){% endif %}">
+    <div style="flex:1;min-width:0">
+      <div class="ed-cl-title" style="color:{% if a.status=='OVERDUE' %}#f87171{% else %}var(--text-strong){% endif %}">{% if a.status=='OVERDUE' %}⚠ {% endif %}{{ a.template.title if a.template else '—' }}</div>
+      <div class="ed-cl-sub" style="color:{% if a.status=='OVERDUE' %}#f87171{% else %}var(--text-faint){% endif %}">Due: {{ a.due_at | ist if a.due_at else '—' }}{% if a.status == 'OVERDUE' %} · OVERDUE{% endif %}</div>
+    </div>
+    <form method="post" action="/checklists/complete/{{ a.id }}" style="flex-shrink:0">
+      <button class="ed-cl-done-btn" type="submit">✓ Done</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="ed-empty">All caught up — no pending checklists.</div>
+  {% endif %}
+</div>
+
+<!-- ══════════ Trend ══════════ -->
+<div class="ed-panel" data-panel="trend">
+  <div class="ed-section-label" style="margin-top:0">Compliance — 8 Weeks</div>
+  <div class="ed-trend-card">
+    {% for i in range(kpis.weekly_labels | length) %}
+    {% set value = kpis.weekly_compliance[i] %}
+    <div class="ed-trend-bar-wrap">
+      <span class="ed-trend-value">{{ value | round(0) | int }}</span>
+      <div class="ed-trend-bar" style="height:{{ value }}%"></div>
+      <span class="ed-trend-label">{{ kpis.weekly_labels[i] }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+function edSwitchTab(name) {
+  document.querySelectorAll('.ed-tab').forEach(function(t){ t.classList.toggle('ed-tab-active', t.dataset.tab === name); });
+  document.querySelectorAll('.ed-panel').forEach(function(p){ p.classList.toggle('ed-panel-active', p.dataset.panel === name); });
+}
+</script>
+{% endblock %}
