@@ -21,7 +21,7 @@
 {% if push_subscribed %}
 <div class="tm-alert tm-alert-green" id="notif-push-enabled" style="text-align:center">✓ Push notifications enabled</div>
 {% else %}
-<button type="button" class="tm-btn tm-btn-primary" id="notif-push-btn" onclick="notifEnablePush(this)" style="width:100%;margin-bottom:14px">📲 Enable push notifications</button>
+<button type="button" class="tm-btn tm-btn-primary" id="notif-push-btn" data-push-btn onclick="notifEnablePush(this)" style="width:100%;margin-bottom:14px">📲 Enable push notifications</button>
 {% endif %}
 
 {% if not notifications %}

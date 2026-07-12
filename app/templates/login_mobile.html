@@ -54,7 +54,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text-primary);transi
 <div class="am-phone-body">
 
   <div class="am-hero am-hero-tall">
-    <div class="am-status">
+    <div class="am-status am-status-fixed">
       <span>9:41</span>
       <span>📶 🔋</span>
     </div>
@@ -65,7 +65,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--text-primary);transi
     </div>
   </div>
 
-  <div class="am-sheet">
+  <div class="am-sheet am-sheet-center">
     <div class="am-card-title">Sign in</div>
     {% if error %}<div class="am-error">{{ error }}</div>{% endif %}
     <form method="post" action="/login">

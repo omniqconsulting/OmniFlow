@@ -1,0 +1,376 @@
+{# ── dashboard_mobile.html ────────────────────────────────────────────────
+   PWA-only "Flow Board" Stage Board (Design: OmniFlow Tickets Redesign,
+   section 18a). Served only when the `pwa_ui` cookie is set (installed-
+   standalone sessions), from the same route/context as the desktop FMS
+   dashboard — see app/fms.py::_fms_dashboard_inner(). Implements the Stage
+   Board view only (18a) — swimlane/table/timeline/log views are desktop-only.
+   Do not port changes here back into fms/dashboard.html or vice versa; they
+   are intentionally independent templates for independent surfaces. #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/fms-mobile.css">
+
+{% set next_stage = next_stage_map.get(active_stage.id) if active_stage else None %}
+
+<div class="fb-header">
+  <div class="fb-title">Flow Board</div>
+  {% if user.role in ('ADMIN','MANAGER','EMPLOYEE') and active_flow %}
+  <button type="button" class="fb-icon-btn" onclick="fbToggleNew(true)" title="New Ticket">+</button>
+  {% endif %}
+</div>
+
+{% if request.query_params.get('msg') %}
+<div class="fb-sheet-label" style="color:#34d399;text-transform:none;font-size:12.5px;margin-bottom:10px">✓ {{ request.query_params.get('msg') }}</div>
+{% endif %}
+{% if request.query_params.get('err') %}
+<div class="fb-sheet-label" style="color:#f87171;text-transform:none;font-size:12.5px;margin-bottom:10px">{{ request.query_params.get('err') }}</div>
+{% endif %}
+
+<div class="fb-scroll-row fb-flow-tabs" data-tabsscroll>
+  {% for f in flows %}
+  <a href="/fms/dashboard?flow_id={{ f.id }}&view=stage" class="fb-flow-tab {% if active_flow and active_flow.id == f.id %}fb-flow-tab-active{% endif %}" style="color:{{ f.color or '#3b82f6' }}{% if active_flow and active_flow.id == f.id %};color:#fff{% endif %}">
+    <span class="fb-flow-dot" style="background:{{ f.color or '#3b82f6' }}"></span>
+    {{ f.name }}{% if flow_counts.get(f.id, 0) %} <span class="fb-stage-count">{{ flow_counts[f.id] }}</span>{% endif %}
+  </a>
+  {% endfor %}
+  {% if not flows %}
+  <div class="fb-empty">No flows available.</div>
+  {% endif %}
+</div>
+
+{% if active_flow %}
+<div class="fb-scroll-row fb-kpis" data-tabsscroll>
+  <div class="fb-kpi"><div class="fb-kpi-value">{{ active_tickets }}</div><div class="fb-kpi-label">Active</div></div>
+  <div class="fb-kpi"><div class="fb-kpi-value" style="color:#f87171">{{ tat_breaches }}</div><div class="fb-kpi-label">TAT Breach</div></div>
+  <div class="fb-kpi"><div class="fb-kpi-value" style="color:#fbbf24">{{ flagged_count }}</div><div class="fb-kpi-label">Flagged</div></div>
+  <div class="fb-kpi"><div class="fb-kpi-value">{{ awaiting_count }}</div><div class="fb-kpi-label">Awaiting</div></div>
+</div>
+
+<div class="fb-stage-rail">
+  <div class="fb-scroll-row" data-tabsscroll>
+    {% for s in stage_table_stages %}
+    {% set cnt = stage_ticket_counts.get(s.id, 0) %}
+    <a href="/fms/dashboard?flow_id={{ active_flow.id }}&stage_id={{ s.id }}&view=stage" class="fb-stage-chip {% if active_stage and active_stage.id == s.id %}fb-stage-chip-active{% endif %}">
+      <span>{{ s.name }}</span>
+      <span class="fb-stage-count">{{ cnt }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="fb-list">
+  {% if not stage_tickets %}
+  <div class="fb-empty">No tickets in this stage.</div>
+  {% endif %}
+  {% for row in stage_tickets %}
+  {% set t = row.ticket %}
+  {% set prClass = {'CRITICAL':'fb-badge-critical','HIGH':'fb-badge-high','MEDIUM':'fb-badge-medium','LOW':'fb-badge-low'}.get(t.priority, 'fb-badge-low') %}
+  {% set tc = '#ef4444' if row.tat_pct is not none and row.tat_pct >= 100 else ('#f59e0b' if row.tat_pct is not none and row.tat_pct >= 75 else '#3b82f6') %}
+  {% set can_act = user.role in ('ADMIN','MANAGER') or t.current_assignee_id == user.id %}
+  <button type="button" class="fb-card" onclick="fbOpenTicket(this)"
+          data-id="{{ t.id }}" data-display="{{ t.display_id or t.id[:8] }}"
+          data-title="{{ t.title }}" data-priority="{{ t.priority }}" data-prclass="{{ prClass }}"
+          data-desc="{{ t.description or '' }}" data-assignee="{{ t.current_assignee.name if t.current_assignee else 'Unassigned' }}"
+          data-stage="{{ active_stage.name if active_stage else '' }}" data-tat="{{ row.tat_pct if row.tat_pct is not none else '' }}"
+          data-splitid="{{ row.split_id or '' }}" data-canact="{{ 'true' if can_act else 'false' }}">
+    <div class="fb-card-top">
+      <span class="fb-card-id">{{ t.display_id or t.id[:8] }}</span>
+      <span class="fb-badge {{ prClass }}">{{ t.priority }}</span>
+    </div>
+    <div class="fb-card-title">{{ t.title }}</div>
+    {% if row.tat_pct is not none %}
+    <div class="fb-tat-track"><div class="fb-tat-fill" style="width:{{ [row.tat_pct,100]|min }}%;background:{{ tc }}"></div></div>
+    {% endif %}
+    <div class="fb-card-assignee">{{ t.current_assignee.name if t.current_assignee else 'Unassigned' }}</div>
+  </button>
+  {% endfor %}
+</div>
+{% else %}
+<div class="fb-empty">No flows available to show tickets for.</div>
+{% endif %}
+
+<!-- ── Ticket detail overlay — mirrors ticket_detail_mobile.html's Delegation
+     layout: title/badges, meta, description, then history at the bottom,
+     with a sticky primary CTA + "⋯" overflow for the rest ─────────────── -->
+<div class="fb-detail" id="fb-detail">
+  <div class="fb-detail-hdr">
+    <button type="button" class="fb-detail-back" onclick="fbCloseTicket()">←</button>
+    <span class="fb-detail-title" id="fb-t-id"></span>
+    <button type="button" class="fb-detail-more" onclick="fbToggleOverflow(true)" title="More actions">⋯</button>
+  </div>
+  <div class="fb-detail-body">
+    <div class="fb-detail-title-block">
+      <div class="fb-detail-title-text" id="fb-t-title"></div>
+      <div class="fb-chip-row" style="display:flex;gap:6px;flex-wrap:wrap">
+        <span class="fb-badge" id="fb-t-priority"></span>
+        <span class="fb-badge fb-badge-medium" id="fb-t-stage"></span>
+      </div>
+    </div>
+
+    <div class="fb-detail-card">
+      <div class="fb-detail-meta">
+        <div><div class="fb-detail-meta-label">Assignee</div><div class="fb-detail-meta-value" id="fb-t-assignee"></div></div>
+        <div><div class="fb-detail-meta-label">Stage TAT</div><div class="fb-detail-meta-value" id="fb-t-tat"></div></div>
+      </div>
+    </div>
+
+    <div class="fb-detail-card" id="fb-t-desc-card">
+      <div class="fb-section-label" style="margin-bottom:6px">Description</div>
+      <div class="fb-detail-desc" id="fb-t-desc"></div>
+    </div>
+
+    <div class="fb-section-label">History</div>
+    <div class="fb-journey" id="fb-journey">
+      <div class="fb-journey-empty">Loading…</div>
+    </div>
+  </div>
+
+  <div class="fb-actionbar">
+    {% if active_stage and not active_stage.is_terminal and next_stage %}
+    <button type="button" class="fb-actionbar-cta" id="fb-move-cta" onclick="fbToggleMove(true)">Move to {{ next_stage.name }} →</button>
+    {% endif %}
+    <button type="button" class="fb-actionbar-icon" onclick="fbToggleOverflow(true)" title="More actions">⋯</button>
+  </div>
+</div>
+
+<!-- ── Overflow sheet (secondary actions) ────────────────────────────────── -->
+<div class="fb-sheet-backdrop" id="fb-overflow-backdrop" onclick="if(event.target===this)fbToggleOverflow(false)">
+  <div class="fb-sheet">
+    <div class="fb-sheet-hdr">
+      <div class="fb-sheet-title">More Actions</div>
+      <button type="button" class="fb-sheet-done" onclick="fbToggleOverflow(false)">Close</button>
+    </div>
+    <div class="fb-action-list">
+      <button type="button" class="fb-action-item" onclick="fbToggleOverflow(false);fbToggleAction('comment')">💬 Add Comment</button>
+      <button type="button" class="fb-action-item" id="fb-act-reassign" onclick="fbToggleOverflow(false);fbToggleAction('reassign')">↩ Reassign</button>
+      <button type="button" class="fb-action-item fb-action-item-amber" id="fb-act-help" onclick="fbToggleOverflow(false);fbToggleAction('help')">⚑ Request Help</button>
+      <button type="button" class="fb-action-item" id="fb-act-flag" onclick="fbToggleOverflow(false);fbToggleAction('flag')">🚩 Flag Ticket</button>
+      {% if user.role in ('ADMIN','MANAGER') %}
+      <button type="button" class="fb-action-item fb-action-item-danger" onclick="fbToggleOverflow(false);fbToggleAction('close')">✕ Close Ticket</button>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Move to Stage sheet ───────────────────────────────────────────────── -->
+{% if active_flow and active_stage and next_stage %}
+<div class="fb-sheet-backdrop" id="fb-move-backdrop" onclick="if(event.target===this)fbToggleMove(false)">
+  <div class="fb-sheet">
+    <div class="fb-sheet-handle"></div>
+    <div class="fb-sheet-hdr">
+      <div class="fb-sheet-title">Move to {{ next_stage.name }}</div>
+      <button type="button" class="fb-sheet-done" onclick="fbToggleMove(false)">Cancel</button>
+    </div>
+    <form method="post" id="fb-move-form" enctype="multipart/form-data">
+      <input type="hidden" name="next_stage_id" value="{{ next_stage.id }}">
+      <input type="hidden" name="split_id" id="fb-move-split-id" value="">
+      <div class="fb-field">
+        <label>Assign to (next stage)</label>
+        <select name="new_assignee_id" class="fb-input">
+          <option value="">— select assignee —</option>
+          {% for emp in employees %}
+          <option value="{{ emp.id }}">{{ emp.name }} · {{ emp.role }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="fb-field">
+        <label>Completion Note{% if active_stage.completion_note_required %} *{% endif %}</label>
+        <textarea name="completion_note" rows="2" class="fb-input" {% if active_stage.completion_note_required %}required{% endif %}></textarea>
+      </div>
+      {% if active_stage.evidence_required %}
+      <div class="fb-field">
+        <label>Evidence File *</label>
+        <input type="file" name="evidence_file" accept="image/*,.pdf,.doc,.docx" class="fb-input" required>
+      </div>
+      {% endif %}
+      <div class="fb-sheet-footer">
+        <button type="button" class="fb-btn fb-btn-outline" onclick="fbToggleMove(false)">Cancel</button>
+        <button type="submit" class="fb-btn fb-btn-primary">Move →</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Action sheets (comment / reassign / help / flag / close) ─────────── -->
+<div class="fb-sheet-backdrop" id="fb-action-backdrop" onclick="if(event.target===this)fbToggleAction(null)">
+  <div class="fb-sheet">
+    <div class="fb-sheet-handle"></div>
+    <div class="fb-sheet-hdr">
+      <div class="fb-sheet-title" id="fb-action-title"></div>
+      <button type="button" class="fb-sheet-done" onclick="fbToggleAction(null)">Cancel</button>
+    </div>
+    <form method="post" id="fb-action-form">
+      <input type="hidden" name="action" id="fb-action-type">
+      <input type="hidden" name="split_id" id="fb-action-split-id" value="">
+
+      <div class="fb-field" id="fb-action-comment-field">
+        <label>Comment</label>
+        <textarea name="comment" rows="3" class="fb-input" placeholder="Add a note…"></textarea>
+      </div>
+
+      <div class="fb-field" id="fb-action-assignee-field" style="display:none">
+        <label>New Assignee</label>
+        <select name="new_assignee_id" class="fb-input">
+          <option value="">— select employee —</option>
+          {% for emp in employees %}
+          <option value="{{ emp.id }}">{{ emp.name }} · {{ emp.role }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="fb-field" id="fb-action-reason-field" style="display:none">
+        <label>Reason</label>
+        <input type="text" name="reason" class="fb-input" placeholder="Why is this being reassigned?">
+      </div>
+
+      <div class="fb-field" id="fb-action-flagreason-field" style="display:none">
+        <label>Flag Reason</label>
+        <textarea name="flag_reason" rows="2" class="fb-input" placeholder="Why should this be flagged?"></textarea>
+      </div>
+
+      <div class="fb-sheet-footer">
+        <button type="button" class="fb-btn fb-btn-outline" onclick="fbToggleAction(null)">Cancel</button>
+        <button type="submit" class="fb-btn fb-btn-primary" id="fb-action-submit">Submit</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── New ticket sheet ──────────────────────────────────────────────────── -->
+{% if active_flow and user.role in ('ADMIN','MANAGER','EMPLOYEE') %}
+<div class="fb-sheet-backdrop" id="fb-new-backdrop" onclick="if(event.target===this)fbToggleNew(false)">
+  <div class="fb-sheet">
+    <div class="fb-sheet-handle"></div>
+    <div class="fb-sheet-hdr">
+      <div class="fb-sheet-title">New Ticket</div>
+      <div style="font-size:12px;color:var(--text-faint)">{{ active_flow.name }}</div>
+    </div>
+    <form method="post" action="/fms/tickets/new" enctype="multipart/form-data">
+      <input type="hidden" name="flow_id" value="{{ active_flow.id }}">
+      <div class="fb-field"><label>Title *</label>
+        <input name="title" required maxlength="200" class="fb-input" placeholder="e.g. Fix machine #3 oil leak"></div>
+      <div class="fb-field"><label>Description</label>
+        <textarea name="description" rows="3" class="fb-input"></textarea></div>
+      <div class="fb-field"><label>Priority</label>
+        <select name="priority" class="fb-input">
+          <option>LOW</option><option selected>MEDIUM</option><option>HIGH</option><option value="CRITICAL">CRITICAL</option>
+        </select></div>
+      <div class="fb-field"><label>Assign To *</label>
+        <select name="assignee_id" required class="fb-input">
+          <option value="">Select employee…</option>
+          {% for emp in employees %}
+          <option value="{{ emp.id }}">{{ emp.name }} ({{ emp.role }})</option>
+          {% endfor %}
+        </select></div>
+      {% for f in ticket_form_fields %}
+      <div class="fb-field"><label>{{ f.label }}{% if f.required %} *{% endif %}</label>
+        <input name="cf_{{ f.name }}" {% if f.required %}required{% endif %} class="fb-input"></div>
+      {% endfor %}
+      <div class="fb-sheet-footer">
+        <button type="button" class="fb-btn fb-btn-outline" onclick="fbToggleNew(false)">Cancel</button>
+        <button type="submit" class="fb-btn fb-btn-primary">Create Ticket →</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function fbToggleNew(open){
+  var el = document.getElementById('fb-new-backdrop');
+  if(!el) return;
+  el.classList.toggle('fb-open', open === undefined ? !el.classList.contains('fb-open') : open);
+}
+function fbToggleMove(open){
+  var el = document.getElementById('fb-move-backdrop');
+  if(!el) return;
+  el.classList.toggle('fb-open', open === undefined ? !el.classList.contains('fb-open') : open);
+}
+
+var FB_CURRENT_TICKET = null;
+
+function fbEsc(s){
+  var d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+function fbOpenTicket(cardEl){
+  var id = cardEl.dataset.id;
+  var displayId = cardEl.dataset.display;
+  var title = cardEl.dataset.title;
+  var priority = cardEl.dataset.priority;
+  var prClass = cardEl.dataset.prclass;
+  var splitId = cardEl.dataset.splitid;
+  var canAct = cardEl.dataset.canact === 'true';
+
+  FB_CURRENT_TICKET = id;
+  document.getElementById('fb-t-id').textContent = displayId;
+  document.getElementById('fb-t-title').textContent = title;
+  var prEl = document.getElementById('fb-t-priority');
+  prEl.textContent = priority;
+  prEl.className = 'fb-badge ' + prClass;
+  var moveSplitEl = document.getElementById('fb-move-split-id');
+  if (moveSplitEl) moveSplitEl.value = splitId || '';
+  document.getElementById('fb-action-split-id').value = splitId || '';
+
+  var moveSection = document.getElementById('fb-move-section');
+  if (moveSection) moveSection.style.display = canAct ? '' : 'none';
+  ['fb-act-reassign','fb-act-help','fb-act-flag'].forEach(function(elId){
+    var b = document.getElementById(elId);
+    if (b) b.style.display = canAct ? '' : 'none';
+  });
+
+  var moveForm = document.getElementById('fb-move-form');
+  if (moveForm) moveForm.action = '/fms/tickets/' + id + '/transition';
+  document.getElementById('fb-action-form').action = '/fms/tickets/' + id + '/action';
+
+  var journey = document.getElementById('fb-journey');
+  journey.innerHTML = '<div class="fb-journey-empty">Loading…</div>';
+  fetch('/fms/tickets/' + id + '/events').then(function(r){ return r.json(); }).then(function(data){
+    var events = data.events || [];
+    if (!events.length) { journey.innerHTML = '<div class="fb-journey-empty">No activity yet.</div>'; return; }
+    journey.innerHTML = events.map(function(e, i){
+      var showLine = i < events.length - 1;
+      var stageLine = fbEsc(e.event_type.replace(/_/g,' ')) + (e.detail ? ' — ' + fbEsc(e.detail) : '');
+      return '<div class="fb-journey-row">' +
+        '<div class="fb-journey-dot-col"><span class="fb-journey-dot"></span>' +
+          (showLine ? '<span class="fb-journey-line"></span>' : '') +
+        '</div>' +
+        '<div style="flex:1">' +
+          '<div class="fb-journey-stage">' + stageLine + '</div>' +
+          '<div class="fb-journey-meta">' + fbEsc(e.actor_name) + ' · ' + fbEsc(e.created_at) + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }).catch(function(){
+    journey.innerHTML = '<div class="fb-journey-empty">Could not load journey.</div>';
+  });
+
+  document.getElementById('fb-detail').classList.add('fb-open');
+}
+function fbCloseTicket(){
+  document.getElementById('fb-detail').classList.remove('fb-open');
+  FB_CURRENT_TICKET = null;
+}
+
+var FB_ACTION_TITLES = {
+  comment: '💬 Add Comment', reassign: '↩ Reassign', help: '⚑ Request Help',
+  flag: '🚩 Flag Ticket', close: '✕ Close Ticket'
+};
+function fbToggleAction(kind){
+  var el = document.getElementById('fb-action-backdrop');
+  if (kind === null){ el.classList.remove('fb-open'); return; }
+  document.getElementById('fb-action-title').textContent = FB_ACTION_TITLES[kind] || '';
+  var typeMap = { comment:'comment', reassign:'reassign', help:'help_request', flag:'flag', close:'close' };
+  document.getElementById('fb-action-type').value = typeMap[kind] || kind;
+
+  document.getElementById('fb-action-comment-field').style.display = (kind === 'comment' || kind === 'help') ? '' : 'none';
+  document.getElementById('fb-action-assignee-field').style.display = (kind === 'reassign') ? '' : 'none';
+  document.getElementById('fb-action-reason-field').style.display = (kind === 'reassign') ? '' : 'none';
+  document.getElementById('fb-action-flagreason-field').style.display = (kind === 'flag') ? '' : 'none';
+
+  el.classList.add('fb-open');
+}
+</script>
+{% endblock %}

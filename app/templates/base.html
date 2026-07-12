@@ -38,7 +38,7 @@
       🔔
       <span class="mt-badge js-notif-badge" style="{% if not unread is defined or unread == 0 %}display:none{% endif %}">{{ unread if unread is defined else 0 }}</span>
     </a>
-    <button type="button" class="mt-icon-btn js-sound-btn" onclick="toggleSound()" title="Notification sounds: on">🔔</button>
+    <button type="button" class="mt-icon-btn js-sound-btn mt-sound-btn" onclick="toggleSound()" title="Notification sounds: on">🔊</button>
     <button type="button" class="mt-icon-btn" onclick="toggleAccountMenu()" title="Account">👤</button>
   </div>
 </header>

@@ -27,10 +27,11 @@
 
 /* ── Module cards ── */
 .dm-module{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;overflow:hidden;margin-bottom:12px}
-.dm-module-hdr{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--bg-elevated);border-bottom:1px solid var(--border-subtle)}
+.dm-module-hdr{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--bg-elevated);border-bottom:1px solid var(--border-subtle);width:100%;box-sizing:border-box;border-left:none;border-right:none;border-top:none;cursor:pointer;font-family:inherit;text-align:left;text-decoration:none}
 .dm-module-hdr.dm-module-hdr-red{background:var(--bg-card);border-bottom:1px solid rgba(239,68,68,0.18)}
 .dm-module-icon{font-size:14px}
 .dm-module-title{font-size:12.5px;font-weight:700;color:var(--text-strong)}
+.dm-module-chevron{margin-left:auto;font-size:12px;color:var(--text-faint)}
 .dm-module-cells{display:grid;grid-template-columns:1fr 1fr}
 .dm-module-cells.dm-module-cells-1{grid-template-columns:1fr}
 .dm-cell{padding:11px 14px;border-right:1px solid var(--border-subtle);border-bottom:1px solid var(--border-subtle)}
@@ -66,11 +67,12 @@ html.light .dm-dept-green{color:#065f46}
 html.light .dm-dept-amber{color:#92400e}
 html.light .dm-dept-red{color:#991b1b}
 
-/* ── Filter bottom sheet (shared visual language with tm-sheet) ── */
-.dm-sheet-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:400;align-items:flex-end;justify-content:center}
+/* ── Filter panel — full-screen, anchored from the top (shared visual
+   language with tm-sheet) ── */
+.dm-sheet-backdrop{display:none;position:fixed;inset:0;background:var(--bg-card);z-index:400;align-items:flex-start;justify-content:center}
 .dm-sheet-backdrop.dm-open{display:flex}
-.dm-sheet{width:100%;max-width:520px;max-height:80vh;overflow-y:auto;background:var(--bg-card);border-radius:22px 22px 0 0;padding:10px 18px calc(22px + env(safe-area-inset-bottom));box-sizing:border-box}
-.dm-sheet-handle{width:36px;height:4px;border-radius:99px;background:var(--border-med);margin:6px auto 14px}
+.dm-sheet{width:100%;max-width:520px;height:100%;overflow-y:auto;background:var(--bg-card);padding:calc(14px + env(safe-area-inset-top)) 18px calc(22px + env(safe-area-inset-bottom));box-sizing:border-box}
+.dm-sheet-handle{display:none}
 .dm-sheet-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
 .dm-sheet-title{font-size:15px;font-weight:700;color:var(--text-strong)}
 .dm-sheet-done{background:none;border:none;font-size:13px;font-weight:600;color:var(--accent);cursor:pointer;font-family:inherit}
@@ -78,3 +80,18 @@ html.light .dm-dept-red{color:#991b1b}
 .dm-chip{padding:7px 13px;border-radius:99px;font-size:12px;font-weight:600;cursor:pointer;background:var(--bg-elevated);color:var(--text-primary);text-decoration:none;display:inline-block;border:none;font-family:inherit}
 .dm-chip-active{background:var(--accent);color:#fff}
 .dm-apply-btn{text-align:center;padding:11px 0;border-radius:10px;background:var(--accent);font-size:13px;font-weight:700;color:#fff;border:none;width:100%;cursor:pointer;font-family:inherit}
+
+/* Vertical filter list (Department / Manager) — one full-width row per
+   option, unlike .dm-chip-row's wrap-around pills, since these lists can
+   run long. */
+.dm-filter-list{border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden;margin-bottom:18px}
+.dm-filter-list-item{display:flex;align-items:center;gap:10px;padding:11px 14px;font-size:13px;color:var(--text-primary);cursor:pointer;border-bottom:1px solid var(--border-subtle);background:var(--bg-card)}
+.dm-filter-list-item:last-child{border-bottom:none}
+.dm-filter-list-item input{width:16px;height:16px;accent-color:var(--accent);flex-shrink:0}
+.dm-filter-list-empty{padding:12px 14px;font-size:12px;color:var(--text-faint);background:var(--bg-card)}
+
+/* Filter-sheet aggregated score summary */
+.dm-sheet-score{display:flex;align-items:center;gap:10px;background:var(--bg-elevated);border-radius:12px;padding:10px 14px;margin-bottom:18px}
+.dm-sheet-score-ring{width:38px;height:38px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.dm-sheet-score-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint)}
+.dm-sheet-score-sub{font-size:12.5px;font-weight:600;color:var(--text-strong);margin-top:1px}

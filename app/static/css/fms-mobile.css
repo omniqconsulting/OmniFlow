@@ -1,0 +1,116 @@
+/* ── fms-mobile.css ───────────────────────────────────────────────────────
+ * PWA-only styling for fms/dashboard_mobile.html (Design: OmniFlow Tickets
+ * Redesign, section 18a "Stage Board"). Built entirely from theme-tokens.css
+ * custom properties so light/dark both work automatically via the existing
+ * html.light toggle. Not loaded by, and does not affect, the desktop
+ * fms/dashboard.html or any other page.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* ── Shared primitives (mirrors tickets-mobile.css's tm-* set, fb-prefixed
+   so this file stays self-contained per the one-css-per-mobile-page
+   convention) ── */
+.fb-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;flex-shrink:0}
+.fb-badge-critical{background:rgba(239,68,68,0.16);color:#f87171}
+.fb-badge-high{background:rgba(245,158,11,0.16);color:#f59e0b}
+.fb-badge-medium{background:rgba(59,130,246,0.16);color:#60a5fa}
+.fb-badge-low{background:var(--border-med);color:var(--text-muted)}
+
+.fb-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:10px;padding:12px 16px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;text-decoration:none;width:100%;box-sizing:border-box}
+.fb-btn-primary{background:var(--accent);color:#fff}
+.fb-btn-primary:active{background:var(--accent-hover)}
+.fb-btn-outline{background:var(--bg-elevated);color:var(--text-primary)}
+.fb-btn-danger{background:rgba(239,68,68,0.14);color:#f87171}
+
+.fb-field{margin-bottom:14px}
+.fb-field label{display:block;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin-bottom:6px}
+.fb-input{width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border-med);border-radius:9px;padding:11px 13px;font-size:14.5px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical}
+.fb-input:focus{border-color:var(--accent)}
+
+/* ── Full-screen panels (new ticket / move-to-stage / actions), anchored
+   from the top instead of a bottom sheet ── */
+.fb-sheet-backdrop{display:none;position:fixed;inset:0;background:var(--bg-card);z-index:400;align-items:flex-start;justify-content:center}
+.fb-sheet-backdrop.fb-open{display:flex}
+.fb-sheet{width:100%;max-width:520px;height:100%;overflow-y:auto;background:var(--bg-card);padding:calc(14px + env(safe-area-inset-top)) 18px calc(22px + env(safe-area-inset-bottom));box-sizing:border-box}
+.fb-sheet-handle{display:none}
+.fb-sheet-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.fb-sheet-title{font-size:16px;font-weight:700;color:var(--text-strong)}
+.fb-sheet-done{background:none;border:none;font-size:13.5px;font-weight:600;color:var(--accent);cursor:pointer;font-family:inherit}
+.fb-sheet-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin:0 0 8px}
+.fb-sheet-footer{display:flex;gap:10px;margin-top:6px}
+.fb-sheet-footer .fb-btn{flex:1}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Flow Board — 18a Stage Board
+   ══════════════════════════════════════════════════════════════════════ */
+.fb-header{display:flex;align-items:center;justify-content:space-between;margin:4px 0 12px}
+.fb-title{font-size:22px;font-weight:700;color:var(--text-strong)}
+.fb-icon-btn{width:36px;height:36px;border-radius:10px;background:var(--accent);border:none;display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;cursor:pointer;font-weight:600}
+
+.fb-scroll-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
+.fb-scroll-row::-webkit-scrollbar{display:none}
+
+.fb-flow-tabs{margin-bottom:10px}
+.fb-flow-tab{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:99px;font-size:12.5px;font-weight:600;white-space:nowrap;background:var(--bg-elevated);color:var(--text-muted);text-decoration:none;border:1px solid transparent}
+.fb-flow-tab-active{background:var(--accent);color:#fff}
+.fb-flow-dot{width:7px;height:7px;border-radius:99px;background:currentColor;opacity:.7;flex-shrink:0}
+
+.fb-kpis{margin-bottom:10px}
+.fb-kpi{flex-shrink:0;min-width:76px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:9px 13px;text-align:center}
+.fb-kpi-value{font-size:16px;font-weight:700;color:var(--text-strong)}
+.fb-kpi-label{font-size:9px;color:var(--text-faint);margin-top:2px;white-space:nowrap}
+
+.fb-stage-rail{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:5px;margin-bottom:12px}
+.fb-stage-chip{flex-shrink:0;display:flex;align-items:center;gap:6px;text-align:center;padding:7px 12px;border-radius:9px;font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap;background:transparent;color:var(--text-muted)}
+.fb-stage-chip-active{background:var(--accent);color:#fff}
+.fb-stage-count{font-size:9px;opacity:.85;background:rgba(0,0,0,0.15);padding:1px 6px;border-radius:99px}
+.fb-stage-chip:not(.fb-stage-chip-active) .fb-stage-count{background:var(--border-med)}
+
+.fb-list{display:flex;flex-direction:column;gap:9px;padding-bottom:24px}
+.fb-empty{padding:40px 0;text-align:center;color:var(--text-faint);font-size:13.5px}
+.fb-card{display:block;width:100%;box-sizing:border-box;text-align:left;background:var(--bg-card);border:1px solid var(--border-subtle);border-left:3px solid var(--accent);border-radius:11px;padding:12px 13px;cursor:pointer;font-family:inherit}
+.fb-card-top{display:flex;justify-content:space-between;gap:6px;margin-bottom:6px}
+.fb-card-id{font-size:11px;font-family:monospace;color:#60a5fa;font-weight:700}
+.fb-card-title{font-size:13px;font-weight:600;color:var(--text-strong);line-height:1.35;margin-bottom:8px}
+.fb-tat-track{height:4px;border-radius:2px;background:var(--bg-elevated);overflow:hidden;margin-bottom:6px}
+.fb-tat-fill{height:100%;border-radius:2px}
+.fb-card-assignee{font-size:11px;color:var(--text-faint)}
+
+/* ── Ticket detail overlay (full-screen, mirrors ticket_detail_mobile.html's
+   Delegation layout: title/badges, meta, description, then history — not
+   a history-first view — plus a sticky action bar + overflow sheet). ── */
+.fb-detail{display:none;position:fixed;inset:0;background:var(--bg-base);z-index:500;flex-direction:column}
+.fb-detail.fb-open{display:flex}
+.fb-detail-hdr{display:flex;align-items:center;gap:10px;padding:14px 18px 10px;flex-shrink:0;border-bottom:1px solid var(--border-subtle)}
+.fb-detail-back{font-size:20px;color:var(--text-primary);cursor:pointer;background:none;border:none;padding:0}
+.fb-detail-title{font-size:14px;font-weight:700;color:var(--text-strong);font-family:monospace}
+.fb-detail-more{margin-left:auto;font-size:20px;color:var(--text-primary);cursor:pointer;background:none;border:none;padding:0 4px}
+.fb-detail-body{flex:1;overflow-y:auto;padding:16px 18px 90px}
+
+.fb-detail-title-block{margin-bottom:14px}
+.fb-detail-title-text{font-size:17px;font-weight:700;color:var(--text-strong);margin-bottom:8px}
+
+.fb-detail-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:14px;margin-bottom:14px}
+.fb-detail-meta{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fb-detail-meta-label{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin-bottom:3px}
+.fb-detail-meta-value{font-size:13px;font-weight:600;color:var(--text-primary)}
+.fb-detail-desc{font-size:13px;line-height:1.55;color:var(--text-primary);white-space:pre-wrap}
+
+.fb-section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);margin:0 0 8px}
+.fb-journey{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:14px;padding:14px 14px 4px;margin-bottom:18px}
+.fb-journey-row{display:flex;gap:10px;padding-bottom:10px}
+.fb-journey-dot-col{display:flex;flex-direction:column;align-items:center;flex-shrink:0}
+.fb-journey-dot{width:11px;height:11px;border-radius:99px;background:var(--accent);border:2px solid var(--bg-card)}
+.fb-journey-line{flex:1;width:1.5px;background:var(--border-subtle);margin-top:2px}
+.fb-journey-stage{font-size:12.5px;font-weight:600;color:var(--text-primary)}
+.fb-journey-meta{font-size:10.5px;color:var(--text-faint);margin-top:1px}
+.fb-journey-empty{font-size:12px;color:var(--text-faint);padding:8px 0 14px}
+
+.fb-action-list{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
+.fb-action-item{padding:11px 14px;border-radius:10px;background:var(--bg-card);border:1px solid var(--border-subtle);font-size:12.5px;font-weight:600;color:var(--text-primary);cursor:pointer;font-family:inherit;text-align:left;width:100%;box-sizing:border-box}
+.fb-action-item-amber{color:#fbbf24}
+.fb-action-item-danger{color:#f87171;border-color:rgba(239,68,68,0.25)}
+
+/* ── Sticky bottom action bar (primary CTA + overflow), mirrors tmd-actionbar ── */
+.fb-actionbar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:10px;padding:10px 18px calc(14px + env(safe-area-inset-bottom));background:var(--bg-card);border-top:1px solid var(--border-subtle)}
+.fb-actionbar-cta{flex:1;text-align:center;padding:12px 0;border-radius:10px;background:var(--accent);color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;border:none;font-family:inherit}
+.fb-actionbar-icon{width:42px;height:42px;flex-shrink:0;border-radius:10px;background:var(--bg-elevated);border:none;font-size:17px;display:flex;align-items:center;justify-content:center;cursor:pointer}

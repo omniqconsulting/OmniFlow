@@ -26,6 +26,11 @@
 
 .am-sheet{flex:1;background:var(--bg-card);border-radius:22px 22px 0 0;margin-top:-20px;padding:24px 24px 32px;position:relative}
 .am-sheet-flush{margin-top:-14px}
+/* Login / register only — vertically centers the (short, fixed) form
+   content in the space below the hero instead of it sitting cramped at
+   the top. Not applied to the onboarding wizard, whose steps can be long
+   enough that centering would have no visible effect or look odd. */
+.am-sheet-center{display:flex;flex-direction:column;justify-content:center}
 
 .am-progress-track{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,0.28);overflow:hidden}
 .am-progress-fill{height:100%;background:#fff;border-radius:3px;transition:width .25s}

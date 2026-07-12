@@ -13,7 +13,7 @@
   <div class="dm-title">Dashboard</div>
   <div class="dm-header-actions">
     <button type="button" class="dm-icon-btn" onclick="dmToggleFilters()" title="Filters">
-      ⚙
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z"/></svg>
       {% if branch_id or dept_ids or manager_ids or active_preset != '30d' %}
       <span class="dm-icon-dot"></span>
       {% endif %}
@@ -45,10 +45,11 @@
 
 <!-- ── Tickets module ── -->
 <div class="dm-module">
-  <div class="dm-module-hdr">
+  <a href="/tickets" class="dm-module-hdr">
     <span class="dm-module-icon">🎫</span>
     <span class="dm-module-title">{{ L.Tickets }}</span>
-  </div>
+    <span class="dm-module-chevron">›</span>
+  </a>
   <div class="dm-module-cells">
     <div class="dm-cell">
       <div class="dm-cell-label"># {{ L.Tickets }}</div>
@@ -91,10 +92,11 @@
 <!-- ── Checklists module ── -->
 {% if has_checklists %}
 <div class="dm-module">
-  <div class="dm-module-hdr">
+  <a href="/checklists" class="dm-module-hdr">
     <span class="dm-module-icon">✅</span>
     <span class="dm-module-title">{{ L.Checklists }}</span>
-  </div>
+    <span class="dm-module-chevron">›</span>
+  </a>
   <div class="dm-module-cells">
     <div class="dm-cell">
       <div class="dm-cell-label"># {{ L.Checklists }}</div>
@@ -123,10 +125,11 @@
 <!-- ── Flow module ── -->
 {% if has_fms %}
 <div class="dm-module">
-  <div class="dm-module-hdr">
+  <a href="/fms/dashboard" class="dm-module-hdr">
     <span class="dm-module-icon">⚙️</span>
     <span class="dm-module-title">Flow {{ L.Tickets }}</span>
-  </div>
+    <span class="dm-module-chevron">›</span>
+  </a>
   <div class="dm-module-cells">
     <div class="dm-cell">
       <div class="dm-cell-label"># Flow {{ L.Tickets }}</div>
@@ -195,6 +198,16 @@
       <div class="dm-sheet-title">Filters</div>
       <button type="button" class="dm-sheet-done" onclick="dmToggleFilters(false)">Done</button>
     </div>
+    {% if perf_components %}
+    <div class="dm-sheet-score">
+      <div class="dm-sheet-score-ring" style="background:conic-gradient({% if perf_score >= 80 %}#10b981{% elif perf_score >= 60 %}#f59e0b{% else %}#ef4444{% endif %} {{ perf_score * 3.6 }}deg, var(--bg-elevated) 0deg);color:{% if perf_score >= 80 %}#6ee7b7{% elif perf_score >= 60 %}#fbbf24{% else %}#f87171{% endif %}">{{ perf_score }}%</div>
+      <div>
+        <div class="dm-sheet-score-label">Aggregated Overall Score</div>
+        <div class="dm-sheet-score-sub">{% if perf_score >= 80 %}Excellent{% elif perf_score >= 60 %}Good{% elif perf_score > 0 %}Needs Attention{% else %}No Data{% endif %} · for the current filter</div>
+      </div>
+    </div>
+    {% endif %}
+
     <form id="dmFilterForm" method="get" action="/dashboard">
       <input type="hidden" name="view" value="summary">
       <input type="hidden" name="date_from" id="dmDateFrom" value="{{ date_from }}">
@@ -207,6 +220,16 @@
         <button type="button" class="dm-chip {{ 'dm-chip-active' if active_preset == label }}" data-from="{{ from_val }}" data-to="{{ to_val }}" onclick="dmSelectPreset(this)">{{ label }}</button>
         {% endfor %}
       </div>
+      <div class="dm-sheet-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
+        <div>
+          <div class="dm-section-label">From</div>
+          <input type="date" class="filter-input" style="width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border-med);border-radius:9px;padding:9px 11px;font-size:13px;color:var(--text-primary)" value="{{ date_from }}" onchange="dmCustomDate('from', this.value)">
+        </div>
+        <div>
+          <div class="dm-section-label">To</div>
+          <input type="date" class="filter-input" style="width:100%;box-sizing:border-box;background:var(--bg-input);border:1px solid var(--border-med);border-radius:9px;padding:9px 11px;font-size:13px;color:var(--text-primary)" value="{{ date_to }}" onchange="dmCustomDate('to', this.value)">
+        </div>
+      </div>
 
       <div class="dm-section-label">Branch</div>
       <div class="dm-chip-row">
@@ -215,6 +238,34 @@
         <button type="button" class="dm-chip {{ 'dm-chip-active' if branch_id == b.id|string }}" data-branch="{{ b.id }}" onclick="dmSelectBranch(this)">{{ b.name }}</button>
         {% endfor %}
       </div>
+
+      {% if departments %}
+      <div class="dm-section-label">{{ L.Department }}</div>
+      <div class="dm-filter-list">
+        {% for d in departments %}
+        <label class="dm-filter-list-item">
+          <input type="checkbox" name="dept_ids" value="{{ d.id }}" {% if d.id in dept_ids %}checked{% endif %}>
+          {{ d.name }}
+        </label>
+        {% else %}
+        <div class="dm-filter-list-empty">No departments configured.</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if managers %}
+      <div class="dm-section-label">Manager</div>
+      <div class="dm-filter-list">
+        {% for m in managers %}
+        <label class="dm-filter-list-item">
+          <input type="checkbox" name="manager_ids" value="{{ m.id }}" {% if m.id in manager_ids %}checked{% endif %}>
+          {{ m.name }}
+        </label>
+        {% else %}
+        <div class="dm-filter-list-empty">No managers found.</div>
+        {% endfor %}
+      </div>
+      {% endif %}
 
       <button type="submit" class="dm-apply-btn">Apply Filters</button>
     </form>
@@ -237,6 +288,10 @@ function dmSelectBranch(btn) {
   document.querySelectorAll('#dmFilterForm .dm-chip[data-branch]').forEach(function(c){ c.classList.remove('dm-chip-active'); });
   btn.classList.add('dm-chip-active');
   document.getElementById('dmBranchId').value = btn.dataset.branch;
+}
+function dmCustomDate(which, value) {
+  document.querySelectorAll('#dmFilterForm .dm-chip[data-from]').forEach(function(c){ c.classList.remove('dm-chip-active'); });
+  document.getElementById(which === 'from' ? 'dmDateFrom' : 'dmDateTo').value = value;
 }
 </script>
 {% endblock %}

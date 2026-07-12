@@ -370,7 +370,12 @@ if (document.body.classList.contains('is-authed')) (function(){
   function applyMute(){
     const muted = localStorage.getItem('sound_muted') === '1';
     document.querySelectorAll('.js-sound-btn').forEach(function(btn){
-      btn.textContent = muted ? '🔕' : '🔔';
+      // PWA-only: the mobile top bar's mute button (.mt-sound-btn) uses a
+      // speaker glyph so it's visually distinct from the adjacent
+      // notifications bell — desktop's #sound-btn keeps its original bell
+      // glyph unchanged.
+      const isMobileTopbar = btn.classList.contains('mt-sound-btn');
+      btn.textContent = isMobileTopbar ? (muted ? '🔇' : '🔊') : (muted ? '🔕' : '🔔');
       btn.title = muted ? 'Sounds muted — click to enable' : 'Notification sounds on — click to mute';
     });
   }
