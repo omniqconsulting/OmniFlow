@@ -7,8 +7,13 @@
     <h2 class="page-title">Product Catalog</h2>
     <div class="muted">{{ total }} product{{ '' if total == 1 else 's' }}</div>
   </div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <a href="/inventory-v2" class="btn btn-sm btn-gray">← Back to Inventory</a>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <div style="display:inline-flex;align-items:center;background:var(--bg-input);border:1px solid var(--border-med);border-radius:99px;padding:3px;gap:2px">
+      <a href="?view=grid&q={{ q }}&tier={{ tier }}&active={{ active }}{% for c in category_id %}&category_id={{ c }}{% endfor %}{% for sc in sub_category_id %}&sub_category_id={{ sc }}{% endfor %}" class="cl-seg {{ 'cl-seg-active' if view == 'grid' else '' }}">&#9638; Grid</a>
+      <a href="?view=list&q={{ q }}&tier={{ tier }}&active={{ active }}{% for c in category_id %}&category_id={{ c }}{% endfor %}{% for sc in sub_category_id %}&sub_category_id={{ sc }}{% endfor %}" class="cl-seg {{ 'cl-seg-active' if view == 'list' else '' }}">&#9776; List</a>
+    </div>
+    <a href="/inventory-v2" class="btn btn-sm btn-gray">Inventory</a>
+    <a href="/sales/orders" class="btn btn-sm btn-gray">All Orders</a>
     {% if user.role in ('ADMIN','MANAGER') %}
     <a href="/sales/catalog/export" class="btn btn-sm btn-outline">⬇ Export CSV</a>
     <a href="/sales/catalog/bulk-upload" class="btn btn-sm btn-outline">⬆ Bulk Upload</a>
@@ -16,6 +21,10 @@
     {% endif %}
   </div>
 </div>
+<style>
+.cl-seg{padding:6px 14px;border-radius:99px;font-size:12px;font-weight:600;color:var(--text-muted);text-decoration:none;display:inline-block}
+.cl-seg-active{background:var(--accent);color:#fff}
+</style>
 
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
@@ -79,58 +88,94 @@
 </form>
 
 {% if products %}
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px">
+{% if view == 'list' %}
+<div class="card" style="padding:0;overflow:hidden">
+  <table class="table" style="width:100%">
+    <thead>
+      <tr>
+        <th>Product</th><th>Category</th><th>Variants</th><th>Tier</th><th>Stock</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in products %}
+      {% set stock = stock_status_by_product.get(p.id) %}
+      {% set tier_disp = tier_display_by_product.get(p.id, 'UNRANKED') %}
+      <tr onclick="window.location='/sales/catalog/{{ p.id }}'" style="cursor:pointer">
+        <td>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:34px;height:34px;border-radius:7px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">
+              {% set first_vmedia = (p.variants | selectattr('media_urls_json') | map(attribute='media_urls_json') | map('from_json') | first) %}
+              {% if first_vmedia %}<img src="/static/{{ first_vmedia[0] }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:14px;opacity:.45">📦</span>{% endif %}
+            </div>
+            <span style="font-weight:600;color:var(--text-strong)">{{ p.name }}</span>
+          </div>
+        </td>
+        <td style="color:var(--text-muted);font-size:12.5px">{{ p.sub_category.category.name if p.sub_category else '—' }} / {{ p.sub_category.name if p.sub_category else '—' }}</td>
+        <td style="color:var(--text-muted)">{{ p.variants|length }}</td>
+        <td><span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8','Mixed':'#a855f7'}.get(tier_disp, '#94a3b8') }}">{{ tier_disp }}</span></td>
+        <td>
+          {% if stock %}
+          {% if stock.state == 'IN_STOCK' %}<span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#22c55e">IN STOCK</span>
+          {% elif stock.state == 'EXPECTED' %}<span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#f59e0b">EXPECTED</span>
+          {% elif stock.state == 'REQUESTED' %}<span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#94a3b8">REQUESTED</span>
+          {% else %}<span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#ef4444">OUT OF STOCK</span>
+          {% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td style="text-align:right"><span style="font-size:12px;color:#3b82f6">View →</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px">
   {% for p in products %}
-  {% set first_variant = p.variants[0] if p.variants else none %}
-  {% set media = first_variant.media_urls_json | from_json if first_variant and first_variant.media_urls_json else [] %}
-  <div class="card" style="padding:0;overflow:hidden">
-    <a href="/sales/catalog/{{ p.id }}" style="display:block;text-decoration:none;color:inherit">
-      <div style="height:140px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;overflow:hidden">
-        {% if media %}
-        <img src="/static/{{ media[0] }}" style="width:100%;height:100%;object-fit:cover">
+  {% set stock = stock_status_by_product.get(p.id) %}
+  {% set first_vmedia = (p.variants | selectattr('media_urls_json') | map(attribute='media_urls_json') | map('from_json') | first) %}
+  <div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="location.href='/sales/catalog/{{ p.id }}'">
+    <div style="height:110px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;overflow:hidden">
+      {% if first_vmedia %}
+      <img src="/static/{{ first_vmedia[0] }}" style="width:100%;height:100%;object-fit:cover">
+      {% else %}
+      <span style="font-size:28px;opacity:0.4">📦</span>
+      {% endif %}
+    </div>
+    <div style="padding:10px 12px">
+      <div style="font-size:10px;color:var(--text-faint);font-weight:600;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.sub_category.category.name if p.sub_category else '—' }} / {{ p.sub_category.name if p.sub_category else '—' }}</div>
+      <div style="font-size:13px;font-weight:600;color:var(--text-strong);margin:2px 0 6px;line-height:1.3;height:34px;overflow:hidden">{{ p.name }}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:4px">
+        <span style="font-size:10px;color:var(--text-muted)">{{ p.variants|length }} variant{{ '' if p.variants|length == 1 else 's' }}</span>
+        <span style="font-size:9px;font-weight:700;padding:1px 7px;border-radius:99px;color:#fff;background:{{ tier_display_by_product.get(p.id) == 'Mixed' and '#a855f7' or {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'}.get(tier_display_by_product.get(p.id), '#94a3b8') }}">{{ tier_display_by_product.get(p.id, 'UNRANKED') }}</span>
+      </div>
+      {% if stock %}
+      <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">
+        {% if stock.state == 'IN_STOCK' %}
+        <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;color:#fff;background:#22c55e">IN STOCK</span>
+        {% elif stock.state == 'EXPECTED' %}
+        <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;color:#fff;background:#f59e0b">EXPECTED</span>
+        {% elif stock.state == 'REQUESTED' %}
+        <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;color:#fff;background:#94a3b8">REQUESTED</span>
         {% else %}
-        <span style="font-size:36px;opacity:0.4">📦</span>
+        <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;color:#fff;background:#ef4444">OUT OF STOCK</span>
+        {% endif %}
+        {% if stock.in_transit %}
+        <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;color:#fff;background:#3b82f6" title="Quantity on an open Purchase Order, not yet received">🚚 {{ stock.in_transit|round(0, 'floor')|int }}</span>
         {% endif %}
       </div>
-      <div style="padding:12px 14px">
-        <div style="font-size:11px;color:var(--text-faint);font-weight:600;letter-spacing:0.03em">{{ p.sub_category.category.name if p.sub_category else '—' }} / {{ p.sub_category.name if p.sub_category else '—' }}</div>
-        <div style="font-size:14px;font-weight:600;color:var(--text-strong);margin:2px 0 6px">{{ p.name }}</div>
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
-          <span style="font-size:11px;color:var(--text-muted)">{{ p.variants|length }} variant{{ '' if p.variants|length == 1 else 's' }}</span>
-          {% if first_variant %}
-          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'}.get(first_variant.product_tier, '#94a3b8') }}">{{ first_variant.product_tier }}</span>
-          {% endif %}
-        </div>
-        {% set stock = stock_status_by_product.get(p.id) %}
-        {% if stock %}
-        <div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          {% if stock.state == 'IN_STOCK' %}
-          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#22c55e">✓ In Stock · {{ stock.qty|round(0, 'floor')|int }}</span>
-          {% elif stock.state == 'EXPECTED' %}
-          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#f59e0b">⏳ Expected {{ stock.date.strftime('%d %b %Y') if stock.date else 'date TBD' }}</span>
-          {% elif stock.state == 'REQUESTED' %}
-          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#94a3b8">📨 PO Requested</span>
-          {% else %}
-          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#ef4444">✕ Out of Stock</span>
-          {% endif %}
-          {% if stock.in_transit %}
-          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#3b82f6" title="Quantity on an open Purchase Order, not yet received">🚚 {{ stock.in_transit|round(0, 'floor')|int }} in transit</span>
-          {% endif %}
-        </div>
-        {% endif %}
-      </div>
-    </a>
+      {% endif %}
+    </div>
+
     {% if stock and stock.state == 'NONE' and stock.variant_id %}
-    <div style="padding:0 14px 10px">
+    <div style="padding:0 10px 8px" onclick="event.stopPropagation()">
       <form method="post" action="/sales/catalog/{{ stock.variant_id }}/request-po" onsubmit="return confirm('Request a purchase order for this product?')">
-        <button type="submit" class="btn btn-xs btn-outline" style="width:100%">📩 Request Purchase Order</button>
+        <button type="submit" class="btn btn-xs btn-outline" style="width:100%;font-size:10px">📩 Request PO</button>
       </form>
     </div>
     {% endif %}
-    {% if user.role in ('ADMIN','MANAGER') %}
-    <div style="display:flex;gap:6px;padding:10px 14px;border-top:1px solid var(--border-subtle)">
-      <a href="/sales/catalog/{{ p.id }}/edit" class="btn btn-xs btn-outline" style="flex:1;text-align:center">Edit</a>
-      <form method="post" action="/sales/catalog/{{ p.id }}/delete" style="flex:1" onsubmit="return confirm('Delete this product and all its variants?')">
+    {% if user.role == 'ADMIN' %}
+    <div style="display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--border-subtle)" onclick="event.stopPropagation()">
+      <form method="post" action="/sales/catalog/{{ p.id }}/delete" style="flex:1" onsubmit="return confirm('Delete this product and all its variants? This can be restored by an admin from the database if needed.')">
         <button type="submit" class="btn btn-xs btn-gray" style="width:100%">Delete</button>
       </form>
     </div>
@@ -138,10 +183,11 @@
   </div>
   {% endfor %}
 </div>
+{% endif %}
 
 {% if total > page_size %}
 <div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:24px;font-size:12px;color:var(--text-muted)">
-  {% macro page_link(p) %}?page={{ p }}&q={{ q }}&tier={{ tier }}&active={{ active }}{% for c in category_id %}&category_id={{ c }}{% endfor %}{% for sc in sub_category_id %}&sub_category_id={{ sc }}{% endfor %}{% endmacro %}
+  {% macro page_link(p) %}?page={{ p }}&view={{ view }}&q={{ q }}&tier={{ tier }}&active={{ active }}{% for c in category_id %}&category_id={{ c }}{% endfor %}{% for sc in sub_category_id %}&sub_category_id={{ sc }}{% endfor %}{% endmacro %}
   {% if page > 1 %}<a href="{{ page_link(page-1) }}" class="btn btn-xs btn-outline">‹ Prev</a>{% endif %}
   <span>Page {{ page }} of {{ ((total - 1) // page_size) + 1 }}</span>
   {% if page * page_size < total %}<a href="{{ page_link(page+1) }}" class="btn btn-xs btn-outline">Next ›</a>{% endif %}

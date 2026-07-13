@@ -1,0 +1,179 @@
+{# ── knowledge/index_mobile.html ──────────────────────────────────────────
+   PWA-only Training feed (Design: OmniFlow Tickets Redesign, option 19a —
+   Module Feed). Served only when the `pwa_ui` cookie is set, from the same
+   route/context as the desktop knowledge/index.html — see
+   app/knowledge.py::knowledge_index(). Type tabs replace 19a's mandatory/
+   progress module cards with the actual Knowledge Repository content
+   (document/video/audio/image/link), reusing tickets_mobile.html's tm-*
+   primitives for consistency with 1a. In-app playback only — no download
+   links, mirrors knowledge/index.html's viewer modals. #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/tickets-mobile.css">
+
+<div class="tm-header">
+  <div class="tm-title">Training</div>
+  <div class="tm-header-actions">
+    <button type="button" class="tm-icon-btn" onclick="tmToggleFilters()" title="Filter by category">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z"/></svg>
+      {% if category %}<span class="tm-icon-dot"></span>{% endif %}
+    </button>
+  </div>
+</div>
+
+<div class="tm-tabs" data-tabsscroll>
+  {% for k, label in [('','All'),('document','Docs'),('video','Video'),('audio','Audio'),('image','Image'),('link','Links')] %}
+  <a href="/knowledge?kind={{ k }}&category={{ category }}" class="tm-tab {% if kind == k %}tm-tab-active{% endif %}">
+    {{ label }}
+    <span class="tm-tab-count">{{ kind_counts.get(k or 'all', 0) }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="tm-list">
+  {% if not items %}
+  <div class="tm-empty">No training material matches this filter.</div>
+  {% endif %}
+  {% for it in items %}
+  {% set kind_icon = {'video':'🎬','audio':'🎵','image':'🖼','link':'🔗'}.get(it.media_kind, '📄') %}
+  {% set kind_cls = {'video':'tm-badge-red','audio':'tm-badge-amber','image':'tm-badge-green','link':'tm-badge-gray'}.get(it.media_kind, 'tm-badge-gray') %}
+  <div class="tm-card" data-kn-kind="{{ it.media_kind or 'document' }}"
+       {% if it.media_kind == 'video' and it.file_url %}data-kn-video="{{ it.file_url }}"
+       {% elif it.media_kind == 'audio' and it.file_url %}data-kn-audio="{{ it.file_url }}"
+       {% elif it.media_kind == 'image' and it.file_url %}data-kn-image="{{ it.file_url }}"
+       {% elif it.file_url %}data-kn-doc="{{ it.file_url }}"
+       {% elif it.external_url %}data-kn-link="{{ it.external_url }}"
+       {% endif %}
+       data-kn-title="{{ it.title }}" onclick="knOpen(this)" style="cursor:pointer">
+    <div class="tm-card-top">
+      <div class="tm-card-lead">
+        <span style="font-size:20px;line-height:1">{{ kind_icon }}</span>
+        <div>
+          <div class="tm-card-title">{{ it.title }}</div>
+          <div class="tm-card-sub">{{ it.category or 'Uncategorized' }} · {{ it._size_label }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="tm-card-meta">
+      <span class="tm-badge {{ kind_cls }}">{{ (it.media_kind or 'document')|capitalize }}</span>
+      <span class="tm-due">{{ it.created_at | ist('%d %b %Y') if it.created_at else '—' }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if page < total_pages %}
+<a href="?kind={{ kind }}&category={{ category }}&page={{ page + 1 }}" class="tm-btn tm-btn-outline" style="width:100%;margin-bottom:24px">Load more</a>
+{% endif %}
+
+<!-- ── Category filter sheet (design 19a's floating filter sheet) ── -->
+<div class="tm-sheet-backdrop" id="tm-filters-backdrop" onclick="if(event.target===this)tmToggleFilters(false)">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-hdr">
+      <div class="tm-sheet-title">Filter by Category</div>
+      <button type="button" class="tm-sheet-done" onclick="tmToggleFilters(false)">Done</button>
+    </div>
+    <div class="tm-chip-row">
+      <a href="/knowledge?kind={{ kind }}&category=" class="tm-chip {% if not category %}tm-chip-active{% endif %}">All</a>
+      {% for cat in categories %}
+      <a href="/knowledge?kind={{ kind }}&category={{ cat }}" class="tm-chip {% if category == cat %}tm-chip-active{% endif %}">{{ cat }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ── In-app viewer modals (no download links) ── -->
+<div id="knVideoModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1100;align-items:center;justify-content:center;padding:16px">
+  <div style="width:100%;max-width:860px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 id="knVideoTitle" style="font-size:14px;font-weight:600;margin:0;color:#fff"></h2>
+      <button onclick="knCloseVideo()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#fff">✕</button>
+    </div>
+    <video id="knVideoPlayer" controls autoplay controlsList="nodownload noremoteplayback" disablePictureInPicture oncontextmenu="return false;" style="width:100%;max-height:75vh;background:#000;border-radius:8px"></video>
+  </div>
+</div>
+
+<div id="knAudioModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1100;align-items:center;justify-content:center;padding:16px">
+  <div style="width:100%;max-width:520px;background:var(--bg-card);border-radius:10px;padding:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h2 id="knAudioTitle" style="font-size:14px;font-weight:600;margin:0;color:var(--text-primary)"></h2>
+      <button onclick="knCloseAudio()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <audio id="knAudioPlayer" controls autoplay controlsList="nodownload" oncontextmenu="return false;" style="width:100%"></audio>
+  </div>
+</div>
+
+<div id="knImageModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1100;align-items:center;justify-content:center;padding:16px">
+  <div style="width:100%;max-width:860px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 id="knImageTitle" style="font-size:14px;font-weight:600;margin:0;color:#fff"></h2>
+      <button onclick="knCloseImage()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#fff">✕</button>
+    </div>
+    <img id="knImageViewer" oncontextmenu="return false;" style="width:100%;max-height:80vh;object-fit:contain;border-radius:8px">
+  </div>
+</div>
+
+<div id="knDocModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1100;align-items:center;justify-content:center;padding:16px">
+  <div style="width:100%;max-width:900px;height:85vh;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 id="knDocTitle" style="font-size:14px;font-weight:600;margin:0;color:#fff"></h2>
+      <button onclick="knCloseDoc()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#fff">✕</button>
+    </div>
+    <iframe id="knDocFrame" style="flex:1;width:100%;border:none;border-radius:8px;background:#fff"></iframe>
+  </div>
+</div>
+
+<script>
+function tmToggleFilters(open){
+  const el = document.getElementById('tm-filters-backdrop');
+  if(!el) return;
+  el.classList.toggle('tm-open', open === undefined ? !el.classList.contains('tm-open') : open);
+}
+
+function knOpen(card){
+  const title = card.getAttribute('data-kn-title');
+  if (card.hasAttribute('data-kn-video')) {
+    document.getElementById('knVideoPlayer').src = card.getAttribute('data-kn-video');
+    document.getElementById('knVideoTitle').textContent = title;
+    document.getElementById('knVideoModal').style.display = 'flex';
+  } else if (card.hasAttribute('data-kn-audio')) {
+    document.getElementById('knAudioPlayer').src = card.getAttribute('data-kn-audio');
+    document.getElementById('knAudioTitle').textContent = title;
+    document.getElementById('knAudioModal').style.display = 'flex';
+  } else if (card.hasAttribute('data-kn-image')) {
+    document.getElementById('knImageViewer').src = card.getAttribute('data-kn-image');
+    document.getElementById('knImageTitle').textContent = title;
+    document.getElementById('knImageModal').style.display = 'flex';
+  } else if (card.hasAttribute('data-kn-doc')) {
+    document.getElementById('knDocFrame').src = card.getAttribute('data-kn-doc');
+    document.getElementById('knDocTitle').textContent = title;
+    document.getElementById('knDocModal').style.display = 'flex';
+  } else if (card.hasAttribute('data-kn-link')) {
+    window.open(card.getAttribute('data-kn-link'), '_blank', 'noopener');
+  }
+}
+function knCloseVideo(){
+  const p = document.getElementById('knVideoPlayer');
+  p.pause(); p.removeAttribute('src'); p.load();
+  document.getElementById('knVideoModal').style.display = 'none';
+}
+function knCloseAudio(){
+  const p = document.getElementById('knAudioPlayer');
+  p.pause(); p.removeAttribute('src'); p.load();
+  document.getElementById('knAudioModal').style.display = 'none';
+}
+function knCloseImage(){
+  document.getElementById('knImageViewer').removeAttribute('src');
+  document.getElementById('knImageModal').style.display = 'none';
+}
+function knCloseDoc(){
+  document.getElementById('knDocFrame').removeAttribute('src');
+  document.getElementById('knDocModal').style.display = 'none';
+}
+document.getElementById('knVideoModal').addEventListener('click', function(e){ if (e.target === this) knCloseVideo(); });
+document.getElementById('knAudioModal').addEventListener('click', function(e){ if (e.target === this) knCloseAudio(); });
+document.getElementById('knImageModal').addEventListener('click', function(e){ if (e.target === this) knCloseImage(); });
+document.getElementById('knDocModal').addEventListener('click', function(e){ if (e.target === this) knCloseDoc(); });
+</script>
+{% endblock %}

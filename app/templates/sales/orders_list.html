@@ -10,6 +10,9 @@
     <div class="muted">{{ total }} order{{ '' if total == 1 else 's' }}</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% if user.role in ('ADMIN', 'MANAGER') or has_inventory_module %}
+    <a href="/inventory-v2/dispatch-queue" class="btn btn-sm btn-outline">🚚 Dispatch Queue</a>
+    {% endif %}
     <a href="/sales/orders/targets" class="btn btn-sm btn-outline">🎯 Targets</a>
     {% if user.role in ('ADMIN', 'MANAGER') %}
     <a href="/sales/catalog" class="btn btn-sm btn-outline">📚 Catalog</a>
@@ -22,6 +25,15 @@
 
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+  {% for s in status_choices %}
+  <div class="card" style="padding:14px 16px;border-left:3px solid {{ status_colors.get(s, '#94a3b8') }}">
+    <div style="font-size:10.5px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em">{{ s.title() }}</div>
+    <div style="font-size:22px;font-weight:700;margin-top:6px;color:var(--text-strong)">{{ status_counts.get(s, 0) }}</div>
+  </div>
+  {% endfor %}
+</div>
 
 <form method="get" action="/sales/orders" class="filter-bar" style="margin-bottom:14px">
   {% if user.role in ('ADMIN','MANAGER') and agents %}
@@ -64,12 +76,12 @@
     <table class="table" style="width:100%" id="ordersTable">
       <thead><tr>
         <th>Order</th><th>Customer</th><th>Agent</th><th>Status</th>
-        <th>Total</th><th>Items</th><th>Created</th><th></th>
+        <th>Total</th><th>Items</th><th>Created</th><th>Actions</th>
       </tr></thead>
       <tbody>
         {% for o in orders %}
-        <tr>
-          <td><a href="/sales/orders/{{ o.id }}">{{ o.display_id or o.id[:8] }}</a></td>
+        <tr onclick="olOpenDrawer('{{ o.id }}')" style="cursor:pointer">
+          <td><a href="/sales/orders/{{ o.id }}" onclick="event.stopPropagation()">{{ o.display_id or o.id[:8] }}</a></td>
           <td>{{ o.customer.name if o.customer else '—' }}
             {% if o.customer %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(o.customer.customer_tier, '#94a3b8') }};margin-left:4px">{{ o.customer.customer_tier }}</span>{% endif %}
           </td>
@@ -78,7 +90,28 @@
           <td>₹{{ '%.0f'|format(o.total_amount or 0) }}</td>
           <td>{{ o.items|length }}</td>
           <td style="color:var(--text-faint)">{{ o.created_at | ist('%d %b %Y') if o.created_at else '—' }}</td>
-          <td><a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline">View</a></td>
+          <td onclick="event.stopPropagation()" style="white-space:nowrap">
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              {% if o.status == 'DRAFT' %}
+              <form method="post" action="/sales/orders/{{ o.id }}/confirm" style="display:inline">
+                <button type="submit" class="btn btn-xs btn-primary" onclick="return confirm('Confirm this order? Stock will be reserved.')">Confirm</button>
+              </form>
+              <button type="button" class="btn btn-xs btn-outline" onclick="olCancelOrder('{{ o.id }}')">Cancel</button>
+              {% elif o.status == 'CONFIRMED' %}
+              {% if can_dispatch %}
+              <form method="post" action="/sales/orders/{{ o.id }}/dispatch" style="display:inline">
+                <button type="submit" class="btn btn-xs btn-primary" onclick="return confirm('Dispatch this order?')">Dispatch</button>
+              </form>
+              {% endif %}
+              <button type="button" class="btn btn-xs btn-outline" onclick="olCancelOrder('{{ o.id }}')">Cancel</button>
+              {% elif o.status == 'DISPATCHED' %}
+              <form method="post" action="/sales/orders/{{ o.id }}/deliver" style="display:inline">
+                <button type="submit" class="btn btn-xs btn-primary" onclick="return confirm('Mark this order as delivered?')">Mark Delivered</button>
+              </form>
+              {% endif %}
+              <a href="/sales/orders/{{ o.id }}" class="btn btn-xs btn-outline">View</a>
+            </div>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -101,4 +134,107 @@
     </div>
     {% endif %}
 </div>
+
+<!-- ── Order quick-view drawer (Design: OmniFlow Redesign — All Orders) ── -->
+<div id="ol-drawer-backdrop" onclick="olCloseDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200"></div>
+<div id="ol-drawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:400px;max-width:92vw;background:var(--bg-card);border-left:1px solid var(--border-subtle);z-index:201;padding:22px;overflow-y:auto;box-shadow:-12px 0 32px rgba(0,0,0,0.4);box-sizing:border-box">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+    <div id="ol-drawer-id" style="font-size:16px;font-weight:700;color:var(--text-strong)"></div>
+    <button type="button" onclick="olCloseDrawer()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+  </div>
+  <div id="ol-drawer-created" style="font-size:12px;color:var(--text-faint);margin-bottom:16px"></div>
+
+  <div class="card" style="padding:14px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div id="ol-drawer-customer" style="font-weight:600;color:var(--text-strong)"></div>
+      <span id="ol-drawer-tier" style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff"></span>
+    </div>
+    <div id="ol-drawer-agent" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+  </div>
+
+  <div style="margin-bottom:14px">
+    <span id="ol-drawer-status" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff"></span>
+  </div>
+
+  <div style="display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid var(--border-subtle);font-size:13px"><span style="color:var(--text-muted)">Items</span><span id="ol-drawer-items"></span></div>
+  <div style="display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid var(--border-subtle);font-size:15px;font-weight:700"><span>Total</span><span id="ol-drawer-total"></span></div>
+
+  <!-- 2026-07: status-change actions, right on the Orders list — no need to
+       open the full order just to move it through Confirm/Dispatch/Deliver.
+       Cancel always demands a non-blank reason (compulsory on the record). -->
+  <div id="ol-drawer-status-actions" style="display:flex;flex-direction:column;gap:8px;margin-top:14px"></div>
+
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <form method="post" id="ol-drawer-duplicate-form" style="flex:1" onsubmit="return confirm('Duplicate this order as a new draft?')">
+      <button type="submit" class="btn btn-outline" style="width:100%">Duplicate</button>
+    </form>
+    <a id="ol-drawer-open" href="#" class="btn btn-primary" style="flex:1;text-align:center">Open Full Order →</a>
+  </div>
+</div>
+
+<!-- Hidden helper form for the drawer's Cancel action (needs a mandatory reason) -->
+<form method="post" id="ol-cancel-form" style="display:none">
+  <input type="hidden" name="cancellation_reason" id="ol-cancel-reason">
+</form>
+
+<script>
+function olOpenDrawer(orderId) {
+  fetch(`/sales/orders/api/quick-view/${orderId}`).then(r => r.json()).then(d => {
+    document.getElementById('ol-drawer-id').textContent = d.displayId;
+    document.getElementById('ol-drawer-created').textContent = `Created ${d.created}`;
+    document.getElementById('ol-drawer-customer').textContent = d.customer;
+    const tierEl = document.getElementById('ol-drawer-tier');
+    tierEl.textContent = d.tier;
+    tierEl.style.background = d.tierColor;
+    document.getElementById('ol-drawer-agent').textContent = `Agent: ${d.agent}`;
+    const statusEl = document.getElementById('ol-drawer-status');
+    statusEl.textContent = d.status;
+    statusEl.style.background = {{ status_colors|tojson }}[d.status] || '#94a3b8';
+    document.getElementById('ol-drawer-items').textContent = d.items;
+    document.getElementById('ol-drawer-total').textContent = `₹${d.total}`;
+    document.getElementById('ol-drawer-open').href = `/sales/orders/${d.id}`;
+    document.getElementById('ol-drawer-duplicate-form').action = `/sales/orders/${d.id}/duplicate`;
+    renderOlStatusActions(d);
+    document.getElementById('ol-drawer-backdrop').style.display = 'block';
+    document.getElementById('ol-drawer').style.display = 'block';
+  });
+}
+function olCloseDrawer() {
+  document.getElementById('ol-drawer-backdrop').style.display = 'none';
+  document.getElementById('ol-drawer').style.display = 'none';
+}
+
+function olActionForm(orderId, action, label, primary, confirmMsg) {
+  return `
+    <form method="post" action="/sales/orders/${orderId}/${action}" style="flex:1">
+      <button type="submit" class="btn ${primary ? 'btn-primary' : 'btn-outline'}" style="width:100%" onclick="return confirm('${confirmMsg}')">${label}</button>
+    </form>`;
+}
+
+function olCancelOrder(orderId) {
+  const reason = window.prompt('Reason for cancellation (required):', '');
+  if (reason === null) return; // user hit Cancel on the prompt itself
+  if (!reason.trim()) { alert('A cancellation reason is required.'); return; }
+  const form = document.getElementById('ol-cancel-form');
+  form.action = `/sales/orders/${orderId}/cancel`;
+  document.getElementById('ol-cancel-reason').value = reason.trim();
+  form.submit();
+}
+
+function renderOlStatusActions(d) {
+  const el = document.getElementById('ol-drawer-status-actions');
+  let html = '<div style="display:flex;gap:8px">';
+  if (d.status === 'DRAFT') {
+    html += olActionForm(d.id, 'confirm', 'Confirm Order', true, 'Confirm this order? Stock will be reserved.');
+    html += `<button type="button" class="btn btn-outline" style="flex:1" onclick="olCancelOrder('${d.id}')">Cancel</button>`;
+  } else if (d.status === 'CONFIRMED') {
+    if (d.canDispatch) html += olActionForm(d.id, 'dispatch', 'Dispatch Order', true, 'Dispatch this order?');
+    html += `<button type="button" class="btn btn-outline" style="flex:1" onclick="olCancelOrder('${d.id}')">Cancel</button>`;
+  } else if (d.status === 'DISPATCHED') {
+    html += olActionForm(d.id, 'deliver', 'Mark Delivered', true, 'Mark this order as delivered?');
+  }
+  html += '</div>';
+  el.innerHTML = (d.status === 'DELIVERED' || d.status === 'CANCELLED') ? '' : html;
+}
+</script>
 {% endblock %}

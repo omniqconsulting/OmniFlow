@@ -12,79 +12,119 @@
 
 <div class="sell-builder" style="display:grid;grid-template-columns:280px 1fr 340px;gap:16px;align-items:start">
 
-  <!-- Panel 1: Customer & terms -->
-  <div class="card" style="padding:16px">
-    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CUSTOMER &amp; TERMS</h3>
-    <div style="margin-bottom:10px">
-      <label style="font-size:12px;color:var(--text-muted)">Customer *</label>
-      <select id="customer_select" required style="width:100%" onchange="onCustomerChange()">
-        <option value="">— Select customer —</option>
-        {% for c in customers %}
-        <option value="{{ c.id }}" {{ 'selected' if customer and c.id == customer.id else '' }}>{{ c.name }} ({{ c.phone or 'no phone' }})</option>
-        {% endfor %}
-      </select>
-      <a href="javascript:void(0)" onclick="openModal('quickCustomerModal')" style="font-size:12px;display:inline-block;margin-top:6px">+ Add New Party</a>
+  <!-- Panel 1: Party / Salesman & Terms / Delivery / Notes -->
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div class="card" style="padding:16px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">PARTY</h3>
+      <div class="form-group" style="margin-bottom:6px">
+        <label>Customer *</label>
+        <select id="customer_select" required onchange="onCustomerChange()">
+          <option value="">— Select customer —</option>
+          {% for c in customers %}
+          <option value="{{ c.id }}" {{ 'selected' if customer and c.id == customer.id else '' }}>{{ c.name }} ({{ c.phone or 'no phone' }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <a href="javascript:void(0)" onclick="openModal('quickCustomerModal')" style="font-size:12px">+ Add New Party</a>
     </div>
 
-    <div style="margin-bottom:10px">
-      <label style="font-size:12px;color:var(--text-muted)">Salesman</label>
-      <select id="agent_select" style="width:100%">
-        <option value="{{ user.id }}">Myself ({{ user.name }})</option>
-        {% for a in agents if a.id != user.id %}
-        <option value="{{ a.id }}">{{ a.name }}</option>
-        {% endfor %}
-      </select>
+    <div class="card" style="padding:16px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">SALESMAN &amp; TERMS</h3>
+      <div class="form-group">
+        <label>Salesman</label>
+        <select id="agent_select">
+          <option value="{{ user.id }}">Myself ({{ user.name }})</option>
+          {% for a in agents if a.id != user.id %}
+          <option value="{{ a.id }}">{{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Payment Terms</label>
+        <input id="payment_terms_input" placeholder="e.g. Net 30">
+      </div>
     </div>
 
-    <div style="margin-bottom:10px">
-      <label style="font-size:12px;color:var(--text-muted)">Payment Terms</label>
-      <input id="payment_terms_input" style="width:100%" placeholder="e.g. Net 30">
+    <div class="card" style="padding:16px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">DELIVERY</h3>
+      <div class="form-group">
+        <label>Delivery Address</label>
+        <textarea id="delivery_address_input" rows="2" placeholder="Defaults to customer's shipping address"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Select {{ L.Branch }}</label>
+        <select id="branch_select">
+          <option value="">— Not specified —</option>
+          {% for b in branches %}
+          <option value="{{ b.id }}">{{ b.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>Expected Delivery Date</label>
+        <input type="date" id="expected_delivery_date_input">
+      </div>
     </div>
 
-    <div style="margin-bottom:10px">
-      <label style="font-size:12px;color:var(--text-muted)">Delivery Address</label>
-      <textarea id="delivery_address_input" rows="2" style="width:100%" placeholder="Defaults to customer's shipping address"></textarea>
-    </div>
-
-    <div style="margin-bottom:10px">
-      <label style="font-size:12px;color:var(--text-muted)">Select {{ L.Branch }}</label>
-      <select id="branch_select" style="width:100%">
-        <option value="">— Not specified —</option>
-        {% for b in branches %}
-        <option value="{{ b.id }}">{{ b.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div style="margin-bottom:10px">
-      <label style="font-size:12px;color:var(--text-muted)">Expected Delivery Date</label>
-      <input type="date" id="expected_delivery_date_input" style="width:100%">
-    </div>
-
-    <div>
-      <label style="font-size:12px;color:var(--text-muted)">Notes</label>
-      <textarea id="notes_input" rows="2" style="width:100%"></textarea>
+    <div class="card" style="padding:16px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">NOTES</h3>
+      <div class="form-group" style="margin-bottom:0">
+        <textarea id="notes_input" rows="2" placeholder="Anything the dispatch team should know…"></textarea>
+      </div>
     </div>
   </div>
 
   <!-- Panel 2: Product search -->
   <div class="card" style="padding:16px">
     <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">PRODUCT SEARCH</h3>
-    <input id="product_search_input" placeholder="Search by product name or SKU…" style="width:100%;margin-bottom:10px" oninput="renderSearchResults()">
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <select id="category_filter_select" class="ob-filter-select" onchange="onCategoryFilterChange()">
+        <option value="">All categories</option>
+        {% for c in categories %}
+        <option value="{{ c.id }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      <select id="subcategory_filter_select" class="ob-filter-select" onchange="renderSearchResults()">
+        <option value="">All sub-categories</option>
+        {% for sc in subcategories %}
+        <option value="{{ sc.id }}" data-category-id="{{ sc.category_id }}">{{ sc.category.name }} / {{ sc.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <input id="product_search_input" class="ob-filter-select" placeholder="Search by product name or SKU…" style="width:100%;margin-bottom:10px" oninput="renderSearchResults()">
     <div id="search_results" style="max-height:520px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
   </div>
+  <style>
+  .ob-filter-select{background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--text-primary);outline:none;font-family:inherit}
+  .ob-filter-select:focus{border-color:var(--accent)}
+  #category_filter_select,#subcategory_filter_select{flex:1;min-width:120px}
+  </style>
 
-  <!-- Panel 3: Cart -->
-  <div class="card" style="padding:16px;position:sticky;top:12px">
-    <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CART</h3>
-    <div id="cart_rows" style="display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto"></div>
-    <div id="cart_empty" class="muted" style="font-size:12px;margin:8px 0">No items yet — search and add products on the left.</div>
-    <div style="border-top:1px solid var(--border-subtle);margin-top:12px;padding-top:12px">
-      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:10px">
-        <span>Total</span><span id="cart_total">₹0</span>
+  <!-- Panel 3: Customer summary + Cart -->
+  <div style="display:flex;flex-direction:column;gap:14px;position:sticky;top:12px">
+    <div id="customer_summary_card" class="card" style="padding:16px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div id="cs_name" style="font-weight:700;color:var(--text-strong);font-size:14px"></div>
+        <span id="cs_tier" style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff"></span>
       </div>
-      <button type="button" class="btn btn-sm btn-outline" style="width:100%;margin-bottom:8px" onclick="submitOrder(false)">Save Draft</button>
-      <button type="button" class="btn btn-sm btn-primary" style="width:100%" onclick="submitOrder(true)">Confirm Order</button>
+      <div id="cs_phone" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+      <div id="cs_last_order_row" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle);font-size:12px;color:var(--text-muted);display:none">Last order <span id="cs_last_order" style="color:var(--text-primary);font-weight:600"></span></div>
+      <div id="cs_recent_row" style="margin-top:8px;font-size:11px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:.05em;display:none">Recently ordered</div>
+      <div id="cs_recent_products" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+    </div>
+    <div id="customer_summary_empty" class="card" style="padding:16px;font-size:12.5px;color:var(--text-faint);text-align:center;border:1px dashed var(--border-med);background:transparent">Select a customer to see their order history &amp; defaults here.</div>
+
+    <div class="card" style="padding:16px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CART</h3>
+      <div id="cart_rows" style="display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto"></div>
+      <div id="cart_empty" class="muted" style="font-size:12px;margin:8px 0">No items yet — search and add products on the left.</div>
+      <div style="border-top:1px solid var(--border-subtle);margin-top:12px;padding-top:12px">
+        <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:10px">
+          <span>Total</span><span id="cart_total">₹0</span>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline" style="width:100%;margin-bottom:8px" onclick="submitOrder(false)">Save Draft</button>
+        <button type="button" class="btn btn-sm btn-primary" style="width:100%" onclick="submitOrder(true)">Confirm Order</button>
+      </div>
     </div>
   </div>
 </div>
@@ -105,24 +145,41 @@ document.getElementById('quickCustomerModal').querySelector('.modal-body').inner
 </script>
 
 <script>
-// ── Catalog data for client-side search (typical catalog sizes) ────────────
+// ── Catalog data for client-side search (typical catalog sizes), grouped by
+// product — the search panel lists products first, expanding to a SKU
+// (variant) picker on click, per the redesign review feedback. ──────────────
 const CATALOG = [
   {% for p in products %}
-  {% for v in p.variants if v.is_active and not v.is_deleted %}
+  {% set live_variants = p.variants | selectattr('is_active') | rejectattr('is_deleted') | list %}
+  {% if live_variants %}
   {
-    variant_id: "{{ v.id }}",
+    product_id: "{{ p.id }}",
     product_name: {{ p.name|tojson }},
-    sku_code: {{ v.sku_code|tojson }},
-    label: {{ (v.variant_label or v.sku_code)|tojson }},
-    tier: {{ (v.product_tier or '')|tojson }},
-    photo: ({{ (v.media_urls_json or '[]')|safe }})[0] || null,
+    category_id: {{ (p.sub_category.category_id if p.sub_category else '')|tojson }},
+    subcategory_id: {{ (p.sub_category_id or '')|tojson }},
+    variants: [
+      {% for v in live_variants %}
+      {% set stock = stock_by_variant.get(v.id) %}
+      {
+        variant_id: "{{ v.id }}",
+        sku_code: {{ v.sku_code|tojson }},
+        label: {{ (v.variant_label or v.sku_code)|tojson }},
+        tier: {{ (v.product_tier or '')|tojson }},
+        photo: ({{ (v.media_urls_json or '[]')|safe }})[0] || null,
+        stock_available: {{ (stock.qty_available if stock and stock.qty_available is not none else 0) }},
+        stock_in_transit: {{ (stock.qty_in_transit if stock and stock.qty_in_transit is not none else 0) }},
+        stock_reserved: {{ (stock.qty_reserved if stock and stock.qty_reserved is not none else 0) }},
+      },
+      {% endfor %}
+    ],
   },
-  {% endfor %}
+  {% endif %}
   {% endfor %}
 ];
 
 let cart = []; // {variant_id, label, sku_code, tier, photo, qty, price, price_source, manual}
 let selectedCustomerId = {{ ('"' + customer.id + '"')|safe if customer else 'null' }};
+let expandedProductId = null;
 
 function thumbHtml(photo, size) {
   size = size || 40;
@@ -130,42 +187,114 @@ function thumbHtml(photo, size) {
   return `<div style="width:${size}px;height:${size}px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-faint);font-size:${Math.round(size/2.2)}px">📦</div>`;
 }
 
-function renderSearchResults() {
-  const q = (document.getElementById('product_search_input').value || '').toLowerCase().trim();
-  const results = document.getElementById('search_results');
-  let matches = CATALOG;
-  if (q) {
-    matches = CATALOG.filter(v => v.product_name.toLowerCase().includes(q) || v.sku_code.toLowerCase().includes(q) || v.label.toLowerCase().includes(q));
-  }
-  matches = matches.slice(0, 50);
-  if (!matches.length) { results.innerHTML = '<div class="muted" style="font-size:12px">No matching products.</div>'; return; }
-  results.innerHTML = matches.map(v => `
-    <div style="display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--border-subtle);border-radius:8px;cursor:pointer" onclick="highlightVariant('${v.variant_id}')" id="row_${v.variant_id}">
-      ${thumbHtml(v.photo)}
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:600">${v.product_name} — ${v.label}</div>
-        <div class="muted" style="font-size:11px">SKU: ${v.sku_code}${v.tier ? ' · ' + v.tier : ''}</div>
-        <div class="muted" style="font-size:11px" id="lookup_${v.variant_id}">Select a customer to see price &amp; stock</div>
-      </div>
-      <button type="button" class="btn btn-xs btn-primary" onclick="event.stopPropagation();addToCart('${v.variant_id}')">+ Add</button>
-    </div>`).join('');
+function aggregateStock(product) {
+  return product.variants.reduce((acc, v) => {
+    acc.available += v.stock_available; acc.in_transit += v.stock_in_transit; acc.reserved += v.stock_reserved;
+    return acc;
+  }, { available: 0, in_transit: 0, reserved: 0 });
 }
 
-async function highlightVariant(variantId) {
-  if (!selectedCustomerId) return;
-  const el = document.getElementById(`lookup_${variantId}`);
+function onCategoryFilterChange() {
+  const catId = document.getElementById('category_filter_select').value;
+  document.querySelectorAll('#subcategory_filter_select option[data-category-id]').forEach(opt => {
+    opt.hidden = !!catId && opt.getAttribute('data-category-id') !== catId;
+  });
+  document.getElementById('subcategory_filter_select').value = '';
+  renderSearchResults();
+}
+
+function renderVariantRow(v) {
+  return `
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+      ${thumbHtml(v.photo, 30)}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600">${v.label}${v.tier ? ` <span class="muted" style="font-size:10px">${v.tier}</span>` : ''}</div>
+        <div class="muted" style="font-size:10px">SKU: ${v.sku_code}</div>
+        <div style="font-size:10px;margin-top:2px;display:flex;gap:8px;flex-wrap:wrap" id="lookup_${v.variant_id}">
+          <span style="color:#22c55e">In stock: ${v.stock_available}</span>
+          <span style="color:#3b82f6">In transit: ${v.stock_in_transit}</span>
+          <span style="color:#f59e0b">Booked: ${v.stock_reserved}</span>
+        </div>
+      </div>
+      <button type="button" class="btn btn-xs btn-primary" onclick="event.stopPropagation();addToCart('${v.variant_id}')">+ Add</button>
+    </div>`;
+}
+
+function toggleProductExpand(productId) {
+  const el = document.getElementById(`variants_${productId}`);
+  const icon = document.getElementById(`expand_icon_${productId}`);
   if (!el) return;
-  el.textContent = 'Loading…';
-  try {
-    const res = await fetch(`/sales/orders/api/variant-lookup?variant_id=${variantId}&customer_id=${selectedCustomerId}`);
-    const d = await res.json();
-    const priceText = d.price != null ? `₹${d.price}` : 'no price configured';
-    el.textContent = `${priceText} · ${d.qty_available} in stock`;
-  } catch (e) { el.textContent = ''; }
+  const opening = el.style.display === 'none';
+  el.style.display = opening ? 'flex' : 'none';
+  if (icon) icon.textContent = opening ? '▴' : '▾';
+  if (opening) {
+    expandedProductId = productId;
+    if (selectedCustomerId) refreshPricesForProduct(productId);
+  }
+}
+
+async function refreshPricesForProduct(productId) {
+  const p = CATALOG.find(x => x.product_id === productId);
+  if (!p || !selectedCustomerId) return;
+  for (const v of p.variants) {
+    const el = document.getElementById(`lookup_${v.variant_id}`);
+    if (!el) continue;
+    try {
+      const res = await fetch(`/sales/orders/api/variant-lookup?variant_id=${v.variant_id}&customer_id=${selectedCustomerId}`);
+      const d = await res.json();
+      const priceText = d.price != null ? `₹${d.price}` : 'no price configured';
+      el.innerHTML = `<span style="color:var(--text-primary);font-weight:600">${priceText}</span>
+        <span style="color:#22c55e">In stock: ${v.stock_available}</span>
+        <span style="color:#3b82f6">In transit: ${v.stock_in_transit}</span>
+        <span style="color:#f59e0b">Booked: ${v.stock_reserved}</span>`;
+    } catch (e) {}
+  }
+}
+
+function renderSearchResults() {
+  const q = (document.getElementById('product_search_input').value || '').toLowerCase().trim();
+  const catId = document.getElementById('category_filter_select').value;
+  const subCatId = document.getElementById('subcategory_filter_select').value;
+  const results = document.getElementById('search_results');
+  let matches = CATALOG;
+  if (catId) matches = matches.filter(p => p.category_id === catId);
+  if (subCatId) matches = matches.filter(p => p.subcategory_id === subCatId);
+  if (q) {
+    matches = matches.filter(p =>
+      p.product_name.toLowerCase().includes(q) ||
+      p.variants.some(v => v.sku_code.toLowerCase().includes(q) || v.label.toLowerCase().includes(q))
+    );
+  }
+  matches = matches.slice(0, 60);
+  if (!matches.length) { results.innerHTML = '<div class="muted" style="font-size:12px">No matching products.</div>'; return; }
+  results.innerHTML = matches.map(p => {
+    const agg = aggregateStock(p);
+    const thumb = p.variants[0] ? p.variants[0].photo : null;
+    return `
+    <div class="card" style="padding:10px 12px">
+      <div style="display:flex;align-items:center;gap:10px;cursor:pointer" onclick="toggleProductExpand('${p.product_id}')">
+        ${thumbHtml(thumb)}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600">${p.product_name}</div>
+          <div class="muted" style="font-size:11px">${p.variants.length} variant${p.variants.length === 1 ? '' : 's'}</div>
+          <div style="font-size:10px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap">
+            <span style="color:#22c55e">In stock: ${agg.available}</span>
+            <span style="color:#3b82f6">In transit: ${agg.in_transit}</span>
+            <span style="color:#f59e0b">Booked: ${agg.reserved}</span>
+          </div>
+        </div>
+        <span id="expand_icon_${p.product_id}" style="font-size:11px;color:var(--text-faint)">▾</span>
+      </div>
+      <div id="variants_${p.product_id}" style="display:none;flex-direction:column;gap:2px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle)">
+        ${p.variants.map(renderVariantRow).join('')}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 async function addToCart(variantId) {
-  const v = CATALOG.find(x => x.variant_id === variantId);
+  const p = CATALOG.find(x => x.variants.some(v => v.variant_id === variantId));
+  const v = p ? p.variants.find(x => x.variant_id === variantId) : null;
   if (!v) return;
   let price = null, priceSource = 'NONE';
   if (selectedCustomerId) {
@@ -178,7 +307,7 @@ async function addToCart(variantId) {
   const existing = cart.find(c => c.variant_id === variantId);
   if (existing) { existing.qty += 1; renderCart(); return; }
   cart.push({
-    variant_id: variantId, label: `${v.product_name} — ${v.label}`, sku_code: v.sku_code,
+    variant_id: variantId, label: `${p.product_name} — ${v.label}`, sku_code: v.sku_code,
     tier: v.tier, photo: v.photo, qty: 1, price: price, price_source: priceSource, manual: false,
   });
   renderCart();
@@ -220,10 +349,10 @@ function renderCart() {
       ${thumbHtml(c.photo, 36)}
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:600">${c.label}${overrideBadge}</div>
-        <div class="muted" style="font-size:10px">${c.sku_code}</div>
+        <div class="muted" style="font-size:10px">SKU: ${c.sku_code}</div>
         <div style="display:flex;gap:6px;margin-top:4px">
-          <input type="number" step="0.01" value="${c.qty}" style="width:60px;font-size:12px" onchange="updateCartQty('${c.variant_id}', this.value)">
-          <input type="number" step="0.01" placeholder="price" value="${c.price != null ? c.price : ''}" style="width:80px;font-size:12px" onchange="updateCartPrice('${c.variant_id}', this.value)">
+          <input type="number" step="0.01" value="${c.qty}" class="ob-filter-select" style="width:60px" onchange="updateCartQty('${c.variant_id}', this.value)">
+          <input type="number" step="0.01" placeholder="price" value="${c.price != null ? c.price : ''}" class="ob-filter-select" style="width:80px" onchange="updateCartPrice('${c.variant_id}', this.value)">
           <button type="button" class="btn btn-xs btn-outline" onclick="removeFromCart('${c.variant_id}')">✕</button>
         </div>
         <div class="muted" style="font-size:11px;margin-top:2px">₹${lineTotal.toFixed(2)}</div>
@@ -233,10 +362,37 @@ function renderCart() {
   document.getElementById('cart_total').textContent = `₹${total.toFixed(2)}`;
 }
 
+const TIER_COLORS = { A: '#22c55e', B: '#3b82f6', C: '#f59e0b', D: '#ef4444', UNRANKED: '#94a3b8' };
+
+function renderCustomerSummary(d) {
+  const card = document.getElementById('customer_summary_card');
+  const empty = document.getElementById('customer_summary_empty');
+  if (!d) { card.style.display = 'none'; empty.style.display = ''; return; }
+  empty.style.display = 'none';
+  card.style.display = '';
+  document.getElementById('cs_name').textContent = d.name;
+  const tierEl = document.getElementById('cs_tier');
+  tierEl.textContent = d.tier || 'UNRANKED';
+  tierEl.style.background = TIER_COLORS[d.tier] || '#94a3b8';
+  document.getElementById('cs_phone').textContent = d.phone || '';
+  const lastRow = document.getElementById('cs_last_order_row');
+  if (d.last_order) { lastRow.style.display = ''; document.getElementById('cs_last_order').textContent = d.last_order; }
+  else { lastRow.style.display = 'none'; }
+  const recentRow = document.getElementById('cs_recent_row');
+  const recentEl = document.getElementById('cs_recent_products');
+  if (d.recent_products && d.recent_products.length) {
+    recentRow.style.display = '';
+    recentEl.innerHTML = d.recent_products.map(p => `<span style="font-size:11px;padding:4px 9px;border-radius:99px;background:var(--bg-input);color:var(--text-muted);border:1px solid var(--border-subtle)">${p}</span>`).join('');
+  } else {
+    recentRow.style.display = 'none';
+    recentEl.innerHTML = '';
+  }
+}
+
 async function onCustomerChange() {
   const sel = document.getElementById('customer_select');
   selectedCustomerId = sel.value || null;
-  if (!selectedCustomerId) return;
+  if (!selectedCustomerId) { renderCustomerSummary(null); return; }
   try {
     const res = await fetch(`/sales/orders/api/customer-defaults?customer_id=${selectedCustomerId}`);
     if (!res.ok) return;
@@ -245,6 +401,7 @@ async function onCustomerChange() {
     const addrInput = document.getElementById('delivery_address_input');
     if (!ptInput.value && d.default_payment_terms) ptInput.value = d.default_payment_terms;
     if (!addrInput.value && d.shipping_address) addrInput.value = d.shipping_address;
+    renderCustomerSummary(d);
   } catch (e) {}
   // Re-resolve prices in the cart for the newly selected customer.
   for (const c of cart) {
@@ -256,6 +413,7 @@ async function onCustomerChange() {
     } catch (e) {}
   }
   renderCart();
+  if (expandedProductId) refreshPricesForProduct(expandedProductId);
 }
 
 async function createQuickParty() {

@@ -150,7 +150,7 @@
     <thead>
       <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
         <th style="padding:6px 8px"></th>
-        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Variant</th><th style="padding:6px 8px">SKU</th>
         {% if show_branch_col %}<th style="padding:6px 8px">Branch</th>{% endif %}
         <th style="padding:6px 8px">Available</th><th style="padding:6px 8px">Reserved</th>
         <th style="padding:6px 8px">In-Transit</th><th style="padding:6px 8px">Status</th>
@@ -163,12 +163,16 @@
       <tr style="border-bottom:1px solid var(--border-subtle);{{ 'background:rgba(239,68,68,.08)' if color == 'red' else ('background:rgba(245,158,11,.06)' if color == 'amber' else '') }}">
         <td style="padding:6px 8px">{% with variant=v %}{% include "components/product_thumb.html" %}{% endwith %}</td>
         <td style="padding:6px 8px"><a href="/sales/catalog/{{ v.product_id }}">{{ v.product.name if v.product else '' }}</a></td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ v.variant_label or '—' }}</td>
         <td style="padding:6px 8px;color:var(--text-faint)">{{ v.sku_code }}</td>
         {% if show_branch_col %}<td style="padding:6px 8px">{{ s.branch.name if s.branch else '—' }}</td>{% endif %}
         <td style="padding:6px 8px">{{ s.qty_available }}</td>
         <td style="padding:6px 8px">{{ s.qty_reserved }}</td>
         <td style="padding:6px 8px">{{ s.qty_in_transit }}</td>
-        <td style="padding:6px 8px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ badge_colors.get(color,'#94a3b8') }}">{{ label }}</span></td>
+        <td style="padding:6px 8px">
+          <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ badge_colors.get(color,'#94a3b8') }}">{{ label }}</span>
+          {% if not v.is_active %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:#94a3b8;margin-left:4px">Inactive</span>{% endif %}
+        </td>
         <td style="padding:6px 8px;color:var(--text-faint)">{{ s.last_updated_at | ist('%d %b %Y') if s.last_updated_at else '—' }}</td>
         {% if can_edit %}
         <td style="padding:6px 8px"><button type="button" class="btn btn-xs btn-outline" onclick="openAdjust('{{ v.id }}','{{ v.sku_code|e }}',{{ s.qty_available }})">Adjust</button></td>

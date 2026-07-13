@@ -54,7 +54,7 @@
   <table style="width:100%;font-size:13px;border-collapse:collapse">
     <thead>
       <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
-        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Ordered</th>
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th><th style="padding:6px 8px">Status</th><th style="padding:6px 8px">Ordered</th>
         <th style="padding:6px 8px">Received</th><th style="padding:6px 8px">Unit Cost</th>
         {% if po.status in ('SUBMITTED','APPROVED','PARTIALLY_RECEIVED') %}<th style="padding:6px 8px">Receive Now</th>{% endif %}
       </tr>
@@ -62,7 +62,11 @@
     <tbody>
       {% for item in po.items %}
       <tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:6px 8px">{{ (item.variant.product.name + ' — ' + item.variant.sku_code) if item.variant else '—' }}</td>
+        <td style="padding:6px 8px">{{ item.variant.product.name if item.variant and item.variant.product else '—' }}{% if item.variant and item.variant.variant_label %} — {{ item.variant.variant_label }}{% endif %}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ item.variant.sku_code if item.variant else '—' }}</td>
+        <td style="padding:6px 8px">
+          {% if item.variant %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ '#22c55e' if item.variant.is_active else '#94a3b8' }}">{{ 'Active' if item.variant.is_active else 'Inactive' }}</span>{% else %}—{% endif %}
+        </td>
         <td style="padding:6px 8px">{{ item.qty_ordered }} {{ item.unit.abbreviation if item.unit else '' }}</td>
         <td style="padding:6px 8px">{{ item.qty_received }}</td>
         <td style="padding:6px 8px">{{ item.unit_cost or '—' }}</td>

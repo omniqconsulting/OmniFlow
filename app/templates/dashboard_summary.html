@@ -172,9 +172,6 @@ html.light .preset-btn.active { background:rgba(29,78,216,0.12); color:#1d4ed8; 
       <div>
         <h2 style="margin:0;font-size:18px;font-weight:700;color:var(--text-strong)">Overview</h2>
         <div style="font-size:12px;color:var(--text-faint);margin-top:2px">{{ date_from }} → {{ date_to }}</div>
-        {% if has_sales_analytics %}
-        <a href="/sales/analytics" class="btn btn-xs btn-outline" style="margin-top:8px;display:inline-block">📈 Sales Insights</a>
-        {% endif %}
       </div>
       <a href="/dashboard?view=detailed&date_from={{ date_from }}&date_to={{ date_to }}{% for did in dept_ids %}&dept_ids={{ did }}{% endfor %}{% for mid in manager_ids %}&manager_ids={{ mid }}{% endfor %}"
          class="btn btn-sm btn-primary">Detailed Analysis →</a>

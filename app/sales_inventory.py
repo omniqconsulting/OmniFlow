@@ -20,6 +20,7 @@ from .database import (
     ProductStock, StockLedgerEntry, InventoryPurchaseOrder, InventoryPOItem,
     StockReservation, Category, SubCategory, Branch, MediaUpload,
     SalesOrder, SalesOrderItem, Customer, PurchaseRequest,
+    StockLot, FifoConsumption,
 )
 from .auth import get_current_user, require_manager, has_module, require_module
 from .templates_env import templates
@@ -146,6 +147,22 @@ def handle_stock_in(db: Session, variant_id: str, qty: float, unit_cost: Optiona
         notes=notes or (f"Vendor: {vendor_name}" if vendor_name else None),
         actor_id=actor_id,
     ))
+
+    # FIFO redesign (2026-07): every physical receipt with a known cost opens
+    # a new StockLot — this is what consume_fifo_for_item draws down from,
+    # oldest first, at order confirmation. Receipts with no unit_cost (rare —
+    # e.g. a free sample) don't open a lot; consumption for that qty falls
+    # back to the aggregate avg_cost instead, same as pre-FIFO behaviour.
+    if unit_cost is not None:
+        db.add(StockLot(
+            tenant_id=tenant_id,
+            variant_id=variant_id,
+            po_id=reference_id if reference_type == "PO" else None,
+            unit_cost=unit_cost,
+            qty_received=qty,
+            qty_remaining=qty,
+            received_at=datetime.utcnow(),
+        ))
 
     db.commit()
 
@@ -1060,6 +1077,8 @@ async def po_receive(po_id: str, request: Request, user: User = Depends(_require
             result_rows.append({
                 "sku_code": variant.sku_code if variant else "",
                 "product_name": (variant.product.name if variant and variant.product else ""),
+                "variant_label": (variant.variant_label if variant else "") or "",
+                "is_active": bool(variant.is_active) if variant else True,
                 "qty_received": qty_received_by_variant.get(s.variant_id, 0),
                 "old_qty": old_qty_by_variant.get(s.variant_id, 0),
                 "new_qty": s.qty_available,
@@ -1169,6 +1188,76 @@ def reserve_stock_for_item(db, variant_id: str, order_id: str, order_item_id: st
         }
 
 
+def consume_fifo_for_item(db, tenant_id: str, variant_id: str, order_item_id: str, qty: float) -> float:
+    """
+    FIFO redesign (2026-07) — allocate `qty` units of `variant_id` to
+    `order_item_id` from open StockLots, oldest received_at first (true
+    First-In-First-Out). Writes one FifoConsumption row per lot drawn on
+    (this is the audit trail behind the "how was this cost calculated?"
+    breakdown in Sales Insights). Must be called inside the same transaction
+    as reserve_stock_for_item, right after a successful reservation — this
+    is the "allot specific units" step requested alongside reservation.
+
+    Any qty not covered by tracked lots (stock received before this feature
+    existed) falls back to the current ProductStock.avg_cost, recorded as a
+    FifoConsumption row with lot_id=None, is_fallback=True — so a mix of
+    "PO 2 + PO 3 + pre-FIFO stock" still produces one coherent weighted cost.
+
+    Returns the qty-weighted average unit_cost actually consumed — this
+    becomes SalesOrderItem.cost_snapshot.
+    """
+    remaining = qty
+    total_cost = 0.0
+
+    lots = (
+        db.query(StockLot)
+        .filter(StockLot.tenant_id == tenant_id, StockLot.variant_id == variant_id, StockLot.qty_remaining > 0)
+        .order_by(StockLot.received_at.asc(), StockLot.created_at.asc())
+        .with_for_update()
+        .all()
+    )
+    for lot in lots:
+        if remaining <= 0:
+            break
+        take = min(lot.qty_remaining, remaining)
+        lot.qty_remaining -= take
+        remaining -= take
+        total_cost += take * lot.unit_cost
+        db.add(FifoConsumption(
+            tenant_id=tenant_id, order_item_id=order_item_id, lot_id=lot.id,
+            qty=take, unit_cost=lot.unit_cost, is_fallback=False,
+        ))
+
+    if remaining > 0:
+        stock = db.query(ProductStock).filter(
+            ProductStock.tenant_id == tenant_id, ProductStock.variant_id == variant_id,
+            ProductStock.branch_id.is_(None),
+        ).first()
+        fallback_cost = stock.avg_cost if stock and stock.avg_cost is not None else 0.0
+        total_cost += remaining * fallback_cost
+        db.add(FifoConsumption(
+            tenant_id=tenant_id, order_item_id=order_item_id, lot_id=None,
+            qty=remaining, unit_cost=fallback_cost, is_fallback=True,
+        ))
+
+    return total_cost / qty if qty else 0.0
+
+
+def release_fifo_for_item(db, order_item_id: str):
+    """Reverse consume_fifo_for_item for a cancelled/released order item —
+    restores qty back onto the specific lots it was drawn from (fallback
+    consumptions, lot_id=None, simply have nothing to restore), then deletes
+    the consumption records so the item can be re-consumed cleanly if the
+    order is ever re-confirmed."""
+    consumptions = db.query(FifoConsumption).filter(FifoConsumption.order_item_id == order_item_id).all()
+    for c in consumptions:
+        if c.lot_id:
+            lot = db.query(StockLot).filter(StockLot.id == c.lot_id).with_for_update().first()
+            if lot:
+                lot.qty_remaining += c.qty
+        db.delete(c)
+
+
 def release_all_reservations(db, order_id: str, tenant_id: str, reason: str = ""):
     """Release all ACTIVE reservations for a cancelled/expired order."""
     reservations = (
@@ -1192,6 +1281,8 @@ def release_all_reservations(db, order_id: str, tenant_id: str, reason: str = ""
             stock.qty_available += res.qty_reserved
             stock.qty_reserved  -= res.qty_reserved
             stock.last_updated_at = datetime.utcnow()
+
+        release_fifo_for_item(db, res.order_item_id)
 
         res.status         = "RELEASED"
         res.released_at    = datetime.utcnow()
@@ -1366,7 +1457,7 @@ def get_demand_projection(db, tenant_id: str, days: int = 7):
         gap = (stock.qty_available if stock else 0) - row.qty_needed
 
         result.append({
-            "product":        variant,
+            "variant":        variant,
             "qty_needed":     row.qty_needed,
             "qty_available":  stock.qty_available if stock else 0,
             "qty_in_transit": stock.qty_in_transit if stock else 0,
@@ -1457,9 +1548,38 @@ def dispatch_queue(
     branches = _active_branches(db, user.tenant_id)
     demand_projection = get_demand_projection(db, user.tenant_id)
 
+    # 2026-07: orders that have already been fully dispatched used to vanish
+    # from this page entirely once CONFIRMED flipped to DISPATCHED. Keep them
+    # visible here too (a separate section, not merged into the active queue
+    # above) so the team can still find/reference a shipped order without
+    # leaving this page. Same search filters apply; sorted most-recently-
+    # dispatched first instead of by manual priority (which is cleared once
+    # an order ships — see order_confirm/dispatch in sales_orders.py).
+    dq = db.query(SalesOrder).filter(
+        SalesOrder.tenant_id == user.tenant_id, SalesOrder.status == "DISPATCHED",
+        SalesOrder.is_deleted == False,
+    )
+    if order_no:
+        dq = dq.filter(SalesOrder.display_id.ilike(f"%{order_no}%"))
+    if customer:
+        dq = dq.join(Customer, SalesOrder.customer_id == Customer.id).filter(Customer.name.ilike(f"%{customer}%"))
+    if sku:
+        dq = dq.filter(SalesOrder.id.in_(matching_order_ids))
+    if order_date_from:
+        try:
+            dq = dq.filter(SalesOrder.created_at >= datetime.strptime(order_date_from, "%Y-%m-%d"))
+        except ValueError:
+            pass
+    if order_date_to:
+        try:
+            dq = dq.filter(SalesOrder.created_at <= datetime.strptime(order_date_to, "%Y-%m-%d") + timedelta(days=1))
+        except ValueError:
+            pass
+    dispatched_orders = dq.order_by(SalesOrder.dispatched_at.desc().nullslast()).limit(100).all()
+
     dq_template_name = "inventory_v2/dispatch_queue_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/dispatch_queue.html"
     return templates.TemplateResponse(request, dq_template_name, _ctx(
-        db, user, rows=rows, branches=branches, demand_projection=demand_projection,
+        db, user, rows=rows, dispatched_orders=dispatched_orders, branches=branches, demand_projection=demand_projection,
         order_no=order_no, customer=customer, sku=sku,
         order_date_from=order_date_from, order_date_to=order_date_to,
         expected_from=expected_from, expected_to=expected_to,
