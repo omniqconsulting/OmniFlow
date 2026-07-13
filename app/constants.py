@@ -178,30 +178,51 @@ def next_plan(current_plan: str) -> "str | None":
 # Foundation registry. Each pipeline brief appends ONE entry here as that
 # template is wired to a real trigger. variable_order documents param order
 # matching the approved Meta template — the actual send call takes a plain list.
+#
+# GUPSHUP MIGRATION NOTE: gupshup_template_id / gupshup_template_category are
+# GLOBAL placeholders here, same as msg91_template_id was. Per the brief
+# (Section 1.2 / Section 3.2 step 5), re-submitting all 13 templates for Meta
+# approval under each tenant's own new WABA — and therefore each tenant
+# potentially getting a *different* Facebook template ID for the same logical
+# template — is an explicit manual/content task, not a code task, tracked
+# separately per tenant during onboarding. Until per-tenant template IDs are
+# collected, sends fall back to these global IDs; if that turns out to be
+# wrong per-tenant, this dict is the place to extend to a tenant-scoped
+# mapping in a future phase.
 WHATSAPP_TEMPLATES = {
     "omniflow_ticket_assigned": {
         "msg91_template_id": 417221,
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["name", "ticket_title", "priority", "due_date"],
     },
     "omniflow_checklist_due": {
         "msg91_template_id": 417222,
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["name", "checklist_titles_csv"],
     },
     "omniflow_checklist_overdue": {
         "msg91_template_id": 417223,
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["name", "checklist_titles_csv"],
     },
     "omniflow_ticket_unacknowledged": {
         "msg91_template_id": 417225,
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["recipient_name", "ticket_title", "assignee_name", "hours"],
     },
     "omniflow_ticket_escalated": {
         "msg91_template_id": 417224,
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["recipient_name", "ticket_title", "actor_name"],
     },
     # FMS stage transition — new assignee alert
@@ -210,47 +231,67 @@ WHATSAPP_TEMPLATES = {
     "omniflow_fms_stage_transition": {
         "msg91_template_id": 417226,
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["name", "ticket_title", "stage_name"],
     },
     # Brief 5 — Registration pipelines (5A, 5B, 5C)
     "omniflow_registration_received": {
         "msg91_template_id": 417218,
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["contact_name", "company_name"],
     },
     "omniflow_registration_alert_sa": {
         "msg91_template_id": 418092,
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["company_name", "contact_name", "contact_phone"],
     },
     "omniflow_registration_rejected": {
         "msg91_template_id": 417220,
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["reason"],
     },
     # Sales module WhatsApp templates
     "omniflow_stock_updated": {
         "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["recipient_name", "product_name", "qty_added", "new_available"],
     },
     "omniflow_order_placed": {
         "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["recipient_name", "order_id", "customer_name", "item_count"],
     },
     "omniflow_stock_reserved": {
         "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["recipient_name", "order_id", "product_name", "qty_reserved"],
     },
     "omniflow_follow_up_reminder": {
         "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "MARKETING",
         "variable_order": ["agent_name", "overdue_count", "customer_names_csv"],
     },
     "omniflow_low_stock_alert": {
         "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["recipient_name", "product_name", "qty_available", "threshold"],
     },
     "omniflow_order_dispatched": {
         "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
         "variable_order": ["agent_name", "order_id", "customer_name", "dispatch_date"],
     },
 }
@@ -261,3 +302,10 @@ MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "")
 MSG91_WA_NUMBER = os.environ.get("MSG91_WA_NUMBER", "")
 # Brief 5 — SA alert phone (international format, no +, no spaces)
 SA_ALERT_PHONE = os.environ.get("SA_ALERT_PHONE", "")
+
+# Gupshup Gateway/Enterprise API — per-tenant credentials live on Tenant model
+# (gupshup_client_id / gupshup_secret_token / gupshup_source_number).
+GUPSHUP_API_BASE = "https://mediaapi.smsgupshup.com/GatewayAPI/rest"
+# Public domain this OmniFlow instance is reachable at, for constructing each
+# tenant's webhook Callback URL: https://<domain>/webhooks/gupshup/{token}
+OMNIFLOW_PUBLIC_DOMAIN = os.environ.get("OMNIFLOW_PUBLIC_DOMAIN", "omniflow.omniqconsulting.com")

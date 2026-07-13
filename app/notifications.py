@@ -113,41 +113,63 @@ def create_notification(db, tenant_id: str, user_id: str,
         logger.warning("Web push send skipped for user %s", user_id, exc_info=True)
 
 
+_OPTED_IN_STATUSES = ("OPTED_IN", "MANUALLY_VERIFIED")
+
+
+def _send_gupshup_wa(db, tenant_id, recipient, template_name, variables,
+                      related_entity_type=None, related_entity_id=None):
+    """
+    Shared gate + send + log for a single-recipient WhatsApp template send,
+    routed through the tenant's own Gupshup WABA — replaces the old per-pipeline
+    mobile_verified + msg91 pattern duplicated across this file (Gupshup
+    migration brief, Decision #12 / Section 4.2). Never raises.
+    """
+    from .database import WhatsAppMessageLog, Tenant
+    from .services.gupshup import send_whatsapp_template
+    try:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        template_id = template_category = gupshup_message_id = None
+        if not recipient or getattr(recipient, "whatsapp_opt_in_status", None) not in _OPTED_IN_STATUSES:
+            status, error = "SKIPPED_UNVERIFIED", None
+        else:
+            success, error, template_id, template_category, gupshup_message_id = send_whatsapp_template(
+                tenant, recipient.phone, template_name, variables)
+            status = "SENT" if success else "FAILED"
+        # Seed raw_status_webhook_payloads with the send-time message id so
+        # inbound status webhooks (Section 6.3) can be matched back to this row.
+        raw_payloads = [{"id": gupshup_message_id}] if gupshup_message_id else []
+        db.add(WhatsAppMessageLog(
+            tenant_id=tenant_id,
+            template_name=template_name,
+            recipient_user_id=recipient.id if recipient else None,
+            recipient_phone=recipient.phone if recipient else "",
+            variables_json=json.dumps(variables),
+            status=status,
+            error_message=error,
+            related_entity_type=related_entity_type,
+            related_entity_id=related_entity_id,
+            template_id=template_id,
+            template_category=template_category,
+            raw_status_webhook_payloads=raw_payloads,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("_send_gupshup_wa failed for template=%s tenant=%s", template_name, tenant_id)
+
+
 def send_whatsapp_for_ticket_assigned(db, ticket, assignee):
     """
     WhatsApp send for ticket_assigned — Pipeline 1.
     Never allowed to raise back into the caller.
     Always logs an attempt row regardless of outcome.
     """
-    from .database import WhatsAppMessageLog
-    from .services.msg91 import send_whatsapp_template, format_wa_date
+    from .services.msg91 import format_wa_date
 
     due_str = format_wa_date(ticket.due_at) if ticket.due_at else "N/A"
     variables = [assignee.name, ticket.title, ticket.priority, due_str]
-
-    try:
-        if not assignee.mobile_verified:
-            status, error = "SKIPPED_UNVERIFIED", None
-        else:
-            success, error = send_whatsapp_template(
-                assignee.phone, "omniflow_ticket_assigned", variables)
-            status = "SENT" if success else "FAILED"
-
-        db.add(WhatsAppMessageLog(
-            tenant_id=ticket.tenant_id,
-            template_name="omniflow_ticket_assigned",
-            recipient_user_id=assignee.id,
-            recipient_phone=assignee.phone,
-            variables_json=json.dumps(variables),
-            status=status,
-            error_message=error,
-            related_entity_type="ticket",
-            related_entity_id=ticket.id,
-        ))
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.exception("WhatsApp send_for_ticket_assigned failed")
+    _send_gupshup_wa(db, ticket.tenant_id, assignee, "omniflow_ticket_assigned", variables,
+                      related_entity_type="ticket", related_entity_id=ticket.id)
 
 
 def _get_tenant(db, tenant_id):
@@ -287,9 +309,7 @@ def notify_ticket_flagged(db, ticket, actor_id: str, admin_ids: list,
 
 def _send_wa_ticket_escalated(db, ticket, admin_ids: list, manager_ids: list, actor_name: str):
     """Pipeline 3B — omniflow_ticket_escalated. Never raises."""
-    from .database import WhatsAppMessageLog, User
-    from .services.msg91 import send_whatsapp_template
-    import json
+    from .database import User
     try:
         wa_recipient_ids = list(set(admin_ids + manager_ids))
         for uid in wa_recipient_ids:
@@ -297,25 +317,9 @@ def _send_wa_ticket_escalated(db, ticket, admin_ids: list, manager_ids: list, ac
             if not recipient or not recipient.phone:
                 continue
             variables = [recipient.name, ticket.title, actor_name or "a team member"]
-            status, error = "SKIPPED_UNVERIFIED", None
-            if recipient.mobile_verified:
-                ok, error = send_whatsapp_template(
-                    recipient.phone, "omniflow_ticket_escalated", variables)
-                status = "SENT" if ok else "FAILED"
-            db.add(WhatsAppMessageLog(
-                tenant_id=ticket.tenant_id,
-                template_name="omniflow_ticket_escalated",
-                recipient_user_id=uid,
-                recipient_phone=recipient.phone,
-                variables_json=json.dumps(variables),
-                status=status,
-                error_message=error,
-                related_entity_type="ticket",
-                related_entity_id=ticket.id,
-            ))
-        db.commit()
+            _send_gupshup_wa(db, ticket.tenant_id, recipient, "omniflow_ticket_escalated", variables,
+                              related_entity_type="ticket", related_entity_id=ticket.id)
     except Exception:
-        db.rollback()
         logger.exception("_send_wa_ticket_escalated failed for ticket=%s", ticket.id)
 
 
@@ -453,31 +457,9 @@ def send_whatsapp_for_fms_stage_transition(db, tenant_id: str, ticket_id: str,
     moves to a new stage and the incoming assignee is known.
     Never raises — always logs an attempt row.
     """
-    from .database import WhatsAppMessageLog
-    from .services.msg91 import send_whatsapp_template
     variables = [assignee.name, ticket_title, stage_name]
-    try:
-        if not assignee.mobile_verified:
-            status, error = "SKIPPED_UNVERIFIED", None
-        else:
-            success, error = send_whatsapp_template(
-                assignee.phone, "omniflow_fms_stage_transition", variables)
-            status = "SENT" if success else "FAILED"
-        db.add(WhatsAppMessageLog(
-            tenant_id=tenant_id,
-            template_name="omniflow_fms_stage_transition",
-            recipient_user_id=assignee.id,
-            recipient_phone=assignee.phone,
-            variables_json=json.dumps(variables),
-            status=status,
-            error_message=error,
-            related_entity_type="fms_ticket",
-            related_entity_id=ticket_id,
-        ))
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.exception("WhatsApp fms_stage_transition failed")
+    _send_gupshup_wa(db, tenant_id, assignee, "omniflow_fms_stage_transition", variables,
+                      related_entity_type="fms_ticket", related_entity_id=ticket_id)
 
 
 def send_whatsapp_for_fms_ticket_created(db, fms_ticket, assignee):
@@ -486,32 +468,11 @@ def send_whatsapp_for_fms_ticket_created(db, fms_ticket, assignee):
     (same template, same variables) so no new Meta approval needed.
     Never raises — always logs an attempt row.
     """
-    from .database import WhatsAppMessageLog
-    from .services.msg91 import send_whatsapp_template, format_wa_date
+    from .services.msg91 import format_wa_date
     due_str = format_wa_date(fms_ticket.due_at) if fms_ticket.due_at else "N/A"
     variables = [assignee.name, fms_ticket.title, fms_ticket.priority, due_str]
-    try:
-        if not assignee.mobile_verified:
-            status, error = "SKIPPED_UNVERIFIED", None
-        else:
-            success, error = send_whatsapp_template(
-                assignee.phone, "omniflow_ticket_assigned", variables)
-            status = "SENT" if success else "FAILED"
-        db.add(WhatsAppMessageLog(
-            tenant_id=fms_ticket.tenant_id,
-            template_name="omniflow_ticket_assigned",
-            recipient_user_id=assignee.id,
-            recipient_phone=assignee.phone,
-            variables_json=json.dumps(variables),
-            status=status,
-            error_message=error,
-            related_entity_type="fms_ticket",
-            related_entity_id=fms_ticket.id,
-        ))
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.exception("WhatsApp fms_ticket_created failed")
+    _send_gupshup_wa(db, fms_ticket.tenant_id, assignee, "omniflow_ticket_assigned", variables,
+                      related_entity_type="fms_ticket", related_entity_id=fms_ticket.id)
 
 
 def notify_fms_stage_transition(tenant_id: str, ticket_id: str, ticket_title: str,
@@ -573,30 +534,9 @@ def notify_store_alert(tenant_id: str, alert_type: str, message: str,
 
 def _send_wa_order_placed(db, staff, order):
     """omniflow_order_placed. Never raises — always logs an attempt row."""
-    from .database import WhatsAppMessageLog
-    from .services.msg91 import send_whatsapp_template
     variables = [staff.name, order.display_id, order.customer.name, str(len(order.items))]
-    try:
-        if not staff.mobile_verified:
-            status, error = "SKIPPED_UNVERIFIED", None
-        else:
-            success, error = send_whatsapp_template(staff.phone, "omniflow_order_placed", variables)
-            status = "SENT" if success else "FAILED"
-        db.add(WhatsAppMessageLog(
-            tenant_id=order.tenant_id,
-            template_name="omniflow_order_placed",
-            recipient_user_id=staff.id,
-            recipient_phone=staff.phone,
-            variables_json=json.dumps(variables),
-            status=status,
-            error_message=error,
-            related_entity_type="sales_order",
-            related_entity_id=order.id,
-        ))
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.exception("_send_wa_order_placed failed for order=%s", order.id)
+    _send_gupshup_wa(db, order.tenant_id, staff, "omniflow_order_placed", variables,
+                      related_entity_type="sales_order", related_entity_id=order.id)
 
 
 def notify_order_placed(db, order):
@@ -639,32 +579,11 @@ def notify_order_placed(db, order):
 
 def _send_wa_order_dispatched(db, order, dispatched_by):
     """omniflow_order_dispatched. Never raises — always logs an attempt row."""
-    from .database import WhatsAppMessageLog
-    from .services.msg91 import send_whatsapp_template
     agent = order.agent
     variables = [agent.name, order.display_id, order.customer.name,
                  datetime.utcnow().strftime("%d %b %Y")]
-    try:
-        if not agent.mobile_verified:
-            status, error = "SKIPPED_UNVERIFIED", None
-        else:
-            success, error = send_whatsapp_template(agent.phone, "omniflow_order_dispatched", variables)
-            status = "SENT" if success else "FAILED"
-        db.add(WhatsAppMessageLog(
-            tenant_id=order.tenant_id,
-            template_name="omniflow_order_dispatched",
-            recipient_user_id=agent.id,
-            recipient_phone=agent.phone,
-            variables_json=json.dumps(variables),
-            status=status,
-            error_message=error,
-            related_entity_type="sales_order",
-            related_entity_id=order.id,
-        ))
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.exception("_send_wa_order_dispatched failed for order=%s", order.id)
+    _send_gupshup_wa(db, order.tenant_id, agent, "omniflow_order_dispatched", variables,
+                      related_entity_type="sales_order", related_entity_id=order.id)
 
 
 def notify_order_dispatched(db, order, dispatched_by):

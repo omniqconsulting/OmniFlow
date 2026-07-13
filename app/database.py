@@ -63,6 +63,38 @@ class ChecklistFrequency(str, enum.Enum):
     MONTHLY = "MONTHLY"
     PER_SHIFT = "PER_SHIFT"
 
+# ── Gupshup WhatsApp multi-tenant migration enums ─────────────────────────────
+
+class WabaStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    LIVE = "LIVE"
+    FLAGGED = "FLAGGED"
+    SUSPENDED = "SUSPENDED"
+
+class OptInStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    OPTED_IN = "OPTED_IN"
+    MISMATCH = "MISMATCH"
+    MANUALLY_VERIFIED = "MANUALLY_VERIFIED"
+    OPTED_OUT = "OPTED_OUT"
+
+class OptInSource(str, enum.Enum):
+    QR = "QR"
+    MANUAL_OVERRIDE = "MANUAL_OVERRIDE"
+    EXISTING_THREAD = "EXISTING_THREAD"
+
+class ConsentEventType(str, enum.Enum):
+    OPT_IN_RECEIVED = "OPT_IN_RECEIVED"
+    MARKED_MISMATCH = "MARKED_MISMATCH"
+    PHONE_CORRECTED = "PHONE_CORRECTED"
+    MANUAL_OVERRIDE = "MANUAL_OVERRIDE"
+    OPT_OUT_RECEIVED = "OPT_OUT_RECEIVED"
+
+class TemplateCategory(str, enum.Enum):
+    UTILITY = "UTILITY"
+    MARKETING = "MARKETING"
+    AUTHENTICATION = "AUTHENTICATION"
+
 # ── Models ────────────────────────────────────────────────────────────────────
 
 class SuperAdmin(Base):
@@ -115,6 +147,15 @@ class Tenant(Base):
     fms_notif_on_backward     = Column(Boolean, default=True)
     fms_notif_on_flag         = Column(Boolean, default=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
+    # Gupshup WhatsApp — per-tenant WABA configuration
+    gupshup_client_id       = Column(String, nullable=True)
+    gupshup_secret_token    = Column(String, nullable=True)
+    gupshup_source_number   = Column(String, nullable=True)   # E.164
+    gupshup_waba_status     = Column(String, nullable=True, default=WabaStatus.PENDING.value)
+    gupshup_webhook_token   = Column(String, unique=True, nullable=True)
+    gupshup_webhook_secret  = Column(String, nullable=True)
+    whatsapp_opt_in_link    = Column(String, nullable=True)
+    whatsapp_config_updated_at = Column(DateTime, nullable=True)
 
     users = relationship("User", back_populates="tenant")
     branches = relationship("Branch", back_populates="tenant")
@@ -169,10 +210,17 @@ class User(Base):
     status        = Column(String, default="ACTIVE")   # ACTIVE / TERMINATED
     terminated_at = Column(DateTime)
     last_login    = Column(DateTime)
-    # WhatsApp validation — Brief 1
+    # WhatsApp validation — Brief 1 (superseded by Gupshup opt-in status below; kept until all call sites migrate)
     mobile_verified    = Column(Boolean, default=False, nullable=False)
     mobile_verified_at = Column(DateTime, nullable=True)
     mobile_verified_by = Column(String, ForeignKey("users.id"), nullable=True)
+    # Gupshup QR opt-in — replaces mobile_verified as the real consent gate
+    whatsapp_opt_in_status = Column(String, nullable=True, default=OptInStatus.PENDING.value)
+    opt_in_source          = Column(String, nullable=True)
+    opt_in_at              = Column(DateTime, nullable=True)
+    matched_phone          = Column(String, nullable=True)
+    mismatch_reason        = Column(Text, nullable=True)
+    opt_in_actor_id        = Column(String, ForeignKey("users.id"), nullable=True)
     # Sales module access — JSON array of module tags e.g. '["SALES","INVENTORY"]'
     # ADMIN and MANAGER roles always see all modules regardless of this field.
     module_access_json = Column(Text, nullable=True, default='[]')
@@ -185,6 +233,7 @@ class User(Base):
     department = relationship("Department", back_populates="users")
     manager = relationship("User", remote_side="User.id", foreign_keys="User.manager_id", backref="reports")
     mobile_verified_by_user = relationship("User", remote_side="User.id", foreign_keys="[User.mobile_verified_by]")
+    opt_in_actor = relationship("User", remote_side="User.id", foreign_keys="[User.opt_in_actor_id]")
     created_tickets = relationship("Ticket", foreign_keys="Ticket.created_by_id", back_populates="created_by")
     assigned_tickets = relationship("Ticket", foreign_keys="Ticket.current_assignee_id", back_populates="current_assignee")
 
@@ -1302,6 +1351,8 @@ class WhatsAppMessageLog(Base):
     """
     Foundation table — every outbound WhatsApp send attempt across all pipelines
     is logged here. Built once; reused by every template brief going forward.
+    Extended for the Gupshup migration with per-send template metadata and a
+    full delivery-status/webhook-payload history (Section 4.4 of the brief).
     """
     __tablename__ = "whatsapp_message_log"
     id                   = Column(String, primary_key=True, default=new_id)
@@ -1317,9 +1368,39 @@ class WhatsAppMessageLog(Base):
     attempt_count        = Column(Integer, default=1)
     created_at           = Column(DateTime, default=datetime.utcnow)
     last_attempted_at    = Column(DateTime, default=datetime.utcnow)
+    # Gupshup migration — Section 4.4
+    template_id                 = Column(String, nullable=True)   # Gupshup/Facebook template identifier used for this send
+    template_category           = Column(String, nullable=True)   # UTILITY / MARKETING / AUTHENTICATION
+    delivery_status_history      = Column(JSON, nullable=False, default=list)  # [{status, timestamp}, ...]
+    raw_status_webhook_payloads  = Column(JSON, nullable=False, default=list)  # verbatim payload per status webhook
 
     tenant    = relationship("Tenant")
     recipient = relationship("User", foreign_keys=[recipient_user_id])
+
+
+class WhatsAppConsentEvent(Base):
+    """
+    Append-only evidentiary log of every consent-related event (opt-in, mismatch,
+    correction, manual override, opt-out) — Section 4.3 of the Gupshup brief.
+    Rows are never updated or deleted after creation; this is the record Sahil
+    would submit in a Meta/Gupshup appeal if a tenant's number is flagged.
+    """
+    __tablename__ = "whatsapp_consent_events"
+    id                   = Column(String, primary_key=True, default=new_id)
+    tenant_id            = Column(String, ForeignKey("tenants.id"), nullable=False)
+    employee_id          = Column(String, ForeignKey("users.id"), nullable=True)   # null = unmatched inbound
+    event_type           = Column(String, nullable=False)   # ConsentEventType
+    phone_number         = Column(String, nullable=False)   # E.164
+    gupshup_message_id   = Column(String, nullable=True)
+    raw_webhook_payload  = Column(JSON, nullable=True)
+    source               = Column(String, nullable=True)    # OptInSource
+    actor_id             = Column(String, ForeignKey("users.id"), nullable=True)  # admin who performed a manual action
+    notes                = Column(Text, nullable=True)
+    created_at           = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    tenant   = relationship("Tenant")
+    employee = relationship("User", foreign_keys=[employee_id])
+    actor    = relationship("User", foreign_keys=[actor_id])
 
 
 class TrainingMaterialCategory(Base):
