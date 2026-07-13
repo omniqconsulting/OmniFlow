@@ -26,17 +26,27 @@
 <div class="fb-sheet-label" style="color:#f87171;text-transform:none;font-size:12.5px;margin-bottom:10px">{{ request.query_params.get('err') }}</div>
 {% endif %}
 
-<div class="fb-scroll-row fb-flow-tabs" data-tabsscroll>
-  {% for f in flows %}
-  <a href="/fms/dashboard?flow_id={{ f.id }}&view=stage" class="fb-flow-tab {% if active_flow and active_flow.id == f.id %}fb-flow-tab-active{% endif %}" style="color:{{ f.color or '#3b82f6' }}{% if active_flow and active_flow.id == f.id %};color:#fff{% endif %}">
-    <span class="fb-flow-dot" style="background:{{ f.color or '#3b82f6' }}"></span>
-    {{ f.name }}{% if flow_counts.get(f.id, 0) %} <span class="fb-stage-count">{{ flow_counts[f.id] }}</span>{% endif %}
-  </a>
-  {% endfor %}
-  {% if not flows %}
-  <div class="fb-empty">No flows available.</div>
-  {% endif %}
+{% if dropdown_ungrouped_flows or dropdown_flow_groups %}
+<div class="fb-filter-row" style="display:flex;gap:8px;margin-bottom:10px">
+  <select id="fbFlowSelect" class="fb-input" style="flex:1" onchange="fbFlowSelectChange(this)">
+    {% for f in dropdown_ungrouped_flows %}
+    <option value="{{ f.id }}" {% if active_flow and active_flow.id == f.id %}selected{% endif %}>
+      {{ f.name }}{% if flow_counts.get(f.id, 0) %} ({{ flow_counts[f.id] }}){% endif %}
+    </option>
+    {% endfor %}
+    {% for g in dropdown_flow_groups %}
+    <option value="group:{{ g.id }}" {% if active_flow and active_flow.group_id == g.id %}selected{% endif %}>
+      🗂 {{ g.name }}
+    </option>
+    {% endfor %}
+  </select>
+  <select id="fbSubFlowSelect" class="fb-input" style="flex:1;display:none" onchange="if(this.value) window.location='/fms/dashboard?flow_id='+this.value+'&view=stage'">
+    <option value="">Choose a flow…</option>
+  </select>
 </div>
+{% else %}
+<div class="fb-empty">No flows available.</div>
+{% endif %}
 
 {% if active_flow %}
 <div class="fb-scroll-row fb-kpis" data-tabsscroll>
@@ -229,7 +239,7 @@
         {% set rl = ref_lists | selectattr('id', 'equalto', fdef.ref_list_id) | list | first %}
         <select name="cf__{{ fdef.id }}" class="fb-input" {% if fdef.required %}required{% endif %}>
           <option value="">— select —</option>
-          {% if rl %}{% for item in rl.items %}<option value="{{ item }}">{{ item }}</option>{% endfor %}{% endif %}
+          {% if rl %}{% for item in rl['items'] %}<option value="{{ item }}">{{ item }}</option>{% endfor %}{% endif %}
         </select>
         {% elif fdef.field_type == 'date' %}
         <input type="date" name="cf__{{ fdef.id }}" class="fb-input" {% if fdef.required %}required{% endif %}>
@@ -385,6 +395,39 @@ function fbSubmitUpload(){
     })
     .catch(function(){ statusEl.textContent = 'Upload failed — check your connection.'; });
 }
+
+function fbRenderSubFlowOptions(members, activeFlowId){
+  var sel = document.getElementById('fbSubFlowSelect');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Choose a flow…</option>';
+  members.forEach(function(m){
+    var opt = document.createElement('option');
+    opt.value = m.id; opt.textContent = m.name;
+    if (m.id === activeFlowId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  sel.style.display = members.length ? '' : 'none';
+}
+function fbFlowSelectChange(sel){
+  var val = sel.value;
+  var subSel = document.getElementById('fbSubFlowSelect');
+  if (val.indexOf('group:') === 0){
+    var groupId = val.slice(6);
+    fetch('/fms/flow-groups/' + groupId + '/members')
+      .then(function(r){ return r.json(); })
+      .then(function(data){ fbRenderSubFlowOptions(data.members || [], null); });
+  } else {
+    if (subSel) subSel.style.display = 'none';
+    window.location = '/fms/dashboard?flow_id=' + val + '&view=stage';
+  }
+}
+{% if active_flow and active_flow.group_id %}
+// Active flow belongs to a group — populate the sub-flow dropdown on load
+// too, so the group being selected up top doesn't hide which member is shown.
+fetch('/fms/flow-groups/{{ active_flow.group_id }}/members')
+  .then(function(r){ return r.json(); })
+  .then(function(data){ fbRenderSubFlowOptions(data.members || [], '{{ active_flow.id }}'); });
+{% endif %}
 
 var FB_CURRENT_TICKET = null;
 var FB_CURRENT_SPLIT_ID = null;
