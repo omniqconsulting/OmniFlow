@@ -680,6 +680,25 @@ class WebSocketSession(Base):
 
 # ── Phase 2: FMS Core ─────────────────────────────────────────────────────────
 
+class FMSFlowGroup(Base):
+    """
+    Named grouping of 2+ existing FMSFlows, shown in place of its members in
+    the top-of-FMS-page flow dropdown (FMS Flow Grouping & Duplication brief).
+    A flow can belong to at most one group (see FMSFlow.group_id) — no join
+    table needed.
+    """
+    __tablename__ = "fms_flow_groups"
+    id         = Column(String,  primary_key=True, default=new_id)
+    tenant_id  = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    name       = Column(String,  nullable=False)
+    is_active  = Column(Boolean, default=True)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    tenant = relationship("Tenant")
+    flows  = relationship("FMSFlow", back_populates="group")
+
+
 class FMSFlow(Base):
     """
     A named, multi-stage process flow owned by a tenant.
@@ -697,12 +716,14 @@ class FMSFlow(Base):
     library_version_at_deploy= Column(Integer)                       # version at time of deploy (2-B-5)
     ticket_form_fields_json  = Column(Text,    default="[]")          # JSON array of custom field defs for ticket creation form
     closing_rule_json        = Column(Text)                           # {col_id, op, value} — must hold true before a ticket on this flow can close
+    group_id                 = Column(String,  ForeignKey("fms_flow_groups.id"), nullable=True)  # null = ungrouped (R1)
     created_by_id            = Column(String,  ForeignKey("users.id"))
     created_at               = Column(DateTime, default=datetime.utcnow)
     updated_at               = Column(DateTime, default=datetime.utcnow)
 
     tenant     = relationship("Tenant")
     created_by = relationship("User", foreign_keys=[created_by_id])
+    group      = relationship("FMSFlowGroup", back_populates="flows")
     stages     = relationship("FMSStage",  back_populates="flow",
                               order_by="FMSStage.order",
                               cascade="all, delete-orphan")

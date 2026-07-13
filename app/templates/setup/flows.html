@@ -16,9 +16,33 @@
         <a href="/plan" style="color:#fbbf24;text-decoration:underline;font-size:11px">Upgrade to create more →</a>
       </div>
       {% else %}
-      <a href="/setup/flows/new" class="btn btn-primary btn-sm">+ New Flow</a>
+      <div style="display:flex;gap:8px">
+        {% if can_create_group %}
+        <a href="/setup/flow-groups/new" class="btn btn-outline btn-sm">+ Create Group</a>
+        {% else %}
+        <button class="btn btn-outline btn-sm" disabled title="Need at least 2 ungrouped flows to create a group" style="opacity:.4;cursor:not-allowed">+ Create Group</button>
+        {% endif %}
+        <a href="/setup/flows/new" class="btn btn-primary btn-sm">+ New Flow</a>
+      </div>
       {% endif %}
     </div>
+
+    {% if group_info %}
+    <div style="margin-bottom:20px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:8px">Flow Groups</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        {% for gi in group_info %}
+        <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;padding:10px 16px">
+          <div>
+            <span style="font-size:13px;font-weight:600;color:var(--text-strong)">🗂 {{ gi.group.name }}</span>
+            <span style="font-size:11px;color:var(--text-faint);margin-left:8px">{{ gi.members | map(attribute='name') | join(', ') }}</span>
+          </div>
+          <a href="/setup/flow-groups/{{ gi.group.id }}/edit" class="btn btn-sm btn-outline">Edit Group</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
     {% if request.query_params.get('msg') %}
     <div class="alert alert-green" style="margin-bottom:16px">{{ request.query_params.get('msg').replace('+',' ') }}</div>
@@ -54,6 +78,9 @@
                 {{ 'Active' if f.is_active else 'Inactive' }}
               </span>
               {% endif %}
+              {% if f.group %}
+              <span class="badge badge-gray" style="font-size:10px" title="Member of group">🗂 {{ f.group.name }}</span>
+              {% endif %}
             </div>
             {% if f.description %}
             <div style="font-size:12px;color:var(--text-faint);margin-bottom:8px">{{ f.description[:120] }}{% if f.description|length > 120 %}…{% endif %}</div>
@@ -84,6 +111,9 @@
             {% else %}
             <a href="/fms/dashboard?flow_id={{ f.id }}" class="btn btn-sm btn-outline" title="View Board">Board</a>
             <a href="/setup/flows/{{ f.id }}/edit" class="btn btn-sm btn-outline">Edit</a>
+            <form method="post" action="/setup/flows/{{ f.id }}/duplicate">
+              <button type="submit" class="btn btn-sm btn-outline" title="Clone this flow's stages and split config into a new independent flow">Duplicate</button>
+            </form>
             {% if item.can_delete %}
             <form method="post" action="/setup/flows/{{ f.id }}/delete" onsubmit="return confirm('Delete this flow? It will be hidden but kept in memory, and can be restored later.')">
               <button type="submit" class="btn btn-sm" style="border-color:rgba(239,68,68,.4);color:#f87171">Delete</button>

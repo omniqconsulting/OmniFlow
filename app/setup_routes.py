@@ -20,7 +20,7 @@ from .database import (
     User, Tenant, Branch, Department,
     Customer, EndProduct, Vendor, RawMaterial, UnitOfMeasure,
     CustomReferenceList, CustomReferenceItem,
-    FMSFlow, FMSStage, FMSTicket, FMSStageHistory,
+    FMSFlow, FMSStage, FMSTicket, FMSStageHistory, FMSFlowGroup,
     ProductVariant, ProductStock,
     SalesOrder, CRMCallLog, CustomerPriceOverride,
     InventoryPurchaseOrder,
@@ -2141,10 +2141,23 @@ def setup_flows_list(
             "can_delete": active_tickets == 0,
         })
 
+    groups = db.query(FMSFlowGroup).filter(
+        FMSFlowGroup.tenant_id == user.tenant_id,
+        FMSFlowGroup.is_deleted == False,
+    ).order_by(FMSFlowGroup.created_at).all()
+    group_info = []
+    for g in groups:
+        members = [f for f in flows if f.group_id == g.id] or db.query(FMSFlow).filter(
+            FMSFlow.group_id == g.id, FMSFlow.is_deleted == False).all()
+        group_info.append({"group": g, "members": members})
+    ungrouped_active_count = len(_ungrouped_active_flows(db, user.tenant_id))
+
     return templates.TemplateResponse(request, "setup/flows.html", {
         "user": user, "unread": _unread(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "flow_info": flow_info,
+        "group_info": group_info,
+        "can_create_group": ungrouped_active_count >= 2,
         "at_limit": at_limit,
         "max_flows": max_flows,
         "active_section": "flows",
@@ -2534,4 +2547,233 @@ def setup_flow_restore(
     flow.is_deleted = False
     db.commit()
     return _redir("/setup/flows?msg=Flow+restored")
+
+
+@router.post("/setup/flows/{flow_id}/duplicate")
+def setup_flow_duplicate(
+    flow_id: str,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """R5-R8: deep-copy a flow's stages + split config into a new, independent,
+    ungrouped flow with no library template linkage. Ticket/history data is
+    never copied."""
+    src = db.query(FMSFlow).filter(
+        FMSFlow.id == flow_id,
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == False,
+    ).first()
+    if not src:
+        return _redir("/setup/flows?err=Flow+not+found")
+
+    from .constants import has_feature, PLAN_LIMITS
+    tenant = db.query(Tenant).get(user.tenant_id)
+    plan = tenant.plan or "STARTER"
+    max_flows = PLAN_LIMITS.get(plan, {}).get("max_fms_flows")
+    if max_flows is not None:
+        active_count = db.query(FMSFlow).filter(
+            FMSFlow.tenant_id == user.tenant_id,
+            FMSFlow.is_deleted == False,
+        ).count()
+        if active_count >= max_flows:
+            return _redir("/setup/flows?err=Flow+limit+reached+for+your+plan")
+
+    new_flow = FMSFlow(
+        tenant_id=user.tenant_id,
+        name=f"{src.name} (Copy)",              # R6
+        description=src.description,
+        color=src.color,
+        is_active=True,
+        is_deleted=False,
+        library_flow_id=None,                    # R8 — breaks library linkage
+        library_version_at_deploy=None,
+        ticket_form_fields_json=src.ticket_form_fields_json,
+        closing_rule_json=src.closing_rule_json,
+        group_id=None,                            # R7 — duplicate starts ungrouped
+        created_by_id=user.id,
+    )
+    db.add(new_flow)
+    db.flush()
+
+    for s in sorted([s for s in src.stages if not s.is_deleted], key=lambda s: s.order):
+        db.add(FMSStage(
+            flow_id=new_flow.id,
+            tenant_id=user.tenant_id,
+            name=s.name,
+            description=s.description,
+            order=s.order,
+            color=s.color,
+            target_tat_hours=s.target_tat_hours,
+            target_tat_unit=s.target_tat_unit,
+            default_assignee_id=s.default_assignee_id,
+            sub_module_tag=s.sub_module_tag,
+            deployed_submodule_id=s.deployed_submodule_id,
+            is_mandatory=s.is_mandatory,
+            completion_note_required=s.completion_note_required,
+            is_terminal=s.is_terminal,
+            evidence_required=s.evidence_required,
+            custom_fields_json=s.custom_fields_json,
+            is_deleted=False,
+            split_enabled=s.split_enabled,          # R5 — split-engine config
+            split_target_field=s.split_target_field,
+            split_actual_field=s.split_actual_field,
+        ))
+
+    db.commit()
+    return _redir(f"/setup/flows/{new_flow.id}/edit?msg=Flow+duplicated+—+rename+and+review+before+saving")
+
+
+# ── Flow Groups (grouping/navigation layer only — no shared stages) ─────────
+
+def _ungrouped_active_flows(db: Session, tenant_id: str):
+    return db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == tenant_id,
+        FMSFlow.is_deleted == False,
+        FMSFlow.group_id == None,
+    ).order_by(FMSFlow.name).all()
+
+
+@router.get("/setup/flow-groups/new", response_class=HTMLResponse)
+def setup_flow_group_new(
+    request: Request,
+    user: User = Depends(require_admin_or_redirect),
+    db: Session = Depends(get_db),
+):
+    from .constants import has_feature
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "FMS", db):
+        return _redir("/setup?err=FMS+not+enabled")
+
+    ungrouped = _ungrouped_active_flows(db, user.tenant_id)
+    return templates.TemplateResponse(request, "setup/flow_group_edit.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "group": None,
+        "candidate_flows": ungrouped,
+        "selected_ids": set(),
+        "active_section": "flows",
+    })
+
+
+@router.post("/setup/flow-groups/new")
+async def setup_flow_group_create(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    flow_ids = [fid for fid in form.getlist("flow_ids") if fid]
+
+    if not name:
+        return _redir("/setup/flow-groups/new?err=Group+name+is+required")
+    if len(flow_ids) < 2:                                        # R2
+        return _redir("/setup/flow-groups/new?err=A+group+needs+at+least+2+flows")
+
+    flows = db.query(FMSFlow).filter(
+        FMSFlow.id.in_(flow_ids),
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == False,
+    ).all()
+    if len(flows) < 2:
+        return _redir("/setup/flow-groups/new?err=A+group+needs+at+least+2+flows")
+    already_grouped = [f for f in flows if f.group_id]
+    if already_grouped:                                           # R1
+        return _redir(f"/setup/flow-groups/new?err={already_grouped[0].name.replace(' ','+')}+is+already+in+a+group")
+
+    group = FMSFlowGroup(tenant_id=user.tenant_id, name=name, is_active=True)
+    db.add(group)
+    db.flush()
+    for f in flows:
+        f.group_id = group.id
+    db.commit()
+    return _redir("/setup/flows?msg=Group+created")
+
+
+@router.get("/setup/flow-groups/{group_id}/edit", response_class=HTMLResponse)
+def setup_flow_group_edit_get(
+    group_id: str,
+    request: Request,
+    user: User = Depends(require_admin_or_redirect),
+    db: Session = Depends(get_db),
+):
+    group = db.query(FMSFlowGroup).filter(
+        FMSFlowGroup.id == group_id,
+        FMSFlowGroup.tenant_id == user.tenant_id,
+        FMSFlowGroup.is_deleted == False,
+    ).first()
+    if not group:
+        return _redir("/setup/flows?err=Group+not+found")
+
+    members = [f for f in db.query(FMSFlow).filter(
+        FMSFlow.group_id == group_id, FMSFlow.is_deleted == False,
+    ).order_by(FMSFlow.name).all()]
+    ungrouped = _ungrouped_active_flows(db, user.tenant_id)
+    candidate_flows = members + ungrouped
+    return templates.TemplateResponse(request, "setup/flow_group_edit.html", {
+        "user": user, "unread": _unread(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user),
+        "group": group,
+        "candidate_flows": candidate_flows,
+        "selected_ids": {f.id for f in members},
+        "active_section": "flows",
+    })
+
+
+@router.post("/setup/flow-groups/{group_id}/edit")
+async def setup_flow_group_update(
+    group_id: str,
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    group = db.query(FMSFlowGroup).filter(
+        FMSFlowGroup.id == group_id,
+        FMSFlowGroup.tenant_id == user.tenant_id,
+        FMSFlowGroup.is_deleted == False,
+    ).first()
+    if not group:
+        return _redir("/setup/flows?err=Group+not+found")
+
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    flow_ids = set(fid for fid in form.getlist("flow_ids") if fid)
+
+    if not name:
+        return _redir(f"/setup/flow-groups/{group_id}/edit?err=Group+name+is+required")
+    if len(flow_ids) < 2:                                          # R2
+        return _redir(f"/setup/flow-groups/{group_id}/edit?err=A+group+needs+at+least+2+flows")
+
+    current_members = db.query(FMSFlow).filter(
+        FMSFlow.group_id == group_id, FMSFlow.is_deleted == False,
+    ).all()
+    current_ids = {f.id for f in current_members}
+
+    newly_added_ids = flow_ids - current_ids
+    if newly_added_ids:
+        newly_added = db.query(FMSFlow).filter(
+            FMSFlow.id.in_(newly_added_ids),
+            FMSFlow.tenant_id == user.tenant_id,
+            FMSFlow.is_deleted == False,
+        ).all()
+        conflict = [f for f in newly_added if f.group_id and f.group_id != group_id]
+        if conflict:                                                # R1
+            return _redir(f"/setup/flow-groups/{group_id}/edit?err={conflict[0].name.replace(' ','+')}+is+already+in+a+group")
+
+    all_selected = db.query(FMSFlow).filter(
+        FMSFlow.id.in_(flow_ids),
+        FMSFlow.tenant_id == user.tenant_id,
+        FMSFlow.is_deleted == False,
+    ).all()
+    if len(all_selected) < 2:
+        return _redir(f"/setup/flow-groups/{group_id}/edit?err=A+group+needs+at+least+2+flows")
+
+    group.name = name
+    for f in current_members:
+        if f.id not in flow_ids:
+            f.group_id = None                                       # removed from group
+    for f in all_selected:
+        f.group_id = group.id
+    db.commit()
+    return _redir("/setup/flows?msg=Group+updated")
 
