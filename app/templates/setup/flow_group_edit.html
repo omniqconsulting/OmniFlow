@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit Group' if group else 'Create Group' }} — Setup{% endblock %}
+{% block content %}
+<div class="setup-layout">
+  {% include "setup/nav.html" %}
+  <div class="setup-content">
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div>
+        <h2 class="page-title">{{ 'Edit Group' if group else 'Create Group' }}</h2>
+        <div style="font-size:12px;color:var(--text-faint)">Group related flows under one entry in the top FMS flow selector. Grouped flows still behave fully independently — this only changes navigation.</div>
+      </div>
+      <a href="/setup/flows" class="btn btn-outline btn-sm">← Back to Flows</a>
+    </div>
+
+    {% if request.query_params.get('err') %}
+    <div class="alert alert-red" style="margin-bottom:16px">{{ request.query_params.get('err').replace('+',' ') }}</div>
+    {% endif %}
+
+    <form method="post" action="{{ '/setup/flow-groups/' + group.id + '/edit' if group else '/setup/flow-groups/new' }}"
+          style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:20px;max-width:640px">
+
+      <div class="fm-group" style="margin-bottom:16px">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Group Name</label>
+        <input type="text" name="name" required value="{{ group.name if group else '' }}"
+               style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:9px 12px;font-size:13px;color:var(--text-primary)">
+      </div>
+
+      <div class="fm-group">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">
+          Member Flows <span style="font-weight:400;text-transform:none">(select at least 2)</span>
+        </label>
+
+        {% if candidate_flows %}
+        <div style="display:flex;flex-direction:column;gap:8px">
+          {% for f in candidate_flows %}
+          {% set disabled = f.group_id and f.id not in selected_ids %}
+          <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border-subtle);border-radius:8px;{% if disabled %}opacity:.45{% else %}cursor:pointer{% endif %}">
+            <input type="checkbox" name="flow_ids" value="{{ f.id }}"
+                   {% if f.id in selected_ids %}checked{% endif %}
+                   {% if disabled %}disabled{% endif %}>
+            <span style="font-size:13px;color:var(--text-strong)">{{ f.name }}</span>
+            {% if disabled %}
+            <span style="font-size:10px;color:var(--text-faint)">— already in another group</span>
+            {% endif %}
+          </label>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div style="font-size:12px;color:var(--text-faint)">No ungrouped flows available. Create at least one more flow first.</div>
+        {% endif %}
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button type="submit" class="btn btn-primary">{{ 'Save Group' if group else 'Create Group' }}</button>
+        <a href="/setup/flows" class="btn btn-outline">Cancel</a>
+      </div>
+    </form>
+
+  </div>
+</div>
+{% endblock %}

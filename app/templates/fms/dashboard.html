@@ -107,11 +107,16 @@ select option{background:var(--bg-card);color:var(--text-primary)}
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint)">FLOWS</span>
     <div style="position:relative">
-      <select onchange="window.location='/fms/dashboard?flow_id='+this.value+'&view={{ view }}'"
+      <select id="fmsFlowSelect" onchange="fmsFlowSelectChange(this)"
               style="background:var(--bg-input);border:1.5px solid {{ active_flow.color + '88' if active_flow else 'var(--border-med)' }};border-radius:8px;padding:7px 32px 7px 12px;font-size:13px;font-weight:600;color:var(--text-strong);outline:none;appearance:none;cursor:pointer;min-width:200px">
-        {% for f in flows %}
+        {% for f in dropdown_ungrouped_flows %}
         <option value="{{ f.id }}" {% if active_flow and active_flow.id == f.id %}selected{% endif %}>
           {{ f.name }}{% if flow_counts.get(f.id, 0) %} ({{ flow_counts[f.id] }}){% endif %}
+        </option>
+        {% endfor %}
+        {% for g in dropdown_flow_groups %}
+        <option value="group:{{ g.id }}" {% if active_flow and active_flow.group_id == g.id %}selected{% endif %}>
+          🗂 {{ g.name }}
         </option>
         {% endfor %}
       </select>
@@ -120,7 +125,58 @@ select option{background:var(--bg-card);color:var(--text-primary)}
       {% endif %}
       <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--text-faint);pointer-events:none;font-size:10px">▼</span>
     </div>
+    <div id="fmsGroupMemberPicker" style="display:none;position:relative">
+      <select id="fmsGroupMemberSelect" onchange="if(this.value) window.location='/fms/dashboard?flow_id='+this.value+'&view={{ view }}'"
+              style="background:var(--bg-input);border:1.5px solid var(--border-med);border-radius:8px;padding:7px 32px 7px 12px;font-size:13px;font-weight:600;color:var(--text-strong);outline:none;appearance:none;cursor:pointer;min-width:180px">
+        <option value="">Choose a flow…</option>
+      </select>
+      <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--text-faint);pointer-events:none;font-size:10px">▼</span>
+    </div>
   </div>
+  <script>
+  function fmsFlowSelectChange(sel){
+    var val = sel.value;
+    var picker = document.getElementById('fmsGroupMemberPicker');
+    if (val.indexOf('group:') === 0){
+      var groupId = val.slice(6);
+      fetch('/fms/flow-groups/' + groupId + '/members')
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          var memberSel = document.getElementById('fmsGroupMemberSelect');
+          memberSel.innerHTML = '<option value="">Choose a flow…</option>';
+          (data.members || []).forEach(function(m){
+            var opt = document.createElement('option');
+            opt.value = m.id; opt.textContent = m.name;
+            memberSel.appendChild(opt);
+          });
+          picker.style.display = '';
+        });
+    } else {
+      picker.style.display = 'none';
+      window.location = '/fms/dashboard?flow_id=' + val + '&view={{ view }}';
+    }
+  }
+  {% if active_flow and active_flow.group_id %}
+  // Active flow belongs to a group — show which member is selected on load,
+  // so the group name in the primary dropdown doesn't hide the sub-flow choice.
+  (function(){
+    var picker = document.getElementById('fmsGroupMemberPicker');
+    fetch('/fms/flow-groups/{{ active_flow.group_id }}/members')
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var memberSel = document.getElementById('fmsGroupMemberSelect');
+        memberSel.innerHTML = '<option value="">Choose a flow…</option>';
+        (data.members || []).forEach(function(m){
+          var opt = document.createElement('option');
+          opt.value = m.id; opt.textContent = m.name;
+          if (m.id === '{{ active_flow.id }}') opt.selected = true;
+          memberSel.appendChild(opt);
+        });
+        picker.style.display = '';
+      });
+  })();
+  {% endif %}
+  </script>
   <div style="display:flex;gap:8px;align-items:center">
     {% if user.role in ('ADMIN','MANAGER') %}
     <a href="/fms/tickets/bulk-template?flow_id={{ active_flow.id if active_flow else '' }}" class="btn btn-outline btn-sm">⬇ Template</a>

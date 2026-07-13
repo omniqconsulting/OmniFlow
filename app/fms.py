@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from .database import (
     get_db, new_id,
     Tenant, User, Department, Branch,
-    FMSFlow, FMSStage, FMSTicket, FMSStageHistory, FMSEvent, FMSTicketHelper,
+    FMSFlow, FMSStage, FMSTicket, FMSStageHistory, FMSEvent, FMSTicketHelper, FMSFlowGroup,
     FMSTicketSplit, FMSFieldEditLog, FMSSplitEvidence,
     LibrarySubmoduleDefinition, TenantDeployedItem,
     Notification, MediaUpload,
@@ -1089,6 +1089,33 @@ def fms_tickets_export(
     )
 
 
+@router.get("/flow-groups/{group_id}/members")
+def fms_flow_group_members(
+    group_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """R4: second-level selector data — member flows only, no swimlane/ticket
+    data resolved at this step."""
+    group = db.query(FMSFlowGroup).filter(
+        FMSFlowGroup.id == group_id,
+        FMSFlowGroup.tenant_id == user.tenant_id,
+        FMSFlowGroup.is_deleted == False,
+    ).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    members = db.query(FMSFlow).filter(
+        FMSFlow.group_id == group_id,
+        FMSFlow.is_active == True,
+        FMSFlow.is_deleted == False,
+    ).order_by(FMSFlow.name).all()
+    return JSONResponse({
+        "group": {"id": group.id, "name": group.name},
+        "members": [{"id": f.id, "name": f.name} for f in members],
+    })
+
+
 @router.get("/dashboard", response_class=HTMLResponse)
 def fms_dashboard(
     request: Request,
@@ -1330,6 +1357,18 @@ def _fms_dashboard_inner(
             FMSTicket.flow_id == f.id, FMSTicket.is_deleted == False,
             FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
         ).count()
+
+    # ── Flow dropdown: ungrouped flows shown individually, grouped flows
+    # collapse into their group entry (R3) ────────────────────────────────────
+    dropdown_ungrouped_flows = [f for f in flows if not f.group_id]
+    _visible_group_ids = {f.group_id for f in flows if f.group_id}
+    dropdown_flow_groups = []
+    if _visible_group_ids:
+        dropdown_flow_groups = db.query(FMSFlowGroup).filter(
+            FMSFlowGroup.id.in_(_visible_group_ids),
+            FMSFlowGroup.is_active == True,
+            FMSFlowGroup.is_deleted == False,
+        ).order_by(FMSFlowGroup.name).all()
 
     # ── Filter data (loaded for all views) ───────────────────────────────────
     _depts_raw = db.query(Department).filter(
@@ -2166,6 +2205,8 @@ def _fms_dashboard_inner(
         request, user, db,
         flows=flows, active_flow=active_flow,
         flow_counts=flow_counts,
+        dropdown_ungrouped_flows=dropdown_ungrouped_flows,
+        dropdown_flow_groups=dropdown_flow_groups,
         view=view,
         ticket_form_fields=ticket_form_fields,
         split_last_cumulative_json=split_last_cumulative_json,
