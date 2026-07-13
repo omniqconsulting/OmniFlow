@@ -1,0 +1,461 @@
+{# ── orders_new_mobile.html ───────────────────────────────────────────────
+   PWA-only "New Order" Sell workspace (Design: OmniFlow Tickets Redesign,
+   section 20c — Details/Products/Cart steps replace the 3-column builder).
+   Served only when the `pwa_ui` cookie is set — see
+   app/sales_orders.py::order_new_form(). Reuses the same context as the
+   desktop sales/order_builder.html (customer, customers, products,
+   categories, subcategories, stock_by_variant, agents, branches).
+
+   Sequencing mirrors order_builder.html's JS: a DRAFT SalesOrder is created
+   via POST /sales/orders/create (ajax=1) the first time the user adds an
+   item to the cart (not eagerly on page load, so browsing Details/Products
+   without ever adding anything doesn't litter empty drafts) and items are
+   then added one at a time via POST /sales/orders/{id}/add-item, exactly
+   like the desktop flow. Do not port changes here back into
+   order_builder.html or vice versa. #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/tickets-mobile.css">
+
+{% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
+
+<div id="no-toast" class="tm-toast"></div>
+
+<!-- ── Success state ─────────────────────────────────────────────────────── -->
+<div id="no-success" style="display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:80px 20px;text-align:center">
+  <div style="width:64px;height:64px;border-radius:99px;background:rgba(16,185,129,0.16);display:flex;align-items:center;justify-content:center;font-size:30px">✓</div>
+  <div style="font-size:17px;font-weight:700;color:var(--text-strong)">Order saved</div>
+  <div style="font-size:13px;color:var(--text-faint);line-height:1.5" id="no-success-msg"></div>
+  <button type="button" class="tm-btn tm-btn-primary" onclick="window.location.reload()">Create Another Order</button>
+</div>
+
+<!-- ── Main builder ──────────────────────────────────────────────────────── -->
+<div id="no-main" class="tmd-body">
+
+<div class="tmd-header">
+  <a href="/sales/orders" class="tmd-back">←</a>
+  <span style="font-size:19px;font-weight:700;color:var(--text-strong)">Sell — New Order</span>
+</div>
+
+<div id="no-alert" style="display:none;margin-bottom:12px"></div>
+
+<div class="tm-seg-row">
+  <div class="tm-seg tm-seg-active" id="no-step-tab-details" onclick="noGoStep('details')">Details</div>
+  <div class="tm-seg" id="no-step-tab-products" onclick="noGoStep('products')">Products</div>
+  <div class="tm-seg" id="no-step-tab-cart" onclick="noGoStep('cart')">Cart</div>
+</div>
+
+<!-- ═══ STEP: Details ═══ -->
+<div id="no-step-details">
+  <div class="tmd-card-title" style="margin-top:0">Party</div>
+  <div id="no-customer-selected" style="display:none" class="tmd-card" onclick="noToggleCustomerPicker(true)">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:14px;font-weight:700;color:var(--text-strong)" id="no-customer-name"></div>
+      <span class="tm-badge" id="no-customer-tier"></span>
+    </div>
+    <div style="font-size:11.5px;color:var(--text-faint);margin-top:3px" id="no-customer-phone"></div>
+    <div style="font-size:11.5px;color:var(--text-faint);margin-top:6px;padding-top:6px;border-top:1px solid var(--border-subtle)" id="no-customer-last-order">Last order: —</div>
+  </div>
+  <div id="no-customer-empty" class="tmd-card" style="text-align:center;font-size:12.5px;color:var(--text-faint);border-style:dashed;cursor:pointer" onclick="noToggleCustomerPicker(true)">+ Select customer</div>
+
+  <div class="tmd-card-title">Salesman &amp; Terms</div>
+  <div class="tmd-card">
+    <div style="font-size:12.5px;color:var(--text-primary);margin-bottom:8px">Salesman:
+      <select id="no-agent-select" class="tm-select" style="width:auto;display:inline-block;font-size:12.5px;padding:4px 8px">
+        <option value="{{ user.id }}">Myself ({{ user.name }})</option>
+        {% for a in agents if a.id != user.id %}
+        <option value="{{ a.id }}">{{ a.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <input id="no-payment-terms" placeholder="Payment terms — e.g. Net 30" class="tm-input">
+  </div>
+
+  <div class="tmd-card-title">Delivery</div>
+  <div class="tmd-card">
+    <textarea id="no-delivery-address" placeholder="Delivery address" rows="2" class="tm-input" style="margin-bottom:8px"></textarea>
+    <input type="date" id="no-expected-delivery-date" class="tm-input">
+  </div>
+
+  <div class="tmd-card-title">Notes</div>
+  <div class="tmd-card">
+    <textarea id="no-notes" placeholder="Anything the dispatch team should know…" rows="2" class="tm-input"></textarea>
+  </div>
+</div>
+
+<!-- ═══ STEP: Products ═══ -->
+<div id="no-step-products" style="display:none">
+  <div class="tm-chip-row" id="no-category-chips" data-tabsscroll style="flex-wrap:nowrap;overflow-x:auto"></div>
+  <input id="no-product-search" placeholder="Search by product name or SKU…" class="tm-input" style="margin-bottom:12px" oninput="noRenderProducts()">
+  <div id="no-product-list"></div>
+</div>
+
+<!-- ═══ STEP: Cart ═══ -->
+<div id="no-step-cart" style="display:none">
+  <div id="no-cart-empty" class="tm-empty" style="display:none">No items yet — add products from the Products tab.</div>
+  <div id="no-cart-list"></div>
+</div>
+
+</div>
+<!-- /no-main -->
+
+<!-- ── Sticky bottom bar ─────────────────────────────────────────────────── -->
+<div class="tmd-actionbar" id="no-actionbar" style="flex-direction:column;align-items:stretch;gap:10px">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <span style="font-size:12.5px;color:var(--text-faint)" id="no-cart-count">0 item(s)</span>
+    <span style="font-size:16px;font-weight:700;color:var(--text-strong)" id="no-cart-total">₹0</span>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button type="button" class="tmd-primary-cta" style="background:var(--bg-elevated);color:var(--text-primary)" onclick="noSubmitOrder(false)">Save Draft</button>
+    <button type="button" class="tmd-primary-cta" style="background:#3b82f6" onclick="noSubmitOrder(true)">Confirm Order</button>
+  </div>
+</div>
+
+<!-- ── Customer picker bottom sheet ──────────────────────────────────────── -->
+<div class="tm-sheet-backdrop" id="no-customer-picker-backdrop" onclick="if(event.target===this)noToggleCustomerPicker(false)">
+  <div class="tm-sheet">
+    <div class="tm-sheet-handle"></div>
+    <div class="tm-sheet-title" style="margin-bottom:12px">Select Customer</div>
+    <input id="no-customer-search" placeholder="Search customers…" class="tm-input" style="margin-bottom:12px" oninput="noRenderCustomerOptions()">
+    <div id="no-customer-options"></div>
+  </div>
+</div>
+
+<script>
+// ── Static data from context, mirroring order_builder.html's CATALOG shape ──
+const NO_CUSTOMERS = [
+  {% for c in customers %}
+  { id: "{{ c.id }}", name: {{ c.name|tojson }}, phone: {{ (c.phone or '')|tojson }}, tier: {{ (c.customer_tier or 'UNRANKED')|tojson }} },
+  {% endfor %}
+];
+const NO_CATEGORIES = [
+  {% for cat in categories %}
+  { id: "{{ cat.id }}", name: {{ cat.name|tojson }} },
+  {% endfor %}
+];
+const NO_CATALOG = [
+  {% for p in products %}
+  {% set live_variants = p.variants | selectattr('is_active') | rejectattr('is_deleted') | list %}
+  {% if live_variants %}
+  {
+    product_id: "{{ p.id }}",
+    product_name: {{ p.name|tojson }},
+    category_id: {{ (p.sub_category.category_id if p.sub_category else '')|tojson }},
+    variants: [
+      {% for v in live_variants %}
+      {% set stock = stock_by_variant.get(v.id) %}
+      {
+        variant_id: "{{ v.id }}",
+        sku_code: {{ v.sku_code|tojson }},
+        label: {{ (v.variant_label or v.sku_code)|tojson }},
+        stock_available: {{ (stock.qty_available if stock and stock.qty_available is not none else 0) }},
+      },
+      {% endfor %}
+    ],
+  },
+  {% endif %}
+  {% endfor %}
+];
+const NO_TIER_COLORS = { A: '#22c55e', B: '#3b82f6', C: '#f59e0b', D: '#ef4444', UNRANKED: '#94a3b8' };
+const NO_CALL_LOG_ID = {{ (call_log_id or '')|tojson }};
+
+let noOrderId = null;
+let noSelectedCustomerId = {{ ('"' + customer.id + '"')|safe if customer else 'null' }};
+let noCart = []; // {variant_id, item_id, label, sku_code, qty, price, price_source, manual}
+let noExpandedProduct = null;
+let noActiveCategory = '';
+
+function noShowAlert(msg, isError){
+  const el = document.getElementById('no-alert');
+  el.className = isError ? 'tm-alert tm-alert-red' : 'tm-alert tm-alert-green';
+  el.textContent = msg;
+  el.style.display = '';
+}
+
+// ── Step tabs ──
+function noGoStep(step){
+  ['details','products','cart'].forEach(s => {
+    document.getElementById(`no-step-${s}`).style.display = (s === step) ? '' : 'none';
+    document.getElementById(`no-step-tab-${s}`).classList.toggle('tm-seg-active', s === step);
+  });
+  if (step === 'products' && !document.getElementById('no-product-list').innerHTML) noRenderProducts();
+}
+
+// ── Customer picker ──
+function noToggleCustomerPicker(open){
+  const el = document.getElementById('no-customer-picker-backdrop');
+  if (open === undefined) open = !el.classList.contains('tm-open');
+  el.classList.toggle('tm-open', open);
+  if (open) noRenderCustomerOptions();
+}
+
+function noRenderCustomerOptions(){
+  const q = (document.getElementById('no-customer-search').value || '').toLowerCase().trim();
+  let matches = NO_CUSTOMERS;
+  if (q) matches = matches.filter(c => c.name.toLowerCase().includes(q) || (c.phone || '').includes(q));
+  const el = document.getElementById('no-customer-options');
+  if (!matches.length) { el.innerHTML = '<div class="tm-empty">No customers match.</div>'; return; }
+  el.innerHTML = matches.slice(0, 60).map(c => `
+    <div class="tmd-row" style="cursor:pointer" onclick="noSelectCustomer('${c.id}')">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--text-strong)">${c.name}</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px">${c.phone || ''}</div>
+      </div>
+      <span class="tm-badge" style="background:${NO_TIER_COLORS[c.tier] || '#94a3b8'};color:#fff">${c.tier}</span>
+    </div>`).join('');
+}
+
+async function noSelectCustomer(customerId){
+  noSelectedCustomerId = customerId;
+  noToggleCustomerPicker(false);
+  const c = NO_CUSTOMERS.find(x => x.id === customerId);
+  document.getElementById('no-customer-empty').style.display = 'none';
+  document.getElementById('no-customer-selected').style.display = '';
+  document.getElementById('no-customer-name').textContent = c ? c.name : '—';
+  const tierEl = document.getElementById('no-customer-tier');
+  tierEl.textContent = c ? c.tier : 'UNRANKED';
+  tierEl.style.background = NO_TIER_COLORS[c ? c.tier : 'UNRANKED'] || '#94a3b8';
+  document.getElementById('no-customer-phone').textContent = c ? c.phone : '';
+  try {
+    const res = await fetch(`/sales/orders/api/customer-defaults?customer_id=${customerId}`);
+    if (res.ok) {
+      const d = await res.json();
+      const ptInput = document.getElementById('no-payment-terms');
+      const addrInput = document.getElementById('no-delivery-address');
+      if (!ptInput.value && d.default_payment_terms) ptInput.value = d.default_payment_terms;
+      if (!addrInput.value && d.shipping_address) addrInput.value = d.shipping_address;
+      document.getElementById('no-customer-last-order').textContent = d.last_order ? `Last order: ${d.last_order}` : 'Last order: —';
+    }
+  } catch (e) {}
+  // Re-resolve prices for anything already in the cart.
+  for (const c2 of noCart) {
+    if (c2.manual) continue;
+    try {
+      const res = await fetch(`/sales/orders/api/resolve-price?customer_id=${noSelectedCustomerId}&variant_id=${c2.variant_id}`);
+      const d = await res.json();
+      c2.price = d.price; c2.price_source = d.source;
+    } catch (e) {}
+  }
+  noRenderCart();
+}
+
+{% if customer %}
+document.addEventListener('DOMContentLoaded', () => noSelectCustomer({{ customer.id|tojson }}));
+{% endif %}
+
+// ── Products step ──
+function noRenderCategoryChips(){
+  const el = document.getElementById('no-category-chips');
+  const chips = [{ id: '', name: 'All' }, ...NO_CATEGORIES];
+  el.innerHTML = chips.map(c => `<div class="tm-chip ${noActiveCategory === c.id ? 'tm-chip-active' : ''}" onclick="noSetCategory('${c.id}')">${c.name}</div>`).join('');
+}
+function noSetCategory(catId){
+  noActiveCategory = catId;
+  noRenderCategoryChips();
+  noRenderProducts();
+}
+
+function noRenderProducts(){
+  const q = (document.getElementById('no-product-search').value || '').toLowerCase().trim();
+  let matches = NO_CATALOG;
+  if (noActiveCategory) matches = matches.filter(p => p.category_id === noActiveCategory);
+  if (q) matches = matches.filter(p => p.product_name.toLowerCase().includes(q) || p.variants.some(v => v.sku_code.toLowerCase().includes(q) || v.label.toLowerCase().includes(q)));
+  const el = document.getElementById('no-product-list');
+  if (!matches.length) { el.innerHTML = '<div class="tm-empty">No matching products.</div>'; return; }
+  el.innerHTML = matches.slice(0, 80).map(p => {
+    const expanded = noExpandedProduct === p.product_id;
+    return `
+    <div class="tmd-card">
+      <div style="display:flex;align-items:center;gap:10px;cursor:pointer" onclick="noToggleProduct('${p.product_id}')">
+        <div style="width:32px;height:32px;border-radius:9px;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">📦</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--text-strong)">${p.product_name}</div>
+          <div style="font-size:10.5px;color:var(--text-faint)">${p.variants.length} variant(s)</div>
+        </div>
+        <span style="font-size:11px;color:var(--text-faint)">${expanded ? '▴' : '▾'}</span>
+      </div>
+      ${expanded ? `
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:8px">
+        ${p.variants.map(v => `
+        <div style="display:flex;align-items:center;gap:8px" id="no-variant-row-${v.variant_id}">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${v.label}<span id="no-variant-price-${v.variant_id}"></span></div>
+            <div style="font-size:10px;color:var(--text-faint)">SKU ${v.sku_code} · Stock ${v.stock_available}</div>
+          </div>
+          <div style="font-size:11px;font-weight:700;padding:6px 12px;border-radius:8px;background:#3b82f6;color:#fff;cursor:pointer;white-space:nowrap" onclick="noAddToCart('${v.variant_id}')">+ Add</div>
+        </div>`).join('')}
+      </div>` : ''}
+    </div>`;
+  }).join('');
+  if (expandedIsVisible()) noRefreshExpandedPrices();
+}
+function expandedIsVisible(){ return !!noExpandedProduct; }
+
+function noToggleProduct(productId){
+  noExpandedProduct = (noExpandedProduct === productId) ? null : productId;
+  noRenderProducts();
+}
+
+async function noRefreshExpandedPrices(){
+  if (!noSelectedCustomerId || !noExpandedProduct) return;
+  const p = NO_CATALOG.find(x => x.product_id === noExpandedProduct);
+  if (!p) return;
+  for (const v of p.variants) {
+    try {
+      const res = await fetch(`/sales/orders/api/resolve-price?customer_id=${noSelectedCustomerId}&variant_id=${v.variant_id}`);
+      const d = await res.json();
+      const el = document.getElementById(`no-variant-price-${v.variant_id}`);
+      if (el) el.textContent = d.price != null ? ` · ₹${d.price}` : ' · no price';
+    } catch (e) {}
+  }
+}
+
+// ── Cart / order creation ──
+async function noEnsureOrder(){
+  if (noOrderId) return noOrderId;
+  if (!noSelectedCustomerId) { noShowAlert('Select a customer first', true); return null; }
+  const fd = new FormData();
+  fd.append('customer_id', noSelectedCustomerId);
+  fd.append('agent_id', document.getElementById('no-agent-select').value);
+  fd.append('payment_terms', document.getElementById('no-payment-terms').value);
+  fd.append('delivery_address', document.getElementById('no-delivery-address').value);
+  fd.append('expected_delivery_date', document.getElementById('no-expected-delivery-date').value);
+  fd.append('notes', document.getElementById('no-notes').value);
+  fd.append('call_log_id', NO_CALL_LOG_ID || '');
+  fd.append('ajax', '1');
+  const res = await fetch('/sales/orders/create', { method: 'POST', body: fd });
+  const d = await res.json();
+  if (!res.ok) { noShowAlert(d.error || 'Could not create order', true); return null; }
+  noOrderId = d.id;
+  return noOrderId;
+}
+
+async function noAddToCart(variantId){
+  const p = NO_CATALOG.find(x => x.variants.some(v => v.variant_id === variantId));
+  const v = p ? p.variants.find(x => x.variant_id === variantId) : null;
+  if (!v) return;
+
+  const existing = noCart.find(c => c.variant_id === variantId);
+  if (existing) {
+    await noUpdateItemQty(existing, existing.qty + 1);
+    noGoStep('cart');
+    return;
+  }
+
+  const orderId = await noEnsureOrder();
+  if (!orderId) return;
+
+  const fd = new FormData();
+  fd.append('variant_id', variantId);
+  fd.append('qty_ordered', 1);
+  fd.append('ajax', '1');
+  const res = await fetch(`/sales/orders/${orderId}/add-item`, { method: 'POST', body: fd });
+  const d = await res.json();
+  if (!res.ok) {
+    if (d.error && d.error.includes('No price configured')) {
+      const manual = prompt('No price configured for this item — enter a manual price:');
+      if (manual === null) return;
+      const fd2 = new FormData();
+      fd2.append('variant_id', variantId);
+      fd2.append('qty_ordered', 1);
+      fd2.append('manual_override_price', manual);
+      fd2.append('override_reason', 'Set in Sell workspace (mobile)');
+      fd2.append('ajax', '1');
+      const res2 = await fetch(`/sales/orders/${orderId}/add-item`, { method: 'POST', body: fd2 });
+      const d2 = await res2.json();
+      if (!res2.ok) { noShowAlert(d2.error || 'Could not add item', true); return; }
+      noCart.push({ variant_id: variantId, item_id: d2.item_id, label: d2.label, sku_code: d2.sku_code, qty: d2.qty_ordered, price: d2.unit_price, price_source: d2.price_source, manual: true });
+      noRenderCart();
+      noGoStep('cart');
+      return;
+    }
+    noShowAlert(d.error || 'Could not add item', true);
+    return;
+  }
+  noCart.push({ variant_id: variantId, item_id: d.item_id, label: d.label, sku_code: d.sku_code, qty: d.qty_ordered, price: d.unit_price, price_source: d.price_source, manual: false });
+  noRenderCart();
+  noGoStep('cart');
+}
+
+async function noUpdateItemQty(cartItem, newQty){
+  if (newQty <= 0) { await noRemoveFromCart(cartItem.variant_id); return; }
+  const fd = new FormData();
+  fd.append('qty_ordered', newQty);
+  const res = await fetch(`/sales/orders/${noOrderId}/update-item/${cartItem.item_id}`, { method: 'POST', body: fd });
+  if (res.redirected || res.ok) {
+    cartItem.qty = newQty;
+    noRenderCart();
+  }
+}
+
+async function noRemoveFromCart(variantId){
+  const c = noCart.find(x => x.variant_id === variantId);
+  if (!c) return;
+  const fd = new FormData();
+  fd.append('ajax', '1');
+  await fetch(`/sales/orders/${noOrderId}/remove-item/${c.item_id}`, { method: 'POST', body: fd });
+  noCart = noCart.filter(x => x.variant_id !== variantId);
+  noRenderCart();
+}
+
+function noRenderCart(){
+  const listEl = document.getElementById('no-cart-list');
+  const emptyEl = document.getElementById('no-cart-empty');
+  if (!noCart.length) {
+    listEl.innerHTML = '';
+    emptyEl.style.display = '';
+  } else {
+    emptyEl.style.display = 'none';
+    listEl.innerHTML = noCart.map(c => `
+      <div class="tmd-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:600;color:var(--text-strong);flex:1;min-width:0;padding-right:8px">${c.label}</div>
+          <div style="font-size:13px;color:var(--text-faint);cursor:pointer" onclick="noRemoveFromCart('${c.variant_id}')">✕</div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:26px;height:26px;border-radius:8px;background:var(--bg-elevated);color:var(--text-primary);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer" onclick="noStepQty('${c.variant_id}', -1)">−</div>
+            <span style="font-size:13px;font-weight:600;color:var(--text-strong);min-width:16px;text-align:center">${c.qty}</span>
+            <div style="width:26px;height:26px;border-radius:8px;background:var(--bg-elevated);color:var(--text-primary);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer" onclick="noStepQty('${c.variant_id}', 1)">+</div>
+          </div>
+          <span style="font-size:14px;font-weight:700;color:var(--text-strong)">₹${((c.price || 0) * c.qty).toFixed(2)}</span>
+        </div>
+      </div>`).join('');
+  }
+  const count = noCart.reduce((s, c) => s + c.qty, 0);
+  const total = noCart.reduce((s, c) => s + (c.price || 0) * c.qty, 0);
+  document.getElementById('no-cart-count').textContent = `${count} item(s)`;
+  document.getElementById('no-cart-total').textContent = `₹${total.toFixed(2)}`;
+}
+function noStepQty(variantId, delta){
+  const c = noCart.find(x => x.variant_id === variantId);
+  if (!c) return;
+  noUpdateItemQty(c, Math.max(0, c.qty + delta));
+}
+
+async function noSubmitOrder(shouldConfirm){
+  if (!noCart.length) { noShowAlert('Add at least one item to the cart', true); noGoStep('products'); return; }
+  const orderId = await noEnsureOrder();
+  if (!orderId) return;
+
+  if (shouldConfirm) {
+    const cfd = new FormData();
+    cfd.append('ajax', '1');
+    const res = await fetch(`/sales/orders/${orderId}/confirm`, { method: 'POST', body: cfd });
+    const d = await res.json();
+    if (!res.ok) { noShowAlert(`Order saved as draft, but could not confirm: ${d.error}`, true); return; }
+  }
+
+  const total = noCart.reduce((s, c) => s + (c.price || 0) * c.qty, 0);
+  const count = noCart.reduce((s, c) => s + c.qty, 0);
+  const customerName = (NO_CUSTOMERS.find(c => c.id === noSelectedCustomerId) || {}).name || 'the customer';
+  document.getElementById('no-success-msg').textContent = `Your order for ${customerName} was created with ${count} item(s) totalling ₹${total.toFixed(2)}.`;
+  document.getElementById('no-main').style.display = 'none';
+  document.getElementById('no-actionbar').style.display = 'none';
+  document.getElementById('no-success').style.display = 'flex';
+}
+
+noRenderCategoryChips();
+noRenderCart();
+</script>
+{% endblock %}
