@@ -55,6 +55,9 @@
       <button class="view-btn active" id="btn-list" onclick="switchView('list')">List</button>
       <button class="view-btn" id="btn-org" onclick="switchView('org')">Org Chart</button>
     </div>
+    {% if whatsapp_opt_in_link %}
+    <button onclick="show('optin-qr-modal')" class="btn btn-outline btn-sm">📱 Share Opt-in QR</button>
+    {% endif %}
     {% if can_bulk and user.role == 'ADMIN' %}
     <a href="/employees/bulk-upload-page" class="btn btn-outline btn-sm">⬆ Bulk Import</a>
     {% endif %}
@@ -95,6 +98,19 @@
   </div>
 </div>
 
+<!-- Section 7.3: WhatsApp opt-in summary strip -->
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+  <span style="font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-right:4px">WhatsApp Opt-in:</span>
+  <a href="/employees?opt_in_status=PENDING" class="badge badge-gray" style="text-decoration:none">{{ optin_counts.PENDING }} Pending</a>
+  <a href="/employees?opt_in_status=OPTED_IN" class="badge badge-green" style="text-decoration:none">{{ optin_counts.OPTED_IN }} Opted-in</a>
+  <a href="/employees?opt_in_status=MISMATCH" class="badge badge-amber" style="text-decoration:none">{{ optin_counts.MISMATCH }} Mismatch</a>
+  <a href="/employees?opt_in_status=MANUALLY_VERIFIED" class="badge badge-blue" style="text-decoration:none">{{ optin_counts.MANUALLY_VERIFIED }} Manually Verified</a>
+  <a href="/employees?opt_in_status=OPTED_OUT" class="badge badge-red" style="text-decoration:none">{{ optin_counts.OPTED_OUT }} Opted-out</a>
+  {% if opt_in_status_filter %}
+  <a href="/employees" class="btn btn-sm btn-gray" style="margin-left:8px">✕ Clear filter ({{ opt_in_status_filter }})</a>
+  {% endif %}
+</div>
+
 <!-- ══ LIST VIEW ══════════════════════════════════════════════════════════ -->
 <div id="view-list">
 <div class="card" style="padding:0">
@@ -102,7 +118,7 @@
     <thead>
       <tr>
         <th>Name</th><th>Phone</th><th>Role</th><th>{{ L.Department }}</th>
-        <th>Manager</th><th>Status</th>
+        <th>Manager</th><th>Status</th><th>WhatsApp Opt-in</th>
         <th>Actions</th>
       </tr>
     </thead>
@@ -127,14 +143,35 @@
         </span>
       </td>
       <td>
+        {% set ost = emp.whatsapp_opt_in_status or 'PENDING' %}
+        <span class="badge {% if ost == 'OPTED_IN' %}badge-green{% elif ost == 'MISMATCH' %}badge-amber{% elif ost == 'MANUALLY_VERIFIED' %}badge-blue{% elif ost == 'OPTED_OUT' %}badge-red{% else %}badge-gray{% endif %}"
+              {% if ost == 'MANUALLY_VERIFIED' and emp.opt_in_actor %}title="Manually verified by {{ emp.opt_in_actor.name }}{% if emp.opt_in_at %} on {{ emp.opt_in_at | ist('%d %b %Y') }}{% endif %}"{% endif %}>
+          {{ {'PENDING':'Pending','OPTED_IN':'Opted-in','MISMATCH':'Mismatch','MANUALLY_VERIFIED':'Manually Verified','OPTED_OUT':'Opted-out'}[ost] }}
+        </span>
+        {% if user.role == 'ADMIN' %}
+        <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+          {% if ost == 'PENDING' %}
+          <button type="button" onclick="toggleRow('mismatch-{{ emp.id }}')" class="btn btn-sm btn-gray" style="font-size:10px;padding:2px 6px">Mark Mismatch</button>
+          <form method="post" action="/employees/{{ emp.id }}/validate-manually" style="display:inline" onsubmit="return confirm('Manually validate {{ emp.name }} for WhatsApp sends?')">
+            <button type="submit" class="btn btn-sm btn-gray" style="font-size:10px;padding:2px 6px">Validate Manually</button>
+          </form>
+          {% elif ost == 'MISMATCH' %}
+          <button type="button" onclick="toggleRow('mismatch-{{ emp.id }}')" class="btn btn-sm btn-amber" style="font-size:10px;padding:2px 6px">Correct Phone</button>
+          <form method="post" action="/employees/{{ emp.id }}/validate-manually" style="display:inline" onsubmit="return confirm('Manually validate {{ emp.name }} for WhatsApp sends?')">
+            <button type="submit" class="btn btn-sm btn-gray" style="font-size:10px;padding:2px 6px">Validate Manually</button>
+          </form>
+          {% elif ost == 'OPTED_OUT' %}
+          <form method="post" action="/employees/{{ emp.id }}/validate-manually" style="display:inline" onsubmit="return confirm('{{ emp.name }} opted out via WhatsApp. Re-enable sends with a manual override? This will be logged.')">
+            <button type="submit" class="btn btn-sm btn-gray" style="font-size:10px;padding:2px 6px">Validate Manually</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
+      </td>
+      <td>
         <div style="display:flex;gap:6px;align-items:center">
           <a href="/employees/{{ emp.id }}/performance" class="btn btn-sm btn-outline" title="Performance" style="padding:3px 8px">📊</a>
           {% if user.role == 'ADMIN' %}
-          <form method="post" action="/employees/{{ emp.id }}/toggle-validated" style="display:inline">
-            <button type="submit" class="btn btn-sm" style="font-size:10px;padding:3px 8px;{% if emp.mobile_verified %}background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);color:#6ee7b7{% else %}background:rgba(255,255,255,0.04);border:1px solid var(--border-subtle);color:var(--text-muted){% endif %}">
-              {{ '✓ Validated' if emp.mobile_verified else 'Not Validated' }}
-            </button>
-          </form>
           {# Three-dot menu #}
           <div class="emp-action-menu" style="position:relative">
             <button type="button" onclick="empToggleMenu(this)" style="background:none;border:1px solid var(--border-subtle);border-radius:6px;padding:2px 7px;font-size:16px;cursor:pointer;color:var(--text-faint);line-height:1.4;font-family:inherit">&#8942;</button>
@@ -156,9 +193,33 @@
       </td>
     </tr>
 
+    <!-- Section 7.2: Mismatch / mark-mismatch inline row -->
+    <tr id="mismatch-{{ emp.id }}" style="display:none;background:rgba(251,191,36,0.04)">
+      <td colspan="8" style="padding:10px 16px">
+        {% if (emp.whatsapp_opt_in_status or 'PENDING') == 'MISMATCH' %}
+        <form method="post" action="/employees/{{ emp.id }}/correct-phone" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">Corrected phone for <strong style="color:var(--text-strong)">{{ emp.name }}</strong>:</span>
+          <input type="text" name="corrected_phone" placeholder="10-digit phone" pattern="[0-9]{10}" maxlength="10" required
+                 style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:160px">
+          <button type="submit" class="btn btn-sm btn-primary">Save & Reset to Pending</button>
+          <button type="button" onclick="toggleRow('mismatch-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
+        </form>
+        {% if emp.mismatch_reason %}<div style="font-size:11px;color:var(--text-faint);margin-top:6px">Reason logged: {{ emp.mismatch_reason }}</div>{% endif %}
+        {% else %}
+        <form method="post" action="/employees/{{ emp.id }}/mark-mismatch" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">Mark <strong style="color:var(--text-strong)">{{ emp.name }}</strong> as a phone mismatch:</span>
+          <input type="text" name="reason" placeholder="Reason (optional)"
+                 style="background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--text-primary);outline:none;min-width:220px">
+          <button type="submit" class="btn btn-sm btn-amber">Mark as Mismatch</button>
+          <button type="button" onclick="toggleRow('mismatch-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+
     <!-- Reset PW inline row -->
     <tr id="pw-{{ emp.id }}" style="display:none;background:rgba(239,68,68,0.04)">
-      <td colspan="7" style="padding:10px 16px">
+      <td colspan="8" style="padding:10px 16px">
         <form method="post" action="/employees/{{ emp.id }}/reset-password"
               style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <span style="font-size:12px;color:var(--text-muted);white-space:nowrap">
@@ -180,7 +241,7 @@
 
     <!-- P8-01/P8-06: Edit profile inline row -->
     <tr id="edit-{{ emp.id }}" style="display:none;background:rgba(251,191,36,0.04)">
-      <td colspan="7" style="padding:14px 16px">
+      <td colspan="8" style="padding:14px 16px">
         <form method="post" action="/employees/{{ emp.id }}/edit">
           <div style="font-size:12px;font-weight:600;color:#fbbf24;margin-bottom:12px">Edit Profile — {{ emp.name }}</div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
@@ -281,7 +342,7 @@
 
     <!-- Documents & Gadgets inline row -->
     <tr id="docs-{{ emp.id }}" style="display:none;background:rgba(59,130,246,0.04)">
-      <td colspan="7" style="padding:14px 16px">
+      <td colspan="8" style="padding:14px 16px">
         <div style="font-size:12px;font-weight:600;color:#7dd3fc;margin-bottom:12px">Documents & Gadgets — {{ emp.name }}</div>
 
         <!-- Documents -->
@@ -392,7 +453,7 @@
 
     {% else %}
     <tr>
-      <td colspan="7" style="text-align:center;color:var(--text-faint);padding:48px">
+      <td colspan="8" style="text-align:center;color:var(--text-faint);padding:48px">
         No employees yet.
         {% if user.role == 'ADMIN' %}
         <button onclick="show('create-modal')" class="btn btn-sm btn-primary" style="margin-left:10px">Add first employee</button>
@@ -433,6 +494,26 @@
   <div class="card org-wrap" id="orgChart"></div>
 </div>
 
+
+<!-- ══ Section 7.5: Share Opt-in QR panel ═══════════════════════════════ -->
+{% if whatsapp_opt_in_link %}
+<div id="optin-qr-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:380px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);text-align:center">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="font-size:15px;font-weight:600;color:var(--text-strong)">WhatsApp Opt-in QR</h3>
+      <button onclick="hide('optin-qr-modal')" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-faint);line-height:1">×</button>
+    </div>
+    <p style="font-size:12px;color:var(--text-faint);margin-bottom:14px">
+      New {{ L.employee | lower if L.employee else 'employee' }}s scan this to start receiving WhatsApp updates from OmniFlow.
+    </p>
+    <img src="/employees/whatsapp-qr.png" alt="Opt-in QR" style="width:200px;height:200px;border-radius:10px;background:#fff;padding:8px;margin-bottom:14px">
+    <div style="display:flex;gap:6px;align-items:center">
+      <code id="emp-optin-link" style="flex:1;padding:6px 10px;background:rgba(255,255,255,0.04);border-radius:6px;font-size:11px;word-break:break-all;text-align:left">{{ whatsapp_opt_in_link }}</code>
+      <button type="button" class="btn btn-sm btn-gray" onclick="navigator.clipboard.writeText(document.getElementById('emp-optin-link').innerText)">Copy</button>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- ══ ADD EMPLOYEE MODAL ════════════════════════════════════════════════ -->
 {% if user.role == 'ADMIN' %}

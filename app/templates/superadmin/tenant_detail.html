@@ -186,6 +186,176 @@
   </div>
 </div>
 
+{% if msg == 'whatsapp_config_saved' %}<div class="alert alert-green">✓ WhatsApp configuration saved.</div>{% endif %}
+
+<!-- WhatsApp Configuration — Section 8.2 -->
+<div class="card">
+  <h2 style="margin:0 0 12px 0">📱 WhatsApp Configuration (Gupshup)</h2>
+  <p style="color:#94a3b8;font-size:12px;margin-bottom:12px">
+    Enter this tenant's Gupshup Client ID, Secret Token, and registered source number
+    (from Integrations → APIs → WhatsApp API on the tenant's Gupshup account). Saving
+    for the first time auto-generates the webhook token/secret and the QR opt-in link below.
+  </p>
+  <form method="post" action="/superadmin/tenants/{{ tenant.id }}/whatsapp-config" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;align-items:end">
+    <div class="form-group" style="margin:0">
+      <label>Gupshup Client ID</label>
+      <input type="text" name="gupshup_client_id" value="{{ tenant.gupshup_client_id or '' }}">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>Gupshup Secret Token</label>
+      <input type="password" name="gupshup_secret_token" value="{{ tenant.gupshup_secret_token or '' }}" autocomplete="new-password">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>Source Number (E.164)</label>
+      <input type="text" name="gupshup_source_number" placeholder="+919876543210" value="{{ tenant.gupshup_source_number or '' }}">
+    </div>
+    <div style="grid-column:1/-1">
+      <button type="submit" class="btn btn-purple">Save WhatsApp Configuration</button>
+      <span class="badge {% if tenant.gupshup_waba_status == 'LIVE' %}badge-green{% elif tenant.gupshup_waba_status == 'SUSPENDED' %}badge-red{% elif tenant.gupshup_waba_status == 'FLAGGED' %}badge-amber{% else %}badge-gray{% endif %}" style="margin-left:8px">
+        WABA Status: {{ tenant.gupshup_waba_status or 'PENDING' }}
+      </span>
+    </div>
+  </form>
+
+  {% if tenant.gupshup_webhook_token %}
+  <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border-subtle)">
+    <p style="color:#94a3b8;font-size:12px;margin-bottom:10px">
+      Paste these into Gupshup console → Channels → WhatsApp → Webhooks → + Add Webhook (name it
+      <code>OMNIFLOW_MESSAGING</code>, payload format = Gupshup v2). Never edit any pre-existing webhook on this account.
+    </p>
+    <div style="display:grid;gap:10px">
+      <div>
+        <label style="display:block;color:#94a3b8;font-size:11px;margin-bottom:3px">Callback URL</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <code id="wa-callback-url" style="flex:1;padding:6px 10px;background:rgba(255,255,255,0.04);border-radius:6px;font-size:12px;word-break:break-all">{{ gupshup_callback_url }}</code>
+          <button type="button" class="btn btn-sm btn-gray" onclick="navigator.clipboard.writeText(document.getElementById('wa-callback-url').innerText)">Copy</button>
+        </div>
+      </div>
+      <div>
+        <label style="display:block;color:#94a3b8;font-size:11px;margin-bottom:3px">Webhook Secret (header: X-OmniFlow-Webhook-Secret)</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <code id="wa-webhook-secret" style="flex:1;padding:6px 10px;background:rgba(255,255,255,0.04);border-radius:6px;font-size:12px;word-break:break-all">{{ tenant.gupshup_webhook_secret }}</code>
+          <button type="button" class="btn btn-sm btn-gray" onclick="navigator.clipboard.writeText(document.getElementById('wa-webhook-secret').innerText)">Copy</button>
+        </div>
+      </div>
+      {% if gupshup_opt_in_link %}
+      <div>
+        <label style="display:block;color:#94a3b8;font-size:11px;margin-bottom:3px">QR Code / Opt-in Link</label>
+        <div style="display:flex;gap:14px;align-items:center">
+          <img src="/superadmin/tenants/{{ tenant.id }}/whatsapp-qr.png" alt="Opt-in QR" style="width:120px;height:120px;border-radius:8px;background:#fff;padding:6px">
+          <div style="flex:1">
+            <div style="display:flex;gap:6px;align-items:center">
+              <code id="wa-optin-link" style="flex:1;padding:6px 10px;background:rgba(255,255,255,0.04);border-radius:6px;font-size:12px;word-break:break-all">{{ gupshup_opt_in_link }}</code>
+              <button type="button" class="btn btn-sm btn-gray" onclick="navigator.clipboard.writeText(document.getElementById('wa-optin-link').innerText)">Copy</button>
+            </div>
+            <p style="color:#94a3b8;font-size:11px;margin-top:6px">Hand this to the client so they can share it with their {{ (label_row.employee_p if label_row else 'employees') | lower }}.</p>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Consent & Compliance Log — Section 8.1/8.3/8.4/8.6 -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+    <h2 style="margin:0">🔒 Consent & Compliance Log</h2>
+    <form method="post" action="/superadmin/tenants/{{ tenant.id }}/appeal-package" style="display:flex;gap:6px;align-items:center">
+      <input type="date" name="start_date" style="font-size:12px">
+      <span style="color:#94a3b8;font-size:12px">to</span>
+      <input type="date" name="end_date" style="font-size:12px">
+      <button type="submit" class="btn btn-sm btn-purple">📦 Generate Appeal Package</button>
+    </form>
+  </div>
+  <p style="color:#94a3b8;font-size:12px;margin-bottom:14px">
+    Read-only, scoped strictly to {{ tenant.name }}. Nothing on this page is editable or deletable —
+    default export range is the last 90 days if left blank above.
+  </p>
+
+  <h3 style="font-size:13px;color:#94a3b8;margin:16px 0 8px 0">Consent Events ({{ consent_events|length }})</h3>
+  <form method="get" style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <select name="cf_employee" style="font-size:12px">
+      <option value="">All employees</option>
+      {% for u in users %}
+      <option value="{{ u.id }}" {% if consent_filter_employee == u.id %}selected{% endif %}>{{ u.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="cf_type" style="font-size:12px">
+      <option value="">All event types</option>
+      {% for et in ['OPT_IN_RECEIVED','MARKED_MISMATCH','PHONE_CORRECTED','MANUAL_OVERRIDE','OPT_OUT_RECEIVED'] %}
+      <option value="{{ et }}" {% if consent_filter_type == et %}selected{% endif %}>{{ et }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-sm btn-gray">Filter</button>
+  </form>
+  <table>
+    <thead><tr><th>Timestamp</th><th>Employee</th><th>Event</th><th>Phone</th><th>Source</th><th>Actor</th><th></th></tr></thead>
+    <tbody>
+      {% for e in consent_events %}
+      <tr>
+        <td style="font-size:12px">{{ e.created_at | ist('%d %b %Y, %H:%M') }}</td>
+        <td style="font-size:12px">{{ e.employee.name if e.employee else '— unmatched' }}</td>
+        <td style="font-size:12px">{{ e.event_type }}</td>
+        <td style="font-size:12px">{{ e.phone_number }}</td>
+        <td style="font-size:12px">{{ e.source or '—' }}</td>
+        <td style="font-size:12px">{{ e.actor.name if e.actor else '—' }}</td>
+        <td>
+          {% if e.raw_webhook_payload %}
+          <details><summary style="cursor:pointer;font-size:11px;color:#94a3b8">payload</summary>
+          <pre style="font-size:10px;white-space:pre-wrap;max-width:400px">{{ e.raw_webhook_payload | tojson(indent=2) }}</pre>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" style="color:#64748b;text-align:center">No consent events yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3 style="font-size:13px;color:#94a3b8;margin:20px 0 8px 0">Outbound Message Log ({{ wa_logs|length }})</h3>
+  <form method="get" style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <select name="wf_employee" style="font-size:12px">
+      <option value="">All employees</option>
+      {% for u in users %}
+      <option value="{{ u.id }}" {% if wa_filter_employee == u.id %}selected{% endif %}>{{ u.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="wf_status" style="font-size:12px">
+      <option value="">All statuses</option>
+      {% for st in ['SENT','FAILED','SKIPPED_UNVERIFIED'] %}
+      <option value="{{ st }}" {% if wa_filter_status == st %}selected{% endif %}>{{ st }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-sm btn-gray">Filter</button>
+  </form>
+  <table>
+    <thead><tr><th>Timestamp</th><th>Recipient</th><th>Template</th><th>Category</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for m in wa_logs %}
+      <tr>
+        <td style="font-size:12px">{{ m.created_at | ist('%d %b %Y, %H:%M') }}</td>
+        <td style="font-size:12px">{{ m.recipient.name if m.recipient else m.recipient_phone }}</td>
+        <td style="font-size:12px">{{ m.template_name }}</td>
+        <td style="font-size:12px">{{ m.template_category or '—' }}</td>
+        <td><span class="badge {% if m.status == 'SENT' %}badge-green{% elif m.status == 'FAILED' %}badge-red{% else %}badge-gray{% endif %}">{{ m.status }}</span></td>
+        <td>
+          {% if m.delivery_status_history %}
+          <details><summary style="cursor:pointer;font-size:11px;color:#94a3b8">history</summary>
+          <pre style="font-size:10px;white-space:pre-wrap;max-width:400px">{{ m.delivery_status_history | tojson(indent=2) }}</pre>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" style="color:#64748b;text-align:center">No outbound messages yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
 <!-- Users table -->
 <div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">

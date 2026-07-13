@@ -1112,11 +1112,11 @@ def send_follow_up_reminders(db: Session):
                     link=f"/sales/contacts?agent_id={agent.id}",
                 )
 
-            if (WHATSAPP_TEMPLATES["omniflow_follow_up_reminder"]["msg91_template_id"]
-                    and agent.mobile_verified):
-                from .services.msg91 import send_whatsapp_template
+            if (WHATSAPP_TEMPLATES["omniflow_follow_up_reminder"]["gupshup_template_id"]
+                    and agent.whatsapp_opt_in_status in ("OPTED_IN", "MANUALLY_VERIFIED")):
+                from .services.gupshup import send_whatsapp_template
                 send_whatsapp_template(
-                    agent.phone, "omniflow_follow_up_reminder",
+                    tenant, agent.phone, "omniflow_follow_up_reminder",
                     [agent.name, str(count), names_sample],
                 )
 

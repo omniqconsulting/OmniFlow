@@ -1,0 +1,449 @@
+OmniFlow
+WhatsApp Multi-Tenant Migration to Gupshup
+Per-Tenant WABA Configuration · QR Code Opt-In · Granular Consent Status · Super Admin Compliance Log & Appeal Package Export
+Field
+Value
+Document type
+Development brief — complete handoff for Claude Code
+Version
+1.1 — corrected against the live Gupshup account (Apolo Industry)
+Status
+Ready for implementation
+Depends on
+Existing OmniFlow codebase — FastAPI / SQLAlchemy / Jinja2 / Alembic / Cloudinary
+Supersedes
+Single shared MSG91 WABA model; single boolean mobile_verified field; v1.0 of this brief
+Companion process
+Section 3 of this document — manual Gupshup account/webhook setup steps performed outside of code
+v1.1 corrections
+API confirmed as the Gateway API (mediaapi.smsgupshup.com/GatewayAPI/rest), not the sm/api/v1 line assumed in v1.0. Credential fields renamed to match the real account (Client ID / Secret Token). Webhook approach fully specified in Section 6 following live verification in the Gupshup console.
+
+1. Executive Summary & Scope
+This brief covers three connected pieces of work that together replace the current single-number MSG91 WhatsApp integration with a per-tenant Gupshup integration, and close the consent/evidence gap that the earlier manual verification model left open.
+1.1  The three pillars
+Per-tenant WABA configuration — every client (tenant) gets its own Gupshup app, WhatsApp number, and API credentials, instead of all tenants sharing one WABA. This isolates quality-rating and blocking risk per client.
+QR-code opt-in with granular status — replaces the manual admin “mark verified” button as the primary consent mechanism. An employee scans their tenant's QR code, messages in on WhatsApp, and that inbound message becomes the proof of both a working phone number and genuine consent.
+Super Admin consent & compliance log — every consent event and every outbound message is logged per tenant, with a one-click “Generate Appeal Package” export that produces evidence Sahil can submit to Meta/Gupshup if a client's number is ever flagged or blocked.
+1.2  What this brief does NOT cover
+Automated Gupshup Partner API onboarding of new tenants (create-app / embedded-signup-link generation called from OmniFlow itself). For this phase, WABA credentials are obtained manually (Section 3) and entered into the Super Admin Portal by Sahil. Full API-driven onboarding is a candidate for a future phase.
+Automated follow-up nudges for employees stuck in PENDING status. Confirmed as a manual, human-driven decision — no APScheduler reminder job in this brief.
+Migration of the 13 existing MSG91 templates — template re-submission for Meta approval under the new Gupshup WABA per tenant is a parallel manual/content task, not a code task, tracked separately per tenant during onboarding.
+Any change to FMS, PMS, Dispatch, Invoicing, or other non-WhatsApp modules.
+SCOPE DISCIPLINE
+Claude Code must not modify any file outside the File Checklist in Section 9 without flagging it first. This reuses the standard OmniFlow handoff rule.
+
+2. Key Decisions Locked
+These decisions were made across prior discussion and should be treated as settled — do not re-litigate them during implementation. Flag, don't silently deviate, if any turns out to be unworkable against the actual codebase.
+#
+Decision
+Outcome
+1
+WABA model
+One Gupshup app + WABA + phone number per tenant, not one shared number for all tenants.
+2
+Credential provisioning
+Manual for this phase. Sahil completes Gupshup Embedded Signup per client (Section 3) and enters the resulting app_id / api_key / source number into a new Super Admin Portal form. No automated onboarding API call from OmniFlow in this brief.
+3
+Opt-in mechanism (primary)
+Per-tenant QR code / wa.me deep link. Scanning it lands the employee on that tenant's WhatsApp thread; their first inbound message is the opt-in event.
+4
+Opt-in mechanism (fallback)
+Manual “Validate Manually” override by Admin/SA, demoted from primary path to exception handler only.
+5
+Status model
+Replaces the single mobile_verified boolean with a 5-state enum: PENDING, OPTED_IN, MISMATCH, MANUALLY_VERIFIED, OPTED_OUT.
+6
+Mismatch resolution
+Admin corrects the phone number inline → record resets to PENDING under the corrected number → employee must scan again. No auto-detection of mismatches; only admin-triggered.
+7
+Follow-up nudges
+None. Purely manual — no scheduled reminder job.
+8
+Consent evidence
+Every consent-related event (opt-in received, mismatch flagged, phone corrected, manual override, opt-out) is logged to a new append-only table, scoped per tenant_id.
+9
+Outbound evidence
+Existing whatsapp_logs table extended with template metadata, full delivery-status history, and raw webhook payloads — not just current status.
+10
+Super Admin visibility
+New read-only “Consent & Compliance Log” sub-section on the Client Detail page, scoped strictly to one tenant at a time.
+11
+Appeal package
+One-click export from that sub-section — generates a dated evidence bundle (cover summary + full event tables) suitable for a Meta/Gupshup appeal. Included in this brief, not deferred.
+12
+API confirmed
+Gupshup's Gateway/Enterprise API (https://mediaapi.smsgupshup.com/GatewayAPI/rest), authenticated with a per-tenant Client ID + Secret Token — verified directly against the live Apolo Industry account. This replaces the sm/api/v1 endpoints assumed in the prior version of this brief.
+13
+Template ID mapping
+The whatsAppTemplateId field in send requests takes the Facebook temp ID (numeric), not the Gupshup temp ID (UUID) — confirmed from the live Templates page and the API sample side by side.
+14
+Webhook approach
+A new, separate webhook is added per tenant in Gupshup's Channels → WhatsApp → Webhooks screen, pointed at OmniFlow's own endpoint. Pre-existing webhooks on a tenant's account (e.g. any Gupshup-product-owned webhook such as a CX/commerce integration) are never modified or removed — they belong to other Gupshup features and must be left exactly as configured.
+15
+Webhook payload format
+Gupshup format (v2) is selected for OmniFlow's webhook — the normalized {app, type, payload, sender} shape — not Meta format (v3), since v2 is the documented and verified shape this brief is built against.
+16
+Webhook events subscribed
+Message, Sent, Delivered, Read, Failed, Others. Not Enqueued, Delete, Billing, Payments, Flow Message, Template events, or System Events — out of scope for this brief.
+17
+Webhook authentication
+A per-tenant random shared secret is set as a custom header (X-OmniFlow-Webhook-Secret) on the Gupshup webhook config. OmniFlow's endpoint rejects any inbound call whose header value doesn't match the stored secret for that tenant.
+18
+Webhook URL scheme
+Per-tenant callback URL uses an opaque random token, not the raw tenant_id, to avoid an enumerable/guessable public endpoint: https://omniflow.omniqconsulting.com/webhooks/gupshup/{webhook_token}.
+
+3. Prerequisites — Manual Setup Steps (Sahil, outside of code)
+IMPORTANT
+Nothing in this section is a Claude Code task. These are steps Sahil performs in the Gupshup Partner Portal and Meta Business Manager before, and alongside, each tenant's onboarding. Claude Code should assume these values already exist and simply provide the Super Admin Portal fields to store them (Section 4.1 / 7).
+
+3.1  One-time platform setup
+Sign up for a Gupshup Partner Portal account (not a self-serve single-app account) — this is what allows creating a separate app/WABA per client under one umbrella.
+Complete Meta's Tech Provider Program (TPP) enrolment through Gupshup to obtain an approved Solution ID. This is required to onboard client WABAs at scale rather than one at a time through the console UI.
+Set up a Partner Wallet in the Partner Portal (choose currency, e.g. USD) — this is the wallet that funds messaging usage across all client apps created under the partner account.
+Configure a default callback/webhook URL for the partner account — this is where inbound messages, opt-in/opt-out events, and delivery-status events for ALL client apps will arrive by default (per-app override is possible later but not required for this brief).
+3.2  Per-client (per-tenant) onboarding — repeat for every new client
+In the Partner Portal, click ‘Create App’ to register a new Gupshup app for this client.
+Choose Embedded Signup as the onboarding method (Meta-recommended). The client (or Sahil, acting on their behalf if the client can't complete it themselves) logs into the relevant Facebook Business Manager account, selects or creates a WhatsApp Business Account, and verifies a dedicated phone number for that client's WhatsApp Business number.
+Complete Meta Business Verification for that client's business entity (GST + Certificate of Incorporation, same requirement already hit for OTP/authentication templates) — required before the number can send at full capability.
+Once approved, Gupshup emails confirmation that the app/WABA is live. Note down, from the Integrations → APIs → WhatsApp API screen for this tenant's account: the Client ID, the Secret Token, and the registered source phone number (E.164 format).
+Re-submit all relevant WhatsApp message templates for this client's new WABA and get them approved by Meta (existing template content can be reused, but template IDs are provider- and WABA-specific and must be recreated). Confirm both the Facebook temp ID and Gupshup temp ID are visible for each on the Templates → WhatsApp → Your Templates screen — the Facebook temp ID is what gets used as whatsAppTemplateId in send calls.
+WHAT COMES NEXT
+Once these four items are in hand (Client ID, Secret Token, phone number, approved templates), the rest of onboarding — configuring OmniFlow and finishing the Gupshup webhook — happens entirely in the Super Admin Portal. See Section 3.3, the day-to-day runbook for this part, once this brief has shipped.
+
+WHY MANUAL FOR NOW (SECTION 3.2 ONLY)
+Automating the Embedded Signup / WABA creation steps above end-to-end (calling Gupshup's Partner onboarding APIs directly from OmniFlow) is possible but adds meaningful scope — it's a good Phase 2 candidate once the Section 3.3 flow below is proven across a few real clients.
+
+3.3  Super Admin Portal Runbook — Steps 5–8 (once this brief has shipped)
+This is the recurring part of onboarding a new client, and the part this brief's Section 7/8.2 work is specifically designed to make fast. Follow this every time, after Section 3.2 is complete for that client.
+Step
+Where
+What you do
+5
+Super Admin Portal → Clients → [select client] → Client Detail → WhatsApp Configuration
+Open this tenant's WhatsApp Configuration sub-section (Section 8.2).
+6
+Same screen
+Enter the three values you got from Gupshup in Section 3.2: Client ID, Secret Token, and the source phone number (E.164, e.g. +91XXXXXXXXXX). Click Save.
+7
+Same screen, after saving
+The form now displays, ready to copy: (a) the auto-generated Callback URL for this tenant's webhook, (b) the auto-generated webhook secret, and (c) the QR code / opt-in link. You don't invent or type any of these — the system generates them the moment you save step 6.
+8
+Gupshup console → Channels → WhatsApp → Webhooks (for this client's account) → + Add Webhook
+Name it OMNIFLOW_MESSAGING. Paste the Callback URL from step 7. Set Payload Format = Gupshup format (v2). Under Message Events, check Message / Sent / Delivered / Read / Failed / Others only. Check ‘Includes headers’, add one: Key = X-OmniFlow-Webhook-Secret, Value = the secret from step 7. Click Add Webhook.
+DO NOT MODIFY EXISTING WEBHOOKS
+Some tenant Gupshup accounts may already have one or more webhooks configured for other Gupshup features (for example, a CX/commerce onboarding integration unrelated to OmniFlow). Never edit, disable, or change the payload format of a pre-existing webhook you did not create for this purpose in step 8 — doing so can silently break whatever Gupshup product depends on it. Always add a new, separate webhook.
+
+THAT'S IT
+No other screen, no manual token generation, no need to touch code or ask Claude Code anything. Confirm the QR/opt-in link is showing on the Client Detail page, then hand it to the client so they can start onboarding their employees (their own job, not yours — see Section 5).
+
+REQUIREMENT THIS PLACES ON THE BUILD
+For the runbook above to work exactly as described, the WhatsApp Configuration form (Section 8.2) must auto-generate gupshup_webhook_token and gupshup_webhook_secret server-side the moment Client ID / Secret Token / source number are saved for a tenant that doesn't have them yet — and must display both, plus the full constructed Callback URL, in an easy-to-copy way (copy-to-clipboard buttons, consistent with the pattern already used for template IDs on the Gupshup console itself). This is a specific, testable requirement, not just a nice-to-have — add it to Section 8.2 and to the acceptance criteria in Section 10.
+
+4. Database Schema Changes
+Claude Code should validate every table/column name below against the actual current schema before writing the migration — names here follow existing OmniFlow conventions but may need adjusting to match what's really in database.py.
+4.1  tenants table — new columns
+FIELD NAMES CORRECTED IN v1.1
+Verified directly against the live Apolo Industry Gupshup account. The account's real credential fields are Client ID and Secret Token against the Gateway API (mediaapi.smsgupshup.com/GatewayAPI/rest) — not an app_id/apiKey pair against a different API line as assumed in the prior version of this brief.
+
+Column
+Type
+Purpose
+gupshup_client_id
+String, nullable
+This tenant's Gupshup account Client ID (visible on Integrations → APIs → WhatsApp API → Credentials).
+gupshup_secret_token
+String, nullable, encrypted at rest if the existing stack supports it
+This tenant's Gupshup Secret Token, used as the Bearer credential when calling the Gateway API for this tenant.
+gupshup_source_number
+String, nullable, E.164
+This tenant's registered WhatsApp Business phone number.
+gupshup_waba_status
+Enum: PENDING / LIVE / FLAGGED / SUSPENDED
+Mirrors the account status Gupshup/Meta report for this number; used for the SA portal and for gating sends if SUSPENDED.
+gupshup_webhook_token
+String, unique, not null once set
+Opaque random token forming the path segment of this tenant's inbound webhook URL (Section 6) — not the raw tenant_id, to avoid an enumerable public endpoint.
+gupshup_webhook_secret
+String, nullable, encrypted at rest if the existing stack supports it
+Shared secret this tenant's Gupshup webhook sends as the X-OmniFlow-Webhook-Secret header; compared on receipt to authenticate the inbound call.
+whatsapp_opt_in_link
+String, nullable
+The wa.me deep link (or Gupshup-hosted QR asset URL) generated for this tenant — see Section 5.
+whatsapp_config_updated_at
+DateTime, nullable
+Last time the WhatsApp configuration fields above were changed — for audit context.
+4.2  users (employee) table — replace mobile_verified
+MIGRATION NOTE
+mobile_verified (Boolean) is replaced by whatsapp_opt_in_status (Enum). Any existing code path that currently checks mobile_verified == True to gate an operational WhatsApp send must be updated to check whatsapp_opt_in_status == OPTED_IN (or MANUALLY_VERIFIED). Search the codebase for every reference before removing the column — do not drop it until all call sites are confirmed migrated.
+
+Column
+Type
+Purpose
+whatsapp_opt_in_status
+Enum: PENDING / OPTED_IN / MISMATCH / MANUALLY_VERIFIED / OPTED_OUT
+Replaces mobile_verified. Gates whether operational WhatsApp sends are attempted for this employee.
+opt_in_source
+Enum: QR / MANUAL_OVERRIDE / EXISTING_THREAD, nullable
+How the current status was reached.
+opt_in_at
+DateTime, nullable
+Timestamp the current status was set.
+matched_phone
+String, nullable, E.164
+The actual inbound phone number that triggered an OPTED_IN match — kept distinct from the employee's on-file phone so mismatches are visible.
+mismatch_reason
+Text, nullable
+Free-text note entered by the admin when flagging MISMATCH.
+opt_in_actor_id
+FK to users.id, nullable
+Admin who performed a manual action (mismatch flag, phone correction, manual override). Null for automatic webhook-driven transitions.
+4.3  New table: whatsapp_consent_events
+Append-only. Never updated in place, only inserted — this table is the evidentiary record and its integrity depends on rows never being edited or deleted after creation.
+Column
+Type
+Purpose
+id
+PK
+
+tenant_id
+FK to tenants.id, not null
+Scopes every event to one tenant — critical for pulling per-tenant evidence bundles without exposing other clients' data.
+employee_id
+FK to users.id, nullable
+Null when an inbound message doesn't match any known employee (still logged for audit/troubleshooting).
+event_type
+Enum: OPT_IN_RECEIVED / MARKED_MISMATCH / PHONE_CORRECTED / MANUAL_OVERRIDE / OPT_OUT_RECEIVED
+
+phone_number
+String, E.164
+The phone number actually involved in this specific event.
+gupshup_message_id
+String, nullable
+The Gupshup/WhatsApp message ID of the inbound message that triggered this event, where applicable — the single most important field if this is ever used as appeal evidence.
+raw_webhook_payload
+JSON
+The full inbound webhook payload, stored verbatim — not just the parsed fields.
+source
+Enum: QR / MANUAL_OVERRIDE / EXISTING_THREAD
+
+actor_id
+FK to users.id, nullable
+Admin who performed the action; null for automatic events.
+notes
+Text, nullable
+Free text — reason for override or mismatch.
+created_at
+DateTime, not null, immutable
+Never overwritten.
+4.4  Modify existing table: whatsapp_logs
+New column
+Type
+Purpose
+template_id
+String, nullable
+Gupshup template identifier used for this send.
+template_name
+String, nullable
+Human-readable template name.
+template_category
+Enum: UTILITY / MARKETING / AUTHENTICATION, nullable
+Important evidence for an appeal — shows the tenant was sending transactional, opted-in-appropriate content.
+delivery_status_history
+JSON array, default empty list
+Append each {status, timestamp} pair as status webhooks arrive — enqueued → sent → delivered → read/failed — instead of overwriting a single current-status field.
+raw_status_webhook_payloads
+JSON array, default empty list
+Verbatim payload for every status webhook received for this message.
+ALEMBIC REMINDER
+Standard OmniFlow rule applies: alembic revision --autogenerate + alembic upgrade head, model file and migration file committed together. Drop-order (child before parent, IF EXISTS, CASCADE) applies if any table needs to be dropped/recreated rather than altered.
+
+5. QR Code / Opt-In Link Generation & Display
+5.1  What gets generated, and when
+When a Super Admin enters a tenant's gupshup_source_number in the new WhatsApp Configuration form (Section 7), the system generates a wa.me deep link in the form https://wa.me/<source_number>?text=<prefilled opt-in message>, and stores it in tenants.whatsapp_opt_in_link.
+A QR code image encoding that link is generated server-side (a lightweight QR-generation library is sufficient — no external API call needed) and displayed wherever the link is shown. It does not need to be stored as a file; render on request from the stored link.
+The prefilled message text should be a short, clear opt-in phrase, e.g. “Hi, I'd like to receive WhatsApp updates from [Tenant Label: Employee/Worker] via OmniFlow” — pull the entity label from the tenant's existing label configuration system rather than hardcoding “Employee.”
+5.2  Where it's displayed
+Super Admin Portal → Client Detail → WhatsApp Configuration section: shows the QR code and the raw link, so Sahil can hand it to the client directly (e.g. via WhatsApp or email) during onboarding.
+Tenant-side Admin Employees tab: a small “Share opt-in QR” action/panel so the tenant's own Admin can show it to new employees directly, without needing to go through Sahil each time.
+5.3  What is explicitly NOT in scope here
+Printing/export to physical collateral (posters, ID cards) — the raw QR image render is sufficient; any physical-format export is a future nice-to-have.
+
+6. Webhook Handler Updates
+6.0  Endpoint, routing, and authentication (new in v1.1)
+New route: POST /webhooks/gupshup/{webhook_token} — one path per tenant, where {webhook_token} is the opaque value stored in tenants.gupshup_webhook_token (Section 4.1), not the raw tenant_id.
+On receipt, look up the tenant by gupshup_webhook_token from the URL path. No match: return 404 and log the attempt — do not process the payload.
+Verify the X-OmniFlow-Webhook-Secret request header against that tenant's stored gupshup_webhook_secret using a constant-time comparison. Mismatch or missing header: return 401 and do not process the payload.
+Only after both checks pass, parse the body as Gupshup format (v2) — the {app, timestamp, version, type, payload} shape documented in Gupshup's Inbound Messages and Events reference — and route by the type field (message / user-event / message-event, etc.) to the handling logic in 6.1–6.3 below.
+WHY A DEDICATED ROUTE PER TENANT
+This is what keeps future tenant onboarding a Super Admin Portal data-entry task rather than a code change: Sahil generates a token and secret for a new tenant in the SA portal, pastes the resulting URL and secret into that tenant's new webhook in Gupshup's console, and the route above already handles it — no new endpoint, no deployment.
+
+6.1  Inbound message webhook — opt-in matching
+The tenant is already known from the URL path (6.0) — no need to derive it from the app/source number in the payload.
+Normalize the sender's phone number to the same E.164 format used when employees are added (lock this format now — e.g. always store and compare as +<countrycode><number> with no spaces/dashes — to avoid silent match failures from formatting drift).
+Look up an employee within that tenant whose on-file phone number matches the normalized sender number.
+Match found, employee currently PENDING or MISMATCH: set whatsapp_opt_in_status = OPTED_IN, opt_in_source = QR, opt_in_at = now, matched_phone = sender number. Insert a whatsapp_consent_events row, event_type = OPT_IN_RECEIVED, with the Gupshup message ID and full raw payload.
+Match found, employee already OPTED_IN or MANUALLY_VERIFIED: still insert the consent_events row (useful trail of repeated engagement) but do not change status.
+No match found: still insert a whatsapp_consent_events row with employee_id = null, so there's a record of unmatched inbound activity on that tenant's number for troubleshooting — do not silently drop it.
+6.2  Opt-out handling
+Gupshup's inbound event stream emits opted-out user-events (and/or a STOP keyword reply, depending on what the webhook payload actually contains — verify against a live payload during testing). On receipt, set whatsapp_opt_in_status = OPTED_OUT for the matched employee and insert an OPT_OUT_RECEIVED consent event.
+An OPTED_OUT employee must not receive further operational WhatsApp sends until manually re-validated or until they opt in again via QR.
+6.3  Outbound status webhook — delivery history
+On receiving a message-status event (enqueued / sent / delivered / read / failed) for a message this tenant sent, find the corresponding whatsapp_logs row by messageId, append a {status, timestamp} entry to delivery_status_history, and append the raw payload to raw_status_webhook_payloads — do not overwrite prior entries.
+6.4  Resilience rule (carried over from existing pattern)
+NON-BLOCKING
+A webhook processing failure (bad payload, DB write error) must never crash the receiving endpoint or block Gupshup's retry mechanism. Log and continue, per the existing OmniFlow rule that notification-layer failures must never break the underlying action.
+
+7. Employee Tab UI Changes
+7.1  Status badge
+Replace the current binary verified/unverified indicator with a colour-coded badge per employee row reflecting the 5-state enum: Pending (grey), Opted-in (green), Mismatch (amber), Manually Verified (blue), Opted-out (red).
+7.2  Contextual actions per status
+Status
+Actions shown
+Pending
+“Mark as Mismatch”, “Validate Manually” (fallback)
+Mismatch
+Inline phone-number correction field + “Save & Reset to Pending”, “Validate Manually” (fallback)
+Opted-in
+No action needed — shown as resolved
+Manually Verified
+No action needed — shown as resolved, with actor/timestamp visible on hover or in a detail view
+Opted-out
+“Validate Manually” (fallback, if the tenant wants to re-enable despite the opt-out — use with care, log the override)
+7.3  Summary strip
+A small counts strip at the top of the Employees tab: e.g. “4 Pending · 38 Opted-in · 1 Mismatch · 2 Manually Verified · 0 Opted-out” — gives the Admin an at-a-glance backlog view without scrolling the full list.
+7.4  Filter/sort
+Add a filter control on the Employees tab to filter the list by opt-in status (e.g. “show only Pending”) — reuses whatever filter UI pattern the tab already has for other columns.
+7.5  Share opt-in QR panel
+A small panel or modal, accessible from the Employees tab, showing this tenant's QR code and link (same asset as Section 5.2), so an Admin can show it to a new employee directly during onboarding.
+
+8. Super Admin Portal — Consent & Compliance Log
+8.1  New sub-section on Client Detail page
+Alongside the existing Profile & Plan / Label Configuration / Module Configuration / Admin Users / Usage Stats sub-sections, add a new ‘Consent & Compliance Log’ sub-section, scoped strictly to the tenant currently open — no cross-tenant visibility anywhere on this page.
+8.2  WhatsApp Configuration form (also lives here)
+The Super Admin form referenced in Sections 3.3 and 4.1. Input fields: gupshup_client_id, gupshup_secret_token (masked on display, same convention as any other secret field already in the app), gupshup_source_number.
+On save, if gupshup_webhook_token and gupshup_webhook_secret are not already set for this tenant, generate them automatically (random token / random secret) and persist them — do not require the Super Admin to invent or paste these in.
+Immediately after save, display three things with one-click copy buttons each: the full constructed Callback URL (https://<omniflow-domain>/webhooks/gupshup/{gupshup_webhook_token}), the webhook secret value, and the QR code / opt-in link (Section 5).
+A read-only display of gupshup_waba_status.
+This is what makes the Section 3.3 runbook take minutes, not a return trip to a developer — treat the copy-buttons requirement as load-bearing, not cosmetic.
+8.3  Consent events table
+Filterable by employee, date range, and event type.
+Columns: timestamp, employee (or “unmatched”), event type, phone number, source, actor (if manual).
+Row-level expand to view the full raw_webhook_payload for that event, for deeper troubleshooting or evidence detail.
+8.4  Outbound message log table
+Filterable by employee, template, date range, delivery status.
+Columns: timestamp, employee, template name, template category, current status, full delivery_status_history shown on row expand.
+8.5  Read-only, always
+NO EDIT, NO DELETE
+Nothing on this page is editable or deletable, anywhere, by anyone — including Super Admins. Its evidentiary value depends entirely on rows being immutable once written. The only writable field on this page is the WhatsApp Configuration form in 8.2, which is a separate concern from the log itself.
+
+8.6  ‘Generate Appeal Package’ export
+A single button on this sub-section that produces a dated, ready-to-submit evidence bundle for the currently open tenant, covering a selected date range (default: last 90 days).
+Package contents
+A cover summary page: tenant name, date range, total opted-in employees, total opt-outs in the period, total messages sent by category (Utility / Marketing / Authentication), and a one-line framing statement (e.g. “N opted-in recipients, N opt-outs, 0 unresolved mismatches in the last 90 days”).
+Full consent events table for the period (Section 8.3 contents, exported).
+Full outbound message log for the period (Section 8.4 contents, exported), including delivery status history.
+Generated as a single downloadable file (PDF preferred for a submittable document; CSV acceptable as a first pass if PDF generation adds too much scope — Claude Code should flag which is more practical given the existing stack before building).
+WHY THIS MATTERS
+This is the artifact Sahil would actually attach to a Meta/Gupshup appeal if a client's number gets flagged or blocked. It needs to read as credible, dated, per-tenant evidence — not a raw database dump.
+
+9. File Checklist
+VERIFY FIRST
+The file paths below follow existing OmniFlow naming conventions from prior briefs, but Claude Code must confirm every path against the actual current codebase before implementing, and flag any that don't exist or have moved.
+
+9.1  Likely new files
+File
+Purpose
+alembic/versions/xxxx_whatsapp_multitenant.py
+Migration: tenants + users column additions, new whatsapp_consent_events table, whatsapp_logs column additions.
+app/services/qr_optin.py (or similar)
+QR code generation from a wa.me link, plus the prefilled-message builder pulling from tenant label config.
+app/routers/superadmin/whatsapp_config.py (or added to existing client routes)
+WhatsApp Configuration form (Section 8.2) and Consent & Compliance Log views (Sections 8.3/8.4).
+app/services/appeal_package.py (or similar)
+Builds the Generate Appeal Package export (Section 8.6).
+app/templates/superadmin/consent_compliance_log.html
+Template for the new sub-section.
+app/templates/admin/whatsapp_optin_share.html (or a modal/partial)
+Share opt-in QR panel on the Employees tab (Section 7.5).
+9.2  Likely modified files
+File
+Change
+app/database.py
+Tenant model: +gupshup_app_id, +gupshup_api_key, +gupshup_source_number, +gupshup_waba_status, +whatsapp_opt_in_link, +whatsapp_config_updated_at. User model: replace mobile_verified with +whatsapp_opt_in_status, +opt_in_source, +opt_in_at, +matched_phone, +mismatch_reason, +opt_in_actor_id. New WhatsAppConsentEvent model. WhatsAppLog model: +template_id, +template_name, +template_category, +delivery_status_history, +raw_status_webhook_payloads.
+app/constants.py
+New enums: WABA_STATUS, OPT_IN_STATUS, OPT_IN_SOURCE, CONSENT_EVENT_TYPE, TEMPLATE_CATEGORY.
+app/notifications.py / whatsapp send wrapper
+Send function now reads per-tenant gupshup_app_id / gupshup_api_key / gupshup_source_number instead of one global constant. Gate check updated from mobile_verified == True to whatsapp_opt_in_status in (OPTED_IN, MANUALLY_VERIFIED).
+app/webhooks.py (or wherever inbound Gupshup events currently land, or the new equivalent)
+Inbound-message opt-in matching logic (6.1), opt-out handling (6.2), outbound status history append (6.3).
+app/routers/admin/employees.py
+Status badge + contextual actions (7.1/7.2), summary strip (7.3), filter (7.4), Share opt-in QR panel (7.5).
+app/templates/admin/employees.html (or equivalent employee list template)
+UI changes matching 7.1–7.5.
+app/routers/superadmin/clients.py
+WhatsApp Configuration form (8.2) added to Client Detail page.
+app/templates/superadmin/client_detail.html
+New ‘Consent & Compliance Log’ sub-section tab/link (8.1) and WhatsApp Configuration fields (8.2).
+
+10. Acceptance Criteria & Test Scenarios
+#
+Scenario
+How to trigger
+Expected result
+1
+New employee added, phone captured
+Admin adds employee with phone number via Employees tab
+whatsapp_opt_in_status = PENDING. Badge shows Pending. Consent events log has no row yet for this employee.
+2
+Employee scans tenant QR and messages in
+Use a real test phone: scan the tenant's QR / open the wa.me link, send the prefilled message
+Inbound webhook fires → phone matched to employee → status flips to OPTED_IN, opt_in_source = QR, opt_in_at set, matched_phone recorded. A whatsapp_consent_events row is created with event_type = OPT_IN_RECEIVED and the Gupshup message ID + raw payload stored.
+3
+Inbound message from an unrecognized number
+Message the tenant's number from a phone not on file for any employee
+A whatsapp_consent_events row is created with employee_id = null — no error, no crash, visible in the SA compliance log for that tenant.
+4
+Admin flags a Mismatch
+On a Pending employee, click Mark as Mismatch, enter corrected phone, save
+Status resets to PENDING under the corrected number. A whatsapp_consent_events row logs MARKED_MISMATCH followed by PHONE_CORRECTED, with actor_id set to the admin.
+5
+Employee re-scans after phone correction
+Repeat scenario 2 with the corrected number
+Status flips to OPTED_IN as in scenario 2.
+6
+Admin uses Manual Override fallback
+On a Pending or Mismatch employee, click Validate Manually, confirm the one-line prompt
+Status = MANUALLY_VERIFIED, opt_in_source = MANUAL_OVERRIDE, actor_id and timestamp recorded. Consent event logged with event_type = MANUAL_OVERRIDE.
+7
+Employee opts out
+Send the opt-out signal / STOP from the test phone
+Status = OPTED_OUT. Consent event logged as OPT_OUT_RECEIVED. Subsequent operational WhatsApp sends to this employee are skipped, same as the current unverified-skip behaviour, with an audit trail entry.
+8
+Outbound message delivery lifecycle
+Trigger any operational WhatsApp send to an OPTED_IN employee
+whatsapp_logs row created with template_id/name/category populated. As status webhooks arrive, delivery_status_history accumulates entries (enqueued → sent → delivered) without overwriting prior ones.
+9
+SA views Consent & Compliance Log for one tenant
+Open Client Detail → Consent & Compliance Log for Tenant A
+Only Tenant A's consent events and message log are shown. No data from other tenants appears anywhere on the page.
+10
+SA generates an Appeal Package
+Click Generate Appeal Package, select a date range, confirm
+A single downloadable file is produced containing the cover summary, full consent events table, and full outbound message log for that tenant and date range only.
+11
+Per-tenant send uses correct credentials
+Trigger a WhatsApp send for two different tenants with different gupshup_source_number values configured
+Each send uses its own tenant's app_id/api_key/source_number — verify via the outbound request or a test double, not just the log entry.
+12
+Non-blocking webhook failure
+Send a malformed payload to the webhook endpoint (test only)
+Endpoint logs the error and returns success/ack as appropriate to Gupshup; does not crash or affect other tenants' processing.
+
+11. Claude Code Response Format
+Standard OmniFlow handoff format applies. Response should include only:
+Files changed
+Migration commands run (alembic revision --autogenerate + alembic upgrade head, with the resulting revision file name)
+Any skipped or flagged rules — e.g. if a file path in Section 9 didn't match the actual codebase, or if PDF export (8.6) was substituted with CSV due to stack constraints
+No code walkthroughs, no task restatement, no process narration, unless explicitly requested.
+NO COMMITS
+As with all prior briefs: implement and test locally. No git commits without Sahil's explicit sign-off.

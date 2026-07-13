@@ -106,6 +106,8 @@ from .employee_extras import router as employee_extras_router, DOC_TYPE_LABELS
 app.include_router(employee_extras_router)
 from .push import router as push_router
 app.include_router(push_router)
+from .webhooks_gupshup import router as gupshup_webhook_router
+app.include_router(gupshup_webhook_router)
 from .templates_env import templates, _OrmEncoder, _to_ist, _format_tat  # shared filters
 BASE_DIR = os.path.dirname(__file__)
 
@@ -3919,7 +3921,7 @@ async def checklist_bulk_confirm(request: Request, user: User = Depends(require_
 
 @app.get("/employees", response_class=HTMLResponse)
 def employees_page(request: Request, user: User = Depends(require_manager_or_redirect),
-                   search: str = "", db: Session = Depends(get_db)):
+                   search: str = "", opt_in_status: str = "", db: Session = Depends(get_db)):
     tid = user.tenant_id
     if user.role == "MANAGER":
         # Manager sees only their direct reports (+ themselves)
@@ -3937,7 +3939,18 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_red
             User.name.ilike(like), User.phone.ilike(like),
             User.email.ilike(like), User.employee_id.ilike(like),
         ))
-    all_users = employees_q.all()
+    # Section 7.4 — filter by opt-in status
+    all_for_optin_counts = employees_q.all()
+    if opt_in_status:
+        employees_q_status = [e for e in all_for_optin_counts if (e.whatsapp_opt_in_status or "PENDING") == opt_in_status]
+        all_users = employees_q_status
+    else:
+        all_users = all_for_optin_counts
+
+    # Section 7.3 — summary strip counts (unaffected by the status filter itself)
+    optin_counts = {"PENDING": 0, "OPTED_IN": 0, "MISMATCH": 0, "MANUALLY_VERIFIED": 0, "OPTED_OUT": 0}
+    for e in all_for_optin_counts:
+        optin_counts[e.whatsapp_opt_in_status or "PENDING"] = optin_counts.get(e.whatsapp_opt_in_status or "PENDING", 0) + 1
     all_depts = db.query(Department).filter(
         Department.tenant_id == tid, Department.is_deleted == False).all()
     # Deduplicate departments by name for dropdowns (keep first row per name)
@@ -4003,7 +4016,22 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_red
         "kpi_total": kpi_total, "kpi_active": kpi_active,
         "kpi_terminated": kpi_terminated, "kpi_departments": kpi_departments,
         "tab_catalog": tab_catalog, "doc_type_labels": DOC_TYPE_LABELS,
+        "optin_counts": optin_counts, "opt_in_status_filter": opt_in_status,
+        "whatsapp_opt_in_link": tenant.whatsapp_opt_in_link,
     })
+
+@app.get("/employees/whatsapp-qr.png")
+def employees_whatsapp_qr(user: User = Depends(require_manager_or_redirect), db: Session = Depends(get_db)):
+    """Section 7.5 — Share opt-in QR panel image, scoped to the caller's own tenant."""
+    from .services.qr_optin import render_qr_png
+    from fastapi.responses import StreamingResponse
+    import io as _io
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not tenant or not tenant.whatsapp_opt_in_link:
+        raise HTTPException(404, "No opt-in link configured for this tenant yet")
+    png = render_qr_png(tenant.whatsapp_opt_in_link)
+    return StreamingResponse(_io.BytesIO(png), media_type="image/png")
+
 
 @app.post("/employees/create")
 def create_employee(
@@ -4561,28 +4589,85 @@ def delete_employee(
     return redirect("/employees?msg=Employee+removed")
 
 
-# ── WhatsApp: toggle mobile_verified on an employee ──────────────────────────
-@app.post("/employees/{emp_id}/toggle-validated")
-def toggle_employee_validated(
-    emp_id: str, request: Request,
-    user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+# ── Gupshup opt-in — contextual actions (Section 7.2) ────────────────────────
+# Replaces the old single toggle-validated endpoint now that mobile_verified
+# is superseded by the 5-state whatsapp_opt_in_status enum.
+
+@app.post("/employees/{emp_id}/mark-mismatch")
+def mark_employee_mismatch(
+    emp_id: str, reason: str = Form(""),
+    user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
+    from .database import WhatsAppConsentEvent
     emp = db.query(User).filter(
-        User.id == emp_id,
-        User.tenant_id == user.tenant_id,
-        User.is_deleted == False,
+        User.id == emp_id, User.tenant_id == user.tenant_id, User.is_deleted == False,
     ).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
-    if emp.mobile_verified:
-        emp.mobile_verified = False
-        emp.mobile_verified_at = None
-        emp.mobile_verified_by = None
-    else:
-        emp.mobile_verified = True
-        emp.mobile_verified_at = datetime.utcnow()
-        emp.mobile_verified_by = user.id
+    emp.whatsapp_opt_in_status = "MISMATCH"
+    emp.mismatch_reason = reason or None
+    emp.opt_in_actor_id = user.id
+    db.add(WhatsAppConsentEvent(
+        tenant_id=user.tenant_id, employee_id=emp.id, event_type="MARKED_MISMATCH",
+        phone_number=emp.phone or "", source="MANUAL_OVERRIDE", actor_id=user.id, notes=reason or None,
+    ))
+    db.commit()
+    return RedirectResponse("/employees", status_code=303)
+
+
+@app.post("/employees/{emp_id}/correct-phone")
+def correct_employee_phone(
+    emp_id: str, corrected_phone: str = Form(...),
+    user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    """Section 7.2 Mismatch row — 'Save & Reset to Pending'. Corrects the
+    on-file phone and resets to PENDING; employee must scan the QR again
+    (Decision #6 — no auto-detection, admin-triggered correction only)."""
+    from .database import WhatsAppConsentEvent
+    emp = db.query(User).filter(
+        User.id == emp_id, User.tenant_id == user.tenant_id, User.is_deleted == False,
+    ).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    phone_err = _validate_phone(corrected_phone)
+    if phone_err:
+        return RedirectResponse(f"/employees?error={phone_err}", status_code=303)
+    emp.phone = corrected_phone
+    emp.whatsapp_opt_in_status = "PENDING"
+    emp.mismatch_reason = None
+    emp.opt_in_actor_id = user.id
+    db.add(WhatsAppConsentEvent(
+        tenant_id=user.tenant_id, employee_id=emp.id, event_type="PHONE_CORRECTED",
+        phone_number=corrected_phone, source="MANUAL_OVERRIDE", actor_id=user.id,
+    ))
+    db.commit()
+    return RedirectResponse("/employees", status_code=303)
+
+
+@app.post("/employees/{emp_id}/validate-manually")
+def validate_employee_manually(
+    emp_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    """Section 7.2 fallback action — for Pending, Mismatch, or Opted-out
+    (re-enable) employees. Demoted from primary path per Decision #4."""
+    from .database import WhatsAppConsentEvent
+    emp = db.query(User).filter(
+        User.id == emp_id, User.tenant_id == user.tenant_id, User.is_deleted == False,
+    ).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    emp.whatsapp_opt_in_status = "MANUALLY_VERIFIED"
+    emp.opt_in_source = "MANUAL_OVERRIDE"
+    emp.opt_in_at = datetime.utcnow()
+    emp.opt_in_actor_id = user.id
+    # Keep legacy field in sync for any lingering display-only reads.
+    emp.mobile_verified = True
+    emp.mobile_verified_at = datetime.utcnow()
+    emp.mobile_verified_by = user.id
+    db.add(WhatsAppConsentEvent(
+        tenant_id=user.tenant_id, employee_id=emp.id, event_type="MANUAL_OVERRIDE",
+        phone_number=emp.phone or "", source="MANUAL_OVERRIDE", actor_id=user.id,
+    ))
     db.commit()
     return RedirectResponse("/employees", status_code=303)
 
@@ -4594,8 +4679,8 @@ def resend_whatsapp(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    from .database import WhatsAppMessageLog
-    from .services.msg91 import send_whatsapp_template
+    from .database import WhatsAppMessageLog, Tenant
+    from .services.gupshup import send_whatsapp_template
     import json as _json_resend
 
     log = db.query(WhatsAppMessageLog).filter(
@@ -4607,10 +4692,20 @@ def resend_whatsapp(
     if log.status != "FAILED":
         raise HTTPException(status_code=400, detail="Only failed sends can be resent")
 
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     variables = _json_resend.loads(log.variables_json)
-    success, error = send_whatsapp_template(log.recipient_phone, log.template_name, variables)
+    success, error, template_id, template_category, gupshup_message_id = send_whatsapp_template(
+        tenant, log.recipient_phone, log.template_name, variables)
     log.status = "SENT" if success else "FAILED"
     log.error_message = error
+    if template_id:
+        log.template_id = template_id
+    if template_category:
+        log.template_category = template_category
+    if gupshup_message_id:
+        raw = list(log.raw_status_webhook_payloads or [])
+        raw.append({"id": gupshup_message_id})
+        log.raw_status_webhook_payloads = raw
     log.attempt_count += 1
     log.last_attempted_at = datetime.utcnow()
     db.commit()

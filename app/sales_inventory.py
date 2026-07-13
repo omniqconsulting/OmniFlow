@@ -321,22 +321,12 @@ def _notify_stock_updated(db: Session, variant_id: str, tenant_id: str, qty_adde
     db.commit()
 
     template = WHATSAPP_TEMPLATES.get("omniflow_stock_updated", {})
-    if template.get("msg91_template_id"):
-        from .services.msg91 import send_whatsapp_template
-        from .database import WhatsAppMessageLog
+    if template.get("gupshup_template_id"):
+        from .notifications import _send_gupshup_wa
         for mgr in managers:
-            if not mgr.mobile_verified:
-                continue
             variables = [mgr.name, product_name, str(qty_added), str(new_available)]
-            success, error = send_whatsapp_template(mgr.phone, "omniflow_stock_updated", variables)
-            db.add(WhatsAppMessageLog(
-                tenant_id=tenant_id, template_name="omniflow_stock_updated",
-                recipient_user_id=mgr.id, recipient_phone=mgr.phone,
-                variables_json=json.dumps(variables),
-                status="SENT" if success else "FAILED", error_message=error,
-                related_entity_type="product_stock", related_entity_id=variant_id,
-            ))
-        db.commit()
+            _send_gupshup_wa(db, tenant_id, mgr, "omniflow_stock_updated", variables,
+                              related_entity_type="product_stock", related_entity_id=variant_id)
 
 
 def _check_low_stock_alert(db: Session, variant_id: str, tenant_id: str):
@@ -372,22 +362,12 @@ def _check_low_stock_alert(db: Session, variant_id: str, tenant_id: str):
     db.commit()
 
     template = WHATSAPP_TEMPLATES.get("omniflow_low_stock_alert", {})
-    if template.get("msg91_template_id"):
-        from .services.msg91 import send_whatsapp_template
-        from .database import WhatsAppMessageLog
+    if template.get("gupshup_template_id"):
+        from .notifications import _send_gupshup_wa
         for mgr in managers:
-            if not mgr.mobile_verified:
-                continue
             variables = [mgr.name, product_name, str(stock.qty_available), str(variant.low_stock_threshold)]
-            success, error = send_whatsapp_template(mgr.phone, "omniflow_low_stock_alert", variables)
-            db.add(WhatsAppMessageLog(
-                tenant_id=tenant_id, template_name="omniflow_low_stock_alert",
-                recipient_user_id=mgr.id, recipient_phone=mgr.phone,
-                variables_json=json.dumps(variables),
-                status="SENT" if success else "FAILED", error_message=error,
-                related_entity_type="product_stock", related_entity_id=variant_id,
-            ))
-        db.commit()
+            _send_gupshup_wa(db, tenant_id, mgr, "omniflow_low_stock_alert", variables,
+                              related_entity_type="product_stock", related_entity_id=variant_id)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

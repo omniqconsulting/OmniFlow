@@ -432,9 +432,8 @@ def send_consolidated_checklist_notifications():
 
 def _send_wa_checklist_due(db, tenant_id: str, user_id: str, assignments: list):
     """Pipeline 2A — omniflow_checklist_due. Never raises."""
-    from .database import WhatsAppMessageLog, User
-    from .services.msg91 import send_whatsapp_template
-    import json
+    from .database import User
+    from .notifications import _send_gupshup_wa
     try:
         user = db.query(User).filter(User.id == user_id).first()
         if not user or not user.phone:
@@ -443,32 +442,16 @@ def _send_wa_checklist_due(db, tenant_id: str, user_id: str, assignments: list):
         if not titles_csv:
             return
         variables = [user.name, titles_csv]
-        status, error = "SKIPPED_UNVERIFIED", None
-        if user.mobile_verified:
-            ok, error = send_whatsapp_template(user.phone, "omniflow_checklist_due", variables)
-            status = "SENT" if ok else "FAILED"
-        db.add(WhatsAppMessageLog(
-            tenant_id=tenant_id,
-            template_name="omniflow_checklist_due",
-            recipient_user_id=user_id,
-            recipient_phone=user.phone,
-            variables_json=json.dumps(variables),
-            status=status,
-            error_message=error,
-            related_entity_type="checklist_reminder",
-            related_entity_id=user_id,
-        ))
-        db.commit()
+        _send_gupshup_wa(db, tenant_id, user, "omniflow_checklist_due", variables,
+                          related_entity_type="checklist_reminder", related_entity_id=user_id)
     except Exception:
-        db.rollback()
         logger.exception("_send_wa_checklist_due failed for user=%s", user_id)
 
 
 def _send_wa_checklist_overdue(db, tenant_id: str, user_id: str, assignments: list):
     """Pipeline 2B — omniflow_checklist_overdue. Never raises."""
-    from .database import WhatsAppMessageLog, User
-    from .services.msg91 import send_whatsapp_template
-    import json
+    from .database import User
+    from .notifications import _send_gupshup_wa
     try:
         user = db.query(User).filter(User.id == user_id).first()
         if not user or not user.phone:
@@ -477,24 +460,9 @@ def _send_wa_checklist_overdue(db, tenant_id: str, user_id: str, assignments: li
         if not titles_csv:
             return
         variables = [user.name, titles_csv]
-        status, error = "SKIPPED_UNVERIFIED", None
-        if user.mobile_verified:
-            ok, error = send_whatsapp_template(user.phone, "omniflow_checklist_overdue", variables)
-            status = "SENT" if ok else "FAILED"
-        db.add(WhatsAppMessageLog(
-            tenant_id=tenant_id,
-            template_name="omniflow_checklist_overdue",
-            recipient_user_id=user_id,
-            recipient_phone=user.phone,
-            variables_json=json.dumps(variables),
-            status=status,
-            error_message=error,
-            related_entity_type="checklist_overdue_reminder",
-            related_entity_id=user_id,
-        ))
-        db.commit()
+        _send_gupshup_wa(db, tenant_id, user, "omniflow_checklist_overdue", variables,
+                          related_entity_type="checklist_overdue_reminder", related_entity_id=user_id)
     except Exception:
-        db.rollback()
         logger.exception("_send_wa_checklist_overdue failed for user=%s", user_id)
 
 
@@ -571,8 +539,7 @@ def send_unacknowledged_ticket_notifications():
     """
     from datetime import date as _date
     from .database import SessionLocal, Tenant, Ticket, User, WhatsAppMessageLog
-    from .services.msg91 import send_whatsapp_template
-    import json
+    from .notifications import _send_gupshup_wa
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -638,22 +605,8 @@ def send_unacknowledged_ticket_notifications():
                         continue
 
                     variables = [recipient.name, ticket.title, assignee_name, hours_elapsed]
-                    status, error = "SKIPPED_UNVERIFIED", None
-                    if recipient.mobile_verified:
-                        ok, error = send_whatsapp_template(
-                            recipient.phone, "omniflow_ticket_unacknowledged", variables)
-                        status = "SENT" if ok else "FAILED"
-                    db.add(WhatsAppMessageLog(
-                        tenant_id=tenant.id,
-                        template_name="omniflow_ticket_unacknowledged",
-                        recipient_user_id=recipient.id,
-                        recipient_phone=recipient.phone,
-                        variables_json=json.dumps(variables),
-                        status=status,
-                        error_message=error,
-                        related_entity_type="ticket",
-                        related_entity_id=ticket.id,
-                    ))
+                    _send_gupshup_wa(db, tenant.id, recipient, "omniflow_ticket_unacknowledged", variables,
+                                      related_entity_type="ticket", related_entity_id=ticket.id)
             db.commit()
         logger.info("Unacknowledged ticket WhatsApp job complete")
     except Exception as e:

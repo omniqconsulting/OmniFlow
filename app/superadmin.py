@@ -3,20 +3,22 @@ Super Admin Portal — Phase 0-H
 All routes are prefixed /superadmin and use the sa_token cookie.
 """
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, date as _date
-import json as _json, os
+import json as _json, os, secrets, io
 from markupsafe import Markup as _Markup
 
 from .database import (
     get_db, new_id, seed_default_uoms,
-    SuperAdmin, Tenant, User, WhatsAppMessageLog,
+    SuperAdmin, Tenant, User, WhatsAppMessageLog, WhatsAppConsentEvent,
     Ticket, ChecklistTemplate, ChecklistAssignment,
     TenantFeatureOverride, TenantLabelConfig, PlanUpgradeRequest,
     FMSFlow, FMSStage, FMSTicket, LibraryFlowTemplate, TenantDeployedItem,
     TenantAIUsage, LoginEvent,
 )
+from .services.qr_optin import build_opt_in_link, entity_label_for_tenant
+from .constants import OMNIFLOW_PUBLIC_DOMAIN
 from .labels import INDUSTRY_NAMES, INDUSTRY_PRESETS as _PRESETS
 from .constants import (
     FEATURE_CATALOG, PLAN_LIMITS, PLAN_LABELS, PLAN_ORDER,
@@ -474,6 +476,33 @@ def sa_tenant_detail(request: Request, tenant_id: str,
         },
     }
 
+    # ── Gupshup WhatsApp Configuration + Consent & Compliance Log (Sections 8.1-8.4) ──
+    callback_url = None
+    if tenant.gupshup_webhook_token:
+        callback_url = f"https://{OMNIFLOW_PUBLIC_DOMAIN}/webhooks/gupshup/{tenant.gupshup_webhook_token}"
+    opt_in_link = tenant.whatsapp_opt_in_link or (
+        build_opt_in_link(tenant.gupshup_source_number, entity_label_for_tenant(db, tenant_id))
+        if tenant.gupshup_source_number else None
+    )
+
+    consent_filter_employee = request.query_params.get("cf_employee", "")
+    consent_filter_type = request.query_params.get("cf_type", "")
+    consent_events_q = db.query(WhatsAppConsentEvent).filter(WhatsAppConsentEvent.tenant_id == tenant_id)
+    if consent_filter_employee:
+        consent_events_q = consent_events_q.filter(WhatsAppConsentEvent.employee_id == consent_filter_employee)
+    if consent_filter_type:
+        consent_events_q = consent_events_q.filter(WhatsAppConsentEvent.event_type == consent_filter_type)
+    consent_events = consent_events_q.order_by(WhatsAppConsentEvent.created_at.desc()).limit(200).all()
+
+    wa_filter_employee = request.query_params.get("wf_employee", "")
+    wa_filter_status = request.query_params.get("wf_status", "")
+    wa_logs_q = db.query(WhatsAppMessageLog).filter(WhatsAppMessageLog.tenant_id == tenant_id)
+    if wa_filter_employee:
+        wa_logs_q = wa_logs_q.filter(WhatsAppMessageLog.recipient_user_id == wa_filter_employee)
+    if wa_filter_status:
+        wa_logs_q = wa_logs_q.filter(WhatsAppMessageLog.status == wa_filter_status)
+    wa_logs = wa_logs_q.order_by(WhatsAppMessageLog.created_at.desc()).limit(200).all()
+
     return templates.TemplateResponse(request, "superadmin/tenant_detail.html", {
         "sa": sa, "tenant": tenant, "stats": stats,
         "users": users, "recent_tickets": recent_tickets,
@@ -494,6 +523,14 @@ def sa_tenant_detail(request: Request, tenant_id: str,
         "plan_ai_limit": plan_ai_limit,
         "login_chart": login_chart,
         "now": datetime.utcnow(),
+        "gupshup_callback_url": callback_url,
+        "gupshup_opt_in_link": opt_in_link,
+        "consent_events": consent_events,
+        "wa_logs": wa_logs,
+        "consent_filter_employee": consent_filter_employee,
+        "consent_filter_type": consent_filter_type,
+        "wa_filter_employee": wa_filter_employee,
+        "wa_filter_status": wa_filter_status,
     })
 
 
@@ -605,6 +642,72 @@ def sa_unsuspend(tenant_id: str, sa: SuperAdmin = Depends(get_current_sa),
     tenant.is_suspended = False
     db.commit()
     return _redirect(f"/superadmin/tenants/{tenant_id}?msg=unsuspended")
+
+
+# ── Gupshup WhatsApp Configuration (Section 8.2) ─────────────────────────────
+
+@router.post("/tenants/{tenant_id}/whatsapp-config")
+def sa_save_whatsapp_config(tenant_id: str,
+                             gupshup_client_id: str = Form(""),
+                             gupshup_secret_token: str = Form(""),
+                             gupshup_source_number: str = Form(""),
+                             sa: SuperAdmin = Depends(get_current_sa),
+                             db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    tenant.gupshup_client_id = gupshup_client_id.strip() or None
+    tenant.gupshup_secret_token = gupshup_secret_token.strip() or None
+    tenant.gupshup_source_number = gupshup_source_number.strip() or None
+    # Auto-generate webhook token/secret the first time credentials are saved —
+    # Section 3.3 step 7 / Section 8.2: "you don't invent or type any of these".
+    if not tenant.gupshup_webhook_token:
+        tenant.gupshup_webhook_token = secrets.token_urlsafe(24)
+    if not tenant.gupshup_webhook_secret:
+        tenant.gupshup_webhook_secret = secrets.token_urlsafe(32)
+    if tenant.gupshup_source_number:
+        label = entity_label_for_tenant(db, tenant_id)
+        tenant.whatsapp_opt_in_link = build_opt_in_link(tenant.gupshup_source_number, label)
+    if not tenant.gupshup_waba_status:
+        tenant.gupshup_waba_status = "PENDING"
+    tenant.whatsapp_config_updated_at = datetime.utcnow()
+    db.commit()
+    return _redirect(f"/superadmin/tenants/{tenant_id}?msg=whatsapp_config_saved")
+
+
+@router.get("/tenants/{tenant_id}/whatsapp-qr.png")
+def sa_whatsapp_qr(tenant_id: str, sa: SuperAdmin = Depends(get_current_sa),
+                    db: Session = Depends(get_db)):
+    from .services.qr_optin import render_qr_png
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant or not tenant.whatsapp_opt_in_link:
+        raise HTTPException(404)
+    png = render_qr_png(tenant.whatsapp_opt_in_link)
+    return StreamingResponse(io.BytesIO(png), media_type="image/png")
+
+
+@router.post("/tenants/{tenant_id}/appeal-package")
+def sa_generate_appeal_package(tenant_id: str,
+                                start_date: str = Form(""),
+                                end_date: str = Form(""),
+                                sa: SuperAdmin = Depends(get_current_sa),
+                                db: Session = Depends(get_db)):
+    """Section 8.6 — Generate Appeal Package. Ships as a CSV/zip bundle
+    (no PDF library in the stack — flagged in the handoff summary)."""
+    from .services.appeal_package import build_appeal_package
+    from datetime import timedelta
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(404)
+    end_dt = datetime.strptime(end_date, "%Y-%m-%d") if end_date else datetime.utcnow()
+    start_dt = datetime.strptime(start_date, "%Y-%m-%d") if start_date else (end_dt - timedelta(days=90))
+    end_dt = end_dt.replace(hour=23, minute=59, second=59)
+    zip_bytes = build_appeal_package(db, tenant, start_dt, end_dt)
+    filename = f"appeal_package_{tenant.slug}_{end_dt.date().isoformat()}.zip"
+    return StreamingResponse(
+        io.BytesIO(zip_bytes), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── Delete Tenant (soft) ──────────────────────────────────────────────────────
