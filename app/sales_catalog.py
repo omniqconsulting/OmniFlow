@@ -56,6 +56,12 @@ def _require_sales_editor_or_redirect(user: User = Depends(_require_sales_or_red
     return user
 
 
+def _require_sales_admin(user: User = Depends(_require_sales)) -> User:
+    if user.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+
 def _ctx(db: Session, user: User, **extra) -> dict:
     ctx = {
         "user": user, "L": _L(db, user), "unread": _unread(db, user),
@@ -214,6 +220,7 @@ def catalog_list(
     sub_category_id: list = Query(default=[]),
     tier: str = "",
     active: str = "",
+    view: str = "grid",
     page: int = 1,
     user: User = Depends(_require_sales_or_redirect),
     db: Session = Depends(get_db),
@@ -303,11 +310,20 @@ def catalog_list(
             "state": "NONE", "variant_id": variant_ids[0] if variant_ids else None, "in_transit": total_in_transit,
         }
 
+    # Redesign (2026-07): List view's Tier column shows a single tier per
+    # product even though tier actually lives on ProductVariant — "Mixed"
+    # when a product's live variants disagree.
+    tier_display_by_product: dict = {}
+    for p in products:
+        tiers = {v.product_tier for v in live_variants_by_product[p.id]}
+        tier_display_by_product[p.id] = tiers.pop() if len(tiers) == 1 else ("Mixed" if tiers else "UNRANKED")
+
     cat_template_name = "sales/catalog_list_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/catalog_list.html"
     return templates.TemplateResponse(request, cat_template_name, _ctx(
         db, user,
-        products=products, total=total, page=page, page_size=PAGE_SIZE,
+        products=products, total=total, page=page, page_size=PAGE_SIZE, view=view if view in ("grid", "list") else "grid",
         q=q, category_id=category_id, sub_category_id=sub_category_id, tier=tier, active=active,
+        tier_display_by_product=tier_display_by_product,
         categories=categories, subcategories=subcategories,
         tier_choices=TIER_CHOICES,
         stock_status_by_product=stock_status_by_product,
@@ -498,6 +514,7 @@ def catalog_edit_form(product_id: str, request: Request, user: User = Depends(_r
         units=_active_units(db, user.tenant_id),
         categories=_active_categories(db, user.tenant_id),
         subcats_by_cat={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
+        tier_choices=TIER_CHOICES,
         err="",
     ))
 
@@ -539,7 +556,7 @@ async def catalog_edit_save(
 
 
 @router.post("/sales/catalog/{product_id}/delete")
-def catalog_delete(product_id: str, user: User = Depends(_require_sales_editor), db: Session = Depends(get_db)):
+def catalog_delete(product_id: str, user: User = Depends(_require_sales_admin), db: Session = Depends(get_db)):
     product = get_product_or_404(db, product_id, user.tenant_id)
     product.is_deleted = True
     for v in db.query(ProductVariant).filter(ProductVariant.product_id == product.id, ProductVariant.is_deleted == False).all():
@@ -1065,15 +1082,39 @@ def catalog_detail(product_id: str, request: Request, user: User = Depends(_requ
         EndProduct.is_deleted == False,
     ).first() if skus else None
 
+    # Redesign (2026-07): prev/next product navigation on the detail page,
+    # scoped to the tenant's active product ordering (by name) — mirrors the
+    # design mock's ‹ › browse controls.
+    sibling_ids = [
+        row[0] for row in db.query(Product.id).filter(
+            Product.tenant_id == user.tenant_id, Product.is_deleted == False,
+        ).order_by(Product.name).all()
+    ]
+    prev_product_id = next_product_id = None
+    if product_id in sibling_ids:
+        idx = sibling_ids.index(product_id)
+        prev_product_id = sibling_ids[idx - 1]
+        next_product_id = sibling_ids[(idx + 1) % len(sibling_ids)]
+
+    total_stock = sum(
+        (stock_by_variant.get(v.id).qty_available if stock_by_variant.get(v.id) else 0) or 0
+        for v in variants
+    )
+
     return templates.TemplateResponse(request, "sales/catalog_detail.html", _ctx(
         db, user,
         product=product,
         attributes=json.loads(product.attributes_json or "{}"),
         variants=variants,
         stock_by_variant=stock_by_variant,
+        total_stock=total_stock,
         units=_active_units(db, user.tenant_id),
         schema_fields=_active_schema_fields(db, user.tenant_id),
+        categories=_active_categories(db, user.tenant_id),
+        subcats_by_cat={sc.id: sc for sc in _active_subcategories(db, user.tenant_id)},
         tier_choices=TIER_CHOICES,
         setup_end_product=setup_end_product,
+        prev_product_id=prev_product_id,
+        next_product_id=next_product_id,
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))

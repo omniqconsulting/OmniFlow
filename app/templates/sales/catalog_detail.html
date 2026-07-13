@@ -1,23 +1,42 @@
+{# -- catalog_detail.html --------------------------------------------------
+   Desktop-only Product page (Design: OmniFlow Redesign - Product screen).
+   Layout toggle (Tabbed / Split view) and Edit toggle are client-side JS --
+   no page reload. Inline edit posts to the same /sales/catalog/{id}/edit
+   endpoint catalog_edit.html already used; that standalone page is left in
+   place (unreferenced from here now) per the "dead but not deleted" pattern
+   used elsewhere in this codebase. Variant CRUD / media upload are unchanged
+   from before, just re-homed into tabs/sections. Desktop-only -- do not port
+   to any *_mobile.html template. #}
 {% extends "base.html" %}
 {% block title %}{{ product.name }}{% endblock %}
 {% block content %}
 {% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
 
-<div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-faint);margin-bottom:10px">
+  <a href="/sales/catalog" style="color:#60a5fa;text-decoration:none">Catalog</a>
+  <span>&rsaquo;</span>
+  <span>{{ product.sub_category.category.name if product.sub_category else '—' }}</span>
+  <span>&rsaquo;</span>
+  <span style="color:var(--text-muted)">{{ product.name }}</span>
+</div>
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;flex-wrap:wrap;gap:10px">
   <div>
-    <div style="display:flex;align-items:center;gap:10px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <h2 class="page-title" style="margin:0">{{ product.name }}</h2>
-      <span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:99px;{{ 'background:#22c55e33;color:#22c55e' if product.is_active else 'background:#94a3b833;color:#94a3b8' }}">{{ 'ACTIVE' if product.is_active else 'INACTIVE' }}</span>
+      <span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:99px;{{ 'background:#22c55e26;color:#22c55e' if product.is_active else 'background:#94a3b826;color:#94a3b8' }}">{{ 'ACTIVE' if product.is_active else 'INACTIVE' }}</span>
     </div>
-    <div class="muted">{{ product.sub_category.category.name if product.sub_category else '—' }} / {{ product.sub_category.name if product.sub_category else '—' }}</div>
+    <div class="muted" style="margin-top:3px">{{ product.sub_category.category.name if product.sub_category else '—' }} / {{ product.sub_category.name if product.sub_category else '—' }} &middot; Unit: {{ product.base_unit.abbreviation if product.base_unit else '—' }}</div>
   </div>
-  <div style="display:flex;gap:8px">
-    <a href="/sales/catalog" class="btn btn-sm btn-gray">← Catalog</a>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    {% if prev_product_id %}<a href="/sales/catalog/{{ prev_product_id }}" class="btn btn-sm btn-outline" title="Previous product">&lsaquo;</a>{% endif %}
+    {% if next_product_id %}<a href="/sales/catalog/{{ next_product_id }}" class="btn btn-sm btn-outline" title="Next product">&rsaquo;</a>{% endif %}
+    <a href="/sales/catalog" class="btn btn-sm btn-gray">&larr; Catalog</a>
     {% if setup_end_product and user.role in ('ADMIN','MANAGER') %}
     <a href="/setup/end-products" class="btn btn-sm btn-outline" title="View in Setup &gt; End Products">View in Setup</a>
     {% endif %}
     {% if user.role in ('ADMIN','MANAGER') %}
-    <a href="/sales/catalog/{{ product.id }}/edit" class="btn btn-sm btn-primary">Edit Product</a>
+    <button type="button" class="btn btn-sm btn-primary" id="cd-edit-toggle" onclick="cdToggleEdit()">Edit</button>
     {% endif %}
   </div>
 </div>
@@ -25,66 +44,138 @@
 {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
 {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
 
-<div class="card" style="padding:18px;margin-bottom:16px">
-  <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CORE DETAILS</h3>
+<div style="display:inline-flex;align-items:center;background:var(--bg-input);border:1px solid var(--border-med);border-radius:99px;padding:3px;gap:2px;margin:10px 0 16px">
+  <button type="button" class="cd-seg cd-seg-active" id="cd-layout-tabs-btn" onclick="cdSetLayout('tabs')">Tabbed</button>
+  <button type="button" class="cd-seg" id="cd-layout-split-btn" onclick="cdSetLayout('split')">Split view</button>
+</div>
+
+{# ==================== shared blocks (rendered once, arranged twice) ==================== #}
+
+{% macro core_details_block() %}
+<div class="cd-view-mode">
   <table style="width:100%;font-size:13px">
-    <tr><td style="padding:5px 0;color:var(--text-muted);width:160px">Default Unit</td><td>{{ product.base_unit.name + ' (' + product.base_unit.abbreviation + ')' if product.base_unit else '—' }}</td></tr>
+    <tr><td style="padding:6px 0;color:var(--text-muted);width:150px">Default Unit</td><td>{{ product.base_unit.name + ' (' + product.base_unit.abbreviation + ')' if product.base_unit else '—' }}</td></tr>
+    <tr><td style="padding:6px 0;color:var(--text-muted);width:150px">Category</td><td>{{ product.sub_category.category.name if product.sub_category else '—' }} / {{ product.sub_category.name if product.sub_category else '—' }}</td></tr>
+    <tr><td style="padding:6px 0;color:var(--text-muted);width:150px">Total variants</td><td>{{ variants|length }}</td></tr>
+    <tr><td style="padding:6px 0;color:var(--text-muted);width:150px">Total stock</td><td>{{ total_stock }} {{ product.base_unit.abbreviation if product.base_unit else '' }}</td></tr>
   </table>
   {% if product.description %}
   <div style="margin-top:10px;font-size:13px;color:var(--text-muted)">{{ product.description }}</div>
+  {% else %}
+  <div style="margin-top:10px;font-size:13px;color:var(--text-faint)">No description on file yet.</div>
   {% endif %}
+</div>
+<div class="cd-edit-mode" style="display:none">
+  <div class="form-group"><label class="form-label">Product Name</label><input name="name" form="cd-edit-form" value="{{ product.name }}" class="form-input"></div>
+  <div class="form-group"><label class="form-label">Description</label><textarea name="description" form="cd-edit-form" rows="2" class="form-input">{{ product.description or '' }}</textarea></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+    <div class="form-group" style="margin:0">
+      <label class="form-label">Sub-Category</label>
+      <select name="sub_category_id" form="cd-edit-form" class="form-input">
+        <option value="">&mdash; None &mdash;</option>
+        {% for cat in categories %}
+        {% for sc in subcats_by_cat.values() if sc.category_id == cat.id %}
+        <option value="{{ sc.id }}" {{ 'selected' if product.sub_category_id == sc.id else '' }}>{{ cat.name }} / {{ sc.name }}</option>
+        {% endfor %}
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group" style="margin:0">
+      <label class="form-label">Default Unit</label>
+      <select name="base_unit_id" form="cd-edit-form" class="form-input">
+        <option value="">&mdash; None &mdash;</option>
+        {% for u in units %}<option value="{{ u.id }}" {{ 'selected' if product.base_unit_id == u.id else '' }}>{{ u.name }} ({{ u.abbreviation }})</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group" style="margin:0;align-self:center">
+      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="is_active" form="cd-edit-form" {{ 'checked' if product.is_active else '' }} style="width:auto"> Active</label>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro attributes_block() %}
+<div class="cd-view-mode">
   {% if attributes %}
-  <table style="width:100%;font-size:13px;margin-top:10px">
+  <table style="width:100%;font-size:13px">
     {% for label, value in attributes.items() %}
-    <tr><td style="padding:5px 0;color:var(--text-muted);width:160px">{{ label }}</td><td>{{ value }}</td></tr>
+    <tr><td style="padding:6px 0;color:var(--text-muted);width:150px">{{ label }}</td><td>{{ value }}</td></tr>
     {% endfor %}
   </table>
-  {% endif %}
-</div>
-
-<div class="card" style="padding:18px;margin-bottom:16px">
-  <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">VARIANTS</h3>
-  {% if variants %}
-  <div style="display:flex;flex-direction:column;gap:8px">
-    {% for v in variants %}
-    {% set stock = stock_by_variant.get(v.id) %}
-    {% set qty = stock.qty_available if stock else none %}
-    {% set threshold = v.low_stock_threshold %}
-    {% if qty is none %}{% set stock_state = ('—', '#94a3b8') %}
-    {% elif qty <= 0 %}{% set stock_state = ('OUT OF STOCK', '#ef4444') %}
-    {% elif threshold is not none and qty <= threshold %}{% set stock_state = ('LOW STOCK', '#f59e0b') %}
-    {% else %}{% set stock_state = ('IN STOCK', '#22c55e') %}
-    {% endif %}
-    <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:8px;flex-wrap:wrap">
-      <div style="min-width:110px;font-weight:600;font-size:13px">{{ v.sku_code }}</div>
-      <div style="flex:1;min-width:100px;font-size:13px;color:var(--text-muted)">{{ v.variant_label or '—' }}</div>
-      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(v.product_tier, '#94a3b8') }}">{{ v.product_tier }}</span>
-      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ stock_state[1] }}">{{ stock_state[0] }}</span>
-      <div style="font-size:12px;color:var(--text-faint);min-width:90px">Avail: {{ qty if qty is not none else '—' }}</div>
-      <span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:99px;{{ 'background:#22c55e33;color:#22c55e' if v.is_active else 'background:#94a3b833;color:#94a3b8' }}">{{ 'ACTIVE' if v.is_active else 'INACTIVE' }}</span>
-      <div style="display:flex;gap:6px">
-        {% if user.role in ('ADMIN','MANAGER') %}
-        <button type="button" class="btn btn-xs btn-outline" onclick="openVariantEdit('{{ v.id }}')">Edit</button>
-        {% else %}
-        <a href="/sales/catalog/variant/{{ v.id }}/edit" class="btn btn-xs btn-outline">Edit</a>
-        {% endif %}
-        {% if user.role in ('ADMIN','MANAGER') %}
-        <form method="post" action="/sales/catalog/variant/{{ v.id }}/delete" onsubmit="return confirm('Remove this variant?')">
-          <button type="submit" class="btn btn-xs btn-gray">Delete</button>
-        </form>
-        {% endif %}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
   {% else %}
-  <div style="font-size:13px;color:var(--text-faint)">No variants yet — add one below.</div>
+  <div style="font-size:13px;color:var(--text-faint)">No shared attributes defined for this product's schema.</div>
   {% endif %}
 </div>
+<div class="cd-edit-mode" style="display:none">
+  {% if schema_fields %}
+  {% for field in schema_fields %}
+  <div class="form-group">
+    <label class="form-label">{{ field.label }}{% if field.is_required %} *{% endif %}</label>
+    {% if field.field_type == 'dropdown' %}
+    <select name="attr__{{ field.label }}" form="cd-edit-form" class="form-input" {{ 'required' if field.is_required else '' }}>
+      <option value="">&mdash; Select &mdash;</option>
+      {% for opt in field.options_json | from_json %}<option value="{{ opt }}" {{ 'selected' if attributes.get(field.label) == opt else '' }}>{{ opt }}</option>{% endfor %}
+    </select>
+    {% elif field.field_type == 'boolean' %}
+    <input type="checkbox" name="attr__{{ field.label }}" form="cd-edit-form" {{ 'checked' if attributes.get(field.label) else '' }} style="width:auto">
+    {% elif field.field_type == 'number' %}
+    <input type="number" step="any" name="attr__{{ field.label }}" form="cd-edit-form" value="{{ attributes.get(field.label, '') }}" class="form-input" {{ 'required' if field.is_required else '' }}>
+    {% else %}
+    <input name="attr__{{ field.label }}" form="cd-edit-form" value="{{ attributes.get(field.label, '') }}" class="form-input" {{ 'required' if field.is_required else '' }}>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% else %}
+  <div style="font-size:13px;color:var(--text-faint)">No shared attribute schema fields configured.</div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro variants_block() %}
+{% if variants %}
+<div style="display:flex;flex-direction:column;gap:8px">
+  {% for v in variants %}
+  {% set stock = stock_by_variant.get(v.id) %}
+  {% set qty = stock.qty_available if stock else none %}
+  {% set threshold = v.low_stock_threshold %}
+  {% if qty is none %}{% set stock_state = ('—', '#94a3b8') %}
+  {% elif qty <= 0 %}{% set stock_state = ('OUT OF STOCK', '#ef4444') %}
+  {% elif threshold is not none and qty <= threshold %}{% set stock_state = ('LOW STOCK', '#f59e0b') %}
+  {% else %}{% set stock_state = ('IN STOCK', '#22c55e') %}
+  {% endif %}
+  {% set vmedia = v.media_urls_json | from_json if v.media_urls_json else [] %}
+  <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:8px;flex-wrap:wrap">
+    <div style="width:34px;height:34px;border-radius:7px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">
+      {% if vmedia %}<img src="/static/{{ vmedia[0] }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:14px;opacity:.45">&#128230;</span>{% endif %}
+    </div>
+    <div style="min-width:110px;font-weight:600;font-size:13px">{{ v.sku_code }}</div>
+    <div style="flex:1;min-width:100px;font-size:13px;color:var(--text-muted)">{{ v.variant_label or '—' }}</div>
+    <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(v.product_tier, '#94a3b8') }}">{{ v.product_tier }}</span>
+    <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ stock_state[1] }}">{{ stock_state[0] }}</span>
+    <div style="font-size:12px;color:var(--text-faint);min-width:90px">Avail: {{ qty if qty is not none else '—' }}</div>
+    <span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:99px;{{ 'background:#22c55e26;color:#22c55e' if v.is_active else 'background:#94a3b826;color:#94a3b8' }}">{{ 'ACTIVE' if v.is_active else 'INACTIVE' }}</span>
+    <div style="display:flex;gap:6px">
+      {% if user.role in ('ADMIN','MANAGER') %}
+      <button type="button" class="btn btn-xs btn-outline" onclick="openVariantEdit('{{ v.id }}')">Edit</button>
+      {% else %}
+      <a href="/sales/catalog/variant/{{ v.id }}/edit" class="btn btn-xs btn-outline">Edit</a>
+      {% endif %}
+      {% if user.role in ('ADMIN','MANAGER') %}
+      <form method="post" action="/sales/catalog/variant/{{ v.id }}/delete" onsubmit="return confirm('Remove this variant?')">
+        <button type="submit" class="btn btn-xs btn-gray">Delete</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="font-size:13px;color:var(--text-faint)">No variants yet -- add one below.</div>
+{% endif %}
 
 {% if user.role in ('ADMIN','MANAGER') %}
-<div class="card" style="padding:18px">
-  <h3 style="margin-top:0">Add Variant</h3>
+<div style="margin-top:16px">
+  <h3 style="font-size:12px;color:var(--text-faint);letter-spacing:.03em;margin-bottom:10px">+ ADD VARIANT / COLOUR</h3>
   <form method="post" action="/sales/catalog/{{ product.id }}/variants/add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end">
     <div class="form-group" style="margin:0">
       <label>SKU Code (blank = auto-generated)</label>
@@ -97,7 +188,7 @@
     <div class="form-group" style="margin:0">
       <label>Unit</label>
       <select name="base_unit_id">
-        <option value="">— default —</option>
+        <option value="">&mdash; default &mdash;</option>
         {% for u in units %}
         <option value="{{ u.id }}">{{ u.name }} ({{ u.abbreviation }})</option>
         {% endfor %}
@@ -120,6 +211,122 @@
   </form>
 </div>
 {% endif %}
+{% endmacro %}
+
+{% macro media_block() %}
+{% set any_media = variants | selectattr('media_urls_json') | list %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px">
+  {% for v in variants %}
+  {% set vmedia = v.media_urls_json | from_json if v.media_urls_json else [] %}
+  {% for m in vmedia %}
+  <div style="height:120px;border-radius:8px;overflow:hidden;background:var(--bg-input);border:1px solid var(--border-subtle);position:relative">
+    <img src="/static/{{ m }}" style="width:100%;height:100%;object-fit:cover">
+    <span style="position:absolute;bottom:0;left:0;right:0;padding:3px 6px;font-size:9px;font-family:monospace;background:rgba(0,0,0,0.55);color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ v.variant_label or v.sku_code }}</span>
+  </div>
+  {% endfor %}
+  {% endfor %}
+  {% if not any_media %}
+  <div style="grid-column:1/-1;font-size:13px;color:var(--text-faint);padding:20px 0;text-align:center">No photos uploaded yet.</div>
+  {% endif %}
+</div>
+<div style="margin-top:12px;font-size:12px;color:var(--text-faint)">Photos are managed per-variant -- open a variant's Edit dialog in the Variants tab to upload or remove photos.</div>
+{% endmacro %}
+
+<form method="post" action="/sales/catalog/{{ product.id }}/edit" id="cd-edit-form"></form>
+
+{# ==================== OPTION A: TABBED ==================== #}
+<div id="cd-layout-tabs">
+  <div style="display:flex;gap:4px;border-bottom:1px solid var(--border-subtle);margin-bottom:16px;flex-wrap:wrap">
+    <button type="button" class="cd-tab cd-tab-active" onclick="cdSetTab('overview')" data-cd-tab="overview">Overview</button>
+    <button type="button" class="cd-tab" onclick="cdSetTab('attributes')" data-cd-tab="attributes">Attributes</button>
+    <button type="button" class="cd-tab" onclick="cdSetTab('variants')" data-cd-tab="variants">Variants ({{ variants|length }})</button>
+    <button type="button" class="cd-tab" onclick="cdSetTab('media')" data-cd-tab="media">Media</button>
+  </div>
+
+  <div class="cd-tab-panel" data-cd-panel="overview">
+    <div class="card" style="padding:20px;max-width:680px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CORE DETAILS</h3>
+      {{ core_details_block() }}
+      <div class="cd-edit-actions" style="display:none;justify-content:flex-end;gap:8px;margin-top:16px">
+        <button type="button" class="btn btn-outline" onclick="cdCancelEdit()">Cancel</button>
+        <button type="submit" form="cd-edit-form" class="btn btn-primary">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="cd-tab-panel" data-cd-panel="attributes" style="display:none">
+    <div class="card" style="padding:20px;max-width:680px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">SHARED ATTRIBUTES</h3>
+      {{ attributes_block() }}
+      <div class="cd-edit-actions" style="display:none;justify-content:flex-end;gap:8px;margin-top:16px">
+        <button type="button" class="btn btn-outline" onclick="cdCancelEdit()">Cancel</button>
+        <button type="submit" form="cd-edit-form" class="btn btn-primary">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="cd-tab-panel" data-cd-panel="variants" style="display:none">
+    <div class="card" style="padding:18px">
+      {{ variants_block() }}
+    </div>
+  </div>
+
+  <div class="cd-tab-panel" data-cd-panel="media" style="display:none">
+    <div class="card" style="padding:20px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">PHOTOS</h3>
+      {{ media_block() }}
+    </div>
+  </div>
+</div>
+
+{# ==================== OPTION B: SPLIT VIEW ==================== #}
+<div id="cd-layout-split" style="display:none;grid-template-columns:240px 1fr;gap:16px;align-items:start">
+  <div style="position:sticky;top:70px;display:flex;flex-direction:column;gap:12px">
+    <div style="height:150px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden">
+      {% set first_media = (variants | selectattr('media_urls_json') | map(attribute='media_urls_json') | map('from_json') | first) %}
+      {% if first_media %}<img src="/static/{{ first_media[0] }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:32px;opacity:.45">&#128230;</span>{% endif %}
+    </div>
+    <div class="card" style="padding:16px;font-size:12.5px">
+      <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text-muted)">Unit <span style="color:var(--text-primary)">{{ product.base_unit.abbreviation if product.base_unit else '—' }}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text-muted)">Variants <span style="color:var(--text-primary)">{{ variants|length }}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text-muted)">Total Stock <span style="color:var(--text-primary)">{{ total_stock }}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text-muted)">Status <span style="color:{{ '#22c55e' if product.is_active else '#94a3b8' }}">{{ 'ACTIVE' if product.is_active else 'INACTIVE' }}</span></div>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card" style="padding:18px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">CORE DETAILS</h3>
+      {{ core_details_block() }}
+      <div class="cd-edit-actions" style="display:none;justify-content:flex-end;gap:8px;margin-top:16px">
+        <button type="button" class="btn btn-outline" onclick="cdCancelEdit()">Cancel</button>
+        <button type="submit" form="cd-edit-form" class="btn btn-primary">Save Changes</button>
+      </div>
+    </div>
+    <div class="card" style="padding:18px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">SHARED ATTRIBUTES</h3>
+      {{ attributes_block() }}
+      <div class="cd-edit-actions" style="display:none;justify-content:flex-end;gap:8px;margin-top:16px">
+        <button type="button" class="btn btn-outline" onclick="cdCancelEdit()">Cancel</button>
+        <button type="submit" form="cd-edit-form" class="btn btn-primary">Save Changes</button>
+      </div>
+    </div>
+    <div class="card" style="padding:18px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">VARIANTS ({{ variants|length }})</h3>
+      {{ variants_block() }}
+    </div>
+    <div class="card" style="padding:18px">
+      <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">PHOTOS</h3>
+      {{ media_block() }}
+    </div>
+  </div>
+</div>
+
+<style>
+.cd-seg{padding:6px 14px;border-radius:99px;font-size:12px;font-weight:600;border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-family:inherit}
+.cd-seg-active{background:var(--accent);color:#fff}
+.cd-tab{padding:10px 16px;border:none;background:transparent;border-bottom:2px solid transparent;color:var(--text-muted);font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+.cd-tab-active{border-bottom-color:var(--accent);color:var(--text-strong);font-weight:600}
+</style>
 
 {% if user.role in ('ADMIN','MANAGER') %}
 {% set modal_body %}
@@ -127,7 +334,7 @@
   <div>
     <img id="vem-gallery-main" src="" style="display:none;width:100%;border-radius:8px;object-fit:cover;height:160px;margin-bottom:8px">
     <div id="vem-gallery-empty" style="height:160px;background:var(--bg-input);border-radius:8px;display:flex;align-items:center;justify-content:center">
-      <span style="font-size:32px;opacity:0.4">📦</span>
+      <span style="font-size:32px;opacity:0.4">&#128230;</span>
     </div>
     <div id="vem-gallery-thumbs" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>
     <form method="post" id="vem-upload-form" enctype="multipart/form-data" style="margin-top:10px">
@@ -141,7 +348,7 @@
     <div class="form-group">
       <label class="form-label">Unit (overrides Product default)</label>
       <select name="base_unit_id" id="vem-unit" class="form-input">
-        <option value="">— use Product default —</option>
+        <option value="">&mdash; use Product default &mdash;</option>
         {% for u in units %}<option value="{{ u.id }}">{{ u.name }} ({{ u.abbreviation }})</option>{% endfor %}
       </select>
     </div>
@@ -204,7 +411,7 @@ function openVariantEdit(variantId) {
         <img src="/static/${m}" onclick="document.getElementById('vem-gallery-main').src=this.src" style="width:44px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border-subtle)">
         <form method="post" action="/sales/catalog/variant/${variantId}/delete-media" style="position:absolute;top:-6px;right:-6px" onsubmit="return confirm('Remove this photo?')">
           <input type="hidden" name="index" value="${i}">
-          <button type="submit" style="width:16px;height:16px;border-radius:50%;background:#ef4444;color:#fff;border:none;font-size:9px;line-height:1;cursor:pointer">✕</button>
+          <button type="submit" style="width:16px;height:16px;border-radius:50%;background:#ef4444;color:#fff;border:none;font-size:9px;line-height:1;cursor:pointer">&times;</button>
         </form>
       </div>`).join('');
   } else {
@@ -223,4 +430,41 @@ function openVariantEdit(variantId) {
 }
 </script>
 {% endif %}
+
+<script>
+let cdLayout = 'tabs';
+let cdTab = 'overview';
+let cdEditing = false;
+
+function cdSetLayout(layout) {
+  cdLayout = layout;
+  document.getElementById('cd-layout-tabs').style.display = layout === 'tabs' ? '' : 'none';
+  document.getElementById('cd-layout-split').style.display = layout === 'split' ? 'grid' : 'none';
+  document.getElementById('cd-layout-tabs-btn').classList.toggle('cd-seg-active', layout === 'tabs');
+  document.getElementById('cd-layout-split-btn').classList.toggle('cd-seg-active', layout === 'split');
+}
+
+function cdSetTab(tab) {
+  cdTab = tab;
+  document.querySelectorAll('.cd-tab-panel').forEach(p => p.style.display = p.getAttribute('data-cd-panel') === tab ? '' : 'none');
+  document.querySelectorAll('.cd-tab').forEach(b => b.classList.toggle('cd-tab-active', b.getAttribute('data-cd-tab') === tab));
+}
+
+function cdToggleEdit() {
+  cdEditing = !cdEditing;
+  document.querySelectorAll('.cd-view-mode').forEach(el => el.style.display = cdEditing ? 'none' : '');
+  document.querySelectorAll('.cd-edit-mode').forEach(el => el.style.display = cdEditing ? '' : 'none');
+  document.querySelectorAll('.cd-edit-actions').forEach(el => el.style.display = cdEditing ? 'flex' : 'none');
+  const btn = document.getElementById('cd-edit-toggle');
+  if (btn) {
+    btn.textContent = cdEditing ? 'Editing...' : 'Edit';
+    btn.classList.toggle('btn-primary', !cdEditing);
+    btn.style.background = cdEditing ? '#f59e0b' : '';
+    btn.style.color = cdEditing ? '#111' : '';
+  }
+}
+function cdCancelEdit() {
+  if (cdEditing) cdToggleEdit();
+}
+</script>
 {% endblock %}

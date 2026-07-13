@@ -78,6 +78,9 @@
   <a href="/sales/contacts" id="nav-sales-customers" {% if '/sales/contacts' in request.url.path %}class="active"{% endif %}>Customers</a>
   <a href="/sales/orders" id="nav-sales-sell" {% if '/sales/orders' in request.url.path %}class="active"{% endif %}>Sell</a>
   {% endif %}
+  {% if has_sales_analytics %}
+  <a href="/sales/analytics" id="nav-sales-insights" {% if '/sales/analytics' in request.url.path %}class="active"{% endif %}>Sales Insights</a>
+  {% endif %}
   {% if has_inventory_module %}
   <a href="/inventory-v2" {% if '/inventory-v2' in request.url.path %}class="active"{% endif %}>Inventory</a>
   {% endif %}

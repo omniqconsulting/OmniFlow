@@ -1,125 +1,401 @@
+{# ── analytics_dashboard.html ─────────────────────────────────────────────
+   Sales Insights — single self-contained page (2026-07 redesign). Reached
+   from its own top-level nav tab (base.html), not from within Sales — and
+   everything lives on this one page, no more hopping into separate
+   Anomaly/Tiers/Volume sub-pages. Starts with Gross Profit (order/SKU/client
+   level); tier is shown only as an attribute/column on the SKU and Client
+   tables, never as its own separate chart. Anomaly detection has been
+   removed entirely — see the note in sales_analytics.py. #}
 {% extends "base.html" %}
 {% block title %}Sales Insights{% endblock %}
 {% block content %}
 {% set tier_colors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'} %}
-{% set sev_colors = {'LOW':'#94a3b8','MEDIUM':'#f59e0b','HIGH':'#ef4444','CRITICAL':'#b91c1c'} %}
 
 <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
   <div>
     <h2 class="page-title">Sales Insights</h2>
-    <div class="muted">AI-powered tiering, anomaly detection, and trends</div>
-  </div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <a href="/sales/analytics/anomalies" class="btn btn-sm btn-outline">Anomaly Feed{% if unread_alert_count %} ({{ unread_alert_count }}){% endif %}</a>
-    <a href="/sales/analytics/tiers/customers" class="btn btn-sm btn-outline">Customer Tiers</a>
-    <a href="/sales/analytics/tiers/products" class="btn btn-sm btn-outline">Product Tiers</a>
-    <a href="/sales/analytics/volume" class="btn btn-sm btn-outline">Volume Report</a>
+    <div class="muted">Gross profit — selling price vs. weighted-average cost at confirmation, {{ date_from }} → {{ date_to }}</div>
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-bottom:20px">
-  <div class="card" style="padding:16px">
-    <div class="muted" style="font-size:12px">Revenue (This Month)</div>
-    <div style="font-size:22px;font-weight:700;margin-top:4px">₹{{ '%.0f'|format(this_month_revenue) }}</div>
-    {% if revenue_change_pct is not none %}
-    <div style="font-size:12px;margin-top:4px;color:{{ '#22c55e' if revenue_change_pct >= 0 else '#ef4444' }}">
-      {{ '▲' if revenue_change_pct >= 0 else '▼' }} {{ '%.1f'|format(revenue_change_pct|abs) }}% vs last month
-    </div>
-    {% else %}
-    <div class="muted" style="font-size:12px;margin-top:4px">No data last month</div>
-    {% endif %}
+<form method="get" action="/sales/analytics" class="filter-bar" style="margin-bottom:16px">
+  <div class="filter-group">
+    <label>From</label>
+    <input type="date" name="date_from" value="{{ date_from }}">
   </div>
-  <div class="card" style="padding:16px">
-    <div class="muted" style="font-size:12px">Gross Margin (This Month)</div>
-    <div style="font-size:22px;font-weight:700;margin-top:4px">{{ '%.1f'|format(gross_margin_pct) ~ '%' if gross_margin_pct is not none else '—' }}</div>
+  <div class="filter-group">
+    <label>To</label>
+    <input type="date" name="date_to" value="{{ date_to }}">
   </div>
-  <div class="card" style="padding:16px">
-    <div class="muted" style="font-size:12px">Active Tier-A Customers</div>
-    <div style="font-size:22px;font-weight:700;margin-top:4px">{{ active_tier_a_customers }}</div>
-  </div>
-  <div class="card" style="padding:16px">
-    <div class="muted" style="font-size:12px">Unread Anomaly Alerts</div>
-    <a href="/sales/analytics/anomalies" style="font-size:22px;font-weight:700;margin-top:4px;display:block;color:{{ '#ef4444' if unread_alert_count else 'var(--text-strong)' }}">{{ unread_alert_count }}</a>
-  </div>
-</div>
 
-<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:14px;margin-bottom:20px" class="responsive-grid">
-  <div class="card" style="padding:16px">
-    <h3 style="margin-top:0;font-size:14px">Recent Anomaly Alerts</h3>
-    {% if recent_alerts %}
-    <div style="display:flex;flex-direction:column;gap:8px">
-      {% for a in recent_alerts %}
-      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--border-subtle);border-radius:8px;{{ '' if a.is_read else 'background:rgba(239,68,68,0.06)' }}">
-        <div>
-          <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ sev_colors.get(a.severity, '#94a3b8') }}">{{ a.severity }}</span>
-          <span style="font-size:12px;font-weight:600;margin-left:4px">{{ a.alert_type.replace('_',' ')|title }}</span>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">{{ a.detail }}</div>
-        </div>
-      </div>
+  {% if agents %}
+  <div class="ms-wrap" data-name="agent_id" data-placeholder="All agents">
+    <div class="ms-label">Agent</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All agents</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for a in agents %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ a.id }}" onchange="onMsChange(this)" {% if a.id in agent_id %}checked{% endif %}>
+        {{ a.name }}
+      </label>
       {% endfor %}
     </div>
-    {% else %}
-    <div class="muted">No active anomalies.</div>
-    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="ms-wrap" data-name="customer_id" data-placeholder="All customers">
+    <div class="ms-label">Customer</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All customers</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for c in customers %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ c.id }}" onchange="onMsChange(this)" {% if c.id in customer_id %}checked{% endif %}>
+        {{ c.name }}
+      </label>
+      {% endfor %}
+    </div>
   </div>
 
-  <div class="card" style="padding:16px">
-    <h3 style="margin-top:0;font-size:14px">Customers by Tier</h3>
-    {% for t, cnt in customer_tier_dist.items() %}
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px">
-      <span style="width:64px;font-weight:700;color:{{ tier_colors.get(t,'#94a3b8') }}">{{ t }}</span>
-      <div style="flex:1;background:var(--border-subtle);border-radius:6px;height:8px;overflow:hidden">
-        <div style="height:8px;border-radius:6px;background:{{ tier_colors.get(t,'#94a3b8') }};width:{{ (cnt / (customer_tier_dist.values()|sum or 1) * 100)|round(1) }}%"></div>
-      </div>
-      <span style="width:30px;text-align:right">{{ cnt }}</span>
+  <div class="ms-wrap" data-name="category_id" data-placeholder="All categories">
+    <div class="ms-label">Category</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All categories</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for c in categories %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ c.id }}" onchange="onMsChange(this)" {% if c.id in category_id %}checked{% endif %}>
+        {{ c.name }}
+      </label>
+      {% endfor %}
     </div>
-    {% endfor %}
   </div>
 
-  <div class="card" style="padding:16px">
-    <h3 style="margin-top:0;font-size:14px">Products by Tier</h3>
-    {% for t, cnt in product_tier_dist.items() %}
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px">
-      <span style="width:64px;font-weight:700;color:{{ tier_colors.get(t,'#94a3b8') }}">{{ t }}</span>
-      <div style="flex:1;background:var(--border-subtle);border-radius:6px;height:8px;overflow:hidden">
-        <div style="height:8px;border-radius:6px;background:{{ tier_colors.get(t,'#94a3b8') }};width:{{ (cnt / (product_tier_dist.values()|sum or 1) * 100)|round(1) }}%"></div>
-      </div>
-      <span style="width:30px;text-align:right">{{ cnt }}</span>
+  <div class="ms-wrap" data-name="sub_category_id" data-placeholder="All sub categories">
+    <div class="ms-label">Sub Category</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All sub categories</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for sc in subcategories %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ sc.id }}" onchange="onMsChange(this)" {% if sc.id in sub_category_id %}checked{% endif %}>
+        {{ sc.category.name }} / {{ sc.name }}
+      </label>
+      {% endfor %}
     </div>
-    {% endfor %}
+  </div>
+
+  <div class="ms-wrap" data-name="status" data-placeholder="All statuses">
+    <div class="ms-label">Status</div>
+    <button type="button" class="ms-btn" onclick="toggleMs(this)">
+      <span class="ms-btn-text">All statuses</span><span class="ms-caret">▾</span>
+    </button>
+    <div class="ms-panel">
+      {% for s in status_choices %}
+      <label class="ms-item">
+        <input type="checkbox" value="{{ s }}" onchange="onMsChange(this)" {% if s in status %}checked{% endif %}>
+        {{ s.title() }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div style="align-self:flex-end;display:flex;gap:6px">
+    <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+    <a href="/sales/analytics" class="btn btn-gray btn-sm">Clear</a>
+  </div>
+</form>
+
+{% if excluded_no_cost %}
+<div class="alert" style="background:rgba(245,158,11,0.12);color:#f59e0b;margin-bottom:14px;font-size:12.5px">
+  {{ excluded_no_cost }} line item{{ '' if excluded_no_cost == 1 else 's' }} had no cost snapshot yet and {{ 'was' if excluded_no_cost == 1 else 'were' }} counted as ₹0 cost (100% GP) in the totals below.
+</div>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+  <div class="card" style="padding:14px 16px;border-left:3px solid #3b82f6">
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em">Revenue</div>
+    <div style="font-size:22px;font-weight:700;margin-top:6px">₹{{ '%.0f'|format(total_revenue) }}</div>
+  </div>
+  <div class="card" style="padding:14px 16px;border-left:3px solid #94a3b8">
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em">Cost (Avg.)</div>
+    <div style="font-size:22px;font-weight:700;margin-top:6px">₹{{ '%.0f'|format(total_cost) }}</div>
+  </div>
+  <div class="card" style="padding:14px 16px;border-left:3px solid #22c55e">
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em">Gross Profit</div>
+    <div style="font-size:22px;font-weight:700;margin-top:6px">₹{{ '%.0f'|format(total_gp) }}</div>
+  </div>
+  <div class="card" style="padding:14px 16px;border-left:3px solid #f59e0b">
+    <div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em">GP Margin</div>
+    <div style="font-size:22px;font-weight:700;margin-top:6px">{{ '%.1f'|format(total_gp_pct) }}%</div>
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px" class="responsive-grid">
+<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:20px">
   <div class="card" style="padding:16px">
-    <h3 style="margin-top:0;font-size:14px">Top 5 Products (Last 30 Days)</h3>
-    {% if top_products %}
-    <table style="width:100%;font-size:12px;border-collapse:collapse">
-      <tbody>
-        {% for p in top_products %}
-        <tr style="border-bottom:1px solid var(--border-subtle)">
-          <td style="padding:5px 4px">{{ p.name }}</td>
-          <td style="padding:5px 4px;text-align:right;font-weight:600">₹{{ '%.0f'|format(p.revenue or 0) }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}<div class="muted">No order data in the last 30 days.</div>{% endif %}
+    <h3 style="margin:0 0 10px;font-size:13px;color:var(--text-faint);letter-spacing:.03em">REVENUE vs GROSS PROFIT OVER TIME</h3>
+    <canvas id="gpTrendChart" height="140"></canvas>
   </div>
   <div class="card" style="padding:16px">
-    <h3 style="margin-top:0;font-size:14px">Top 5 Customers (Last 30 Days)</h3>
-    {% if top_customers %}
-    <table style="width:100%;font-size:12px;border-collapse:collapse">
-      <tbody>
-        {% for c in top_customers %}
-        <tr style="border-bottom:1px solid var(--border-subtle)">
-          <td style="padding:5px 4px">{{ c.name }}</td>
-          <td style="padding:5px 4px;text-align:right;font-weight:600">₹{{ '%.0f'|format(c.value or 0) }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}<div class="muted">No order data in the last 30 days.</div>{% endif %}
+    <h3 style="margin:0 0 10px;font-size:13px;color:var(--text-faint);letter-spacing:.03em">TOP 10 SKUS BY GP</h3>
+    <canvas id="gpSkuChart" height="140"></canvas>
   </div>
 </div>
+
+<div class="card" style="padding:16px;margin-bottom:20px">
+  <h3 style="margin:0 0 10px;font-size:13px;color:var(--text-faint);letter-spacing:.03em">TOP 10 CLIENTS BY GP</h3>
+  <canvas id="gpClientChart" height="90"></canvas>
+</div>
+
+<div style="display:inline-flex;align-items:center;background:var(--bg-input);border:1px solid var(--border-med);border-radius:99px;padding:3px;gap:2px;margin-bottom:16px">
+  <button type="button" class="gp-seg gp-seg-active" id="gp-tab-order-btn" onclick="gpSetTab('order')">Order Level</button>
+  <button type="button" class="gp-seg" id="gp-tab-sku-btn" onclick="gpSetTab('sku')">SKU Level</button>
+  <button type="button" class="gp-seg" id="gp-tab-client-btn" onclick="gpSetTab('client')">Client Level</button>
+</div>
+
+<div id="gp-tab-order" class="card" style="padding:0;overflow:hidden">
+  {% if order_rows %}
+  <table class="table" style="width:100%">
+    <thead><tr><th>Order</th><th>Customer</th><th>Agent</th><th>Date</th><th>Revenue</th><th>Cost</th><th>GP</th><th>GP %</th><th></th></tr></thead>
+    <tbody>
+      {% for o in order_rows %}
+      <tr>
+        <td style="font-weight:600;color:#60a5fa">{{ o.display_id }}</td>
+        <td>{{ o.customer }}
+          {% if o.customer_tier %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(o.customer_tier, '#94a3b8') }};margin-left:4px">{{ o.customer_tier }}</span>{% endif %}
+        </td>
+        <td>{{ o.agent }}</td>
+        <td style="color:var(--text-faint)">{{ o.created | ist('%d %b %Y') if o.created else '—' }}</td>
+        <td>₹{{ '%.0f'|format(o.revenue) }}</td>
+        <td style="color:var(--text-muted)">₹{{ '%.0f'|format(o.cost) }}</td>
+        <td style="font-weight:600;color:{{ '#22c55e' if o.gp >= 0 else '#ef4444' }}">₹{{ '%.0f'|format(o.gp) }}</td>
+        <td style="color:{{ '#22c55e' if o.gp_pct >= 0 else '#ef4444' }}">{{ '%.1f'|format(o.gp_pct) }}%</td>
+        <td><button type="button" class="btn btn-xs btn-outline" onclick="openGpDetail('order', '{{ o.id }}')">🔍 Cost</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="text-align:center;padding:50px 0;color:var(--text-faint)">No orders match these filters.</div>
+  {% endif %}
+</div>
+
+<div id="gp-tab-sku" class="card" style="padding:0;overflow:hidden;display:none">
+  {% if sku_rows %}
+  <table class="table" style="width:100%">
+    <thead><tr><th>Product</th><th>SKU</th><th>Tier</th><th>Qty Sold</th><th>Revenue</th><th>Cost</th><th>GP</th><th>GP %</th><th></th></tr></thead>
+    <tbody>
+      {% for s in sku_rows %}
+      <tr>
+        <td style="font-weight:600">{{ s.product_name }} — {{ s.label }}</td>
+        <td style="color:var(--text-faint);font-size:12px">{{ s.sku_code }}</td>
+        <td><span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(s.tier, '#94a3b8') }}">{{ s.tier }}</span></td>
+        <td>{{ '%.1f'|format(s.qty) }}</td>
+        <td>₹{{ '%.0f'|format(s.revenue) }}</td>
+        <td style="color:var(--text-muted)">₹{{ '%.0f'|format(s.cost) }}</td>
+        <td style="font-weight:600;color:{{ '#22c55e' if s.gp >= 0 else '#ef4444' }}">₹{{ '%.0f'|format(s.gp) }}</td>
+        <td style="color:{{ '#22c55e' if s.gp_pct >= 0 else '#ef4444' }}">{{ '%.1f'|format(s.gp_pct) }}%</td>
+        <td><button type="button" class="btn btn-xs btn-outline" onclick="openGpDetail('sku', '{{ s.id }}')">🔍 Cost</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="text-align:center;padding:50px 0;color:var(--text-faint)">No SKUs match these filters.</div>
+  {% endif %}
+</div>
+
+<div id="gp-tab-client" class="card" style="padding:0;overflow:hidden;display:none">
+  {% if client_rows %}
+  <table class="table" style="width:100%">
+    <thead><tr><th>Client</th><th>Tier</th><th>Orders</th><th>Revenue</th><th>Cost</th><th>GP</th><th>GP %</th><th></th></tr></thead>
+    <tbody>
+      {% for c in client_rows %}
+      <tr>
+        <td style="font-weight:600">{{ c.name }}</td>
+        <td><span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(c.tier, '#94a3b8') }}">{{ c.tier }}</span></td>
+        <td>{{ c.order_count }}</td>
+        <td>₹{{ '%.0f'|format(c.revenue) }}</td>
+        <td style="color:var(--text-muted)">₹{{ '%.0f'|format(c.cost) }}</td>
+        <td style="font-weight:600;color:{{ '#22c55e' if c.gp >= 0 else '#ef4444' }}">₹{{ '%.0f'|format(c.gp) }}</td>
+        <td style="color:{{ '#22c55e' if c.gp_pct >= 0 else '#ef4444' }}">{{ '%.1f'|format(c.gp_pct) }}%</td>
+        <td><button type="button" class="btn btn-xs btn-outline" onclick="openGpDetail('client', '{{ c.id }}')">🔍 Cost</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="text-align:center;padding:50px 0;color:var(--text-faint)">No clients match these filters.</div>
+  {% endif %}
+</div>
+
+<style>
+.gp-seg{padding:6px 14px;border-radius:99px;font-size:12px;font-weight:600;border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-family:inherit}
+.gp-seg-active{background:var(--accent);color:#fff}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+function gpSetTab(tab) {
+  ['order', 'sku', 'client'].forEach(t => {
+    document.getElementById(`gp-tab-${t}`).style.display = t === tab ? '' : 'none';
+    document.getElementById(`gp-tab-${t}-btn`).classList.toggle('gp-seg-active', t === tab);
+  });
+}
+
+const gpGridColor = 'rgba(255,255,255,0.08)';
+const gpTextColor = getComputedStyle(document.documentElement).getPropertyValue('--text-muted') || '#94a3b8';
+
+new Chart(document.getElementById('gpTrendChart'), {
+  type: 'line',
+  data: {
+    labels: {{ trend_labels|tojson }},
+    datasets: [
+      { label: 'Revenue', data: {{ trend_revenue|tojson }}, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.12)', fill: true, tension: 0.3 },
+      { label: 'Gross Profit', data: {{ trend_gp|tojson }}, borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.12)', fill: true, tension: 0.3 },
+    ],
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { labels: { color: gpTextColor } } },
+    scales: {
+      x: { ticks: { color: gpTextColor }, grid: { color: gpGridColor } },
+      y: { ticks: { color: gpTextColor }, grid: { color: gpGridColor } },
+    },
+  },
+});
+
+new Chart(document.getElementById('gpSkuChart'), {
+  type: 'bar',
+  data: {
+    labels: {{ top_sku_labels|tojson }},
+    datasets: [{ label: 'GP (₹)', data: {{ top_sku_gp|tojson }}, backgroundColor: '#3b82f6' }],
+  },
+  options: {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: gpTextColor }, grid: { color: gpGridColor } },
+      y: { ticks: { color: gpTextColor, font: { size: 10 } }, grid: { color: gpGridColor } },
+    },
+  },
+});
+
+new Chart(document.getElementById('gpClientChart'), {
+  type: 'bar',
+  data: {
+    labels: {{ top_client_labels|tojson }},
+    datasets: [{ label: 'GP (₹)', data: {{ top_client_gp|tojson }}, backgroundColor: '#22c55e' }],
+  },
+  options: {
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: gpTextColor }, grid: { color: gpGridColor } },
+      y: { ticks: { color: gpTextColor }, grid: { color: gpGridColor } },
+    },
+  },
+});
+</script>
+
+<!-- ── FIFO cost breakdown / manual override modal (2026-07) ──────────────── -->
+<div id="gp-detail-backdrop" onclick="if(event.target===this)closeGpDetail()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border-radius:12px;padding:22px;width:100%;max-width:720px;max-height:85vh;overflow-y:auto;margin:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 id="gp-detail-title" style="margin:0;font-size:15px">How was this cost calculated?</h3>
+      <button type="button" onclick="closeGpDetail()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+
+    <div style="margin-bottom:16px">
+      <h4 style="font-size:12px;color:var(--text-faint);letter-spacing:.03em;margin:0 0 8px">FIFO LOT BREAKDOWN (auto)</h4>
+      <table class="table" style="width:100%;font-size:12.5px">
+        <thead><tr><th>Source PO</th><th>Received</th><th>Qty Used</th><th>Unit Cost</th></tr></thead>
+        <tbody id="gp-detail-lots"></tbody>
+      </table>
+      <div id="gp-detail-weighted-avg" style="margin-top:8px;font-size:13px;font-weight:600"></div>
+      <div id="gp-detail-fallback-note" class="muted" style="font-size:11.5px;margin-top:4px;display:none">Rows marked "pre-FIFO" are units received before lot tracking existed — costed at the tenant's average cost at the time.</div>
+    </div>
+
+    <div>
+      <h4 style="font-size:12px;color:var(--text-faint);letter-spacing:.03em;margin:0 0 8px">LINE ITEMS (editable)</h4>
+      <table class="table" style="width:100%;font-size:12.5px">
+        <thead><tr><th>Order</th><th>Product</th><th>Qty</th><th>Auto Cost</th><th>Override Cost</th><th></th></tr></thead>
+        <tbody id="gp-detail-items"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let gpDetailLevel = null, gpDetailId = null;
+
+function gpCurrentFilterQuery() {
+  const params = new URLSearchParams();
+  const df = document.querySelector('input[name="date_from"]');
+  const dt = document.querySelector('input[name="date_to"]');
+  if (df && df.value) params.set('date_from', df.value);
+  if (dt && dt.value) params.set('date_to', dt.value);
+  document.querySelectorAll('.ms-wrap').forEach(wrap => {
+    const name = wrap.getAttribute('data-name');
+    wrap.querySelectorAll('input[type="checkbox"]:checked').forEach(chk => params.append(name, chk.value));
+  });
+  return params.toString();
+}
+
+function openGpDetail(level, id) {
+  gpDetailLevel = level; gpDetailId = id;
+  const titleMap = { order: 'Order', sku: 'SKU', client: 'Client' };
+  document.getElementById('gp-detail-title').textContent = `How was this cost calculated? (${titleMap[level]} level)`;
+  loadGpDetail();
+  document.getElementById('gp-detail-backdrop').style.display = 'flex';
+}
+function closeGpDetail() {
+  document.getElementById('gp-detail-backdrop').style.display = 'none';
+}
+
+async function loadGpDetail() {
+  const qs = gpCurrentFilterQuery();
+  const res = await fetch(`/sales/analytics/api/fifo-breakdown?level=${gpDetailLevel}&id=${gpDetailId}&${qs}`);
+  const d = await res.json();
+
+  const lotsBody = document.getElementById('gp-detail-lots');
+  let anyFallback = false;
+  lotsBody.innerHTML = d.lots.map(l => {
+    if (l.is_fallback) anyFallback = true;
+    return `<tr>
+      <td>${l.is_fallback ? '<span class="muted">pre-FIFO avg</span>' : (l.po_display_id || '—')}</td>
+      <td style="color:var(--text-faint)">${l.received_at || '—'}</td>
+      <td>${l.qty.toFixed(2)}</td>
+      <td>₹${l.unit_cost.toFixed(2)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4" class="muted">No consumption recorded yet.</td></tr>';
+  document.getElementById('gp-detail-weighted-avg').textContent = `Weighted average cost: ₹${d.weighted_avg_cost.toFixed(2)} / unit`;
+  document.getElementById('gp-detail-fallback-note').style.display = anyFallback ? '' : 'none';
+
+  const itemsBody = document.getElementById('gp-detail-items');
+  itemsBody.innerHTML = d.items.map(it => `
+    <tr>
+      <td style="color:#60a5fa">${it.order_display_id}</td>
+      <td>${it.product_name} — ${it.variant_label}</td>
+      <td>${it.qty.toFixed(2)}</td>
+      <td class="muted">${it.auto_cost != null ? '₹' + it.auto_cost.toFixed(2) : '—'}</td>
+      <td><input type="number" step="0.01" id="gp-ov-${it.order_item_id}" value="${it.override_cost != null ? it.override_cost : ''}" placeholder="auto" style="width:90px;background:var(--bg-input);border:1px solid var(--border-med);border-radius:6px;padding:5px 8px;font-size:12px;color:var(--text-primary)"></td>
+      <td><button type="button" class="btn btn-xs btn-primary" onclick="saveGpOverride('${it.order_item_id}')">Save</button></td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">No line items match the current filters.</td></tr>';
+}
+
+async function saveGpOverride(orderItemId) {
+  const input = document.getElementById(`gp-ov-${orderItemId}`);
+  const fd = new FormData();
+  fd.append('order_item_id', orderItemId);
+  fd.append('cost', input.value);
+  const res = await fetch('/sales/analytics/api/override-cost', { method: 'POST', body: fd });
+  if (!res.ok) { alert('Could not save override'); return; }
+  window.location.reload();
+}
+</script>
 {% endblock %}

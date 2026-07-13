@@ -1625,6 +1625,63 @@ class StockLedgerEntry(Base):
     actor   = relationship("User", foreign_keys=[actor_id])
 
 
+class StockLot(Base):
+    """
+    FIFO cost lot (2026-07) — one row per physical stock-receipt event
+    (a PO receipt, or a manual stock-in with a known unit cost). Unlike
+    ProductStock.avg_cost (a single blended moving average), each lot keeps
+    its own unit_cost and qty_remaining so order confirmation can consume
+    the OLDEST open lots first (true First-In-First-Out) instead of a single
+    tenant-wide average.
+
+    qty_remaining is decremented as lots are consumed (see
+    sales_inventory.consume_fifo_for_item) and incremented back if the
+    consuming order is cancelled/released (see release_fifo_for_item).
+    Lots created before this feature shipped don't exist — stock received
+    prior to this change has no lot history, so consumption for those units
+    falls back to ProductStock.avg_cost (see consume_fifo_for_item's
+    fallback branch, flagged via FifoConsumption.is_fallback).
+    """
+    __tablename__ = "stock_lots"
+    id            = Column(String,  primary_key=True, default=new_id)
+    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    variant_id    = Column(String,  ForeignKey("product_variants.id"), nullable=False)
+    po_id         = Column(String,  ForeignKey("inventory_purchase_orders.id"), nullable=True)
+    unit_cost     = Column(Float,   nullable=False)
+    qty_received  = Column(Float,   nullable=False)
+    qty_remaining = Column(Float,   nullable=False)
+    received_at   = Column(DateTime, default=datetime.utcnow)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+    tenant  = relationship("Tenant")
+    variant = relationship("ProductVariant")
+    po      = relationship("InventoryPurchaseOrder")
+
+
+class FifoConsumption(Base):
+    """
+    Records exactly which StockLot(s) — and how much of each — a SalesOrderItem
+    drew on at reservation time. This is the audit trail behind Sales
+    Insights' "how was this cost calculated?" breakdown, and behind
+    SalesOrderItem.cost_snapshot (which is the qty-weighted average of these
+    rows). lot_id is NULL when qty was covered by the pre-FIFO avg_cost
+    fallback (is_fallback=True) rather than a tracked lot.
+    """
+    __tablename__ = "fifo_consumptions"
+    id             = Column(String,  primary_key=True, default=new_id)
+    tenant_id      = Column(String,  ForeignKey("tenants.id"), nullable=False)
+    order_item_id  = Column(String,  ForeignKey("sales_order_items.id"), nullable=False)
+    lot_id         = Column(String,  ForeignKey("stock_lots.id"), nullable=True)
+    qty            = Column(Float,   nullable=False)
+    unit_cost      = Column(Float,   nullable=False)
+    is_fallback    = Column(Boolean, default=False)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
+    tenant     = relationship("Tenant")
+    order_item = relationship("SalesOrderItem")
+    lot        = relationship("StockLot")
+
+
 class InventoryPurchaseOrder(Base):
     """
     Tracks incoming stock from vendors (in-transit).
@@ -1908,6 +1965,16 @@ class SalesOrderItem(Base):
     override_reason       = Column(Text,    nullable=True)
     approval_status       = Column(String,  nullable=True)
     cost_snapshot         = Column(Float,   nullable=True)
+    # 2026-07 FIFO redesign: cost_snapshot above is now auto-computed as the
+    # qty-weighted average of the FifoConsumption rows for this item (see
+    # sales_inventory.consume_fifo_for_item). cost_snapshot_override lets a
+    # user correct that auto value for GP reporting without touching actual
+    # stock lots/balances — when set, Sales Insights uses it instead of
+    # cost_snapshot everywhere.
+    cost_snapshot_override = Column(Float,    nullable=True)
+    cost_override_note     = Column(Text,     nullable=True)
+    cost_override_by_id    = Column(String,   ForeignKey("users.id"), nullable=True)
+    cost_override_at       = Column(DateTime, nullable=True)
     qty_dispatched        = Column(Float,   default=0.0)
     line_total            = Column(Float,   default=0.0)
     stock_status          = Column(String,  nullable=True)

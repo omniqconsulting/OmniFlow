@@ -23,12 +23,15 @@ from .database import (
     get_db, new_id, User, Customer, Product, ProductVariant, UnitOfMeasure, ProductStock,
     InventoryPurchaseOrder, InventoryPOItem, SalesOrder, SalesOrderItem,
     PriceList, PriceListItem, CustomerPriceOverride, Branch, MediaUpload, SalesTarget,
-    SalesTargetHistory,
+    SalesTargetHistory, Category, SubCategory,
 )
 from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
-from .sales_inventory import reserve_stock_for_item, release_all_reservations, fulfill_reservation, dispatch_stock_allocation
+from .sales_inventory import (
+    reserve_stock_for_item, release_all_reservations, fulfill_reservation, dispatch_stock_allocation,
+    consume_fifo_for_item,
+)
 from .constants import SALES_MARGIN_FLOOR_PCT, BULK_IMPORT_MAX_ROWS
 from .bulk_common import check_required_headers
 from .uploads import save_upload
@@ -371,11 +374,25 @@ def orders_list(
     total = q.count()
     orders = q.offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).all()
 
+    # Redesign (2026-07): KPI strip counts, scoped the same way as the list
+    # (agent-restricted for non-admin/manager) but ignoring the status/search
+    # filters so the tiles always show the full breakdown.
+    kpi_base = db.query(SalesOrder).filter(
+        SalesOrder.tenant_id == user.tenant_id, SalesOrder.is_deleted == False,
+    )
+    if user.role not in ("ADMIN", "MANAGER"):
+        kpi_base = kpi_base.filter(SalesOrder.agent_id == user.id)
+    elif agent_id:
+        kpi_base = kpi_base.filter(SalesOrder.agent_id.in_(agent_id))
+    status_counts = {s: kpi_base.filter(SalesOrder.status == s).count() for s in STATUS_CHOICES}
+
     return templates.TemplateResponse(request, "sales/orders_list.html", _ctx(
         db, user,
         orders=orders, total=total, page=page, page_size=PAGE_SIZE,
         status=status, status_choices=STATUS_CHOICES,
         search=search, agent_id=agent_id, agents=agents,
+        status_counts=status_counts,
+        can_dispatch=(user.role in ("ADMIN", "MANAGER") or has_module(user, "INVENTORY")),
     ))
 
 
@@ -416,9 +433,29 @@ def order_new_form(
     )
     products = [p for p in products if any(v.is_active and not v.is_deleted for v in p.variants)]
 
+    # Redesign (2026-07): product-level picker needs each variant's stock
+    # KPIs (in stock / in transit / already booked) and each product's
+    # category for the new top-of-panel category/sub-category filter.
+    all_variant_ids = [v.id for p in products for v in p.variants if v.is_active and not v.is_deleted]
+    stock_by_variant = {
+        s.variant_id: s for s in db.query(ProductStock).filter(
+            ProductStock.tenant_id == user.tenant_id,
+            ProductStock.variant_id.in_(all_variant_ids),
+            ProductStock.branch_id.is_(None),
+        ).all()
+    } if all_variant_ids else {}
+
+    categories = db.query(Category).filter(
+        Category.tenant_id == user.tenant_id, Category.is_active == True, Category.is_deleted == False,
+    ).order_by(Category.name).all()
+    subcategories = db.query(SubCategory).filter(
+        SubCategory.tenant_id == user.tenant_id, SubCategory.is_active == True, SubCategory.is_deleted == False,
+    ).order_by(SubCategory.name).all()
+
     return templates.TemplateResponse(request, "sales/order_builder.html", _ctx(
         db, user, customer=customer, customers=customers, call_log_id=call_log_id, products=products,
         agents=_sales_agents(db, user.tenant_id), branches=_active_branches(db, user.tenant_id),
+        stock_by_variant=stock_by_variant, categories=categories, subcategories=subcategories,
     ))
 
 
@@ -436,11 +473,44 @@ def order_customer_defaults_api(
     if not customer:
         return JSONResponse({"error": "not found"}, status_code=404)
     price_list = db.query(PriceList).filter(PriceList.id == customer.price_list_id).first() if customer.price_list_id else None
+
+    # Redesign (2026-07): New Order sidebar — last order + recently ordered
+    # products for the selected customer, computed from SalesOrder history
+    # (there's no stored "last order" field on Customer itself).
+    last_order = db.query(SalesOrder).filter(
+        SalesOrder.customer_id == customer.id, SalesOrder.tenant_id == user.tenant_id,
+        SalesOrder.is_deleted == False,
+    ).order_by(SalesOrder.created_at.desc()).first()
+
+    recent_orders = db.query(SalesOrder).filter(
+        SalesOrder.customer_id == customer.id, SalesOrder.tenant_id == user.tenant_id,
+        SalesOrder.is_deleted == False,
+    ).order_by(SalesOrder.created_at.desc()).limit(5).all()
+    recent_products, seen = [], set()
+    for o in recent_orders:
+        for item in o.items:
+            name = item.variant.product.name if item.variant and item.variant.product else None
+            if name and name not in seen:
+                seen.add(name)
+                recent_products.append(name)
+            if len(recent_products) >= 5:
+                break
+        if len(recent_products) >= 5:
+            break
+
     return JSONResponse({
         "default_payment_terms": customer.default_payment_terms,
         "price_list_id": customer.price_list_id,
         "price_list_name": price_list.name if price_list else None,
         "shipping_address": customer.shipping_address,
+        "name": customer.name,
+        "phone": customer.phone,
+        "tier": customer.customer_tier,
+        "last_order": (
+            f"{last_order.created_at.strftime('%d %b %Y')} · ₹{last_order.total_amount or 0:.0f}"
+            if last_order and last_order.created_at else None
+        ),
+        "recent_products": recent_products,
     })
 
 
@@ -643,6 +713,75 @@ def order_detail(
         can_dispatch=(user.role in ("ADMIN", "MANAGER") or has_module(user, "INVENTORY")),
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))
+
+
+@router.get("/sales/orders/api/quick-view/{order_id}")
+def order_quick_view_api(
+    order_id: str,
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    """Redesign (2026-07): backs the All Orders quick-view drawer."""
+    order = get_order_or_404(db, order_id, user.tenant_id)
+    if not _can_view_order(user, order):
+        raise HTTPException(403, "Not your order")
+    tier_colors = {"A": "#22c55e", "B": "#3b82f6", "C": "#f59e0b", "D": "#ef4444", "UNRANKED": "#94a3b8"}
+    return JSONResponse({
+        "id": order.id,
+        "displayId": order.display_id or order.id[:8],
+        "customer": order.customer.name if order.customer else "—",
+        "tier": order.customer.customer_tier if order.customer else "UNRANKED",
+        "tierColor": tier_colors.get(order.customer.customer_tier if order.customer else "UNRANKED", "#94a3b8"),
+        "agent": order.agent.name if order.agent else "—",
+        "status": order.status,
+        "total": f"{order.total_amount or 0:.0f}",
+        "items": len(order.items),
+        "created": order.created_at.strftime("%d %b %Y") if order.created_at else "—",
+        "canDuplicate": _can_view_order(user, order),
+        # 2026-07: lets the quick-view drawer render the right status-change
+        "canDispatch": user.role in ("ADMIN", "MANAGER") or has_module(user, "INVENTORY"),
+    })
+
+
+@router.post("/sales/orders/{order_id}/duplicate")
+def order_duplicate(
+    order_id: str,
+    user: User = Depends(_require_sales),
+    db: Session = Depends(get_db),
+):
+    """Redesign (2026-07): "Duplicate" action in the All Orders quick-view
+    drawer — clones the header and line items into a fresh DRAFT order."""
+    source = get_order_or_404(db, order_id, user.tenant_id)
+    if not _can_view_order(user, source):
+        raise HTTPException(403, "Not your order")
+
+    new_order = SalesOrder(
+        display_id=generate_order_display_id(db, user.tenant_id),
+        tenant_id=user.tenant_id,
+        customer_id=source.customer_id,
+        agent_id=source.agent_id,
+        status="DRAFT",
+        payment_terms=source.payment_terms,
+        delivery_address=source.delivery_address,
+        branch_id=source.branch_id,
+        notes=source.notes,
+    )
+    db.add(new_order)
+    db.flush()
+
+    for item in source.items:
+        db.add(SalesOrderItem(
+            order_id=new_order.id,
+            tenant_id=user.tenant_id,
+            variant_id=item.variant_id,
+            qty_ordered=item.qty_ordered,
+            unit_id=item.unit_id,
+            unit_price=item.unit_price,
+            price_source=item.price_source,
+            line_total=item.qty_ordered * item.unit_price,
+        ))
+    db.commit()
+    return RedirectResponse(f"/sales/orders/{new_order.id}?msg=Duplicated+as+new+draft", status_code=303)
 
 
 @router.get("/sales/orders/api/resolve-price")
@@ -972,12 +1111,6 @@ def order_confirm(
         return _err("Order has items pending Manager price approval")
 
     for item in order.items:
-        stock = db.query(ProductStock).filter(
-            ProductStock.variant_id == item.variant_id, ProductStock.tenant_id == user.tenant_id,
-            ProductStock.branch_id.is_(None),
-        ).first()
-        item.cost_snapshot = stock.avg_cost if stock else None
-
         result = reserve_stock_for_item(
             db, item.variant_id, order.id, item.id,
             item.qty_ordered, user.id, user.tenant_id,
@@ -985,9 +1118,23 @@ def order_confirm(
 
         if result["success"]:
             item.stock_status = "AVAILABLE"
+            # FIFO redesign (2026-07): units are allotted from the oldest
+            # open PO lots first (requirement #1/#2/#3) — cost_snapshot is
+            # the resulting qty-weighted average across whichever lots were
+            # drawn on, not a single tenant-wide avg_cost.
+            item.cost_snapshot = consume_fifo_for_item(
+                db, user.tenant_id, item.variant_id, item.id, item.qty_ordered,
+            )
         else:
             item.stock_status = "UNAVAILABLE"
             item.in_transit_arrival = result.get("in_transit_date")
+            # No physical units were allotted (insufficient stock) — nothing
+            # to draw from lots. Best-effort estimate for GP purposes only.
+            stock = db.query(ProductStock).filter(
+                ProductStock.variant_id == item.variant_id, ProductStock.tenant_id == user.tenant_id,
+                ProductStock.branch_id.is_(None),
+            ).first()
+            item.cost_snapshot = stock.avg_cost if stock else None
 
     order.total_amount = sum(i.line_total for i in order.items)
     order.total_cost = sum((i.cost_snapshot or 0) * i.qty_ordered for i in order.items)
@@ -1018,13 +1165,19 @@ def order_confirm(
 @router.post("/sales/orders/{order_id}/cancel")
 def order_cancel(
     order_id: str,
-    cancellation_reason: str = Form(""),
+    cancellation_reason: str = Form(...),
     user: User = Depends(_require_sales),
     db: Session = Depends(get_db),
 ):
     order = get_order_or_404(db, order_id, user.tenant_id)
     if not _can_view_order(user, order):
         raise HTTPException(403, "Not your order")
+
+    # 2026-07: a reason is now compulsory for every cancellation — it's
+    # part of the permanent order record (order.cancellation_reason),
+    # not optional context.
+    if not cancellation_reason.strip():
+        return _redir(f"/sales/orders/{order_id}?err=A+cancellation+reason+is+required")
 
     if order.status not in ("DRAFT", "CONFIRMED"):
         return _redir(f"/sales/orders/{order_id}?err=Order+cannot+be+cancelled+in+its+current+status")
@@ -1036,7 +1189,7 @@ def order_cancel(
 
     order.status = "CANCELLED"
     order.cancelled_at = datetime.utcnow()
-    order.cancellation_reason = cancellation_reason.strip() or None
+    order.cancellation_reason = cancellation_reason.strip()
     order.updated_at = datetime.utcnow()
     db.commit()
     return _redir(f"/sales/orders/{order_id}?msg=Order+cancelled")

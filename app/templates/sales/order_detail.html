@@ -17,6 +17,9 @@
       {% if order.branch %} · {{ L.Branch }}: {{ order.branch.name }}{% endif %}</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% if order.status == 'CONFIRMED' and can_dispatch %}
+    <a href="/inventory-v2/dispatch-queue#order-{{ order.id }}" class="btn btn-sm btn-outline">🚚 View in Dispatch Queue</a>
+    {% endif %}
     <a href="/sales/orders" class="btn btn-sm btn-outline">Back to Orders</a>
   </div>
 </div>
@@ -69,8 +72,13 @@
       {% for item in order.items %}
       <tr style="border-bottom:1px solid var(--border-subtle)">
         <td style="padding:6px 8px">{% with variant=item.variant %}{% include "components/product_thumb.html" %}{% endwith %}</td>
-        <td style="padding:6px 8px">{{ (item.variant.product.name + ' — ' + item.variant.sku_code) if item.variant and item.variant.product else (item.variant.sku_code if item.variant else '—') }}
-          {% if item.variant %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(item.variant.product_tier, '#94a3b8') }};margin-left:4px">{{ item.variant.product_tier }}</span>{% endif %}
+        <td style="padding:6px 8px">
+          {% if item.variant %}
+          <div>{{ item.variant.product.name if item.variant.product else '—' }}{% if item.variant.variant_label %} — {{ item.variant.variant_label }}{% endif %}</div>
+          <div class="muted" style="font-size:10px">SKU: {{ item.variant.sku_code }}</div>
+          <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(item.variant.product_tier, '#94a3b8') }};margin-right:4px">{{ item.variant.product_tier }}</span>
+          <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ '#22c55e' if item.variant.is_active else '#94a3b8' }}">{{ 'Active' if item.variant.is_active else 'Inactive' }}</span>
+          {% else %}—{% endif %}
         </td>
         <td style="padding:6px 8px">{{ item.qty_ordered }}{% if item.qty_dispatched %} <span class="muted" style="font-size:11px">({{ item.qty_dispatched }} dispatched)</span>{% endif %}</td>
         <td style="padding:6px 8px">₹{{ '%.2f'|format(item.unit_price) }}</td>
@@ -134,15 +142,15 @@
   <form method="post" action="/sales/orders/{{ order.id }}/confirm">
     <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Confirm this order? Stock will be reserved.')">Confirm Order</button>
   </form>
-  <form method="post" action="/sales/orders/{{ order.id }}/cancel" style="display:flex;gap:6px">
-    <input type="hidden" name="cancellation_reason" value="Cancelled from draft">
+  <form method="post" action="/sales/orders/{{ order.id }}/cancel" style="display:flex;gap:6px;align-items:center">
+    <input type="text" name="cancellation_reason" placeholder="Reason for cancellation *" required style="font-size:12px">
     <button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Cancel this order?')">Cancel</button>
   </form>
   {% endif %}
 
   {% if order.status == 'CONFIRMED' %}
   <form method="post" action="/sales/orders/{{ order.id }}/cancel" style="display:flex;gap:6px;align-items:center">
-    <input type="text" name="cancellation_reason" placeholder="Reason for cancellation" style="font-size:12px">
+    <input type="text" name="cancellation_reason" placeholder="Reason for cancellation *" required style="font-size:12px">
     <button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Cancel this order? All reservations will be released.')">Cancel Order</button>
   </form>
   {% if can_dispatch %}
@@ -152,7 +160,7 @@
   {% endif %}
   {% endif %}
 
-  {% if order.status == 'DISPATCHED' and can_edit %}
+  {% if order.status == 'DISPATCHED' %}
   <form method="post" action="/sales/orders/{{ order.id }}/deliver">
     <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Mark this order as delivered?')">Mark Delivered</button>
   </form>

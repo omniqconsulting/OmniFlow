@@ -25,7 +25,8 @@
   <table style="width:100%;font-size:13px;border-collapse:collapse">
     <thead>
       <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
-        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
+        <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Variant</th><th style="padding:6px 8px">SKU</th>
+        <th style="padding:6px 8px">Status</th>
         <th style="padding:6px 8px">Qty Requested</th><th style="padding:6px 8px">Requested By</th>
         <th style="padding:6px 8px">Date</th><th style="padding:6px 8px">Notes</th><th style="padding:6px 8px"></th>
       </tr>
@@ -34,7 +35,11 @@
       {% for pr in purchase_requests %}
       <tr style="border-bottom:1px solid var(--border-subtle)">
         <td style="padding:6px 8px">{{ pr.variant.product.name if pr.variant and pr.variant.product else '—' }}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)">{{ pr.variant.variant_label if pr.variant and pr.variant.variant_label else '—' }}</td>
         <td style="padding:6px 8px;color:var(--text-faint)">{{ pr.variant.sku_code if pr.variant else '—' }}</td>
+        <td style="padding:6px 8px">
+          {% if pr.variant %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ '#22c55e' if pr.variant.is_active else '#94a3b8' }}">{{ 'Active' if pr.variant.is_active else 'Inactive' }}</span>{% else %}—{% endif %}
+        </td>
         <td style="padding:6px 8px">{{ pr.qty_requested if pr.qty_requested is not none else '—' }}</td>
         <td style="padding:6px 8px">{{ pr.requested_by.name if pr.requested_by else '—' }}</td>
         <td style="padding:6px 8px;color:var(--text-faint)">{{ pr.created_at | ist('%d %b %Y') if pr.created_at else '—' }}</td>
@@ -210,6 +215,7 @@ document.getElementById('receiveResultModal').querySelector('.modal-body').inner
     <thead>
       <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
         <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">SKU</th>
+        <th style="padding:6px 8px">Status</th>
         <th style="padding:6px 8px">Received</th>
         <th style="padding:6px 8px">Old Stock</th><th style="padding:6px 8px">New Stock</th>
       </tr>
@@ -223,7 +229,7 @@ document.getElementById('receiveResultModal').querySelector('.modal-body').inner
 
 <script>
 // ── New PO line items ──
-const PO_VARIANTS = [{% for v in variants %}{id: {{ v.id | tojson }}, name: {{ ((v.product.name if v.product else '') + ' — ' + v.sku_code) | tojson }}},{% endfor %}];
+const PO_VARIANTS = [{% for v in variants %}{id: {{ v.id | tojson }}, name: {{ ((v.product.name if v.product else '') + (' — ' + v.variant_label if v.variant_label else '') + ' — ' + v.sku_code + (' (Inactive)' if not v.is_active else '')) | tojson }}},{% endfor %}];
 const PO_UNITS = [{% for u in units %}{id: {{ u.id | tojson }}, abbr: {{ u.abbreviation | tojson }}},{% endfor %}];
 
 function addPORow(presetVariantId) {
@@ -258,7 +264,7 @@ const POS = {
       {% if remaining > 0 %}
       {
         item_id: {{ item.id | tojson }},
-        label: {{ ((item.variant.product.name if item.variant and item.variant.product else '') + ' — ' + (item.variant.sku_code if item.variant else '')) | tojson }},
+        label: {{ ((item.variant.product.name if item.variant and item.variant.product else '') + (' — ' + item.variant.variant_label if item.variant and item.variant.variant_label else '') + ' — ' + (item.variant.sku_code if item.variant else '') + (' (Inactive)' if item.variant and not item.variant.is_active else '')) | tojson }},
         ordered: {{ item.qty_ordered }},
         received: {{ item.qty_received }},
         remaining: {{ remaining }},
@@ -308,9 +314,11 @@ document.getElementById('receiveForm').addEventListener('submit', async function
   closeModal('receiveModal');
   const tbody = document.getElementById('receiveResultBody');
   tbody.innerHTML = d.rows.map(function(r) {
+    const statusBadge = '<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:' + (r.is_active ? '#22c55e' : '#94a3b8') + '">' + (r.is_active ? 'Active' : 'Inactive') + '</span>';
     return '<tr style="border-bottom:1px solid var(--border-subtle)">' +
-      '<td style="padding:6px 8px">' + r.product_name + '</td>' +
+      '<td style="padding:6px 8px">' + r.product_name + (r.variant_label ? ' — ' + r.variant_label : '') + '</td>' +
       '<td style="padding:6px 8px;color:var(--text-faint)">' + r.sku_code + '</td>' +
+      '<td style="padding:6px 8px">' + statusBadge + '</td>' +
       '<td style="padding:6px 8px">+' + r.qty_received + '</td>' +
       '<td style="padding:6px 8px">' + r.old_qty + '</td>' +
       '<td style="padding:6px 8px;font-weight:700">' + r.new_qty + '</td>' +
