@@ -523,7 +523,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     </td>
     {% for fdef in ticket_form_fields %}
     {% set cfval = si.cf.get(fdef.id, '—') if (si.visited or si.is_current) else '' %}
-    {% set editable = user.role in ('ADMIN','MANAGER') and (si.visited or si.is_current) and fdef.field_type != 'formula' %}
+    {% set editable = user.role in ('ADMIN','MANAGER') and (si.visited or si.is_current) and fdef.field_type != 'formula' and not fdef.carry_forward %}
     {% set ei = row.edit_info.get(fdef.id) %}
     <td class="jt-cell {{ state_cls }}{% if editable %} jt-editable{% endif %}"
         {% if si.is_current %}style="background:{{ hex }}12"{% endif %}
@@ -535,7 +535,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     {% for fdef in jt_cf_defs %}
     {% set cfval = si.cf.get(fdef.id, si.cf.get(fdef.label, '—')) if (si.visited or si.is_current) else '' %}
     {% set cfstyle = fdef | cond_format(cfval) %}
-    {% set editable = user.role in ('ADMIN','MANAGER') and (si.visited or si.is_current) and fdef.field_type != 'formula' %}
+    {% set editable = user.role in ('ADMIN','MANAGER') and (si.visited or si.is_current) and fdef.field_type != 'formula' and not fdef.carry_forward %}
     {% set ei = si.edit_info.get(fdef.id) %}
     <td class="jt-cell {{ state_cls }}{% if editable %} jt-editable{% endif %}"
         {% if cfstyle %}style="{{ cfstyle }}"{% elif si.is_current %}style="background:{{ hex }}12"{% endif %}
@@ -1639,9 +1639,10 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
       <input type="hidden" name="qty_completed" value="0">
       <input type="hidden" name="return_reason" value="">
 
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-        <button type="button" onclick="closeSCModal()" class="btn btn-sm">Cancel</button>
-        <button type="submit" class="btn btn-sm btn-primary">✓ Complete Stage →</button>
+      <div style="display:flex;gap:8px;justify-content:flex-end;align-items:stretch;margin-top:16px">
+        <button type="button" onclick="closeSCModal()" class="btn btn-sm" style="flex-shrink:0">Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary" id="scSubmitBtn"
+                style="white-space:normal;text-align:center;line-height:1.3;min-width:0;flex:1">✓ Complete Stage →</button>
       </div>
     </form>
   </div>
@@ -2724,8 +2725,45 @@ function closeSDModal() {
 }
 document.addEventListener('keydown', function(e){ if(e.key==='Escape' && document.getElementById('stageDataModal').classList.contains('open')) closeSDModal(); });
 
+// fmsShowError() is defined once, globally, in base.html.
+
 var _scCurrentStageId = null;
+
+// Skip the "Complete Stage" popup entirely when nothing about this stage
+// requires human input: no completion note, no evidence file, no unfilled
+// custom stage fields, and (when there's a next stage) a default assignee
+// already resolved — in that case just submit the transition directly.
+function tryQuickCompleteStage(ticketId, displayId, stageName, evidenceRequired, noteRequired, stageId, splitId) {
+  if (noteRequired === 'true' || evidenceRequired === 'true') return false;
+  var ns = NEXT_STAGE_MAP[stageId];
+  if (ns && !ns.default_assignee_id) return false;
+  var cfDefs = (STAGE_CF_DEFS && stageId) ? (STAGE_CF_DEFS[stageId] || []) : [];
+  if (cfDefs.length) return false;
+
+  var fd = new FormData();
+  fd.append('is_override', 'false');
+  fd.append('split_id', splitId || '');
+  fd.append('next_stage_id', ns ? ns.id : '');
+  fd.append('new_assignee_id', ns ? (ns.default_assignee_id || '') : '');
+  fd.append('completion_note', '');
+  fd.append('qty_completed', '0');
+  fd.append('return_reason', '');
+  var saved = stageDataStore[_sdKey(ticketId, splitId)] || {};
+  Object.keys(saved).forEach(function(fieldId) { fd.append('cf__' + fieldId, saved[fieldId]); });
+
+  fetch('/fms/tickets/' + ticketId + '/transition', { method: 'POST', body: fd })
+    .then(function(res) {
+      if (res.ok) { location.reload(); return; }
+      return res.json().catch(function() { return {}; }).then(function(body) {
+        fmsShowError(body.detail || 'Could not complete this stage.');
+      });
+    })
+    .catch(function() { fmsShowError('Network error — could not complete this stage.'); });
+  return true;
+}
+
 function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired, noteRequired, stageId, splitId) {
+  if (tryQuickCompleteStage(ticketId, displayId, stageName, evidenceRequired, noteRequired, stageId, splitId)) return;
   var modal = document.getElementById('stageCompleteModal');
   var form  = document.getElementById('scForm');
   form.action = '/fms/tickets/' + ticketId + '/transition';
@@ -2880,6 +2918,25 @@ document.getElementById('scForm').addEventListener('submit', function(e) {
     fetch('/fms/splits/' + splitId + '/evidence', { method: 'POST', body: fd })
       .catch(function() { /* non-blocking — evidence never gates split creation */ });
   }
+
+  // Submit the transition itself via fetch so a rejection (e.g. a closing-rule
+  // guard) shows as an inline error without navigating away to a raw JSON page.
+  e.preventDefault();
+  var form = this;
+  var submitBtn = document.getElementById('scSubmitBtn');
+  var origBtnText = submitBtn ? submitBtn.textContent : '';
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Working…'; }
+  fetch(form.action, { method: 'POST', body: new FormData(form) })
+    .then(function(res) {
+      if (res.ok) { location.reload(); return; }
+      return res.json().catch(function() { return {}; }).then(function(body) {
+        fmsShowError(body.detail || 'Could not complete this stage.');
+      });
+    })
+    .catch(function() { fmsShowError('Network error — could not complete this stage.'); })
+    .finally(function() {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = origBtnText; }
+    });
 });
 </script>
 
@@ -3589,6 +3646,28 @@ function closeBulkTransitionModal() {
 function _besc(s) {
   var d = document.createElement('div'); d.textContent = s; return d.innerHTML;
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+  var bulkForm = document.getElementById('bulkTransitionForm');
+  if (!bulkForm) return;
+  bulkForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    var submitBtn = document.getElementById('btSubmitBtn');
+    var origText = submitBtn ? submitBtn.textContent : '';
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Working…'; }
+    fetch(bulkForm.action, { method: 'POST', body: new FormData(bulkForm) })
+      .then(function(res) {
+        if (res.ok) { location.reload(); return; }
+        return res.json().catch(function() { return {}; }).then(function(body) {
+          fmsShowError(body.detail || 'Could not move these tickets.');
+        });
+      })
+      .catch(function() { fmsShowError('Network error — could not move these tickets.'); })
+      .finally(function() {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = origText; }
+      });
+  });
+});
 </script>
 
 <!-- ── Bulk Transition Modal ──────────────────────────────────────────────── -->
