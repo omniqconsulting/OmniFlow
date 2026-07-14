@@ -23,50 +23,96 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
-    op.create_table('whatsapp_consent_events',
-        sa.Column('id', sa.String(), nullable=False),
-        sa.Column('tenant_id', sa.String(), nullable=False),
-        sa.Column('employee_id', sa.String(), nullable=True),
-        sa.Column('event_type', sa.String(), nullable=False),
-        sa.Column('phone_number', sa.String(), nullable=False),
-        sa.Column('gupshup_message_id', sa.String(), nullable=True),
-        sa.Column('raw_webhook_payload', sa.JSON(), nullable=True),
-        sa.Column('source', sa.String(), nullable=True),
-        sa.Column('actor_id', sa.String(), nullable=True),
-        sa.Column('notes', sa.Text(), nullable=True),
-        sa.Column('created_at', sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(['actor_id'], ['users.id'], ),
-        sa.ForeignKeyConstraint(['employee_id'], ['users.id'], ),
-        sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ),
-        sa.PrimaryKeyConstraint('id')
-    )
+    """Upgrade schema.
 
+    Idempotent by design: this app's own startup self-heal (_pg_add_columns /
+    create_all in app/database.py) can create these tables/columns directly
+    from the models before Alembic ever runs, which previously left the DB
+    schema fully migrated but alembic_version stuck behind (duplicate-table
+    error on re-run). Every DDL step below checks current state first so this
+    migration can complete — and land the backfill + constraints — no matter
+    which parts the self-heal path already applied.
+    """
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    existing_tables = set(inspector.get_table_names())
+    if 'whatsapp_consent_events' not in existing_tables:
+        op.create_table('whatsapp_consent_events',
+            sa.Column('id', sa.String(), nullable=False),
+            sa.Column('tenant_id', sa.String(), nullable=False),
+            sa.Column('employee_id', sa.String(), nullable=True),
+            sa.Column('event_type', sa.String(), nullable=False),
+            sa.Column('phone_number', sa.String(), nullable=False),
+            sa.Column('gupshup_message_id', sa.String(), nullable=True),
+            sa.Column('raw_webhook_payload', sa.JSON(), nullable=True),
+            sa.Column('source', sa.String(), nullable=True),
+            sa.Column('actor_id', sa.String(), nullable=True),
+            sa.Column('notes', sa.Text(), nullable=True),
+            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.ForeignKeyConstraint(['actor_id'], ['users.id'], ),
+            sa.ForeignKeyConstraint(['employee_id'], ['users.id'], ),
+            sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ),
+            sa.PrimaryKeyConstraint('id')
+        )
+        inspector = sa.inspect(bind)  # refresh so column checks below see the new table
+
+    def _existing_columns(table_name):
+        return {c['name'] for c in inspector.get_columns(table_name)}
+
+    def _existing_constraints(table_name, kind):
+        if kind == 'unique':
+            return {c['name'] for c in inspector.get_unique_constraints(table_name)}
+        return {fk['name'] for fk in inspector.get_foreign_keys(table_name)}
+
+    tenants_cols = _existing_columns('tenants')
     with op.batch_alter_table('tenants', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('gupshup_client_id', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('gupshup_secret_token', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('gupshup_source_number', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('gupshup_waba_status', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('gupshup_webhook_token', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('gupshup_webhook_secret', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('whatsapp_opt_in_link', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('whatsapp_config_updated_at', sa.DateTime(), nullable=True))
-        batch_op.create_unique_constraint('uq_tenants_gupshup_webhook_token', ['gupshup_webhook_token'])
+        if 'gupshup_client_id' not in tenants_cols:
+            batch_op.add_column(sa.Column('gupshup_client_id', sa.String(), nullable=True))
+        if 'gupshup_secret_token' not in tenants_cols:
+            batch_op.add_column(sa.Column('gupshup_secret_token', sa.String(), nullable=True))
+        if 'gupshup_source_number' not in tenants_cols:
+            batch_op.add_column(sa.Column('gupshup_source_number', sa.String(), nullable=True))
+        if 'gupshup_waba_status' not in tenants_cols:
+            batch_op.add_column(sa.Column('gupshup_waba_status', sa.String(), nullable=True))
+        if 'gupshup_webhook_token' not in tenants_cols:
+            batch_op.add_column(sa.Column('gupshup_webhook_token', sa.String(), nullable=True))
+        if 'gupshup_webhook_secret' not in tenants_cols:
+            batch_op.add_column(sa.Column('gupshup_webhook_secret', sa.String(), nullable=True))
+        if 'whatsapp_opt_in_link' not in tenants_cols:
+            batch_op.add_column(sa.Column('whatsapp_opt_in_link', sa.String(), nullable=True))
+        if 'whatsapp_config_updated_at' not in tenants_cols:
+            batch_op.add_column(sa.Column('whatsapp_config_updated_at', sa.DateTime(), nullable=True))
+        if 'uq_tenants_gupshup_webhook_token' not in _existing_constraints('tenants', 'unique'):
+            batch_op.create_unique_constraint('uq_tenants_gupshup_webhook_token', ['gupshup_webhook_token'])
 
+    users_cols = _existing_columns('users')
     with op.batch_alter_table('users', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('whatsapp_opt_in_status', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('opt_in_source', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('opt_in_at', sa.DateTime(), nullable=True))
-        batch_op.add_column(sa.Column('matched_phone', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('mismatch_reason', sa.Text(), nullable=True))
-        batch_op.add_column(sa.Column('opt_in_actor_id', sa.String(), nullable=True))
-        batch_op.create_foreign_key('fk_users_opt_in_actor_id', 'users', ['opt_in_actor_id'], ['id'])
+        if 'whatsapp_opt_in_status' not in users_cols:
+            batch_op.add_column(sa.Column('whatsapp_opt_in_status', sa.String(), nullable=True))
+        if 'opt_in_source' not in users_cols:
+            batch_op.add_column(sa.Column('opt_in_source', sa.String(), nullable=True))
+        if 'opt_in_at' not in users_cols:
+            batch_op.add_column(sa.Column('opt_in_at', sa.DateTime(), nullable=True))
+        if 'matched_phone' not in users_cols:
+            batch_op.add_column(sa.Column('matched_phone', sa.String(), nullable=True))
+        if 'mismatch_reason' not in users_cols:
+            batch_op.add_column(sa.Column('mismatch_reason', sa.Text(), nullable=True))
+        if 'opt_in_actor_id' not in users_cols:
+            batch_op.add_column(sa.Column('opt_in_actor_id', sa.String(), nullable=True))
+        if 'fk_users_opt_in_actor_id' not in _existing_constraints('users', 'fk'):
+            batch_op.create_foreign_key('fk_users_opt_in_actor_id', 'users', ['opt_in_actor_id'], ['id'])
 
+    log_cols = _existing_columns('whatsapp_message_log')
     with op.batch_alter_table('whatsapp_message_log', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('template_id', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('template_category', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('delivery_status_history', sa.JSON(), nullable=True, server_default='[]'))
-        batch_op.add_column(sa.Column('raw_status_webhook_payloads', sa.JSON(), nullable=True, server_default='[]'))
+        if 'template_id' not in log_cols:
+            batch_op.add_column(sa.Column('template_id', sa.String(), nullable=True))
+        if 'template_category' not in log_cols:
+            batch_op.add_column(sa.Column('template_category', sa.String(), nullable=True))
+        if 'delivery_status_history' not in log_cols:
+            batch_op.add_column(sa.Column('delivery_status_history', sa.JSON(), nullable=True, server_default='[]'))
+        if 'raw_status_webhook_payloads' not in log_cols:
+            batch_op.add_column(sa.Column('raw_status_webhook_payloads', sa.JSON(), nullable=True, server_default='[]'))
 
     # Backfill existing rows' opt-in status from the legacy mobile_verified boolean,
     # then default remaining PENDING for any not yet set.
