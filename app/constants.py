@@ -193,7 +193,7 @@ WHATSAPP_TEMPLATES = {
     "omniflow_ticket_assigned": {
         "msg91_template_id": 417221,
         "namespace": "42a08df0_cdc3_4411_b61b_c1985222c017",
-        "gupshup_template_id": None,
+        "gupshup_template_id": "1694932931555906",
         "gupshup_template_category": "UTILITY",
         "variable_order": ["name", "ticket_title", "priority", "due_date"],
     },
