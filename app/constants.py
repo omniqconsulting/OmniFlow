@@ -295,6 +295,37 @@ WHATSAPP_TEMPLATES = {
         "gupshup_template_category": "UTILITY",
         "variable_order": ["agent_name", "order_id", "customer_name", "dispatch_date"],
     },
+    # New event templates — awaiting Meta approval, same as most templates above.
+    "omniflow_ticket_closed": {
+        "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
+        "variable_order": ["recipient_name", "ticket_title", "closed_by"],
+    },
+    "omniflow_fms_ticket_closed": {
+        "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
+        "variable_order": ["recipient_name", "ticket_title", "closed_by"],
+    },
+    "omniflow_fms_ticket_flagged": {
+        "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
+        "variable_order": ["recipient_name", "ticket_title", "flag_reason"],
+    },
+    "omniflow_po_placed": {
+        "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
+        "variable_order": ["recipient_name", "po_number", "vendor_name"],
+    },
+    "omniflow_po_accepted": {
+        "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
+        "variable_order": ["recipient_name", "po_number", "vendor_name"],
+    },
 }
 
 SALES_MARGIN_FLOOR_PCT = float(os.environ.get("SALES_MARGIN_FLOOR_PCT", "10.0"))
@@ -303,10 +334,17 @@ MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "")
 MSG91_WA_NUMBER = os.environ.get("MSG91_WA_NUMBER", "")
 # Brief 5 — SA alert phone (international format, no +, no spaces)
 SA_ALERT_PHONE = os.environ.get("SA_ALERT_PHONE", "")
+# Pipelines 5A/5B/5C fire before a prospect's own tenant has any Gupshup WABA
+# configured (WABA provisioning is manual, post-approval — Decision #2 of the
+# migration brief), so there is no per-tenant credential to send through yet.
+# These pre-onboarding sends go out via one designated already-live tenant's
+# WABA on the platform's behalf. Set to that tenant's id once it has a live
+# Gupshup config; leave blank to no-op (logged) until then.
+PLATFORM_ALERT_TENANT_ID = os.environ.get("PLATFORM_ALERT_TENANT_ID", "")
 
 # Gupshup Gateway/Enterprise API — per-tenant credentials live on Tenant model
 # (gupshup_client_id / gupshup_secret_token / gupshup_source_number).
-GUPSHUP_API_BASE = "https://mediaapi.smsgupshup.com/GatewayAPI/rest"
+GUPSHUP_API_BASE = "https://api.gupshup.io/sm/api/v1/template/msg"
 # Public domain this OmniFlow instance is reachable at, for constructing each
 # tenant's webhook Callback URL: https://<domain>/webhooks/gupshup/{token}
 OMNIFLOW_PUBLIC_DOMAIN = os.environ.get("OMNIFLOW_PUBLIC_DOMAIN", "omniflow.omniqconsulting.com")

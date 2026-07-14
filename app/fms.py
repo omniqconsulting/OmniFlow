@@ -41,6 +41,8 @@ from .notifications import (
     notify_fms_stage_transition,
     send_whatsapp_for_fms_stage_transition,
     send_whatsapp_for_fms_ticket_created,
+    send_whatsapp_for_fms_ticket_closed,
+    send_whatsapp_for_fms_ticket_flagged,
     notify_fms_ticket_opened,
     notify_fms_split_created,
 )
@@ -3981,6 +3983,8 @@ async def fms_transition(
         send_whatsapp_for_fms_stage_transition(
             db, user.tenant_id, ticket_id, f"{ticket.title}{split_label_suffix}",
             next_stage.name, new_assignee_obj)
+    if next_stage.is_terminal:
+        send_whatsapp_for_fms_ticket_closed(db, user.tenant_id, ticket, admins, managers, user.name)
     audience = list(set(admins + managers + [new_assignee_id]))
     broadcast_sync(user.tenant_id, audience, FMS_STAGE_TRANSITION, {
         "ticket_id": ticket_id, "display_id": ticket.display_id,
@@ -4271,6 +4275,8 @@ async def fms_split_ticket(
         send_whatsapp_for_fms_stage_transition(
             db, user.tenant_id, ticket_id, f"{ticket.title} [{new_label}]",
             target_stage.name, new_assignee_obj)
+    if target_stage.is_terminal:
+        send_whatsapp_for_fms_ticket_closed(db, user.tenant_id, ticket, admins, managers, user.name)
     audience = list(set(admins + managers + ([new_assignee] if new_assignee else [])))
     broadcast_sync(user.tenant_id, audience, FMS_STAGE_TRANSITION, {
         "ticket_id": ticket_id, "display_id": ticket.display_id,
@@ -4600,6 +4606,11 @@ async def fms_action(
             ticket.is_flagged    = True
             ticket.flagged_reason = flag_reason.strip()
             _log(db, ticket_id, user.id, "FLAGGED", flag_reason.strip())
+        _flag_admins = _admin_ids(db, user.tenant_id)
+        _flag_managers = _manager_ids_for(db, ticket.current_assignee_id)
+        send_whatsapp_for_fms_ticket_flagged(
+            db, user.tenant_id, ticket, _flag_admins, _flag_managers,
+            flag_reason.strip(), user.name)
 
     elif action == "unflag":
         if user.role == "EMPLOYEE":
@@ -4638,6 +4649,9 @@ async def fms_action(
         ticket.status    = "CLOSED"
         ticket.closed_at = datetime.utcnow()
         _log(db, ticket_id, user.id, "CLOSED", reason)
+        _fms_admins = _admin_ids(db, user.tenant_id)
+        _fms_managers = _manager_ids_for(db, ticket.current_assignee_id)
+        send_whatsapp_for_fms_ticket_closed(db, user.tenant_id, ticket, _fms_admins, _fms_managers, user.name)
         if closing_file and closing_file.filename:
             from .uploads import save_upload as _save_upload_close
             info = await _save_upload_close(closing_file, user.tenant_id)

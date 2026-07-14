@@ -4,13 +4,17 @@ Single integration point for all outbound Gupshup WhatsApp calls, per-tenant.
 No other file should call the Gupshup API directly — mirrors the existing
 app/services/msg91.py convention for the platform this replaces.
 
-API confirmed against the live Apolo Industry Gupshup account (brief v1.1,
-Decision #12): Gateway/Enterprise API at
-https://mediaapi.smsgupshup.com/GatewayAPI/rest, authenticated with a
-per-tenant Client ID + Secret Token. whatsAppTemplateId in send requests is
-the Facebook template ID (numeric), not the Gupshup template ID (UUID) —
+API: Gupshup's current WhatsApp Business API template-message endpoint,
+https://api.gupshup.io/sm/api/v1/template/msg (form-urlencoded, apikey
+header) — per docs.gupshup.io and the migration brief. A prior version of
+this file posted JSON to the legacy mediaapi.smsgupshup.com Gateway API,
+which does not accept this request shape; that mismatch was the confirmed
+root cause of outbound messages not matching the expected template content
+(runbook Issue 3) and has been corrected here. whatsAppTemplateId/template.id
+is the Facebook template ID (numeric), not the Gupshup template ID (UUID) —
 Decision #13.
 """
+import json
 import httpx
 import logging
 from app.constants import WHATSAPP_TEMPLATES, GUPSHUP_API_BASE
@@ -36,6 +40,21 @@ def to_e164(phone: str, country_code: str = "91") -> str:
     """Same normalization as normalize_mobile, with a leading '+' — used for
     display fields (gupshup_source_number, matched_phone) per Section 4."""
     return "+" + normalize_mobile(phone, country_code)
+
+
+def get_platform_tenant(db):
+    """
+    Returns the designated tenant whose Gupshup WABA sends pre-onboarding
+    prospect messages (registration received/rejected, SA alerts) — these
+    fire before the prospect's own tenant has any WABA configured. Returns
+    None (caller should no-op + log) if PLATFORM_ALERT_TENANT_ID isn't set
+    or doesn't resolve to a tenant.
+    """
+    from app.constants import PLATFORM_ALERT_TENANT_ID
+    if not PLATFORM_ALERT_TENANT_ID:
+        return None
+    from app.database import Tenant
+    return db.query(Tenant).filter(Tenant.id == PLATFORM_ALERT_TENANT_ID).first()
 
 
 def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: list):
@@ -75,36 +94,29 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
     template_category = template.get("gupshup_template_category", "UTILITY")
     mobile_norm = normalize_mobile(mobile)
 
-    payload = {
-        "channel": "whatsapp",
+    form_data = {
         "source": normalize_mobile(tenant.gupshup_source_number),
         "destination": mobile_norm,
-        "message": {
-            "isHSM": "true",
-            "type": "template",
-            "template": {
-                "id": template_id,
-                "params": [str(v) for v in variables],
-            },
-        },
-        "whatsAppTemplateId": template_id,
+        "template": json.dumps({
+            "id": template_id,
+            "params": [str(v) for v in variables],
+        }),
     }
 
     try:
         with httpx.Client(timeout=15.0) as client:
             resp = client.post(
-                f"{GUPSHUP_API_BASE}",
-                params={"format": "json"},
+                GUPSHUP_API_BASE,
                 headers={
                     "apikey": tenant.gupshup_secret_token,
-                    "Content-Type": "application/json",
+                    "Content-Type": "application/x-www-form-urlencoded",
                 },
-                json=payload,
+                data=form_data,
             )
-        if resp.status_code == 200:
+        if resp.status_code in range(200, 300):
             gupshup_message_id = None
             try:
-                gupshup_message_id = resp.json().get("messageId") or resp.json().get("id")
+                gupshup_message_id = resp.json().get("messageId")
             except Exception:
                 pass
             return True, None, template_id, template_category, gupshup_message_id
