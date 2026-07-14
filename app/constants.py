@@ -296,6 +296,12 @@ WHATSAPP_TEMPLATES = {
         "variable_order": ["agent_name", "order_id", "customer_name", "dispatch_date"],
     },
     # New event templates — awaiting Meta approval, same as most templates above.
+    "omniflow_optin_confirmed": {
+        "msg91_template_id": None,
+        "gupshup_template_id": None,
+        "gupshup_template_category": "UTILITY",
+        "variable_order": ["name"],
+    },
     "omniflow_ticket_closed": {
         "msg91_template_id": None,
         "gupshup_template_id": None,
