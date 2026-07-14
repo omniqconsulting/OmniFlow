@@ -188,6 +188,21 @@ def _send_gupshup_wa(db, tenant_id, recipient, template_name, variables,
         logger.exception("_send_gupshup_wa failed for template=%s tenant=%s", template_name, tenant_id)
 
 
+def send_whatsapp_for_optin_confirmed(db, tenant_id, employee):
+    """
+    omniflow_optin_confirmed — sent once, immediately after the Gupshup
+    webhook flips an employee PENDING/MISMATCH -> OPTED_IN, confirming
+    enrollment. Same send pipeline as every other notification (per-tenant
+    Gupshup credentials, opt-in gate, WhatsAppMessageLog). Never raises.
+    """
+    try:
+        variables = [employee.name]
+        _send_gupshup_wa(db, tenant_id, employee, "omniflow_optin_confirmed", variables,
+                          related_entity_type="user", related_entity_id=employee.id)
+    except Exception:
+        logger.exception("send_whatsapp_for_optin_confirmed failed for user=%s", employee.id)
+
+
 def send_whatsapp_for_ticket_assigned(db, ticket, assignee):
     """
     WhatsApp send for ticket_assigned — Pipeline 1.

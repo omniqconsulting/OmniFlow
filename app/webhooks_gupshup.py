@@ -106,7 +106,8 @@ def _handle_inbound_message(db: Session, tenant: Tenant, body: dict, payload: di
     ).all()
     matched = next((e for e in employee if normalize_mobile(e.phone) == sender_phone), None)
 
-    if matched and matched.whatsapp_opt_in_status in ("PENDING", "MISMATCH"):
+    newly_opted_in = matched is not None and matched.whatsapp_opt_in_status in ("PENDING", "MISMATCH")
+    if newly_opted_in:
         matched.whatsapp_opt_in_status = "OPTED_IN"
         matched.opt_in_source = "QR"
         matched.opt_in_at = __import__("datetime").datetime.utcnow()
@@ -134,6 +135,9 @@ def _handle_inbound_message(db: Session, tenant: Tenant, body: dict, payload: di
             source="QR",
         ))
     db.commit()
+    if newly_opted_in:
+        from .notifications import send_whatsapp_for_optin_confirmed
+        send_whatsapp_for_optin_confirmed(db, tenant.id, matched)
 
 
 def _handle_opt_out(db: Session, tenant: Tenant, body: dict, payload: dict):
