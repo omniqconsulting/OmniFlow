@@ -41,9 +41,9 @@ def _from_json(s):
         return []
 
 
-def _tojson(v):
+def _tojson(v, indent=None):
     """Serialize v to a JSON string safe for inline HTML/JS."""
-    return _Markup(_json.dumps(v, cls=_OrmEncoder))
+    return _Markup(_json.dumps(v, cls=_OrmEncoder, indent=indent))
 
 
 def _to_ist(dt, fmt="%d %b, %I:%M %p"):
