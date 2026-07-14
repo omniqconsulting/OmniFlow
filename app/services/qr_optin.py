@@ -14,27 +14,21 @@ import qrcode
 from .gupshup import normalize_mobile
 
 
-def build_opt_in_link(source_number: str, entity_label: str = "Employee") -> str:
+def build_opt_in_link(source_number: str, tenant_name: str) -> str:
     """
     Build the wa.me deep link for a tenant's Gupshup WhatsApp number.
-    entity_label should come from the tenant's TenantLabelConfig (employee_s)
-    rather than being hardcoded, per Section 5.1.
+    tenant_name should be that tenant's actual display name (tenant.name),
+    since this same function generates the QR/link for every tenant.
     """
     if not source_number:
         return ""
     number = normalize_mobile(source_number)
-    message = f"Hi, I'd like to receive WhatsApp updates from {entity_label} via OmniFlow"
+    message = (
+        f"Hi, I'd like to receive WhatsApp updates from {tenant_name} for delegations, "
+        "checklist and other updates. Consider this message as a consent to opt-in "
+        "for receiving the regular updates."
+    )
     return f"https://wa.me/{number}?text={urllib.parse.quote(message)}"
-
-
-def entity_label_for_tenant(db, tenant_id: str) -> str:
-    """Pull the tenant's configured singular label for its 'employee' concept,
-    falling back to 'Employee' if no label config row exists yet."""
-    from ..database import TenantLabelConfig
-    cfg = db.query(TenantLabelConfig).filter(TenantLabelConfig.tenant_id == tenant_id).first()
-    if cfg and cfg.employee_s:
-        return cfg.employee_s
-    return "Employee"
 
 
 def render_qr_png(link: str) -> bytes:
