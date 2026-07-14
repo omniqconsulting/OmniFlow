@@ -17,7 +17,7 @@ from .database import (
     FMSFlow, FMSStage, FMSTicket, LibraryFlowTemplate, TenantDeployedItem,
     TenantAIUsage, LoginEvent,
 )
-from .services.qr_optin import build_opt_in_link, entity_label_for_tenant
+from .services.qr_optin import build_opt_in_link
 from .constants import OMNIFLOW_PUBLIC_DOMAIN
 from .labels import INDUSTRY_NAMES, INDUSTRY_PRESETS as _PRESETS
 from .constants import (
@@ -481,7 +481,7 @@ def sa_tenant_detail(request: Request, tenant_id: str,
     if tenant.gupshup_webhook_token:
         callback_url = f"https://{OMNIFLOW_PUBLIC_DOMAIN}/webhooks/gupshup/{tenant.gupshup_webhook_token}"
     opt_in_link = tenant.whatsapp_opt_in_link or (
-        build_opt_in_link(tenant.gupshup_source_number, entity_label_for_tenant(db, tenant_id))
+        build_opt_in_link(tenant.gupshup_source_number, tenant.name)
         if tenant.gupshup_source_number else None
     )
 
@@ -666,8 +666,7 @@ def sa_save_whatsapp_config(tenant_id: str,
     if not tenant.gupshup_webhook_secret:
         tenant.gupshup_webhook_secret = secrets.token_urlsafe(32)
     if tenant.gupshup_source_number:
-        label = entity_label_for_tenant(db, tenant_id)
-        tenant.whatsapp_opt_in_link = build_opt_in_link(tenant.gupshup_source_number, label)
+        tenant.whatsapp_opt_in_link = build_opt_in_link(tenant.gupshup_source_number, tenant.name)
     if not tenant.gupshup_waba_status:
         tenant.gupshup_waba_status = "PENDING"
     tenant.whatsapp_config_updated_at = datetime.utcnow()
