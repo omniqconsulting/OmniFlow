@@ -759,12 +759,20 @@ def sa_approve(tenant_id: str, plan: str = Form("STARTER"),
 
 
 def _send_wa_registration_rejected(phone: str, reason: str, tenant_id: str, db):
-    """Pipeline 5C — omniflow_registration_rejected. Sends to prospect phone. No mobile_verified gate. Never raises."""
-    from .services.msg91 import send_whatsapp_template, normalize_mobile
+    """Pipeline 5C — omniflow_registration_rejected. Sends to prospect phone via
+    the platform alert tenant's own Gupshup WABA (see Pipeline 5A in main.py —
+    the rejected tenant never gets its own WABA configured). Never raises."""
+    from .services.gupshup import send_whatsapp_template, get_platform_tenant
     import json
+    import logging
     variables = [reason]
     try:
-        ok, error = send_whatsapp_template(normalize_mobile(phone), "omniflow_registration_rejected", variables)
+        platform_tenant = get_platform_tenant(db)
+        if not platform_tenant:
+            logging.getLogger("superadmin").warning(
+                "_send_wa_registration_rejected skipped — no PLATFORM_ALERT_TENANT_ID configured")
+            return
+        ok, error, *_ = send_whatsapp_template(platform_tenant, phone, "omniflow_registration_rejected", variables)
         db.add(WhatsAppMessageLog(
             tenant_id=tenant_id,
             template_name="omniflow_registration_rejected",

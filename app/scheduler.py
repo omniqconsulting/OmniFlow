@@ -800,7 +800,7 @@ def invoice_overdue_check():
 def delegation_tat_monitor():
     """E-15: Every 30 min — notify manager at ticket_notif_tat_pct and ticket_notif_tat_pct_both of TaT elapsed."""
     from .database import SessionLocal, Tenant, Ticket, TicketEvent, User, Notification
-    from .notifications import business_hours_elapsed
+    from .notifications import business_hours_elapsed, send_whatsapp_for_ticket_tat_reminder
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -831,10 +831,12 @@ def delegation_tat_monitor():
                     User.is_deleted == False, User.is_active == True,
                 ).all()
                 manager = None
+                assignee = None
                 if ticket.current_assignee_id:
                     assignee = db.query(User).filter(User.id == ticket.current_assignee_id).first()
                     if assignee and assignee.manager_id:
                         manager = db.query(User).filter(User.id == assignee.manager_id).first()
+                assignee_name = assignee.name if assignee else "—"
 
                 # pct1: manager + employee; pct2: manager + admin + employee
                 mgr_id = manager.id if manager else None
@@ -868,6 +870,10 @@ def delegation_tat_monitor():
                             body=f'{pct_elapsed:.0f}% of allowed time used on this ticket.',
                             link=f'/tickets/{ticket.id}',
                         ))
+                        recipient = db.query(User).filter(User.id == uid).first()
+                        if recipient:
+                            send_whatsapp_for_ticket_tat_reminder(
+                                db, ticket, recipient, assignee_name, round(pct_elapsed))
             db.commit()
     except Exception as e:
         logger.error("delegation_tat_monitor error: %s", e)

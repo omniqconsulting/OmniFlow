@@ -115,22 +115,52 @@ def create_notification(db, tenant_id: str, user_id: str,
 
 _OPTED_IN_STATUSES = ("OPTED_IN", "MANUALLY_VERIFIED")
 
+# Setup > Notifications > WhatsApp — maps each pipeline's event_key to the
+# tenant column that toggles it on/off. Any event_key not listed here always
+# sends (no toggle exists for it yet).
+_WA_EVENT_TOGGLE_FIELD = {
+    "ticket_assigned":       "wa_notif_ticket_assigned",
+    "ticket_escalated":      "wa_notif_ticket_escalated",
+    "fms_ticket_created":    "wa_notif_fms_ticket_created",
+    "fms_stage_transition":  "wa_notif_fms_stage_transition",
+    "order_placed":          "wa_notif_order_placed",
+    "order_dispatched":      "wa_notif_order_dispatched",
+    "ticket_closed":         "wa_notif_ticket_closed",
+    "ticket_tat_reminder":   "wa_notif_ticket_tat_reminder",
+    "fms_ticket_closed":     "wa_notif_fms_ticket_closed",
+    "fms_ticket_flagged":    "wa_notif_fms_ticket_flagged",
+    "po_placed":             "wa_notif_po_placed",
+    "po_accepted":           "wa_notif_po_accepted",
+}
+
 
 def _send_gupshup_wa(db, tenant_id, recipient, template_name, variables,
-                      related_entity_type=None, related_entity_id=None):
+                      related_entity_type=None, related_entity_id=None,
+                      event_key=None):
     """
     Shared gate + send + log for a single-recipient WhatsApp template send,
     routed through the tenant's own Gupshup WABA — replaces the old per-pipeline
     mobile_verified + msg91 pattern duplicated across this file (Gupshup
     migration brief, Decision #12 / Section 4.2). Never raises.
+
+    event_key: key into _WA_EVENT_TOGGLE_FIELD — lets Setup > Notifications
+    turn this specific WhatsApp event off per tenant without touching the
+    in-app notification it rides alongside.
     """
     from .database import WhatsAppMessageLog, Tenant
     from .services.gupshup import send_whatsapp_template
     try:
         tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
         template_id = template_category = gupshup_message_id = None
-        if not recipient or getattr(recipient, "whatsapp_opt_in_status", None) not in _OPTED_IN_STATUSES:
+        toggle_field = _WA_EVENT_TOGGLE_FIELD.get(event_key)
+        if toggle_field and tenant is not None and getattr(tenant, toggle_field, True) is False:
+            status, error = "SKIPPED_DISABLED", None
+        elif not recipient or getattr(recipient, "whatsapp_opt_in_status", None) not in _OPTED_IN_STATUSES:
             status, error = "SKIPPED_UNVERIFIED", None
+        elif getattr(recipient, "whatsapp_notifications_enabled", True) is False:
+            # Employee has verified but chosen to turn WhatsApp notifications
+            # off for themselves (Employees tab) — distinct from opt-in status.
+            status, error = "SKIPPED_BY_EMPLOYEE", None
         else:
             success, error, template_id, template_category, gupshup_message_id = send_whatsapp_template(
                 tenant, recipient.phone, template_name, variables)
@@ -169,7 +199,8 @@ def send_whatsapp_for_ticket_assigned(db, ticket, assignee):
     due_str = format_wa_date(ticket.due_at) if ticket.due_at else "N/A"
     variables = [assignee.name, ticket.title, ticket.priority, due_str]
     _send_gupshup_wa(db, ticket.tenant_id, assignee, "omniflow_ticket_assigned", variables,
-                      related_entity_type="ticket", related_entity_id=ticket.id)
+                      related_entity_type="ticket", related_entity_id=ticket.id,
+                      event_key="ticket_assigned")
 
 
 def _get_tenant(db, tenant_id):
@@ -269,6 +300,109 @@ def notify_ticket_status_changed(db, ticket, actor_id: str,
         "actor_id":     actor_id,
         "link":         f"/tickets/{ticket.id}",
     })
+    if new_status == "CLOSED" and old_status != "CLOSED":
+        _send_wa_ticket_closed(db, ticket, actor_id)
+
+
+def _send_wa_ticket_closed(db, ticket, actor_id: str):
+    """omniflow_ticket_closed — notify the assignee their ticket was closed. Never raises."""
+    from .database import User
+    try:
+        if not ticket.current_assignee_id:
+            return
+        assignee = db.query(User).filter(User.id == ticket.current_assignee_id).first()
+        if not assignee:
+            return
+        actor = db.query(User).filter(User.id == actor_id).first() if actor_id else None
+        variables = [assignee.name, ticket.title, actor.name if actor else "an admin"]
+        _send_gupshup_wa(db, ticket.tenant_id, assignee, "omniflow_ticket_closed", variables,
+                          related_entity_type="ticket", related_entity_id=ticket.id,
+                          event_key="ticket_closed")
+    except Exception:
+        logger.exception("_send_wa_ticket_closed failed for ticket=%s", ticket.id)
+
+
+def send_whatsapp_for_ticket_tat_reminder(db, ticket, recipient, assignee_name, hours_or_pct):
+    """
+    Reuses omniflow_ticket_unacknowledged for the TAT % elapsed reminder
+    (Setup > Notifications > ticket_notif_tat_pct / _both). Never raises —
+    always logs an attempt row via _send_gupshup_wa.
+    """
+    try:
+        variables = [recipient.name, ticket.title, assignee_name, str(hours_or_pct)]
+        _send_gupshup_wa(db, ticket.tenant_id, recipient, "omniflow_ticket_unacknowledged", variables,
+                          related_entity_type="ticket", related_entity_id=ticket.id,
+                          event_key="ticket_tat_reminder")
+    except Exception:
+        logger.exception("send_whatsapp_for_ticket_tat_reminder failed for ticket=%s", ticket.id)
+
+
+def send_whatsapp_for_fms_ticket_closed(db, tenant_id, fms_ticket, admin_ids, manager_ids, actor_name):
+    """omniflow_fms_ticket_closed — notify admins/managers. Never raises."""
+    from .database import User
+    try:
+        recipient_ids = list(set((admin_ids or []) + (manager_ids or [])))
+        for uid in recipient_ids:
+            recipient = db.query(User).filter(User.id == uid).first()
+            if not recipient or not recipient.phone:
+                continue
+            variables = [recipient.name, fms_ticket.title, actor_name or "a team member"]
+            _send_gupshup_wa(db, tenant_id, recipient, "omniflow_fms_ticket_closed", variables,
+                              related_entity_type="fms_ticket", related_entity_id=fms_ticket.id,
+                              event_key="fms_ticket_closed")
+    except Exception:
+        logger.exception("send_whatsapp_for_fms_ticket_closed failed for ticket=%s", fms_ticket.id)
+
+
+def send_whatsapp_for_fms_ticket_flagged(db, tenant_id, fms_ticket, admin_ids, manager_ids,
+                                          flag_reason, actor_name):
+    """omniflow_fms_ticket_flagged — notify admins/managers. Never raises."""
+    from .database import User
+    try:
+        recipient_ids = list(set((admin_ids or []) + (manager_ids or [])))
+        for uid in recipient_ids:
+            recipient = db.query(User).filter(User.id == uid).first()
+            if not recipient or not recipient.phone:
+                continue
+            variables = [recipient.name, fms_ticket.title, flag_reason or "No reason given"]
+            _send_gupshup_wa(db, tenant_id, recipient, "omniflow_fms_ticket_flagged", variables,
+                              related_entity_type="fms_ticket", related_entity_id=fms_ticket.id,
+                              event_key="fms_ticket_flagged")
+    except Exception:
+        logger.exception("send_whatsapp_for_fms_ticket_flagged failed for ticket=%s", fms_ticket.id)
+
+
+def send_whatsapp_for_po_placed(db, tenant_id, po, admin_ids):
+    """omniflow_po_placed — notify admins that a PO was submitted to a vendor. Never raises."""
+    from .database import User
+    try:
+        for uid in admin_ids or []:
+            recipient = db.query(User).filter(User.id == uid).first()
+            if not recipient or not recipient.phone:
+                continue
+            variables = [recipient.name, po.display_id, po.vendor_name_snapshot or "vendor"]
+            _send_gupshup_wa(db, tenant_id, recipient, "omniflow_po_placed", variables,
+                              related_entity_type="purchase_order", related_entity_id=po.id,
+                              event_key="po_placed")
+    except Exception:
+        logger.exception("send_whatsapp_for_po_placed failed for po=%s", po.id)
+
+
+def send_whatsapp_for_po_accepted(db, tenant_id, po):
+    """omniflow_po_accepted — notify the PO's creator that it was approved. Never raises."""
+    from .database import User
+    try:
+        if not po.created_by_id:
+            return
+        recipient = db.query(User).filter(User.id == po.created_by_id).first()
+        if not recipient or not recipient.phone:
+            return
+        variables = [recipient.name, po.display_id, po.vendor_name_snapshot or "vendor"]
+        _send_gupshup_wa(db, tenant_id, recipient, "omniflow_po_accepted", variables,
+                          related_entity_type="purchase_order", related_entity_id=po.id,
+                          event_key="po_accepted")
+    except Exception:
+        logger.exception("send_whatsapp_for_po_accepted failed for po=%s", po.id)
 
 
 def notify_ticket_commented(db, ticket, commenter_id: str, helper_ids: list):
@@ -318,7 +452,8 @@ def _send_wa_ticket_escalated(db, ticket, admin_ids: list, manager_ids: list, ac
                 continue
             variables = [recipient.name, ticket.title, actor_name or "a team member"]
             _send_gupshup_wa(db, ticket.tenant_id, recipient, "omniflow_ticket_escalated", variables,
-                              related_entity_type="ticket", related_entity_id=ticket.id)
+                              related_entity_type="ticket", related_entity_id=ticket.id,
+                              event_key="ticket_escalated")
     except Exception:
         logger.exception("_send_wa_ticket_escalated failed for ticket=%s", ticket.id)
 
@@ -459,7 +594,8 @@ def send_whatsapp_for_fms_stage_transition(db, tenant_id: str, ticket_id: str,
     """
     variables = [assignee.name, ticket_title, stage_name]
     _send_gupshup_wa(db, tenant_id, assignee, "omniflow_fms_stage_transition", variables,
-                      related_entity_type="fms_ticket", related_entity_id=ticket_id)
+                      related_entity_type="fms_ticket", related_entity_id=ticket_id,
+                      event_key="fms_stage_transition")
 
 
 def send_whatsapp_for_fms_ticket_created(db, fms_ticket, assignee):
@@ -472,7 +608,8 @@ def send_whatsapp_for_fms_ticket_created(db, fms_ticket, assignee):
     due_str = format_wa_date(fms_ticket.due_at) if fms_ticket.due_at else "N/A"
     variables = [assignee.name, fms_ticket.title, fms_ticket.priority, due_str]
     _send_gupshup_wa(db, fms_ticket.tenant_id, assignee, "omniflow_ticket_assigned", variables,
-                      related_entity_type="fms_ticket", related_entity_id=fms_ticket.id)
+                      related_entity_type="fms_ticket", related_entity_id=fms_ticket.id,
+                      event_key="fms_ticket_created")
 
 
 def notify_fms_stage_transition(tenant_id: str, ticket_id: str, ticket_title: str,
@@ -536,14 +673,14 @@ def _send_wa_order_placed(db, staff, order):
     """omniflow_order_placed. Never raises — always logs an attempt row."""
     variables = [staff.name, order.display_id, order.customer.name, str(len(order.items))]
     _send_gupshup_wa(db, order.tenant_id, staff, "omniflow_order_placed", variables,
-                      related_entity_type="sales_order", related_entity_id=order.id)
+                      related_entity_type="sales_order", related_entity_id=order.id,
+                      event_key="order_placed")
 
 
 def notify_order_placed(db, order):
     """Notify godown (INVENTORY module) staff and tenant Admins that an order was confirmed."""
     from .database import User
     from .auth import has_module
-    from .constants import WHATSAPP_TEMPLATES
 
     godown_staff = [u for u in db.query(User).filter(
         User.tenant_id == order.tenant_id,
@@ -559,8 +696,7 @@ def notify_order_placed(db, order):
                  f"₹{order.total_amount:,.0f}",
             link="/inventory-v2/dispatch-queue",
         )
-        if WHATSAPP_TEMPLATES["omniflow_order_placed"]["msg91_template_id"]:
-            _send_wa_order_placed(db, staff, order)
+        _send_wa_order_placed(db, staff, order)
 
     admins = db.query(User).filter(
         User.tenant_id == order.tenant_id,
@@ -583,13 +719,12 @@ def _send_wa_order_dispatched(db, order, dispatched_by):
     variables = [agent.name, order.display_id, order.customer.name,
                  datetime.utcnow().strftime("%d %b %Y")]
     _send_gupshup_wa(db, order.tenant_id, agent, "omniflow_order_dispatched", variables,
-                      related_entity_type="sales_order", related_entity_id=order.id)
+                      related_entity_type="sales_order", related_entity_id=order.id,
+                      event_key="order_dispatched")
 
 
 def notify_order_dispatched(db, order, dispatched_by):
     """Notify the sales agent that their order has been dispatched."""
-    from .constants import WHATSAPP_TEMPLATES
-
     create_notification(
         db=db, tenant_id=order.tenant_id, user_id=order.agent_id,
         notif_type="ORDER_DISPATCHED",
@@ -598,5 +733,4 @@ def notify_order_dispatched(db, order, dispatched_by):
         link=f"/sales/orders/{order.id}",
     )
     db.commit()
-    if WHATSAPP_TEMPLATES["omniflow_order_dispatched"]["msg91_template_id"]:
-        _send_wa_order_dispatched(db, order, dispatched_by)
+    _send_wa_order_dispatched(db, order, dispatched_by)

@@ -156,6 +156,21 @@ class Tenant(Base):
     gupshup_webhook_secret  = Column(String, nullable=True)
     whatsapp_opt_in_link    = Column(String, nullable=True)
     whatsapp_config_updated_at = Column(DateTime, nullable=True)
+    # Per-event WhatsApp channel toggles (Setup > Notifications) — gates the
+    # WhatsApp send for each pipeline independently of the in-app notification
+    # toggles above. Default True preserves today's always-on behavior.
+    wa_notif_ticket_assigned     = Column(Boolean, default=True)
+    wa_notif_ticket_escalated    = Column(Boolean, default=True)
+    wa_notif_fms_ticket_created  = Column(Boolean, default=True)
+    wa_notif_fms_stage_transition = Column(Boolean, default=True)
+    wa_notif_order_placed        = Column(Boolean, default=True)
+    wa_notif_order_dispatched    = Column(Boolean, default=True)
+    wa_notif_ticket_closed        = Column(Boolean, default=True)
+    wa_notif_ticket_tat_reminder  = Column(Boolean, default=True)
+    wa_notif_fms_ticket_closed    = Column(Boolean, default=True)
+    wa_notif_fms_ticket_flagged   = Column(Boolean, default=True)
+    wa_notif_po_placed            = Column(Boolean, default=True)
+    wa_notif_po_accepted          = Column(Boolean, default=True)
 
     users = relationship("User", back_populates="tenant")
     branches = relationship("Branch", back_populates="tenant")
@@ -221,6 +236,10 @@ class User(Base):
     matched_phone          = Column(String, nullable=True)
     mismatch_reason        = Column(Text, nullable=True)
     opt_in_actor_id        = Column(String, ForeignKey("users.id"), nullable=True)
+    # Employee's own on/off preference — independent of whatsapp_opt_in_status
+    # (verification). A verified/opted-in employee can still turn WhatsApp
+    # notifications off for themselves; the opt-in record itself is untouched.
+    whatsapp_notifications_enabled = Column(Boolean, default=True)
     # Sales module access — JSON array of module tags e.g. '["SALES","INVENTORY"]'
     # ADMIN and MANAGER roles always see all modules regardless of this field.
     module_access_json = Column(Text, nullable=True, default='[]')
@@ -2306,6 +2325,21 @@ def _pg_add_columns():
         "ALTER TABLE cost_entries ALTER COLUMN product_id DROP NOT NULL",
         "ALTER TABLE sales_order_items ALTER COLUMN product_id DROP NOT NULL",
         "ALTER TABLE stock_reservations ALTER COLUMN product_id DROP NOT NULL",
+        # Setup > Notifications > WhatsApp — per-event send toggles
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_ticket_assigned BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_ticket_escalated BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_fms_ticket_created BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_fms_stage_transition BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_order_placed BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_order_dispatched BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_ticket_closed BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_ticket_tat_reminder BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_fms_ticket_closed BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_fms_ticket_flagged BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_po_placed BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_po_accepted BOOLEAN DEFAULT TRUE",
+        # Employee's own WhatsApp on/off preference (Employees tab)
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_notifications_enabled BOOLEAN DEFAULT TRUE",
     ]
     try:
         with engine.begin() as conn:

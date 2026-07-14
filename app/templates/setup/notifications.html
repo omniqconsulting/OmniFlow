@@ -260,6 +260,44 @@
         </div>
       </div>
 
+      {# ── Section 5: WhatsApp Notifications ──────────────────────────────── #}
+      <div class="card" style="margin-bottom:20px;padding:20px">
+        <h4 style="margin:0 0 4px;font-size:14px;font-weight:700;color:var(--text-strong)">WhatsApp Notifications</h4>
+
+        <div class="notif-info">
+          Controls whether each event below also sends a WhatsApp message, in addition to the in-app notification above.
+          Only recipients who have opted in via WhatsApp (Employees tab) ever receive these — turning an event off here
+          simply stops that WhatsApp send entirely for this tenant, regardless of opt-in status.
+        </div>
+
+        {% set wa_toggles = [
+          ('wa_notif_ticket_assigned', 'Ticket assigned', 'Sent to the assignee when a delegation ticket is assigned'),
+          ('wa_notif_ticket_escalated', 'Ticket escalated / flagged', 'Sent to admin + manager when a ticket is flagged'),
+          ('wa_notif_fms_ticket_created', 'FMS ticket created', 'Sent to the assignee when a new FMS ticket is opened'),
+          ('wa_notif_fms_stage_transition', 'FMS stage transition', 'Sent to the new assignee when a ticket moves to a new stage'),
+          ('wa_notif_order_placed', 'Sales order placed', 'Sent to godown staff when a sales order is confirmed'),
+          ('wa_notif_order_dispatched', 'Sales order dispatched', 'Sent to the sales agent when their order is dispatched'),
+          ('wa_notif_ticket_closed', 'Ticket closed', 'Sent to the assignee when a delegation ticket is closed'),
+          ('wa_notif_ticket_tat_reminder', 'Ticket TaT % elapsed reminder', 'Sent to manager/employee (and admin, at the higher threshold) when a ticket crosses the % elapsed thresholds set above'),
+          ('wa_notif_fms_ticket_closed', 'FMS ticket closed', 'Sent to admin + manager when an FMS ticket reaches a terminal stage or is manually closed'),
+          ('wa_notif_fms_ticket_flagged', 'FMS ticket flagged', 'Sent to admin + manager when an FMS ticket is flagged'),
+          ('wa_notif_po_placed', 'Purchase order placed', 'Sent to admins when a purchase order is submitted to a vendor'),
+          ('wa_notif_po_accepted', 'Purchase order accepted', 'Sent to the PO creator when a purchase order is approved'),
+        ] %}
+        {% for field, label, desc in wa_toggles %}
+        <div class="form-group" style="margin-bottom:14px">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="hidden" name="{{ field }}" value="false">
+            <input type="checkbox" name="{{ field }}" value="true"
+                   {% if (tenant | attr(field)) != False %}checked{% endif %}
+                   style="width:16px;height:16px">
+            <span style="font-size:13px">{{ label }} <span style="color:var(--text-faint)">(default: on)</span></span>
+          </label>
+          <p style="font-size:11px;color:var(--text-faint);margin:4px 0 0 26px">{{ desc }}</p>
+        </div>
+        {% endfor %}
+      </div>
+
       {# ── Delivery Channels info ────────────────────────────────────────────── #}
       <div class="card" style="margin-bottom:20px;padding:20px">
         <h4 style="margin:0 0 14px;font-size:14px;font-weight:700;color:var(--text-strong)">How Notifications Are Delivered</h4>

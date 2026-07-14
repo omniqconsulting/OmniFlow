@@ -364,29 +364,44 @@ def _unread_count(db: Session, user: User) -> int:
     ).count()
 
 
-def _send_wa_registration_received(phone: str, contact_name: str, company_name: str):
-    """Pipeline 5A — omniflow_registration_received. Sends to prospect phone. No mobile_verified gate. Never raises."""
-    from .services.msg91 import send_whatsapp_template, normalize_mobile
+def _send_wa_registration_received(db, phone: str, contact_name: str, company_name: str):
+    """Pipeline 5A — omniflow_registration_received. Sends to prospect phone,
+    via the platform alert tenant's own Gupshup WABA since the prospect's own
+    tenant has no WABA configured yet at this point (pre-onboarding). No-ops
+    (logged) if PLATFORM_ALERT_TENANT_ID isn't set. Never raises."""
+    from .services.gupshup import send_whatsapp_template, get_platform_tenant
+    import logging
     if not phone or not phone.strip():
         return
     try:
-        send_whatsapp_template(normalize_mobile(phone), "omniflow_registration_received", [contact_name, company_name])
+        platform_tenant = get_platform_tenant(db)
+        if not platform_tenant:
+            logging.getLogger("main").warning(
+                "_send_wa_registration_received skipped — no PLATFORM_ALERT_TENANT_ID configured")
+            return
+        send_whatsapp_template(platform_tenant, phone, "omniflow_registration_received", [contact_name, company_name])
     except Exception:
-        import logging
         logging.getLogger("main").exception("_send_wa_registration_received failed for phone=%s", phone)
 
 
 def _send_wa_registration_alert_sa(company_name: str, contact_name: str, contact_phone: str, tenant_id: str, db):
-    """Pipeline 5B — omniflow_registration_alert_sa. Sends to SA_ALERT_PHONE. Never raises."""
-    from .services.msg91 import send_whatsapp_template, normalize_mobile
+    """Pipeline 5B — omniflow_registration_alert_sa. Sends to SA_ALERT_PHONE via
+    the platform alert tenant's own Gupshup WABA (see Pipeline 5A). Never raises."""
+    from .services.gupshup import send_whatsapp_template, get_platform_tenant
     from .database import WhatsAppMessageLog
     from .constants import SA_ALERT_PHONE
     import json
+    import logging
     if not SA_ALERT_PHONE:
         return
     variables = [company_name, contact_name, contact_phone]
     try:
-        ok, error = send_whatsapp_template(normalize_mobile(SA_ALERT_PHONE), "omniflow_registration_alert_sa", variables)
+        platform_tenant = get_platform_tenant(db)
+        if not platform_tenant:
+            logging.getLogger("main").warning(
+                "_send_wa_registration_alert_sa skipped — no PLATFORM_ALERT_TENANT_ID configured")
+            return
+        ok, error, *_ = send_whatsapp_template(platform_tenant, SA_ALERT_PHONE, "omniflow_registration_alert_sa", variables)
         db.add(WhatsAppMessageLog(
             tenant_id=tenant_id,
             template_name="omniflow_registration_alert_sa",
@@ -401,7 +416,6 @@ def _send_wa_registration_alert_sa(company_name: str, contact_name: str, contact
         db.commit()
     except Exception:
         db.rollback()
-        import logging
         logging.getLogger("main").exception("_send_wa_registration_alert_sa failed")
 
 
@@ -689,7 +703,7 @@ def register(request: Request, factory_name: str = Form(...), slug: str = Form(.
     seed_default_uoms(db, tenant.id)
     db.commit()
     # Pipeline 5A — registration received WhatsApp to prospect
-    _send_wa_registration_received(phone, name, factory_name)
+    _send_wa_registration_received(db, phone, name, factory_name)
     # Pipeline 5B — registration alert WhatsApp to SA
     _send_wa_registration_alert_sa(factory_name, name, phone, tenant.id, db)
     return templates.TemplateResponse(request, "register_pending.html", {
@@ -4678,6 +4692,26 @@ def validate_employee_manually(
 
 
 # ── WhatsApp: resend a failed message log entry ───────────────────────────────
+@app.post("/employees/{emp_id}/toggle-whatsapp-notifications")
+def toggle_employee_whatsapp_notifications(
+    emp_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    """
+    Employee-level WhatsApp mute/unmute — independent of whatsapp_opt_in_status
+    (verification). A verified employee may still not want WhatsApp sends;
+    this doesn't touch their opt-in record, only whether sends actually go out.
+    """
+    emp = db.query(User).filter(
+        User.id == emp_id, User.tenant_id == user.tenant_id, User.is_deleted == False,
+    ).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    currently_enabled = emp.whatsapp_notifications_enabled != False
+    emp.whatsapp_notifications_enabled = not currently_enabled
+    db.commit()
+    return RedirectResponse("/employees", status_code=303)
+
+
 @app.post("/whatsapp-log/{log_id}/resend")
 def resend_whatsapp(
     log_id: str, request: Request,
@@ -5157,6 +5191,19 @@ async def setup_notifications_post(
         tenant.fms_notif_tat_pct = 80
     tenant.fms_notif_on_backward = form.get("fms_notif_on_backward") == "true"
     tenant.fms_notif_on_flag = form.get("fms_notif_on_flag") == "true"
+    # WhatsApp per-event toggles
+    tenant.wa_notif_ticket_assigned = form.get("wa_notif_ticket_assigned") == "true"
+    tenant.wa_notif_ticket_escalated = form.get("wa_notif_ticket_escalated") == "true"
+    tenant.wa_notif_fms_ticket_created = form.get("wa_notif_fms_ticket_created") == "true"
+    tenant.wa_notif_fms_stage_transition = form.get("wa_notif_fms_stage_transition") == "true"
+    tenant.wa_notif_order_placed = form.get("wa_notif_order_placed") == "true"
+    tenant.wa_notif_order_dispatched = form.get("wa_notif_order_dispatched") == "true"
+    tenant.wa_notif_ticket_closed = form.get("wa_notif_ticket_closed") == "true"
+    tenant.wa_notif_ticket_tat_reminder = form.get("wa_notif_ticket_tat_reminder") == "true"
+    tenant.wa_notif_fms_ticket_closed = form.get("wa_notif_fms_ticket_closed") == "true"
+    tenant.wa_notif_fms_ticket_flagged = form.get("wa_notif_fms_ticket_flagged") == "true"
+    tenant.wa_notif_po_placed = form.get("wa_notif_po_placed") == "true"
+    tenant.wa_notif_po_accepted = form.get("wa_notif_po_accepted") == "true"
     db.commit()
     return redirect("/setup/notifications?saved=1")
 

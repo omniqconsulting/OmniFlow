@@ -968,6 +968,11 @@ def po_submit(po_id: str, user: User = Depends(_require_inventory), db: Session 
     po.updated_at = datetime.utcnow()
     db.commit()
     _apply_in_transit_delta(db, po, +1)
+    from .notifications import send_whatsapp_for_po_placed
+    admin_ids = [u.id for u in db.query(User).filter(
+        User.tenant_id == user.tenant_id, User.role == "ADMIN", User.is_deleted == False,
+    ).all()]
+    send_whatsapp_for_po_placed(db, user.tenant_id, po, admin_ids)
     return RedirectResponse(f"/inventory-v2/purchase-orders/{po_id}?msg=PO+submitted", status_code=303)
 
 
@@ -980,6 +985,8 @@ def po_approve(po_id: str, user: User = Depends(_require_inventory_manager), db:
     po.approved_by_id = user.id
     po.updated_at = datetime.utcnow()
     db.commit()
+    from .notifications import send_whatsapp_for_po_accepted
+    send_whatsapp_for_po_accepted(db, user.tenant_id, po)
     return RedirectResponse(f"/inventory-v2/purchase-orders/{po_id}?msg=PO+approved", status_code=303)
 
 
