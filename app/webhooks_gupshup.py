@@ -26,6 +26,20 @@ router = APIRouter()
 _OPTED_IN_STATUSES = ("OPTED_IN", "MANUALLY_VERIFIED")
 
 
+@router.get("/webhooks/gupshup/{webhook_token}")
+async def gupshup_webhook_verify(webhook_token: str, db: Session = Depends(get_db)):
+    """
+    GET verification handshake — some webhook registration flows (Gupshup's
+    console included, per live testing) probe with a GET before accepting the
+    URL, independent of POST delivery working. Return 200 for any known
+    token so registration doesn't fail with 'Invalid URL'.
+    """
+    tenant = db.query(Tenant).filter(Tenant.gupshup_webhook_token == webhook_token).first()
+    if not tenant:
+        return JSONResponse(status_code=404, content={"detail": "not found"})
+    return JSONResponse(status_code=200, content={"detail": "ok"})
+
+
 @router.post("/webhooks/gupshup/{webhook_token}")
 async def gupshup_webhook(webhook_token: str, request: Request,
                            x_omniflow_webhook_secret: str | None = Header(default=None),
