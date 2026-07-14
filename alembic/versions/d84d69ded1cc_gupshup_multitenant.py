@@ -116,7 +116,7 @@ def upgrade() -> None:
 
     # Backfill existing rows' opt-in status from the legacy mobile_verified boolean,
     # then default remaining PENDING for any not yet set.
-    op.execute("UPDATE users SET whatsapp_opt_in_status = 'MANUALLY_VERIFIED' WHERE mobile_verified = 1")
+    op.execute("UPDATE users SET whatsapp_opt_in_status = 'MANUALLY_VERIFIED' WHERE mobile_verified = true")
     op.execute("UPDATE users SET whatsapp_opt_in_status = 'PENDING' WHERE whatsapp_opt_in_status IS NULL")
     op.execute("UPDATE tenants SET gupshup_waba_status = 'PENDING' WHERE gupshup_waba_status IS NULL")
     op.execute("UPDATE whatsapp_message_log SET delivery_status_history = '[]' WHERE delivery_status_history IS NULL")
