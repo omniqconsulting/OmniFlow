@@ -129,6 +129,7 @@ TAB_CATALOG = [
     ("KNOWLEDGE",  "Training",    "KNOWLEDGE_REPO"),
     ("SALES",      "Sales",       "SALES_MODULE"),
     ("INVENTORY",  "Inventory",   "INVENTORY_MODULE"),
+    ("SALES_ANALYTICS", "Sales Insights", "SALES_ANALYTICS"),
 ]
 
 

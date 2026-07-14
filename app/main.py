@@ -4316,6 +4316,7 @@ def edit_employee(
     joining_date: str = Form(""), address: str = Form(""),
     branch_id: str = Form(""),
     tabs: list[str] = Form(default=[]),
+    tabs_submitted: str = Form(""),
     user: User = Depends(require_admin), db: Session = Depends(get_db),
 ):
     phone_err = _validate_phone(phone)
@@ -4344,11 +4345,15 @@ def edit_employee(
         except ValueError:
             pass
     import json as _json
-    tenant = db.query(Tenant).get(user.tenant_id)
-    tenant_tabs = set(get_tenant_enabled_tabs(tenant, db))
-    selected_tabs = [t for t in tabs if t in tenant_tabs]
-    emp.tab_access_json = _json.dumps(selected_tabs)
-    emp.module_access_json = _json.dumps([t for t in selected_tabs if t in ("SALES", "INVENTORY")])
+    if tabs_submitted:
+        # Only touch tab access when the submitting form actually rendered the
+        # checkboxes (desktop edit form) — the mobile/PWA edit form has no tab
+        # selector and must not silently wipe out the employee's existing access.
+        tenant = db.query(Tenant).get(user.tenant_id)
+        tenant_tabs = set(get_tenant_enabled_tabs(tenant, db))
+        selected_tabs = [t for t in tabs if t in tenant_tabs]
+        emp.tab_access_json = _json.dumps(selected_tabs)
+        emp.module_access_json = _json.dumps([t for t in selected_tabs if t in ("SALES", "INVENTORY")])
     db.commit()
     return redirect(f"/employees?msg=Profile+updated+for+{emp.name}")
 

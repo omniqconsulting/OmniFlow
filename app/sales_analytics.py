@@ -15,7 +15,7 @@ from .database import (
     get_db, Customer, Product, ProductVariant, SalesOrder, SalesOrderItem,
     TierSnapshot, User, Category, SubCategory,
 )
-from .auth import get_current_user, get_current_user_or_redirect, has_module
+from .auth import get_current_user, get_current_user_or_redirect, has_module, get_user_tabs
 from .constants import has_feature
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
@@ -38,6 +38,8 @@ def _require_analytics(request: Request, user: User = Depends(get_current_user),
         raise HTTPException(status_code=403, detail="Sales module not enabled for this tenant")
     if not has_feature(tenant, "SALES_ANALYTICS", db):
         raise HTTPException(status_code=403, detail="Sales Analytics not enabled for this tenant")
+    if user.role == "MANAGER" and "SALES_ANALYTICS" not in get_user_tabs(user, tenant, db):
+        raise HTTPException(status_code=403, detail="Sales Insights not enabled for this user")
     return user
 
 def _require_analytics_or_redirect(request: Request, user: User = Depends(get_current_user_or_redirect),
@@ -53,6 +55,8 @@ def _require_analytics_or_redirect(request: Request, user: User = Depends(get_cu
         raise HTTPException(status_code=403, detail="Sales module not enabled for this tenant")
     if not has_feature(tenant, "SALES_ANALYTICS", db):
         raise HTTPException(status_code=403, detail="Sales Analytics not enabled for this tenant")
+    if user.role == "MANAGER" and "SALES_ANALYTICS" not in get_user_tabs(user, tenant, db):
+        raise HTTPException(status_code=403, detail="Sales Insights not enabled for this user")
     return user
 
 
