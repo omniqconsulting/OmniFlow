@@ -130,7 +130,8 @@ def get_nav_flags(db: Session, user, tenant=None) -> dict:
             "has_inventory_module":  "INVENTORY" in modules and "INVENTORY" in user_tabs,
             "has_sales_analytics":   (has_feature(t, "SALES_ANALYTICS", db) if t else False)
                                       and (has_feature(t, "SALES_MODULE", db) if t else False)
-                                      and "SALES" in modules and user.role in ("ADMIN", "MANAGER"),
+                                      and "SALES" in modules and user.role in ("ADMIN", "MANAGER")
+                                      and "SALES_ANALYTICS" in user_tabs,
             "user_modules":          modules,
         }
     except Exception as _e:

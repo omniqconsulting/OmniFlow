@@ -332,6 +332,7 @@
             <p class="muted" style="font-size:12px;color:var(--text-faint)">All modules visible (Admin role).</p>
             {% endif %}
           </div>
+          <input type="hidden" name="tabs_submitted" value="1">
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
             <button type="button" onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
