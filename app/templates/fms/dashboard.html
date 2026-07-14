@@ -1599,7 +1599,7 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
       <!-- Assignee for next stage -->
       <div class="fm-group" id="scAssigneeGroup">
         <label>Assign to (next stage)</label>
-        <select name="new_assignee_id" id="scAssignee"
+        <select name="new_assignee_id" id="scAssignee" required
                 style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none">
           <option value="">— select assignee —</option>
           {% for emp in employees %}

@@ -3641,6 +3641,12 @@ async def fms_transition(
         if not next_stage:
             raise HTTPException(400, "Invalid next stage")
 
+        new_assignee_id = (new_assignee_id or "").strip()
+        if not new_assignee_id:
+            new_assignee_id = next_stage.default_assignee_id or ""
+        if not new_assignee_id:
+            raise HTTPException(400, "Please select an assignee for the next stage")
+
     cur_stage  = split.current_stage
     open_h     = _open_history(db, ticket_id, split_id=split.id)
     split_label_suffix = ""
