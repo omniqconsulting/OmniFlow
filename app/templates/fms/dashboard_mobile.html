@@ -202,7 +202,7 @@
       <input type="hidden" name="split_id" id="fb-move-split-id" value="">
       <div class="fb-field">
         <label>Assign to (next stage)</label>
-        <select name="new_assignee_id" class="fb-input">
+        <select name="new_assignee_id" class="fb-input" required>
           <option value="">— select assignee —</option>
           {% for emp in employees %}
           <option value="{{ emp.id }}">{{ emp.name }} · {{ emp.role }}</option>
@@ -291,7 +291,7 @@
 
       <div class="fb-field" id="fb-action-assignee-field" style="display:none">
         <label>New Assignee</label>
-        <select name="new_assignee_id" class="fb-input">
+        <select name="new_assignee_id" class="fb-input" required>
           <option value="">— select employee —</option>
           {% for emp in employees %}
           <option value="{{ emp.id }}">{{ emp.name }} · {{ emp.role }}</option>
