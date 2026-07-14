@@ -1158,8 +1158,13 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
             db.query(Branch).filter(Branch.tenant_id == tid).all()
         branch_id = request.query_params.get("branch_id", None) or None
 
+        # Internal query-gating flags only — NOT nav flags. Nav visibility
+        # (respecting both the tenant-level Setup toggle and per-employee
+        # tab_access_json) comes exclusively from _nav_ctx()/get_nav_flags()
+        # below; these must never be fed back into the template context under
+        # the same has_fms/has_checklists keys or they'll silently override it.
         has_fms        = has_feature(tenant, "FMS", db) if hasattr(tenant, "plan") else True
-        has_checklists = True  # always available
+        has_checklists = True  # always available for query-gating purposes
 
         # ── Summary View (default) ────────────────────────────────────────────
         if view != "detailed":
@@ -1224,7 +1229,6 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
                 "departments": departments, "managers": managers, "branches": branches,
                 "date_presets": date_presets, "active_preset": active_preset,
                 "kpis": kpis, "dept_health": dept_health,
-                "has_fms": has_fms, "has_checklists": has_checklists,
                 "perf_score": sum_perf_score, "perf_components": sum_perf_components,
                 "hot_tasks": hot_tasks, "hot_tasks_count": hot_tasks_count,
             })
@@ -1313,7 +1317,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
             "cl_sc": cl_sc, "cl_wk": cl_wk,
             "cl_tmpl": cl_tmpl, "cl_dept": cl_dept,
             # FMS
-            "has_fms": has_fms, "fms_sc": fms_sc,
+            "fms_sc": fms_sc,
             "fms_flows": fms_flows, "fms_wk": fms_wk, "fms_stage_bd": fms_stage_bd,
             # Performance score
             "perf_score": perf_score, "perf_components": perf_components,
@@ -1395,6 +1399,10 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
             my_checklists = [a for a in my_checklists if a.status == c_status]
 
         # ── Employee Performance Score (formula-driven, Phase A5 stage scoring) ─
+        # Query-gating flag only, not a nav flag — see comment on the ADMIN/
+        # MANAGER branch above; must not be fed into the template context
+        # under the "has_fms" key or it'll override _nav_ctx()'s correctly
+        # per-employee-scoped value.
         _has_fms = has_feature(tenant, "FMS", db) if hasattr(tenant, "plan") else True
         _fms_stage = get_fms_employee_stage_kpis(db, user.id, user.tenant_id)
         _emp_fms_pct = _fms_stage["fms_on_time_rate"] if _fms_stage["total_tickets"] > 0 else None
@@ -1423,7 +1431,6 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
             # FMS
             "active_fms": active_fms,
             "complete_fms": complete_fms,
-            "has_fms": _has_fms,
             "f_priority": f_priority, "f_status": f_status,
             # Checklists
             "my_checklists": my_checklists,

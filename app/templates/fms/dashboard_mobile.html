@@ -490,6 +490,28 @@ function fbCloseTicket(){
   document.getElementById('fb-detail').classList.remove('fb-open');
   FB_CURRENT_TICKET = null;
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+  var moveForm = document.getElementById('fb-move-form');
+  if (!moveForm) return;
+  moveForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    var btn = moveForm.querySelector('button[type="submit"]');
+    var origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Working…'; }
+    fetch(moveForm.action, { method: 'POST', body: new FormData(moveForm) })
+      .then(function(res) {
+        if (res.ok) { location.reload(); return; }
+        return res.json().catch(function() { return {}; }).then(function(body) {
+          fmsShowError(body.detail || 'Could not complete this stage.');
+        });
+      })
+      .catch(function() { fmsShowError('Network error — could not complete this stage.'); })
+      .finally(function() {
+        if (btn) { btn.disabled = false; btn.textContent = origText; }
+      });
+  });
+});
 function fbToggleOverflow(open){
   var el = document.getElementById('fb-overflow-backdrop');
   if(!el) return;
