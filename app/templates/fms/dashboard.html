@@ -1276,6 +1276,9 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
   {% for tr in item.tickets %}{% set t = tr.ticket %}
   <div class="tl-ticket-row">
     <span style="font-family:monospace;font-size:11px;color:#60a5fa;font-weight:600;white-space:nowrap">{{ t.display_id or t.id[:8] }}</span>
+    {% if tr.split_count and tr.split_count > 1 %}
+    <span title="{{ tr.split_label }} — one of {{ tr.split_count }} active splits" style="font-size:10px;padding:1px 6px;border-radius:99px;background:#7c3aed22;color:#a78bfa;white-space:nowrap;flex-shrink:0">⑂ {{ tr.split_label }}</span>
+    {% endif %}
     <button type="button" onclick="openHistoryModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}')"
             title="View history" style="background:none;border:none;cursor:pointer;font-size:11px;padding:0 4px;color:var(--text-faint);flex-shrink:0">🕘</button>
     <span style="flex:1;font-size:12px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
