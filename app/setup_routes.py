@@ -2277,6 +2277,7 @@ async def setup_flow_create(
     color = (form.get("color") or "#3b82f6").strip()
     is_active = form.get("is_active") == "1"
     restrict_to_assignee = form.get("restrict_to_assignee") == "1"
+    allowed_opener_ids = form.getlist("allowed_opener_ids")
     stages_json_raw = (form.get("stages_json") or "[]").strip()
     ticket_form_fields_json_raw = (form.get("ticket_form_fields_json") or "[]").strip()
 
@@ -2312,6 +2313,7 @@ async def setup_flow_create(
         color=color,
         is_active=is_active,
         restrict_to_assignee=restrict_to_assignee,
+        allowed_opener_ids_json=_jf.dumps(allowed_opener_ids) if allowed_opener_ids else None,
         created_by_id=user.id,
         ticket_form_fields_json=_jf.dumps(_clean_ticket_form_fields(ticket_form_fields_data)),
         closing_rule_json=_jf.dumps(closing_rule) if closing_rule else None,
@@ -2378,6 +2380,7 @@ async def setup_flow_update(
     color = (form.get("color") or "#3b82f6").strip()
     is_active = form.get("is_active") == "1"
     restrict_to_assignee = form.get("restrict_to_assignee") == "1"
+    allowed_opener_ids = form.getlist("allowed_opener_ids")
     stages_json_raw = (form.get("stages_json") or "[]").strip()
     ticket_form_fields_json_raw = form.get("ticket_form_fields_json")
 
@@ -2394,6 +2397,7 @@ async def setup_flow_update(
     flow.color = color
     flow.is_active = is_active
     flow.restrict_to_assignee = restrict_to_assignee
+    flow.allowed_opener_ids_json = _jf.dumps(allowed_opener_ids) if allowed_opener_ids else None
     flow.updated_at = datetime.utcnow()
     closing_rule = _parse_closing_rule(form.get("closing_rule_json"))
     flow.closing_rule_json = _jf.dumps(closing_rule) if closing_rule else None

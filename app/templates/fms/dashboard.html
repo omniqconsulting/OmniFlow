@@ -578,13 +578,15 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     {% for s in stage_table_stages %}
     {% set cnt = stage_ticket_counts.get(s.id, 0) %}
     {% set is_sel = active_stage and active_stage.id == s.id %}
-    <a href="/fms/dashboard?flow_id={{ active_flow.id }}&view=stage&stage_id={{ s.id }}"
+    {% set has_my_work = my_work and s.id in my_work_stage_ids %}
+    <a href="/fms/dashboard?flow_id={{ active_flow.id }}&view=stage&stage_id={{ s.id }}&my_work={{ 1 if my_work else 0 }}"
        style="display:block;padding:8px 14px;text-decoration:none;transition:background .12s;
               background:{{ 'rgba(255,255,255,0.06)' if is_sel else 'transparent' }};
               border-left:3px solid {{ s.color or '#3b82f6' if is_sel else 'transparent' }}">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="width:8px;height:8px;border-radius:50%;background:{{ s.color or '#3b82f6' }};flex-shrink:0"></span>
         <span style="flex:1;font-size:12px;font-weight:{{ '600' if is_sel else '500' }};color:#111111">{{ s.name }}</span>
+        {% if has_my_work %}<span title="You have assigned work at this stage" style="font-size:9px;color:#7dd3fc;flex-shrink:0">●</span>{% endif %}
         {% if cnt %}<span style="font-size:10px;padding:1px 6px;border-radius:99px;background:{{ (s.color or '#3b82f6') + '28' }};color:#333333;flex-shrink:0">{{ cnt }}</span>{% endif %}
         {% if s.is_terminal %}<span title="Terminal" style="font-size:9px;color:#6ee7b7;flex-shrink:0">✓</span>{% endif %}
       </div>
@@ -681,9 +683,15 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
       <tr data-ticket-id="{{ t.id }}" data-split-id="{{ row.split_id or '' }}" data-cf='{{ row.cf_all | tojson | replace("'", "&#39;") }}'>
         {% if next_stage_for_bulk and user.role in ('ADMIN','MANAGER') %}
         <td style="text-align:center;padding:8px 4px" onclick="event.stopPropagation()">
+          {% set _tf_parts = [] %}
+          {% for fdef in ticket_form_fields %}
+            {% if fdef.field_type not in ('__priority__', '__due_date__') and row.cf_all.get(fdef.id) %}
+              {% set _ = _tf_parts.append(row.cf_all.get(fdef.id)) %}
+            {% endif %}
+          {% endfor %}
           <input type="checkbox" class="bulk-ticket-cb"
                  value="{{ t.id }}"
-                 data-title="{{ t.display_id or t.id[:8] }} — {{ t.title[:50] | replace('"', '&quot;') }}"
+                 data-title="{{ t.display_id or t.id[:8] }} — {{ (_tf_parts | join(' · ') if _tf_parts else t.title[:50]) | replace('"', '&quot;') }}"
                  data-note-required="{{ 'true' if active_stage.completion_note_required else 'false' }}"
                  onchange="onBulkCbChange()"
                  style="cursor:pointer;width:15px;height:15px">
