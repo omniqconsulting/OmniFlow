@@ -23,7 +23,7 @@ from .database import (
 )
 from .auth import (
     get_current_user, require_admin, require_admin_or_redirect,
-    require_manager, has_module, require_module,
+    require_manager, has_module, require_module, require_any_module,
 )
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread, generate_product_sku
@@ -42,13 +42,22 @@ TIER_CHOICES = ("A", "B", "C", "D", "UNRANKED")
 _require_sales = require_module("SALES", "SALES_MODULE")
 _require_sales_or_redirect = require_module("SALES", "SALES_MODULE", redirect_unauthenticated=True)
 
+# Catalog is shared master data used by both Sales and Inventory — either module
+# access should be enough to view/browse it (see client report: Inventory-only
+# users could see the Catalog nav link but got a 403 because this used to be
+# gated on SALES alone).
+_require_catalog = require_any_module(("SALES", "SALES_MODULE"), ("INVENTORY", "INVENTORY_MODULE"))
+_require_catalog_or_redirect = require_any_module(
+    ("SALES", "SALES_MODULE"), ("INVENTORY", "INVENTORY_MODULE"), redirect_unauthenticated=True
+)
 
-def _require_sales_editor(user: User = Depends(_require_sales)) -> User:
+
+def _require_sales_editor(user: User = Depends(_require_catalog)) -> User:
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(status_code=403, detail="Manager or Admin only")
     return user
 
-def _require_sales_editor_or_redirect(user: User = Depends(_require_sales_or_redirect)) -> User:
+def _require_sales_editor_or_redirect(user: User = Depends(_require_catalog_or_redirect)) -> User:
     """Same check as _require_sales_editor, for GET page routes: missing/invalid
     session redirects to /login instead of raw 401 JSON."""
     if user.role not in ("ADMIN", "MANAGER"):
@@ -56,7 +65,7 @@ def _require_sales_editor_or_redirect(user: User = Depends(_require_sales_or_red
     return user
 
 
-def _require_sales_admin(user: User = Depends(_require_sales)) -> User:
+def _require_sales_admin(user: User = Depends(_require_catalog)) -> User:
     if user.role != "ADMIN":
         raise HTTPException(status_code=403, detail="Admin only")
     return user
@@ -222,7 +231,7 @@ def catalog_list(
     active: str = "",
     view: str = "grid",
     page: int = 1,
-    user: User = Depends(_require_sales_or_redirect),
+    user: User = Depends(_require_catalog_or_redirect),
     db: Session = Depends(get_db),
 ):
     query = db.query(Product).filter(Product.tenant_id == user.tenant_id, Product.is_deleted == False)
@@ -1021,7 +1030,7 @@ async def bulk_upload_confirm(request: Request, user: User = Depends(_require_sa
 
 
 @router.get("/sales/catalog/export")
-def catalog_export(user: User = Depends(_require_sales), db: Session = Depends(get_db)):
+def catalog_export(user: User = Depends(_require_catalog), db: Session = Depends(get_db)):
     schema_fields = _active_schema_fields(db, user.tenant_id)
     variants = db.query(ProductVariant).join(Product, ProductVariant.product_id == Product.id).filter(
         ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
@@ -1059,7 +1068,7 @@ def catalog_export(user: User = Depends(_require_sales), db: Session = Depends(g
 # ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/sales/catalog/{product_id}", response_class=HTMLResponse)
-def catalog_detail(product_id: str, request: Request, user: User = Depends(_require_sales_or_redirect), db: Session = Depends(get_db)):
+def catalog_detail(product_id: str, request: Request, user: User = Depends(_require_catalog_or_redirect), db: Session = Depends(get_db)):
     product = get_product_or_404(db, product_id, user.tenant_id)
     variants = db.query(ProductVariant).filter(
         ProductVariant.product_id == product_id, ProductVariant.is_deleted == False,

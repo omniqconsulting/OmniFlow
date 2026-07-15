@@ -62,7 +62,7 @@
 <div class="inv-section-label" style="margin-top:16px">7-Day Demand Projection</div>
 {% for d in demand_projection %}
 <div class="inv-demand-row">
-  <div class="inv-demand-product">{{ d.product.name }}</div>
+  <div class="inv-demand-product">{{ d.variant.product.name if d.variant and d.variant.product else '—' }}</div>
   <div class="inv-demand-need">Need {{ d.qty_needed }}</div>
   <div class="inv-demand-gap" style="color:{{ '#ef4444' if d.shortfall else '#22c55e' }}">{{ d.gap }}</div>
 </div>

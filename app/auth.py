@@ -158,3 +158,21 @@ def require_module(module: str, feature: str, redirect_unauthenticated: bool = F
         return user
     return _dep
 
+
+def require_any_module(*module_features: tuple, redirect_unauthenticated: bool = False):
+    """Dependency factory: gates a route on ANY of the given (module, feature) pairs —
+    passes if the tenant has the feature enabled AND the user has the module for at
+    least one pair. Use for shared surfaces like Catalog that both Sales and
+    Inventory users need, e.g.
+    _require_catalog = require_any_module(("SALES", "SALES_MODULE"), ("INVENTORY", "INVENTORY_MODULE"))."""
+    _user_dep = get_current_user_or_redirect if redirect_unauthenticated else get_current_user
+    def _dep(user: User = Depends(_user_dep), db: Session = Depends(get_db)) -> User:
+        from .constants import has_feature
+        tenant = db.query(Tenant).get(user.tenant_id)
+        for module, feature in module_features:
+            if has_feature(tenant, feature, db) and has_module(user, module):
+                return user
+        names = " or ".join(m.title() for m, _ in module_features)
+        raise HTTPException(status_code=403, detail=f"{names} module not enabled for this user")
+    return _dep
+
