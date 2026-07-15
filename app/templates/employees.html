@@ -111,12 +111,29 @@
   {% endif %}
 </div>
 
+{% if user.role == 'ADMIN' %}
+<div id="empBulkWaBar" style="display:none;align-items:center;gap:8px;margin-bottom:10px;padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:8px">
+  <span id="empBulkWaCount" style="font-size:12px;color:var(--text-muted);font-weight:600">0 selected</span>
+  <form method="post" action="/employees/bulk-toggle-whatsapp-notifications" id="empBulkMuteForm" style="display:inline">
+    <input type="hidden" name="set_enabled" value="0">
+    <button type="submit" class="btn btn-sm btn-gray">🔕 Mute Selected</button>
+  </form>
+  <form method="post" action="/employees/bulk-toggle-whatsapp-notifications" id="empBulkUnmuteForm" style="display:inline">
+    <input type="hidden" name="set_enabled" value="1">
+    <button type="submit" class="btn btn-sm btn-gray">🔔 Unmute Selected</button>
+  </form>
+</div>
+{% endif %}
+
 <!-- ══ LIST VIEW ══════════════════════════════════════════════════════════ -->
 <div id="view-list">
 <div class="card" style="padding:0">
   <table>
     <thead>
       <tr>
+        {% if user.role == 'ADMIN' %}
+        <th style="width:28px"><input type="checkbox" id="empSelectAllCb" onchange="empOnSelectAll(this)" style="cursor:pointer;width:14px;height:14px"></th>
+        {% endif %}
         <th>Name</th><th>Phone</th><th>Role</th><th>{{ L.Department }}</th>
         <th>Manager</th><th>Status</th><th>WhatsApp Opt-in</th>
         <th>Actions</th>
@@ -125,6 +142,9 @@
     <tbody>
     {% for emp in employees %}
     <tr>
+      {% if user.role == 'ADMIN' %}
+      <td><input type="checkbox" class="emp-bulk-cb" value="{{ emp.id }}" onchange="empOnBulkCbChange()" style="cursor:pointer;width:14px;height:14px"></td>
+      {% endif %}
       <td style="font-weight:500;color:var(--text-strong)">
         {{ emp.name }}
         {% if emp.employee_id %}<span style="font-size:10px;color:var(--text-xfaint);margin-left:6px">{{ emp.employee_id }}</span>{% endif %}
@@ -715,6 +735,27 @@ document.addEventListener('click', function(e) {
 function toggleRow(id){
   var el = document.getElementById(id);
   el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'table-row' : 'none';
+}
+
+function empOnSelectAll(cb) {
+  document.querySelectorAll('.emp-bulk-cb').forEach(function(c) { c.checked = cb.checked; });
+  empOnBulkCbChange();
+}
+function empOnBulkCbChange() {
+  var checked = document.querySelectorAll('.emp-bulk-cb:checked');
+  var bar = document.getElementById('empBulkWaBar');
+  if (!bar) return;
+  bar.style.display = checked.length > 0 ? 'flex' : 'none';
+  document.getElementById('empBulkWaCount').textContent = checked.length + ' selected';
+  ['empBulkMuteForm', 'empBulkUnmuteForm'].forEach(function(formId) {
+    var form = document.getElementById(formId);
+    form.querySelectorAll('input[name="emp_ids"]').forEach(function(h){ h.remove(); });
+    checked.forEach(function(c) {
+      var h = document.createElement('input');
+      h.type = 'hidden'; h.name = 'emp_ids'; h.value = c.value;
+      form.appendChild(h);
+    });
+  });
 }
 
 // ── Documents & Gadgets: keep the panel open across uploads/deletes ─────────

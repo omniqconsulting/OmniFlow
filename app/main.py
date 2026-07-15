@@ -2575,11 +2575,14 @@ def _format_frequency(tmpl) -> str:
     return label_map.get(freq, freq)
 
 
-def _parse_frequency_fields(frequency_type: str, cfg_days: str, cfg_day: str, cfg_month: str, cfg_doy_day: str = ""):
+def _parse_frequency_fields(frequency_type: str, cfg_days: str, cfg_day: str, cfg_month: str, cfg_doy_day: str = "",
+                             cfg_nth: str = "", cfg_weekday: str = ""):
     """Parse raw form fields into (frequency_type, frequency_config) for E-14.
 
     cfg_day      → day number for MONTHLY_DATE
     cfg_doy_day  → day number for YEARLY_DATE (separate field to avoid name clash)
+    cfg_nth      → 1-4 (1st-4th) or -1 (last) for NTH_WEEKDAY_MONTH/QUARTER
+    cfg_weekday  → 0(Mon)-6(Sun) for NTH_WEEKDAY_MONTH/QUARTER
     """
     ft = frequency_type.strip() if frequency_type else None
     if not ft or ft in ("DAILY", "WEEKLY", "MONTHLY", "YEARLY"):
@@ -2599,6 +2602,11 @@ def _parse_frequency_fields(frequency_type: str, cfg_days: str, cfg_day: str, cf
     elif ft == "YEARLY_DATE":
         try:
             cfg = {"month": int(cfg_month), "day": int(cfg_doy_day or cfg_day)}
+        except Exception:
+            cfg = None
+    elif ft in ("NTH_WEEKDAY_MONTH", "NTH_WEEKDAY_QUARTER"):
+        try:
+            cfg = {"nth": int(cfg_nth), "weekday": int(cfg_weekday)}
         except Exception:
             cfg = None
     return ft, cfg
@@ -2968,6 +2976,10 @@ async def create_template(
     frequency_config_day: str = Form(""),
     frequency_config_month: str = Form(""),
     frequency_config_doy_day: str = Form(""),
+    frequency_config_nth: str = Form(""),
+    frequency_config_weekday: str = Form(""),
+    due_time_mode: str = Form("ANYTIME"),
+    due_time: str = Form(""),
     proof_required: bool = Form(False),
     evidence_required: bool = Form(False),
     assigned_to_user_id: str = Form(""),
@@ -2985,7 +2997,7 @@ async def create_template(
         emp = db.query(User).filter(User.id == assigned_to_user_id).first()
         if emp:
             role = emp.role
-    ft, fc = _parse_frequency_fields(frequency_type, frequency_config_days, frequency_config_day, frequency_config_month, frequency_config_doy_day)
+    ft, fc = _parse_frequency_fields(frequency_type, frequency_config_days, frequency_config_day, frequency_config_month, frequency_config_doy_day, frequency_config_nth, frequency_config_weekday)
     tmpl = ChecklistTemplate(
         tenant_id=user.tenant_id, title=title, description=description,
         frequency=frequency, proof_required=proof_required,
@@ -2996,6 +3008,8 @@ async def create_template(
         reminder_hours_before=reminder_hours_before,
         reminder_repeat_hours=reminder_repeat_hours,
         is_recurring=is_recurring,
+        due_time_mode=due_time_mode if due_time_mode == "FIXED_TIME" else "ANYTIME",
+        due_time=due_time or None,
         frequency_type=ft,
         frequency_config=fc,
     )
@@ -3474,6 +3488,10 @@ def edit_checklist_template(
     frequency_config_day: str = Form(""),
     frequency_config_month: str = Form(""),
     frequency_config_doy_day: str = Form(""),
+    frequency_config_nth: str = Form(""),
+    frequency_config_weekday: str = Form(""),
+    due_time_mode: str = Form("ANYTIME"),
+    due_time: str = Form(""),
     evidence_required: bool = Form(False),
     is_active: str = Form("1"),
     reminder_hours_before: int = Form(2),
@@ -3500,7 +3518,9 @@ def edit_checklist_template(
     tmpl.assigned_to_user_id = assigned_to_user_id or None
     tmpl.assigned_to_dept_id = assigned_to_dept_id or None
     tmpl.assigned_to_role = assigned_to_role
-    ft, fc = _parse_frequency_fields(frequency_type, frequency_config_days, frequency_config_day, frequency_config_month, frequency_config_doy_day)
+    tmpl.due_time_mode = due_time_mode if due_time_mode == "FIXED_TIME" else "ANYTIME"
+    tmpl.due_time = due_time or None
+    ft, fc = _parse_frequency_fields(frequency_type, frequency_config_days, frequency_config_day, frequency_config_month, frequency_config_doy_day, frequency_config_nth, frequency_config_weekday)
     tmpl.frequency_type = ft
     tmpl.frequency_config = fc
     # Sync future pending assignments so "Upcoming" reflects the updated settings.
@@ -3521,8 +3541,9 @@ def _sync_pending_assignments(db: Session, tmpl, tid: str) -> None:
       users no longer targeted; never auto-create new assignments (scheduler does that).
     - Past/completed/failed assignments are never touched (history).
     """
+    from .checklist_freq import CUSTOM_FREQUENCY_TYPES, next_custom_occurrence, apply_due_time
     now = datetime.utcnow()
-    _custom_freq = getattr(tmpl, 'frequency_type', None) in ('WEEKLY_CUSTOM', 'MONTHLY_DATE', 'YEARLY_DATE')
+    _custom_freq = getattr(tmpl, 'frequency_type', None) in CUSTOM_FREQUENCY_TYPES
 
     # Deactivated template: clear all future pending assignments
     if not tmpl.is_active:
@@ -3573,10 +3594,21 @@ def _sync_pending_assignments(db: Session, tmpl, tid: str) -> None:
 
     existing_by_user = {a.user_id: a for a in existing}
 
-    # Soft-delete future assignments for users who are no longer targets
+    # Soft-delete future assignments for users who are no longer targets;
+    # recompute due_at for still-targeted ones so an edited due-date rule or
+    # due-time setting applies retroactively to already-created assignments
+    # (not just new ones the scheduler generates going forward).
+    _recomputed_custom_due = None
+    if _custom_freq:
+        _recomputed_custom_due = next_custom_occurrence(tmpl, now)
     for uid, a in existing_by_user.items():
         if uid not in new_target_ids:
             a.is_deleted = True
+        elif _custom_freq:
+            if _recomputed_custom_due:
+                a.due_at = _recomputed_custom_due
+        else:
+            a.due_at = apply_due_time(a.due_at.date(), tmpl)
 
     # Create assignments for target users who have no future pending.
     # Overdue assignments do NOT block creation — recurring checklists need a next occurrence
@@ -4709,6 +4741,22 @@ def toggle_employee_whatsapp_notifications(
     currently_enabled = emp.whatsapp_notifications_enabled != False
     emp.whatsapp_notifications_enabled = not currently_enabled
     db.commit()
+    return RedirectResponse("/employees", status_code=303)
+
+
+@app.post("/employees/bulk-toggle-whatsapp-notifications")
+async def bulk_toggle_employee_whatsapp_notifications(
+    request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    """Bulk mute/unmute WhatsApp sends for a set of employees at once."""
+    form = await request.form()
+    emp_ids = form.getlist("emp_ids")
+    set_enabled = form.get("set_enabled") == "1"
+    if emp_ids:
+        db.query(User).filter(
+            User.id.in_(emp_ids), User.tenant_id == user.tenant_id, User.is_deleted == False,
+        ).update({"whatsapp_notifications_enabled": set_enabled}, synchronize_session=False)
+        db.commit()
     return RedirectResponse("/employees", status_code=303)
 
 

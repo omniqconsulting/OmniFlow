@@ -25,33 +25,14 @@ def generate_recurring_checklists():
 
         for tmpl in templates:
             # E-14: custom frequency types — check before falling through to legacy
+            from .checklist_freq import CUSTOM_FREQUENCY_TYPES, matches_today, apply_due_time
             ft = getattr(tmpl, "frequency_type", None)
-            cfg = getattr(tmpl, "frequency_config", None) or {}
-            if ft == "WEEKLY_CUSTOM":
-                days = cfg.get("days", [])
-                if now.weekday() not in days:
+            if ft in CUSTOM_FREQUENCY_TYPES:
+                if not matches_today(tmpl, now):
                     continue
-                next_due = now.replace(hour=18, minute=0, second=0, microsecond=0)
-                if now.hour >= 18:
+                next_due = apply_due_time(now.date(), tmpl)
+                if next_due <= now:
                     next_due += timedelta(days=1)
-            elif ft == "MONTHLY_DATE":
-                target_day = cfg.get("day", 1)
-                if now.day != target_day:
-                    continue
-                # Silently skip if month has fewer days (e.g. Feb 30)
-                try:
-                    next_due = now.replace(day=target_day, hour=18, minute=0, second=0, microsecond=0)
-                except ValueError:
-                    continue
-            elif ft == "YEARLY_DATE":
-                target_month = cfg.get("month", 1)
-                target_day = cfg.get("day", 1)
-                if now.month != target_month or now.day != target_day:
-                    continue
-                try:
-                    next_due = now.replace(month=target_month, day=target_day, hour=18, minute=0, second=0, microsecond=0)
-                except ValueError:
-                    continue
             elif ft in ("DAILY", "WEEKLY", "MONTHLY", "YEARLY", None):
                 # NULL frequency_type falls through to legacy field logic below
                 pass
@@ -64,20 +45,18 @@ def generate_recurring_checklists():
             # Determine lookback window and next due time by frequency (legacy)
             elif tmpl.frequency == "DAILY":
                 lookback = timedelta(days=1)
-                next_due = now.replace(hour=18, minute=0, second=0, microsecond=0)
-                if now.hour >= 18:
+                next_due = apply_due_time(now.date(), tmpl)
+                if next_due <= now:
                     next_due += timedelta(days=1)
             elif tmpl.frequency == "WEEKLY":
                 lookback = timedelta(weeks=1)
                 days_ahead = 7 - now.weekday()
-                next_due = (now + timedelta(days=days_ahead)).replace(
-                    hour=18, minute=0, second=0, microsecond=0)
+                next_due = apply_due_time((now + timedelta(days=days_ahead)).date(), tmpl)
             elif tmpl.frequency == "MONTHLY":
                 lookback = timedelta(days=32)
                 m = now.month % 12 + 1
                 y = now.year + (1 if now.month == 12 else 0)
-                next_due = now.replace(year=y, month=m, day=1,
-                                       hour=18, minute=0, second=0, microsecond=0)
+                next_due = apply_due_time(now.replace(year=y, month=m, day=1).date(), tmpl)
             elif tmpl.frequency == "TWICE_A_MONTH":
                 lookback = timedelta(days=16)
                 next_due = now + timedelta(days=15)

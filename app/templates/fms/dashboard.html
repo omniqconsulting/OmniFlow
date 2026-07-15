@@ -438,10 +438,13 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     <th rowspan="2" style="text-align:center;min-width:80px">Priority</th>
     <th rowspan="2" style="text-align:center;min-width:90px">Status</th>
     <th rowspan="2" style="text-align:left;min-width:120px">Current Stage</th>
+    {% for fdef in ticket_form_fields %}
+    <th rowspan="2" style="text-align:left;min-width:110px" title="From Ticket Creation Form">{{ fdef.label }}</th>
+    {% endfor %}
     {% for s in stage_table_stages %}
     {% set hex = s.color or '#3b82f6' %}
     {% set jt_cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
-    <th class="jt-stage-th" colspan="{{ 6 + (ticket_form_fields | length) + (jt_cf_defs | length) }}" style="background:{{ hex }}">{{ s.name }}</th>
+    <th class="jt-stage-th" colspan="{{ 6 + (jt_cf_defs | length) }}" style="background:{{ hex }}">{{ s.name }}</th>
     {% endfor %}
   </tr>
   <!-- Row 2: sub-headers per stage -->
@@ -455,9 +458,6 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Actual entry time">Act. Start</th>
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Actual completion">Act. End</th>
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="Act. End − Plan End">Delay</th>
-    {% for fdef in ticket_form_fields %}
-    <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}" title="From Ticket Creation Form">{{ fdef.label }}</th>
-    {% endfor %}
     {% for fdef in jt_cf_defs %}
     <th class="jt-sub" style="background:{{ hex }}20;color:{{ hex }}">{{ fdef.label }}</th>
     {% endfor %}
@@ -492,6 +492,18 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
       {% else %}—{% endif %}
     </td>
 
+    {% set row_cf = row.stages[0].cf if row.stages else {} %}
+    {% for fdef in ticket_form_fields %}
+    {% set cfval = row_cf.get(fdef.id, '—') %}
+    {% set editable = user.role in ('ADMIN','MANAGER') and fdef.field_type != 'formula' and not fdef.carry_forward %}
+    {% set ei = row.edit_info.get(fdef.id) %}
+    <td class="jt-cell{% if editable %} jt-editable{% endif %}"
+        {% if editable %}data-field-id="{{ fdef.id }}" data-stage-id="" data-field-label="{{ fdef.label | replace('"','&quot;') }}" data-ticket-id="{{ t.id }}" onclick="openCellEditModal(this)"{% endif %}
+        {% if ei %}title="Edited by {{ ei.edited_by.name if ei.edited_by else 'System' }} on {{ ei.edited_at | ist('%d %b %Y, %H:%M') }}: {{ ei.reason }}"{% endif %}>
+      {{ cfval }}{% if ei %} <span style="font-size:9px;color:#a78bfa">✎</span>{% endif %}
+    </td>
+    {% endfor %}
+
     {% for si in row.stages %}
     {% set state_cls = 'jt-cur' if si.is_current else ('jt-past' if si.visited else 'jt-future') %}
     {% set hex = si.stage.color or '#3b82f6' %}
@@ -521,17 +533,6 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         </span>
       {% elif si.visited %}—{% else %}<span style="opacity:.3">—</span>{% endif %}
     </td>
-    {% for fdef in ticket_form_fields %}
-    {% set cfval = si.cf.get(fdef.id, '—') if (si.visited or si.is_current) else '' %}
-    {% set editable = user.role in ('ADMIN','MANAGER') and (si.visited or si.is_current) and fdef.field_type != 'formula' and not fdef.carry_forward %}
-    {% set ei = row.edit_info.get(fdef.id) %}
-    <td class="jt-cell {{ state_cls }}{% if editable %} jt-editable{% endif %}"
-        {% if si.is_current %}style="background:{{ hex }}12"{% endif %}
-        {% if editable %}data-field-id="{{ fdef.id }}" data-stage-id="" data-field-label="{{ fdef.label | replace('"','&quot;') }}" data-ticket-id="{{ t.id }}" onclick="openCellEditModal(this)"{% endif %}
-        {% if ei %}title="Edited by {{ ei.edited_by.name if ei.edited_by else 'System' }} on {{ ei.edited_at | ist('%d %b %Y, %H:%M') }}: {{ ei.reason }}"{% endif %}>
-      {{ cfval }}{% if ei %} <span style="font-size:9px;color:#a78bfa">✎</span>{% endif %}
-    </td>
-    {% endfor %}
     {% for fdef in jt_cf_defs %}
     {% set cfval = si.cf.get(fdef.id, si.cf.get(fdef.label, '—')) if (si.visited or si.is_current) else '' %}
     {% set cfstyle = fdef | cond_format(cfval) %}
@@ -695,8 +696,16 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           {% if t.is_flagged %} 🚩{% endif %}
           {% if t.has_qty_discrepancy %} <span title="Quantity drift: split totals don't match target_qty">⚠</span>{% endif %}
           {% if row.evidence_url %}
-          <a href="{{ row.evidence_url }}" target="_blank" title="{{ row.evidence_filename or 'Attachment' }}"
-             onclick="event.stopPropagation()" style="text-decoration:none;font-size:12px;margin-left:4px">📎</a>
+            {% set _ev_name = (row.evidence_filename or row.evidence_url) | lower %}
+            {% if _ev_name.endswith('.png') or _ev_name.endswith('.jpg') or _ev_name.endswith('.jpeg') or _ev_name.endswith('.gif') or _ev_name.endswith('.webp') %}
+            <a href="{{ row.evidence_url }}" target="_blank" title="{{ row.evidence_filename or 'Attachment' }}"
+               onclick="event.stopPropagation()" style="display:inline-block;vertical-align:middle;margin-left:5px">
+              <img src="{{ row.evidence_url }}" alt="evidence" style="width:22px;height:22px;object-fit:cover;border-radius:4px;border:1px solid var(--border-med);vertical-align:middle">
+            </a>
+            {% else %}
+            <a href="{{ row.evidence_url }}" target="_blank" title="{{ row.evidence_filename or 'Attachment' }}"
+               onclick="event.stopPropagation()" style="text-decoration:none;font-size:12px;margin-left:4px">📎</a>
+            {% endif %}
           {% endif %}
           {% if row.split_count and row.split_count > 1 %}
           <button type="button" data-splits='{{ row.splits_payload | tojson | replace("'", "&#39;") }}'
@@ -846,14 +855,6 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
               <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openHelpModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ row.split_id or "" }}')"
                       style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#a78bfa;cursor:pointer;font-family:inherit">
                 🆘 Help Needed
-              </button>
-              {% endif %}
-
-              {# Split — Phase 0: move part of this row's split's qty to another stage #}
-              {% if can_act and t.status not in ('COMPLETED','CLOSED') and row.split_id %}
-              <button onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openSplitActionModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ row.split_id }}','{{ active_stage.id }}',{{ 'true' if t.target_qty is not none else 'false' }})"
-                      style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#60a5fa;cursor:pointer;font-family:inherit">
-                ✂ Split This Ticket
               </button>
               {% endif %}
 
@@ -1990,61 +1991,6 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
     <div style="display:flex;justify-content:flex-end;margin-top:16px">
       <button type="button" onclick="closeKnowledgeModal()" class="btn btn-sm">Close</button>
     </div>
-  </div>
-</div>
-
-<!-- ── Phase 0: Split action modal — carve part of a split's qty to another stage ── -->
-<div id="fmsSplitActionModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:310;padding:16px">
-  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:420px;max-width:95vw">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
-      <div>
-        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">✂ Split Ticket</div>
-        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="fmsSplitActionSubtitle"></div>
-      </div>
-      <button onclick="closeSplitActionModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
-    </div>
-    <form id="fmsSplitActionForm" method="post">
-      <div style="margin-bottom:14px" id="fmsSplitQtyGroup">
-        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Qty to move <span style="color:#f87171">*</span></label>
-        <input type="number" name="qty_to_move" id="fmsSplitQty" min="1" step="1"
-               style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box">
-        <div style="font-size:10px;color:var(--text-faint);margin-top:4px" id="fmsSplitQtyHint"></div>
-      </div>
-      <div id="fmsSplitCustomFields"></div>
-      <div style="margin-bottom:14px">
-        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Target stage <span style="color:#f87171">*</span></label>
-        <select name="target_stage_id" id="fmsSplitTargetStage" required
-                style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box">
-          {% for s in stage_table_stages %}
-          <option value="{{ s.id }}">{{ s.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="margin-bottom:16px">
-        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">New assignee (optional)</label>
-        <select name="new_assignee_id" id="fmsSplitAssignee"
-                style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box">
-          <option value="">— Keep current assignee —</option>
-          {% for emp in employees %}
-          <option value="{{ emp.id }}">{{ emp.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="margin-bottom:16px">
-        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Completion note</label>
-        <textarea name="completion_note" rows="2"
-                  style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"></textarea>
-      </div>
-      <div style="margin-bottom:16px">
-        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px">Return reason (only needed moving to an earlier stage)</label>
-        <input type="text" name="return_reason"
-               style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box">
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button type="button" onclick="closeSplitActionModal()" class="btn btn-sm">Cancel</button>
-        <button type="submit" class="btn btn-sm" style="background:#2563eb;border-color:#2563eb;color:#fff">✂ Create Split</button>
-      </div>
-    </form>
   </div>
 </div>
 
@@ -3382,60 +3328,6 @@ function _applyCellEditResult(ticketId, fieldId, stageId, value, tooltip) {
 }
 
 /* ── Phase 0: Split action modal — carve qty off to another stage ───────── */
-function openSplitActionModal(ticketId, displayId, splitId, currentStageId, hasQty) {
-  document.getElementById('fmsSplitActionForm').action = '/fms/tickets/' + ticketId + '/splits/' + splitId + '/split';
-  document.getElementById('fmsSplitActionSubtitle').textContent = displayId;
-  var qtyGroup = document.getElementById('fmsSplitQtyGroup');
-  var qtyInput = document.getElementById('fmsSplitQty');
-  qtyInput.value = '';
-  // Not every flow tracks quantity (FMSTicket.target_qty is optional) — for
-  // those tickets, splitting is purely "carve a copy off to another stage",
-  // so don't force a meaningless number into a field that isn't part of
-  // the flow at all.
-  if (hasQty === false || hasQty === 'false') {
-    qtyGroup.style.display = 'none';
-    qtyInput.required = false;
-  } else {
-    qtyGroup.style.display = '';
-    qtyInput.required = true;
-    document.getElementById('fmsSplitQtyHint').textContent = 'Must be greater than 0 and no more than the split\'s remaining qty.';
-  }
-  var sel = document.getElementById('fmsSplitTargetStage');
-  var ns = NEXT_STAGE_MAP[currentStageId];
-  if (ns) sel.value = ns.id;
-
-  // Splitting isn't purely quantity-only — this stage's own custom columns
-  // can optionally be captured as part of the split (see fms_split_ticket).
-  var cfContainer = document.getElementById('fmsSplitCustomFields');
-  cfContainer.innerHTML = '';
-  var cfDefs = (typeof STAGE_CF_DEFS !== 'undefined' && currentStageId) ? (STAGE_CF_DEFS[currentStageId] || []) : [];
-  var INP_STYLE = 'width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;box-sizing:border-box';
-  cfDefs.forEach(function(f) {
-    var grp = document.createElement('div');
-    grp.style.marginBottom = '14px';
-    if (f.field_type === 'formula') {
-      var lbl = document.createElement('label');
-      lbl.style.cssText = 'display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px';
-      lbl.innerHTML = f.label + ' <span style="font-size:10px;color:#a78bfa;font-weight:400;text-transform:none">(auto-calculated on submit)</span>';
-      grp.appendChild(lbl);
-    } else {
-      var lbl2 = document.createElement('label');
-      lbl2.style.cssText = 'display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:5px';
-      lbl2.innerHTML = f.label + (f.required ? ' <span style="color:#f87171">*</span>' : '');
-      grp.appendChild(lbl2);
-      var inp = document.createElement('input');
-      inp.type = 'text'; inp.name = 'cf__' + f.id; inp.style.cssText = INP_STYLE;
-      grp.appendChild(inp);
-    }
-    cfContainer.appendChild(grp);
-  });
-
-  document.getElementById('fmsSplitActionModal').style.display = 'flex';
-}
-function closeSplitActionModal() {
-  document.getElementById('fmsSplitActionModal').style.display = 'none';
-}
-
 /* ── Manager Override modal ──────────────────────────────────────────────── */
 function openOverrideModal(ticketId, displayId, currentStageId, prevStageId, assigneeId) {
   document.getElementById('fmsOverrideForm').action = '/fms/tickets/' + ticketId + '/transition';
@@ -3453,7 +3345,7 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     closeMoveBackModal(); closeFlagModal(); closeAssigneeModal();
     closeHelpModal(); closeOverrideModal(); closeBulkTransitionModal();
-    closeHistoryModal(); closeSplitsModal(); closeSplitActionModal();
+    closeHistoryModal(); closeSplitsModal();
     closeCellEditModal();
   }
 });

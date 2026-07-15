@@ -893,7 +893,9 @@
     "assigned_to_role": {{ (t.assigned_to_role or 'EMPLOYEE')|tojson }},
     "assigned_to_dept_id": {{ (t.assigned_to_dept_id or '')|tojson }},
     "assigned_to_user_id": {{ (t.assigned_to_user_id or '')|tojson }},
-    "is_active": {{ 'true' if t.is_active else 'false' }}
+    "is_active": {{ 'true' if t.is_active else 'false' }},
+    "due_time_mode": {{ (t.due_time_mode or 'ANYTIME')|tojson }},
+    "due_time": {{ (t.due_time or '')|tojson }}
   }{% if not loop.last %},{% endif %}
 
 {% endfor %}
@@ -929,6 +931,8 @@
             <option value="WEEKLY_CUSTOM">Custom — Days of Week</option>
             <option value="MONTHLY_DATE">Custom — Day of Month</option>
             <option value="YEARLY_DATE">Custom — Day of Year</option>
+            <option value="NTH_WEEKDAY_MONTH">Custom — Nth Weekday of Month (e.g. 2nd Friday)</option>
+            <option value="NTH_WEEKDAY_QUARTER">Custom — Nth Weekday of Quarter (e.g. 1st Monday)</option>
           </select>
           <input type="hidden" name="frequency" id="etm-freq" value="DAILY">
         </div>
@@ -938,6 +942,36 @@
             <option value="1">Active</option>
             <option value="0">Inactive</option>
           </select>
+        </div>
+      </div>
+      <div id="etm-freq-nth" style="display:none;margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text-faint);margin-bottom:4px;display:block">Occurrence</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select name="frequency_config_nth" id="etm-cfg-nth" class="form-input" style="width:110px">
+            <option value="1">1st</option>
+            <option value="2">2nd</option>
+            <option value="3">3rd</option>
+            <option value="4">4th</option>
+            <option value="-1">Last</option>
+          </select>
+          <select name="frequency_config_weekday" id="etm-cfg-weekday" class="form-input" style="width:140px">
+            {% for wi, wn in [(0,'Monday'),(1,'Tuesday'),(2,'Wednesday'),(3,'Thursday'),(4,'Friday'),(5,'Saturday'),(6,'Sunday')] %}
+            <option value="{{ wi }}">{{ wn }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="form-group">
+          <label>Due</label>
+          <select name="due_time_mode" id="etm-due-mode" class="form-input" onchange="clDueModeChange(this,'etm')">
+            <option value="ANYTIME">Anytime during the day</option>
+            <option value="FIXED_TIME">By a specific time</option>
+          </select>
+        </div>
+        <div class="form-group" id="etm-due-time-wrap" style="display:none">
+          <label>Due Time</label>
+          <input type="time" name="due_time" id="etm-due-time" class="form-input">
         </div>
       </div>
       {# E-14 custom frequency extra inputs (edit modal) #}
@@ -1162,6 +1196,8 @@
             <option value="WEEKLY_CUSTOM">Custom — Days of Week</option>
             <option value="MONTHLY_DATE">Custom — Day of Month</option>
             <option value="YEARLY_DATE">Custom — Day of Year</option>
+            <option value="NTH_WEEKDAY_MONTH">Custom — Nth Weekday of Month (e.g. 2nd Friday)</option>
+            <option value="NTH_WEEKDAY_QUARTER">Custom — Nth Weekday of Quarter (e.g. 1st Monday)</option>
           </select>
           {# hidden legacy field for backward compat #}
           <input type="hidden" name="frequency" id="cr-freq-hidden" value="DAILY">
@@ -1172,6 +1208,36 @@
             <option value="true">Yes — auto-repeat</option>
             <option value="false">No — one time only</option>
           </select>
+        </div>
+      </div>
+      <div id="cr-freq-nth" style="display:none;margin-bottom:14px">
+        <label style="font-size:11px;color:var(--text-faint);margin-bottom:4px;display:block">Occurrence</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select name="frequency_config_nth" id="cr-cfg-nth" class="form-input" style="width:110px">
+            <option value="1">1st</option>
+            <option value="2">2nd</option>
+            <option value="3">3rd</option>
+            <option value="4">4th</option>
+            <option value="-1">Last</option>
+          </select>
+          <select name="frequency_config_weekday" id="cr-cfg-weekday" class="form-input" style="width:140px">
+            {% for wi, wn in [(0,'Monday'),(1,'Tuesday'),(2,'Wednesday'),(3,'Thursday'),(4,'Friday'),(5,'Saturday'),(6,'Sunday')] %}
+            <option value="{{ wi }}">{{ wn }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div class="form-group">
+          <label>Due</label>
+          <select name="due_time_mode" id="cr-due-mode" class="form-input" onchange="clDueModeChange(this,'cr')">
+            <option value="ANYTIME">Anytime during the day</option>
+            <option value="FIXED_TIME">By a specific time</option>
+          </select>
+        </div>
+        <div class="form-group" id="cr-due-time-wrap" style="display:none">
+          <label>Due Time</label>
+          <input type="time" name="due_time" id="cr-due-time" class="form-input">
         </div>
       </div>
       {# E-14 custom frequency extra inputs #}
@@ -1327,7 +1393,7 @@ function clFreqTypeChange(sel, prefix) {
   var val = sel.value;
   var hiddenFreq = document.getElementById(prefix + '-freq' + (prefix === 'cr' ? '-hidden' : ''));
   if (hiddenFreq) hiddenFreq.value = ['DAILY','WEEKLY','MONTHLY','YEARLY'].includes(val) ? val : 'DAILY';
-  ['dow','dom','doy'].forEach(function(t) {
+  ['dow','dom','doy','nth'].forEach(function(t) {
     var el = document.getElementById(prefix + '-freq-' + t);
     if (el) el.style.display = 'none';
   });
@@ -1341,6 +1407,14 @@ function clFreqTypeChange(sel, prefix) {
     });
   }
   else if (val === 'YEARLY_DATE') { var d3 = document.getElementById(prefix + '-freq-doy'); if (d3) d3.style.display = 'block'; }
+  else if (val === 'NTH_WEEKDAY_MONTH' || val === 'NTH_WEEKDAY_QUARTER') {
+    var d4 = document.getElementById(prefix + '-freq-nth'); if (d4) d4.style.display = 'block';
+  }
+}
+
+function clDueModeChange(sel, prefix) {
+  var wrap = document.getElementById(prefix + '-due-time-wrap');
+  if (wrap) wrap.style.display = sel.value === 'FIXED_TIME' ? 'block' : 'none';
 }
 
 function clDowChange(prefix) {
@@ -1380,7 +1454,17 @@ function openEditModal(tmplId) {
   } else if (ft === 'YEARLY_DATE') {
     var me = document.getElementById('etm-cfg-month'); if (me && cfg.month) me.value = cfg.month;
     var de2 = document.getElementById('etm-cfg-doy-day'); if (de2 && cfg.day) de2.value = cfg.day;
+  } else if (ft === 'NTH_WEEKDAY_MONTH' || ft === 'NTH_WEEKDAY_QUARTER') {
+    var ne = document.getElementById('etm-cfg-nth'); if (ne && cfg.nth !== undefined) ne.value = cfg.nth;
+    var we = document.getElementById('etm-cfg-weekday'); if (we && cfg.weekday !== undefined) we.value = cfg.weekday;
   }
+  var dueModeEl = document.getElementById('etm-due-mode');
+  if (dueModeEl) {
+    dueModeEl.value = d.due_time_mode || 'ANYTIME';
+    clDueModeChange(dueModeEl, 'etm');
+  }
+  var dueTimeEl = document.getElementById('etm-due-time');
+  if (dueTimeEl) dueTimeEl.value = d.due_time || '';
   document.getElementById('edit-tmpl-form').action = '/checklists/templates/' + tmplId + '/edit';
   document.getElementById('edit-tmpl-modal').style.display = 'flex';
 }
