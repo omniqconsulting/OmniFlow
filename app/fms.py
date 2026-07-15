@@ -363,6 +363,23 @@ def _can_transition(user: User, ticket: FMSTicket, split=None) -> bool:
         return split.current_assignee_id == user.id
     return ticket.current_assignee_id == user.id
 
+def _can_act_on_ticket(user: User, ticket: FMSTicket, split=None) -> bool:
+    """Flow setup option: 'only the assigned employee at each stage may act
+    on a ticket' (FMSFlow.restrict_to_assignee). Admins/managers are always
+    exempt, and flows without the flag keep today's looser per-action checks
+    (this is an additional gate, not a replacement for them). An employee is
+    'assigned' if they're the split/ticket's current assignee, or the
+    configured default_assignee for the current stage."""
+    if user.role in ("ADMIN", "MANAGER"):
+        return True
+    if not (ticket.flow and ticket.flow.restrict_to_assignee):
+        return True
+    assignee_id = split.current_assignee_id if split is not None else ticket.current_assignee_id
+    if assignee_id == user.id:
+        return True
+    stage = (split.current_stage if split is not None else None) or ticket.current_stage
+    return bool(stage and stage.default_assignee_id == user.id)
+
 def _get_ticket(db, ticket_id, tenant_id) -> FMSTicket:
     t = db.query(FMSTicket).filter(
         FMSTicket.id == ticket_id,
@@ -1196,6 +1213,14 @@ def _fms_dashboard_inner(
             FMSTicket.stage_assignees_json.like(f'%"{user.id}"%')
         ).distinct():
             emp_ticket_flow_ids.add(t.flow_id)
+        # Also include flows where the employee is configured as a stage's
+        # default assignee, even if no ticket has reached that stage yet.
+        for s in db.query(FMSStage.flow_id).filter(
+            FMSStage.tenant_id == tid,
+            FMSStage.is_deleted == False,
+            FMSStage.default_assignee_id == user.id,
+        ).distinct():
+            emp_ticket_flow_ids.add(s.flow_id)
         flows = [f for f in all_flows if f.id in emp_ticket_flow_ids]
     elif user.role == "MANAGER":
         mgr_team_ids = [u.id for u in db.query(User).filter(
@@ -1221,6 +1246,14 @@ def _fms_dashboard_inner(
             )
         ).distinct():
             mgr_flow_ids.add(t.flow_id)
+        # Flows where a team member is configured as a stage's default
+        # assignee, even if no ticket has reached that stage yet.
+        for s in db.query(FMSStage.flow_id).filter(
+            FMSStage.tenant_id == tid,
+            FMSStage.is_deleted == False,
+            FMSStage.default_assignee_id.in_(mgr_team_ids),
+        ).distinct():
+            mgr_flow_ids.add(s.flow_id)
         flows = [f for f in all_flows if f.id in mgr_flow_ids]
     else:
         flows = all_flows
@@ -1753,7 +1786,19 @@ def _fms_dashboard_inner(
                     (FMSTicket.id.in_(emp_all_fms_ids))
                 )
             if my_work:
-                q = q.filter(FMSTicket.current_assignee_id == user.id)
+                # Filter on the split actually parked at this stage, not the
+                # ticket-wide cached assignee (which mirrors the furthest-along
+                # split for multi-split tickets and can misrepresent who owns
+                # the work sitting at active_stage).
+                _my_work_ticket_ids = [
+                    row[0] for row in db.query(FMSTicketSplit.ticket_id).filter(
+                        FMSTicketSplit.current_stage_id == active_stage.id,
+                        FMSTicketSplit.current_assignee_id == user.id,
+                        FMSTicketSplit.is_deleted == False,
+                        FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                    ).distinct()
+                ]
+                q = q.filter(FMSTicket.id.in_(_my_work_ticket_ids))
             if priority_filter:
                 q = q.filter(FMSTicket.priority.in_(priority_filter))
             if filter_assignee_ids is not None:
@@ -3643,7 +3688,12 @@ async def fms_transition(
     else:
         split = _ensure_ticket_has_split(db, ticket)
 
-    if not _can_transition(user, ticket, split):
+    _can_via_default_assignee = (
+        user.role == "EMPLOYEE" and ticket.flow and ticket.flow.restrict_to_assignee and
+        (split.current_stage if split is not None else ticket.current_stage) is not None and
+        (split.current_stage if split is not None else ticket.current_stage).default_assignee_id == user.id
+    )
+    if not (_can_transition(user, ticket, split) or _can_via_default_assignee):
         raise HTTPException(403, "Not authorised to transition this ticket")
     # CLOSED is a deliberate, permanent administrative closure — never reopenable
     # here. COMPLETED (reached the flow's terminal stage) is different: a
@@ -4597,6 +4647,9 @@ async def fms_action(
         ).first()
         if not split:
             raise HTTPException(404, "Split not found")
+
+    if action not in ("add_helper", "remove_helper") and not _can_act_on_ticket(user, ticket, split):
+        raise HTTPException(403, "Only the assigned employee for this stage can act on this ticket")
 
     if action == "comment" and comment.strip():
         _log(db, ticket_id, user.id, "COMMENT", comment.strip())

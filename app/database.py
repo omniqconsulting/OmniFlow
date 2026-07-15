@@ -396,6 +396,10 @@ class ChecklistTemplate(Base):
     # E-14: extended frequency fields (NULL = use legacy `frequency` column)
     frequency_type   = Column(String, nullable=True)
     frequency_config = Column(JSON,   nullable=True)
+    # Due date vs due time: ANYTIME = due sometime that day (no time enforced);
+    # FIXED_TIME = must be done by due_time ("HH:MM") that day.
+    due_time_mode    = Column(String, default="ANYTIME")
+    due_time         = Column(String, nullable=True)  # "HH:MM", only used when due_time_mode == FIXED_TIME
     created_at = Column(DateTime, default=datetime.utcnow)
 
     tenant = relationship("Tenant", back_populates="checklist_templates")
@@ -780,6 +784,7 @@ class FMSFlow(Base):
     color                    = Column(String,  default="#3b82f6")   # swimlane colour
     is_active                = Column(Boolean, default=True)
     is_deleted               = Column(Boolean, default=False)
+    restrict_to_assignee     = Column(Boolean, default=False)         # only the current-stage assignee (or that stage's configured default_assignee) may act on a ticket
     library_flow_id          = Column(String)                        # source library template (if any)
     library_version_at_deploy= Column(Integer)                       # version at time of deploy (2-B-5)
     ticket_form_fields_json  = Column(Text,    default="[]")          # JSON array of custom field defs for ticket creation form
@@ -2340,6 +2345,11 @@ def _pg_add_columns():
         "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS wa_notif_po_accepted BOOLEAN DEFAULT TRUE",
         # Employee's own WhatsApp on/off preference (Employees tab)
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_notifications_enabled BOOLEAN DEFAULT TRUE",
+        # FMS: restrict ticket actions to the current-stage assignee only
+        "ALTER TABLE fms_flows ADD COLUMN IF NOT EXISTS restrict_to_assignee BOOLEAN DEFAULT FALSE",
+        # Checklists: due date vs due time distinction, per template
+        "ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS due_time_mode VARCHAR DEFAULT 'ANYTIME'",
+        "ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS due_time VARCHAR",
     ]
     try:
         with engine.begin() as conn:

@@ -130,15 +130,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
   });
 
-  window.toggleMs = function(btn) {
-    var wrap = btn.closest('.ms-wrap');
-    wrap.classList.contains('open') ? closeMs(wrap) : openMs(wrap);
-  };
-
-  window.onMsChange = function(chk) {
-    var wrap = chk.closest('.ms-wrap');
-    updateMsBtn(wrap);
-    // sync hidden inputs on the form
+  function syncMsHidden(wrap) {
     var name = wrap.dataset.name;
     var form = wrap.closest('form');
     if (!form) return;
@@ -148,21 +140,46 @@ document.addEventListener('DOMContentLoaded', async function () {
       h.type = 'hidden'; h.name = name; h.value = c.value; h.dataset.ms = name;
       form.appendChild(h);
     });
+  }
+
+  window.toggleMs = function(btn) {
+    var wrap = btn.closest('.ms-wrap');
+    wrap.classList.contains('open') ? closeMs(wrap) : openMs(wrap);
   };
+
+  window.onMsChange = function(chk) {
+    var wrap = chk.closest('.ms-wrap');
+    updateMsBtn(wrap);
+    syncMsHidden(wrap);
+  };
+
+  window.msSelectAll = function(btn, mode) {
+    var wrap = btn.closest('.ms-wrap');
+    wrap.querySelectorAll('.ms-item input[type=checkbox]').forEach(function(c){
+      c.checked = (mode === 'all');
+    });
+    updateMsBtn(wrap);
+    syncMsHidden(wrap);
+  };
+
+  function ensureMsActions(wrap) {
+    var panel = wrap.querySelector('.ms-panel');
+    if (!panel || panel.querySelector('.ms-actions')) return;
+    var row = document.createElement('div');
+    row.className = 'ms-actions';
+    row.innerHTML =
+      '<button type="button" onclick="msSelectAll(this,\'all\')">Select all</button>' +
+      '<button type="button" onclick="msSelectAll(this,\'none\')">None</button>';
+    panel.insertBefore(row, panel.firstChild);
+  }
 
   // On page load: restore button labels from pre-checked state & sync hidden inputs
   document.addEventListener('DOMContentLoaded', function(){
     document.querySelectorAll('.ms-wrap').forEach(function(wrap){
+      ensureMsActions(wrap);
       updateMsBtn(wrap);
       // sync hidden inputs for any pre-checked boxes (page load from URL params)
-      var name = wrap.dataset.name;
-      var form = wrap.closest('form');
-      if (!form) return;
-      wrap.querySelectorAll('.ms-item input:checked').forEach(function(c){
-        var h = document.createElement('input');
-        h.type = 'hidden'; h.name = name; h.value = c.value; h.dataset.ms = name;
-        form.appendChild(h);
-      });
+      syncMsHidden(wrap);
     });
   });
 })();

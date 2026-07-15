@@ -83,6 +83,16 @@
           <label for="isActiveCb" style="font-size:13px;color:var(--text-muted)">Flow is active</label>
         </div>
       </div>
+      <div class="fe-group" style="grid-column:1/-1">
+        <label class="fe-label">Ticket Access</label>
+        <div class="toggle-wrap" style="margin-top:8px">
+          <input type="checkbox" name="restrict_to_assignee" value="1" id="restrictToAssigneeCb"
+                 {% if flow and flow.restrict_to_assignee %}checked{% endif %}>
+          <label for="restrictToAssigneeCb" style="font-size:13px;color:var(--text-muted)">
+            Only the assigned employee at each stage (current split assignee, or that stage's default assignee) can open/act on a ticket
+          </label>
+        </div>
+      </div>
     </div>
   </div>
 
