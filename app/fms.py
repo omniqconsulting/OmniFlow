@@ -2073,33 +2073,48 @@ def _fms_dashboard_inner(
             table_tickets = [r for r in table_tickets if r["display_status"] == status_filter.upper()]
 
     # ── Timeline view ─────────────────────────────────────────────────────────
+    # Phase 0 fix: a ticket's progress is tracked per-SPLIT, not on the cached
+    # FMSTicket.current_stage_id (which only reflects the furthest-along
+    # split once a ticket has more than one — see _sync_ticket_cache). Iterate
+    # active splits at this stage, same pattern as the Stage view above, so a
+    # split ticket shows up at EVERY stage one of its live splits occupies
+    # (e.g. remainder still at stage 2 AND moved-forward part at stage 3/4).
     timeline_data = []
     if view == "timeline" and active_flow and stage_table_stages:
         for s in stage_table_stages:
-            tq2 = db.query(FMSTicket).filter(
-                FMSTicket.current_stage_id == s.id,
+            splitq = db.query(FMSTicketSplit).join(
+                FMSTicket, FMSTicketSplit.ticket_id == FMSTicket.id
+            ).filter(
+                FMSTicketSplit.current_stage_id == s.id,
+                FMSTicketSplit.is_deleted == False,
+                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicket.flow_id == active_flow.id,
                 FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
             )
             if user.role == "MANAGER":
-                tq2 = tq2.filter(
-                    (FMSTicket.current_assignee_id.in_(team_ids)) |
-                    (FMSTicket.id.in_(mgr_all_fms_ids))
+                splitq = splitq.filter(
+                    (FMSTicketSplit.current_assignee_id.in_(team_ids)) |
+                    (FMSTicketSplit.ticket_id.in_(mgr_all_fms_ids))
                 )
             elif user.role == "EMPLOYEE":
-                tq2 = tq2.filter(
-                    (FMSTicket.current_assignee_id == user.id) |
-                    (FMSTicket.id.in_(emp_all_fms_ids))
+                splitq = splitq.filter(
+                    (FMSTicketSplit.current_assignee_id == user.id) |
+                    (FMSTicketSplit.ticket_id.in_(emp_all_fms_ids))
                 )
-            t_list = tq2.all()
+            split_list = splitq.all()
             stage_items = []
-            for t in t_list:
-                h = _open_history(db, t.id)
+            for sp in split_list:
+                t = sp.ticket
+                h = _open_history(db, t.id, split_id=sp.id)
                 time_at_s = int((now - h.entered_at).total_seconds()) if h else 0
+                total_active = len(_active_splits(db, t.id))
                 stage_items.append({
                     "ticket": t,
                     "time_at_s": time_at_s,
-                    "assignee_name": t.current_assignee.name if t.current_assignee else "—",
+                    "assignee_name": sp.current_assignee.name if sp.current_assignee else "—",
+                    "split_id": sp.id,
+                    "split_label": sp.split_display_id or sp.split_label,
+                    "split_count": total_active,
                 })
             timeline_data.append({
                 "stage": s,
@@ -3630,8 +3645,17 @@ async def fms_transition(
 
     if not _can_transition(user, ticket, split):
         raise HTTPException(403, "Not authorised to transition this ticket")
-    if ticket.status == "CLOSED" or split.status in ("COMPLETED", "CLOSED"):
-        raise HTTPException(400, "This ticket/split is already completed or closed")
+    # CLOSED is a deliberate, permanent administrative closure — never reopenable
+    # here. COMPLETED (reached the flow's terminal stage) is different: a
+    # manager/admin override can reopen it to correct a mistake or handle a
+    # rejection discovered after close (brief: "moving the splits back" must
+    # work even once a split has completed) — everyone else still gets the
+    # old hard block.
+    if ticket.status == "CLOSED" or split.status == "CLOSED":
+        raise HTTPException(400, "This ticket/split is closed")
+    if split.status == "COMPLETED" and not (is_override and user.role in ("ADMIN", "MANAGER")):
+        raise HTTPException(400,
+            "This ticket/split is already completed — a manager/admin override is required to reopen it")
 
     # Empty next_stage_id means "complete the current terminal stage"
     terminal_complete = not next_stage_id.strip()
@@ -4059,8 +4083,14 @@ async def fms_split_ticket(
         raise HTTPException(404, "Split not found")
     if not _can_transition(user, ticket, source):
         raise HTTPException(403, "Not authorised to split this ticket")
-    if ticket.status == "CLOSED" or source.status in ("COMPLETED", "CLOSED"):
-        raise HTTPException(400, "This split is already completed or closed")
+    # Same COMPLETED-is-reopenable-by-override / CLOSED-is-permanent rule as
+    # fms_transition — a manual split off a completed split needs the same
+    # escape hatch (e.g. a manager decides more of it needs rework after all).
+    if ticket.status == "CLOSED" or source.status == "CLOSED":
+        raise HTTPException(400, "This split is closed")
+    if source.status == "COMPLETED" and not (is_override and user.role in ("ADMIN", "MANAGER")):
+        raise HTTPException(400,
+            "This split is already completed — a manager/admin override is required to reopen it")
 
     # Splitting isn't always a quantity concept — plenty of flows never set
     # target_qty at all (it's nullable on FMSTicket). When this ticket
@@ -4099,8 +4129,8 @@ async def fms_split_ticket(
             raise HTTPException(400, "Splits can only move to the next stage in sequence")
         if direction == "BACKWARD" and next_order != cur_order - 1:
             raise HTTPException(400, "Splits can only move to the previous stage in sequence")
-    if direction == "BACKWARD" and not return_reason.strip():
-        raise HTTPException(400, "Return reason is required for backward movement")
+    if direction == "BACKWARD" and len(return_reason.strip()) < 5:
+        raise HTTPException(400, "A valid return reason (at least 5 characters) is required to move a split back")
     if cur_stage and cur_stage.completion_note_required and not completion_note.strip():
         raise HTTPException(400, f"Stage '{cur_stage.name}' requires a completion note")
 
@@ -4207,9 +4237,21 @@ async def fms_split_ticket(
     inherited_snapshot = _cross_stage_cf(db, ticket_id, all_flow_stages, split_id=source.id)
     new_label = _next_split_label(db, ticket_id)
     new_assignee = new_assignee_id or source.current_assignee_id
+    # Lineage metadata (root_ticket_id/split_display_id/split_sequence/
+    # split_stage_id) — a manual split is a sibling branch of `source` exactly
+    # like an auto-split is, so it gets the same hierarchical id fields
+    # (e.g. F-0042-1-2) rather than just a bare "S3" label. Without this a
+    # manually-split branch's origin is invisible next to auto-split siblings
+    # in the same tree (brief §6: "clearly defined - from which branch it
+    # originated").
+    base_display = source.split_display_id or ticket.display_id or ticket.id[:8]
+    seq = _next_auto_split_sequence(db, ticket_id, source.id)
     new_split = FMSTicketSplit(
         tenant_id=ticket.tenant_id, ticket_id=ticket_id, parent_split_id=source.id,
-        split_label=new_label, qty=qty,
+        root_ticket_id=source.root_ticket_id or ticket_id,
+        split_label=new_label, split_display_id=f"{base_display}-{seq}", split_sequence=seq,
+        split_stage_id=cur_stage.id if cur_stage else None,
+        qty=qty,
         current_stage_id=target_stage_id, current_assignee_id=new_assignee,
         status="COMPLETED" if target_stage.is_terminal else "ACTIVE",
     )
@@ -4219,6 +4261,38 @@ async def fms_split_ticket(
     # this new branch, not a source update, so they're merged into the
     # inherited snapshot rather than left on the source.
     new_row_cf = {**inherited_snapshot, **(custom_fields_data if not source_retired else {})}
+
+    # TAT window for the new split's opening history row — same schedule
+    # logic as fms_transition (a manual split is still a stage move for the
+    # portion that lands on target_stage). BACKWARD resets the clock for
+    # target_stage and everything after it in flow order, mirroring the
+    # ticket-level schedule fms_transition maintains; this split shares that
+    # same ticket.stage_schedule_json cache.
+    _sched: dict = {}
+    try:
+        _sched = _json.loads(ticket.stage_schedule_json or "{}")
+    except Exception:
+        _sched = {}
+    if direction == "BACKWARD":
+        _flow_stages_sched = sorted(
+            [fs for fs in ticket.flow.stages if not fs.is_deleted], key=lambda fs: fs.order
+        )
+        _cursor = now
+        _reached = False
+        for _fs in _flow_stages_sched:
+            if _fs.id == target_stage_id:
+                _reached = True
+            if not _reached:
+                continue
+            _tat_h = _fs.target_tat_hours or 24
+            _p_end = _cursor + timedelta(hours=_tat_h)
+            _sched[_fs.id] = {"planned_start": _cursor.isoformat(), "planned_end": _p_end.isoformat()}
+            _cursor = _p_end
+        ticket.stage_schedule_json = _json.dumps(_sched)
+    _ns = _sched.get(target_stage_id, {})
+    _nps = datetime.fromisoformat(_ns["planned_start"]) if _ns.get("planned_start") else None
+    _npe = datetime.fromisoformat(_ns["planned_end"]) if _ns.get("planned_end") else None
+
     db.add(FMSStageHistory(
         ticket_id=ticket_id, split_id=new_split.id, stage_id=target_stage_id,
         stage_name=target_stage.name, assignee_id=new_assignee,
@@ -4226,6 +4300,8 @@ async def fms_split_ticket(
         return_reason=return_reason.strip() or None,
         from_stage_id=cur_stage.id if cur_stage else None,
         from_stage_name=cur_stage.name if cur_stage else None,
+        planned_start=_nps,
+        planned_end=_npe,
         custom_fields_data_json=_json.dumps(new_row_cf) if new_row_cf else None,
     ))
 
