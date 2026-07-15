@@ -364,21 +364,21 @@ def _can_transition(user: User, ticket: FMSTicket, split=None) -> bool:
     return ticket.current_assignee_id == user.id
 
 def _can_act_on_ticket(user: User, ticket: FMSTicket, split=None) -> bool:
-    """Flow setup option: 'only the assigned employee at each stage may act
-    on a ticket' (FMSFlow.restrict_to_assignee). Admins/managers are always
-    exempt, and flows without the flag keep today's looser per-action checks
-    (this is an additional gate, not a replacement for them). An employee is
-    'assigned' if they're the split/ticket's current assignee, or the
-    configured default_assignee for the current stage."""
+    """Flow setup option: 'only specific whitelisted employees may open/act
+    on tickets in this flow' (FMSFlow.restrict_to_assignee +
+    FMSFlow.allowed_opener_ids_json). Admins/managers are always exempt, and
+    flows without the flag keep today's looser per-action checks (this is an
+    additional gate, not a replacement for them)."""
     if user.role in ("ADMIN", "MANAGER"):
         return True
     if not (ticket.flow and ticket.flow.restrict_to_assignee):
         return True
-    assignee_id = split.current_assignee_id if split is not None else ticket.current_assignee_id
-    if assignee_id == user.id:
-        return True
-    stage = (split.current_stage if split is not None else None) or ticket.current_stage
-    return bool(stage and stage.default_assignee_id == user.id)
+    import json as _json_gate
+    try:
+        allowed_ids = set(_json_gate.loads(ticket.flow.allowed_opener_ids_json or "[]"))
+    except Exception:
+        allowed_ids = set()
+    return user.id in allowed_ids
 
 def _get_ticket(db, ticket_id, tenant_id) -> FMSTicket:
     t = db.query(FMSTicket).filter(
@@ -1737,6 +1737,7 @@ def _fms_dashboard_inner(
     active_stage = None
     stage_tickets = []
     stage_ticket_counts: dict = {}
+    my_work_stage_ids: set = set()
 
     if active_flow:
         stage_table_stages = sorted(
@@ -1751,9 +1752,35 @@ def _fms_dashboard_inner(
                 FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
             ).count()
 
+        # "My Work" is scoped to whatever single stage tab happens to be
+        # active — with 10 tickets spread across several stages, the tab
+        # selected by default (or left over from browsing) is very often NOT
+        # one the employee is assigned at, so the toggle silently showed 0
+        # results even though matching tickets existed on other tabs. Find
+        # every stage where this user currently owns an active split so we
+        # can jump the tab there instead of failing quietly.
+        my_work_stage_ids: set = set()
+        if my_work:
+            my_work_stage_ids = {
+                row[0] for row in db.query(FMSTicketSplit.current_stage_id)
+                .join(FMSTicket, FMSTicket.id == FMSTicketSplit.ticket_id)
+                .filter(
+                    FMSTicket.flow_id == active_flow.id,
+                    FMSTicket.is_deleted == False,
+                    FMSTicketSplit.current_assignee_id == user.id,
+                    FMSTicketSplit.is_deleted == False,
+                    FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                ).distinct().all() if row[0]
+            }
+
         # Determine active stage (default: first)
         if stage_id:
             active_stage = next((s for s in stage_table_stages if s.id == stage_id), None)
+        if my_work and my_work_stage_ids and (active_stage is None or active_stage.id not in my_work_stage_ids):
+            # Explicit stage_id wasn't one of the user's own stages (or none
+            # was given at all) — jump to the first stage (by flow order)
+            # where they actually have assigned work.
+            active_stage = next((s for s in stage_table_stages if s.id in my_work_stage_ids), active_stage)
         if active_stage is None and stage_table_stages:
             active_stage = stage_table_stages[0]
 
@@ -2275,6 +2302,7 @@ def _fms_dashboard_inner(
         # Stage view (formerly stage_table)
         stage_table_stages=stage_table_stages,
         active_stage=active_stage,
+        my_work_stage_ids=my_work_stage_ids,
         stage_tickets=stage_tickets,
         stage_ticket_counts=stage_ticket_counts,
         next_stage_map=next_stage_map,
@@ -3688,12 +3716,11 @@ async def fms_transition(
     else:
         split = _ensure_ticket_has_split(db, ticket)
 
-    _can_via_default_assignee = (
+    _can_via_whitelist = (
         user.role == "EMPLOYEE" and ticket.flow and ticket.flow.restrict_to_assignee and
-        (split.current_stage if split is not None else ticket.current_stage) is not None and
-        (split.current_stage if split is not None else ticket.current_stage).default_assignee_id == user.id
+        _can_act_on_ticket(user, ticket, split)
     )
-    if not (_can_transition(user, ticket, split) or _can_via_default_assignee):
+    if not (_can_transition(user, ticket, split) or _can_via_whitelist):
         raise HTTPException(403, "Not authorised to transition this ticket")
     # CLOSED is a deliberate, permanent administrative closure — never reopenable
     # here. COMPLETED (reached the flow's terminal stage) is different: a
