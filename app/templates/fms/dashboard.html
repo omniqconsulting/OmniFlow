@@ -683,9 +683,15 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
       <tr data-ticket-id="{{ t.id }}" data-split-id="{{ row.split_id or '' }}" data-cf='{{ row.cf_all | tojson | replace("'", "&#39;") }}'>
         {% if next_stage_for_bulk and user.role in ('ADMIN','MANAGER') %}
         <td style="text-align:center;padding:8px 4px" onclick="event.stopPropagation()">
+          {% set _tf_parts = [] %}
+          {% for fdef in ticket_form_fields %}
+            {% if fdef.field_type not in ('__priority__', '__due_date__') and row.cf_all.get(fdef.id) %}
+              {% set _ = _tf_parts.append(row.cf_all.get(fdef.id)) %}
+            {% endif %}
+          {% endfor %}
           <input type="checkbox" class="bulk-ticket-cb"
                  value="{{ t.id }}"
-                 data-title="{{ t.display_id or t.id[:8] }} — {{ t.title[:50] | replace('"', '&quot;') }}"
+                 data-title="{{ t.display_id or t.id[:8] }} — {{ (_tf_parts | join(' · ') if _tf_parts else t.title[:50]) | replace('"', '&quot;') }}"
                  data-note-required="{{ 'true' if active_stage.completion_note_required else 'false' }}"
                  onchange="onBulkCbChange()"
                  style="cursor:pointer;width:15px;height:15px">

@@ -1884,32 +1884,13 @@ def _fms_dashboard_inner(
                         cf_all.update(_json.loads(t.ticket_custom_fields_json))
                     except Exception:
                         pass
-                all_hist = (
-                    db.query(FMSStageHistory)
-                    .filter(FMSStageHistory.ticket_id == t.id)
-                    .order_by(FMSStageHistory.entered_at)
-                    .all()
-                )
-                for sh in all_hist:
-                    if not sh.custom_fields_data_json:
-                        continue
-                    try:
-                        cf_data = _json.loads(sh.custom_fields_data_json)
-                    except Exception:
-                        continue
-                    cf_all.update(cf_data)  # UUID-keyed
-                    src_stage = next(
-                        (s for s in stage_table_stages if s.id == sh.stage_id), None
-                    )
-                    if src_stage and src_stage.custom_fields_json:
-                        try:
-                            for fdef in _json.loads(src_stage.custom_fields_json):
-                                fid = fdef.get("id", "")
-                                lbl = fdef.get("label", "")
-                                if fid and lbl and fid in cf_data:
-                                    cf_all[lbl] = cf_data[fid]  # label-keyed
-                        except Exception:
-                            pass
+                # Scoped to this row's own split — otherwise a sibling split's
+                # custom-field values (e.g. Quantity/Issued Qty at a different
+                # stage) can clobber this row's via shared field ids/labels.
+                cf_all.update(_cross_stage_cf(
+                    db, t.id, stage_table_stages,
+                    split_id=row_split.id if row_split else None,
+                ))
                 _live_eval_formulas(cf_all, stage_table_stages)
                 planned_end = None
                 pd = _planned_dates(t, stage_table_stages)
@@ -2059,34 +2040,16 @@ def _fms_dashboard_inner(
             ):
                 edit_info_by_stage.setdefault(el.stage_id or "", {})[el.field_id] = el
 
-            # Build cumulative cf_all across all history entries (UUID + label keyed)
-            cf_cumulative: dict = {}
+            # Base ticket-level custom fields (from creation form) — shared
+            # across every stage column since they belong to the ticket, not
+            # any one split.
+            cf_base: dict = {}
             if t.ticket_custom_fields_json:
                 try:
-                    cf_cumulative.update(_json.loads(t.ticket_custom_fields_json))
+                    cf_base.update(_json.loads(t.ticket_custom_fields_json))
                 except Exception:
                     pass
-            for h in all_hist:
-                if not h.custom_fields_data_json:
-                    continue
-                try:
-                    cf_data = _json.loads(h.custom_fields_data_json)
-                except Exception:
-                    continue
-                cf_cumulative.update(cf_data)
-                src_stage = next(
-                    (s for s in stage_table_stages if s.id == h.stage_id), None
-                )
-                if src_stage and src_stage.custom_fields_json:
-                    try:
-                        for fdef in _json.loads(src_stage.custom_fields_json):
-                            fid = fdef.get("id", "")
-                            lbl = fdef.get("label", "")
-                            if fid and lbl and fid in cf_data:
-                                cf_cumulative[lbl] = cf_data[fid]
-                    except Exception:
-                        pass
-            _live_eval_formulas(cf_cumulative, stage_table_stages)
+            _live_eval_formulas(cf_base, stage_table_stages)
 
             stages_info = []
             for s in stage_table_stages:
@@ -2102,6 +2065,16 @@ def _fms_dashboard_inner(
                     delay_positive = delay_secs > 0
                 is_current = (s.id == t.current_stage_id)
                 assignee_name = h.assignee.name if (h and h.assignee) else "—"
+                # Scoped to the split that actually visited this stage —
+                # otherwise a sibling split's custom-field values (e.g.
+                # Quantity/Issued Qty entered at a different stage) can
+                # clobber this stage's own value via shared field ids/labels.
+                cf_for_stage = dict(cf_base)
+                cf_for_stage.update(_cross_stage_cf(
+                    db, t.id, stage_table_stages,
+                    split_id=h.split_id if h else None,
+                ))
+                _live_eval_formulas(cf_for_stage, stage_table_stages)
                 stages_info.append({
                     "stage":          s,
                     "planned_start":  ps,
@@ -2112,7 +2085,7 @@ def _fms_dashboard_inner(
                     "delay_positive": delay_positive,
                     "is_current":     is_current,
                     "visited":        h is not None,
-                    "cf":             cf_cumulative,
+                    "cf":             cf_for_stage,
                     "assignee_name":  assignee_name,
                     "edit_info":      edit_info_by_stage.get(s.id, {}),
                 })
