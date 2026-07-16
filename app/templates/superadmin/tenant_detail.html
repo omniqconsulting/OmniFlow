@@ -329,6 +329,12 @@
       <option value="{{ st }}" {% if wa_filter_status == st %}selected{% endif %}>{{ st }}</option>
       {% endfor %}
     </select>
+    <select name="wf_template" style="font-size:12px">
+      <option value="">All templates</option>
+      {% for tn in wa_template_names %}
+      <option value="{{ tn }}" {% if wa_filter_template == tn %}selected{% endif %}>{{ tn }}</option>
+      {% endfor %}
+    </select>
     <button type="submit" class="btn btn-sm btn-gray">Filter</button>
   </form>
   <table>
