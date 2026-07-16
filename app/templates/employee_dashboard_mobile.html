@@ -68,6 +68,18 @@
     </div>
   </div>
 
+  {% if has_attendance %}
+  <a href="/attendance" class="ed-ticket-card" style="text-decoration:none;display:block;color:inherit;margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:20px">📍</span>
+      <div>
+        <div style="font-weight:600;font-size:14px">Attendance</div>
+        <div class="ed-kpi-sub">Punch in / out for today</div>
+      </div>
+    </div>
+  </a>
+  {% endif %}
+
   {% if hot_tasks %}
   <div class="ed-hot-card">
     <div class="ed-hot-hdr">

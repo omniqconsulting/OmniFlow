@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.att-card { background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:12px; padding:20px; max-width:480px; margin:0 auto; }
+.att-status { text-align:center; margin-bottom:16px; }
+.att-status .big { font-size:20px; font-weight:700; }
+.att-status .sub { font-size:12px; color:var(--text-faint); margin-top:4px; }
+.att-photo-box { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; border:2px dashed var(--border-subtle); border-radius:10px; padding:24px; cursor:pointer; margin-bottom:14px; text-align:center; }
+.att-photo-box.attached { border-color:#22c55e; }
+.att-photo-icon { font-size:28px; }
+.att-loc-row { display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:14px; }
+.att-loc-badge { font-size:11px; padding:2px 8px; border-radius:99px; font-weight:600; }
+.att-loc-badge.ok { background:rgba(34,197,94,0.15); color:#22c55e; }
+.att-loc-badge.warn { background:rgba(239,68,68,0.15); color:#ef4444; }
+.att-loc-badge.pending { background:rgba(148,163,184,0.15); color:#94a3b8; }
+.att-queued-msg { font-size:12px; color:#f59e0b; text-align:center; margin-top:10px; }
+</style>
+
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:center">
+  <h2 class="page-title">Attendance</h2>
+  <a href="/attendance/leave" class="btn btn-sm btn-outline">🗓️ Leave</a>
+</div>
+
+<div class="att-card">
+  {% if not record %}
+  <div class="att-status"><div class="big">Not punched in yet</div><div class="sub">Take a photo and confirm your location to punch in.</div></div>
+
+  <label class="att-photo-box" id="attPhotoBox" for="attPhotoInput">
+    <div class="att-photo-icon">📷</div>
+    <div id="attPhotoHint">Tap to take/attach photo (required)</div>
+    <input type="file" id="attPhotoInput" accept="image/*" capture="environment" style="display:none">
+  </label>
+
+  <div class="att-loc-row">
+    <button type="button" class="btn btn-sm btn-outline" onclick="attDetectLocation()">📍 Detect Location</button>
+    <span id="attLocBadge" class="att-loc-badge pending">Not detected</span>
+  </div>
+
+  <div id="attReasonBox" style="display:none;margin-bottom:14px">
+    <label class="form-label">You're outside the site radius — reason required</label>
+    <textarea id="attReason" class="form-input" rows="2" placeholder="e.g. client visit, field work…"></textarea>
+  </div>
+
+  <button type="button" class="btn btn-primary" style="width:100%" onclick="attSubmitPunch()">Punch In</button>
+  <div id="attMsg" class="att-queued-msg"></div>
+
+  {% elif not record.check_out_at %}
+  <div class="att-status">
+    <div class="big">Punched in at {{ record.check_in_at.strftime('%H:%M') }}</div>
+    <div class="sub">Confirm your location to punch out.</div>
+  </div>
+
+  <div class="att-loc-row">
+    <button type="button" class="btn btn-sm btn-outline" onclick="attDetectLocation()">📍 Detect Location</button>
+    <span id="attLocBadge" class="att-loc-badge pending">Not detected</span>
+  </div>
+
+  <div id="attReasonBox" style="display:none;margin-bottom:14px">
+    <label class="form-label">You're outside the site radius — reason required</label>
+    <textarea id="attReason" class="form-input" rows="2" placeholder="e.g. client visit, field work…"></textarea>
+  </div>
+
+  <button type="button" class="btn btn-primary" style="width:100%" onclick="attSubmitPunch()">Punch Out</button>
+  <div id="attMsg" class="att-queued-msg"></div>
+
+  {% else %}
+  <div class="att-status">
+    <div class="big">✅ Done for today</div>
+    <div class="sub">In {{ record.check_in_at.strftime('%H:%M') }} · Out {{ record.check_out_at.strftime('%H:%M') }}</div>
+  </div>
+  {% endif %}
+</div>
+
+<script src="/static/js/attendance.js"></script>
+<script>
+var ATT_GEOFENCE = {{ (geofence and {"lat": geofence.center_lat, "lng": geofence.center_lng, "radius": geofence.radius_meters} or none) | tojson }};
+var attLat = null, attLng = null, attInFence = null;
+
+function attHaversine(lat1, lng1, lat2, lng2) {
+  var R = 6371000, p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+  var dphi = (lat2 - lat1) * Math.PI / 180, dl = (lng2 - lng1) * Math.PI / 180;
+  var a = Math.sin(dphi / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function attDetectLocation() {
+  var badge = document.getElementById('attLocBadge');
+  if (!navigator.geolocation) { badge.textContent = 'Unsupported'; badge.className = 'att-loc-badge warn'; return; }
+  badge.textContent = 'Detecting…'; badge.className = 'att-loc-badge pending';
+  navigator.geolocation.getCurrentPosition(function (pos) {
+    attLat = pos.coords.latitude; attLng = pos.coords.longitude;
+    if (ATT_GEOFENCE) {
+      var d = attHaversine(attLat, attLng, ATT_GEOFENCE.lat, ATT_GEOFENCE.lng);
+      attInFence = d <= (ATT_GEOFENCE.radius || 200);
+      document.getElementById('attReasonBox').style.display = attInFence ? 'none' : 'block';
+      badge.textContent = attInFence ? 'Within site' : 'Outside site (' + Math.round(d) + 'm)';
+      badge.className = 'att-loc-badge ' + (attInFence ? 'ok' : 'warn');
+    } else {
+      attInFence = null;
+      badge.textContent = 'Location captured';
+      badge.className = 'att-loc-badge ok';
+    }
+  }, function () {
+    badge.textContent = 'Denied — enable location'; badge.className = 'att-loc-badge warn';
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+document.getElementById('attPhotoInput') && document.getElementById('attPhotoInput').addEventListener('change', function (e) {
+  if (e.target.files && e.target.files.length) {
+    document.getElementById('attPhotoBox').classList.add('attached');
+    document.getElementById('attPhotoHint').textContent = '✅ Photo attached — tap to change';
+  }
+});
+
+function attSubmitPunch() {
+  var msg = document.getElementById('attMsg');
+  var photoInput = document.getElementById('attPhotoInput');
+  var isFirstPunch = !!photoInput;
+
+  if (isFirstPunch && (!photoInput.files || !photoInput.files.length)) {
+    msg.style.color = '#ef4444'; msg.textContent = 'Photo is required for your first punch of the day.'; return;
+  }
+  if (attLat === null) {
+    msg.style.color = '#ef4444'; msg.textContent = 'Detect your location first.'; return;
+  }
+  var reasonBox = document.getElementById('attReasonBox');
+  var reason = '';
+  if (reasonBox && reasonBox.style.display !== 'none') {
+    reason = document.getElementById('attReason').value.trim();
+    if (!reason) { msg.style.color = '#ef4444'; msg.textContent = 'A reason is required — you are outside the site radius.'; return; }
+  }
+
+  msg.style.color = '#94a3b8'; msg.textContent = 'Submitting…';
+  var photoBlob = isFirstPunch ? photoInput.files[0] : null;
+  var photoName = isFirstPunch ? photoInput.files[0].name : null;
+
+  window.OmniAttendance.submitOrQueue(attLat, attLng, reason, photoBlob, photoName).then(function (result) {
+    if (result.queued) {
+      msg.style.color = '#f59e0b';
+      msg.textContent = "You're offline — punch queued and will sync automatically once you're back online.";
+    } else {
+      location.reload();
+    }
+  }).catch(function (err) {
+    msg.style.color = '#ef4444';
+    msg.textContent = err.message || 'Something went wrong — please try again.';
+  });
+}
+</script>
+{% endblock %}

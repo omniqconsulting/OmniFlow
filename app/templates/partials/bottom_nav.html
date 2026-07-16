@@ -51,6 +51,17 @@
       <span class="bn-icon">🧾</span>Sell
     </a>
     {% endif %}
+    {% if has_collections %}
+    <a href="/sales/collections/escalation" {% if '/sales/collections' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">📞</span>Collections
+    </a>
+    {% endif %}
+    {% if has_attendance %}
+    {% set attendance_href = '/attendance/team' if user.role in ('ADMIN', 'MANAGER') else '/attendance' %}
+    <a href="{{ attendance_href }}" {% if '/attendance' in request.url.path %}class="active"{% endif %}>
+      <span class="bn-icon">🗓️</span>Attendance
+    </a>
+    {% endif %}
     {% if user.role == 'ADMIN' %}
     <a href="/ai" {% if '/ai' in request.url.path %}class="active"{% endif %}>
       <span class="bn-icon">✦</span>Ask AI

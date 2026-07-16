@@ -1049,6 +1049,36 @@ def job_follow_up_reminders():
         db.close()
 
 
+def job_collections_notifications():
+    """Workstream A (Collections & Escalation Engine), A3: daily 12 PM IST (06:30 UTC)."""
+    from .database import SessionLocal
+    from .collections_notify import run_daily_collections_notifications
+    db = SessionLocal()
+    try:
+        run_daily_collections_notifications(db)
+    except Exception as e:
+        logger.error("job_collections_notifications error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
+def job_collections_followup_tasks():
+    """Workstream A (Collections & Escalation Engine), A4 Req #18: auto-generated
+    daily follow-up tasks, 8 AM IST (02:30 UTC) — ahead of the notification job
+    so an agent's task list is ready before reminders go out."""
+    from .database import SessionLocal
+    from .collections_tasks import generate_collections_followup_tasks
+    db = SessionLocal()
+    try:
+        generate_collections_followup_tasks(db)
+    except Exception as e:
+        logger.error("job_collections_followup_tasks error: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+
 def job_tier_classification():
     """Brief 7: weekly A/B/C/D tier classification for products and customers."""
     from .database import SessionLocal, Tenant
@@ -1167,9 +1197,17 @@ def start_scheduler():
     scheduler.add_job(job_anomaly_detection,
                       CronTrigger(hour=0, minute=30, timezone="UTC"),
                       id="sales_anomaly_detection", replace_existing=True)
+    # Workstream A (Collections & Escalation Engine) A3 — daily 12 PM IST (06:30 UTC)
+    scheduler.add_job(job_collections_notifications,
+                      CronTrigger(hour=6, minute=30, timezone="UTC"),
+                      id="collections_notifications", replace_existing=True)
+    # Workstream A (Collections & Escalation Engine) A4, Req #18 — daily 8 AM IST (02:30 UTC)
+    scheduler.add_job(job_collections_followup_tasks,
+                      CronTrigger(hour=2, minute=30, timezone="UTC"),
+                      id="collections_followup_tasks", replace_existing=True)
     if not scheduler.running:
         scheduler.start()
-    logger.info("Scheduler started (17 jobs)")
+    logger.info("Scheduler started (19 jobs)")
 
 
 def stop_scheduler():

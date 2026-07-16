@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.notif-info { background:rgba(59,130,246,0.07); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px 14px; font-size:12px; color:var(--text-muted); margin-bottom:16px; line-height:1.7; }
+.notif-info strong { color:var(--text-primary); }
+</style>
+
+<div class="page-header">
+  <h2 class="page-title">Setup</h2>
+</div>
+
+<div class="setup-layout">
+  {% set active_section = 'attendance' %}
+  {% include "setup/nav.html" %}
+
+  <div class="setup-content">
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+      <span style="font-size:24px">📍</span>
+      <div>
+        <h3 style="margin:0;font-size:16px;font-weight:700">Attendance &amp; Leave — Geofence Config</h3>
+        <p style="margin:2px 0 0;font-size:12px;color:var(--text-muted)">Set the center point and radius each site's punch-in is validated against. Leave a row blank to skip configuring that site.</p>
+      </div>
+    </div>
+
+    {% if saved %}
+    <div class="alert alert-green" style="margin-bottom:16px">✓ Geofence settings saved.</div>
+    {% endif %}
+
+    <div class="notif-info">
+      A punch-in outside the configured radius is still accepted, but the employee must give a reason (B2 scope) and it's flagged for review on the Attendance dashboard (B3 scope).
+    </div>
+
+    <form method="post" action="/setup/attendance">
+      <div class="card" style="margin-bottom:20px;padding:20px">
+        <h4 style="margin:0 0 12px;font-size:14px;font-weight:700;color:var(--text-strong)">Tenant-wide Default</h4>
+        {% set default_geo = geofences.get(none) %}
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+          <div class="form-group">
+            <label class="form-label">Center latitude</label>
+            <input type="hidden" name="branch_id" value="">
+            <input type="number" step="any" name="center_lat" class="form-input" value="{{ default_geo.center_lat if default_geo else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Center longitude</label>
+            <input type="number" step="any" name="center_lng" class="form-input" value="{{ default_geo.center_lng if default_geo else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Radius (meters)</label>
+            <input type="number" min="1" name="radius_meters" class="form-input" value="{{ default_geo.radius_meters if default_geo else 200 }}">
+          </div>
+        </div>
+      </div>
+
+      {% for b in branches %}
+      <div class="card" style="margin-bottom:20px;padding:20px">
+        <h4 style="margin:0 0 12px;font-size:14px;font-weight:700;color:var(--text-strong)">{{ b.name }}</h4>
+        {% set geo = geofences.get(b.id) %}
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+          <div class="form-group">
+            <label class="form-label">Center latitude</label>
+            <input type="hidden" name="branch_id" value="{{ b.id }}">
+            <input type="number" step="any" name="center_lat" class="form-input" value="{{ geo.center_lat if geo else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Center longitude</label>
+            <input type="number" step="any" name="center_lng" class="form-input" value="{{ geo.center_lng if geo else '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Radius (meters)</label>
+            <input type="number" min="1" name="radius_meters" class="form-input" value="{{ geo.radius_meters if geo else 200 }}">
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+      <button type="submit" class="btn btn-primary">Save Settings</button>
+    </form>
+
+  </div>
+</div>
+{% endblock %}

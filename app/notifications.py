@@ -151,7 +151,7 @@ def _send_gupshup_wa(db, tenant_id, recipient, template_name, variables,
     from .services.gupshup import send_whatsapp_template
     try:
         tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-        template_id = template_category = gupshup_message_id = None
+        template_id = template_category = gupshup_message_id = raw_response = None
         toggle_field = _WA_EVENT_TOGGLE_FIELD.get(event_key)
         if toggle_field and tenant is not None and getattr(tenant, toggle_field, True) is False:
             status, error = "SKIPPED_DISABLED", None
@@ -162,12 +162,18 @@ def _send_gupshup_wa(db, tenant_id, recipient, template_name, variables,
             # off for themselves (Employees tab) — distinct from opt-in status.
             status, error = "SKIPPED_BY_EMPLOYEE", None
         else:
-            success, error, template_id, template_category, gupshup_message_id = send_whatsapp_template(
+            success, error, template_id, template_category, gupshup_message_id, raw_response = send_whatsapp_template(
                 tenant, recipient.phone, template_name, variables)
             status = "SENT" if success else "FAILED"
-        # Seed raw_status_webhook_payloads with the send-time message id so
-        # inbound status webhooks (Section 6.3) can be matched back to this row.
-        raw_payloads = [{"id": gupshup_message_id}] if gupshup_message_id else []
+        # Seed raw_status_webhook_payloads with the send-time message id (so
+        # inbound status webhooks in Section 6.3 can be matched back to this
+        # row) and Gupshup's full raw response (for debugging sends that
+        # report success but never actually reach the recipient).
+        raw_payloads = []
+        if gupshup_message_id:
+            raw_payloads.append({"id": gupshup_message_id})
+        if raw_response:
+            raw_payloads.append({"send_response": raw_response})
         db.add(WhatsAppMessageLog(
             tenant_id=tenant_id,
             template_name=template_name,

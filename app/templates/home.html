@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.home-hero { margin-bottom:24px; }
+.home-hero h2 { margin:0; font-size:20px; font-weight:700; }
+.home-hero p { margin:4px 0 0; font-size:13px; color:var(--text-muted); }
+.home-groups { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+.home-box { background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:14px; padding:20px; }
+.home-box h3 { margin:0 0 12px; font-size:15px; font-weight:700; display:flex; align-items:center; gap:8px; }
+.home-box ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.home-box a { display:block; padding:9px 10px; margin:0 -10px; border-radius:8px; color:var(--text-primary); text-decoration:none; font-size:13.5px; transition:background 0.12s; }
+.home-box a:hover { background:var(--hover-bg); }
+.home-empty { font-size:12px; color:var(--text-faint); padding:4px 0; }
+</style>
+
+<div class="home-hero">
+  <h2>Welcome back, {{ user.name }}</h2>
+  <p>Pick a section to get started.</p>
+</div>
+
+<div class="home-groups">
+
+  <div class="home-box">
+    <h3>🛠️ Operations</h3>
+    <ul>
+      <li><a href="/dashboard">📊 Dashboard</a></li>
+      {% if has_tickets is not defined or has_tickets %}
+      <li><a href="/tickets">📋 {{ L.Tickets if L is defined else 'Delegations' }}</a></li>
+      {% endif %}
+      {% if has_checklists %}
+      <li><a href="/checklists">✅ {{ L.Checklists if L is defined else 'Checklists' }}</a></li>
+      {% endif %}
+      {% if has_fms %}
+      <li><a href="/fms/dashboard">🔀 {{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a></li>
+      {% endif %}
+    </ul>
+  </div>
+
+  {% if has_sales or has_inventory_module or has_sales_analytics or has_collections %}
+  <div class="home-box">
+    <h3>💼 CRM &amp; Sales</h3>
+    <ul>
+      {% if has_sales %}
+      <li><a href="/sales/contacts">🤝 Customers <span class="muted" style="font-size:11px">(Call Logs inside)</span></a></li>
+      <li><a href="/sales/orders">🛒 Sell</a></li>
+      {% endif %}
+      {% if has_inventory_module %}
+      <li><a href="/inventory-v2">📦 Inventory</a></li>
+      {% endif %}
+      {% if has_sales or has_inventory_module %}
+      <li><a href="/sales/catalog">📖 Catalog</a></li>
+      {% endif %}
+      {% if has_inventory_module %}
+      <li><a href="/inventory-v2/purchase-orders">🧾 Purchase Orders</a></li>
+      <li><a href="/inventory-v2/dispatch-queue">🚚 Dispatch</a></li>
+      {% endif %}
+      {% if has_sales_analytics %}
+      <li><a href="/sales/analytics">📈 Sales Insights</a></li>
+      {% endif %}
+      {% if has_collections %}
+      <li><a href="/sales/collections/escalation">📞 Collections</a></li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="home-box">
+    <h3>🏢 Organization</h3>
+    <ul>
+      {% if user.role in ('ADMIN', 'MANAGER') %}
+      <li><a href="/employees">👥 {{ L.Employees if L is defined else 'Employees' }} <span class="muted" style="font-size:11px">(incl. performance)</span></a></li>
+      {% endif %}
+      {% if has_knowledge_repo %}
+      <li><a href="/knowledge">🎓 Training</a></li>
+      {% endif %}
+      {% if has_attendance %}
+      <li><a href="/attendance/team">🗓️ Attendance &amp; Leave</a></li>
+      {% endif %}
+    </ul>
+  </div>
+
+  {% if user.role == 'ADMIN' %}
+  <div class="home-box">
+    <h3>⚙️ Setup</h3>
+    <ul>
+      <li><a href="/setup">🏭 Tenant Configuration</a></li>
+      <li><a href="/plan">✉️ Contact Us</a></li>
+    </ul>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

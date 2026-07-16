@@ -76,6 +76,31 @@ html.light .setup-sidenav .nav-section-label { color: #94a3b8; }
   </a>
   {% endif %}
 
+  {% if has_collections %}
+  <div class="nav-section-label">Collections</div>
+  <a href="/setup/collections" class="{{ 'active' if active_section == 'collections' else '' }}">
+    📞 Collections
+  </a>
+  <a href="/sales/collections/escalation" class="{{ 'active' if active_section == 'collections_escalation' else '' }}">
+    🚨 Collections Dashboard
+  </a>
+  {% endif %}
+
+  {% if has_attendance %}
+  <div class="nav-section-label">Attendance</div>
+  <a href="/setup/attendance" class="{{ 'active' if active_section == 'attendance' else '' }}">
+    📍 Geofence Config
+  </a>
+  <a href="/setup/attendance-rules" class="{{ 'active' if active_section == 'attendance_rules' else '' }}">
+    ⚙️ Attendance Rules
+  </a>
+  {% if user.role in ('ADMIN', 'MANAGER') %}
+  <a href="/attendance/team" class="{{ 'active' if active_section == 'attendance_team' else '' }}">
+    🗓️ Attendance &amp; Leave
+  </a>
+  {% endif %}
+  {% endif %}
+
   <div class="nav-section-label">Configuration</div>
   <a href="/setup/notifications" class="{{ 'active' if active_section == 'notifications' else '' }}">
     🔔 Notifications

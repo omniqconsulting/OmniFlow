@@ -107,6 +107,8 @@ from .employee_extras import router as employee_extras_router, DOC_TYPE_LABELS
 app.include_router(employee_extras_router)
 from .push import router as push_router
 app.include_router(push_router)
+from .attendance import router as attendance_router
+app.include_router(attendance_router)
 from .webhooks_gupshup import router as gupshup_webhook_router
 app.include_router(gupshup_webhook_router)
 from .templates_env import templates, _OrmEncoder, _to_ist, _format_tat  # shared filters
@@ -173,6 +175,8 @@ def _next_employee_id(db, tenant_id: str) -> str:
 templates.env.globals["has_inventory"]  = False
 templates.env.globals["has_fms"]        = False
 templates.env.globals["has_checklists"] = False
+templates.env.globals["has_collections"] = False
+templates.env.globals["has_attendance"] = False
 _static_dir = os.path.join(BASE_DIR, "static")
 os.makedirs(_static_dir, exist_ok=True)
 os.makedirs(os.path.join(_static_dir, "uploads"), exist_ok=True)
@@ -660,10 +664,28 @@ def login(request: Request, slug: str = Form(...), phone: str = Form(...),
     db.add(LoginEvent(tenant_id=tenant.id, user_id=user.id))
     db.commit()
     token = create_token(user.id, tenant.id, user.role)
-    landing = "/dashboard"
+    # Workstream C, C1: Admin/Manager land on the new grouped-box hub instead
+    # of the analytics Dashboard directly — Dashboard becomes one linked item
+    # inside it. PWA sessions (Employee's flat home, C3) are unaffected —
+    # this redirect only applies to the desktop nav restructuring.
+    is_pwa = request.cookies.get("pwa_ui") == "1"
+    landing = "/home" if (user.role in ("ADMIN", "MANAGER") and not is_pwa) else "/dashboard"
     resp = redirect(landing)
     resp.set_cookie("token", token, httponly=True, max_age=86400)
     return resp
+
+
+# ── Workstream C, C1: Admin/Manager grouped-box landing page ────────────────
+@app.get("/home", response_class=HTMLResponse)
+def home_landing(request: Request, user: User = Depends(require_manager_or_redirect), db: Session = Depends(get_db)):
+    """Post-login hub for Admin/Manager: grouped clickable boxes replacing
+    the old flat top-nav link row. Pure nav/landing restructuring — every
+    linked page is an existing, unchanged route; visibility of each link
+    reuses the same get_nav_flags()/role checks base.html already used."""
+    return templates.TemplateResponse(request, "home.html", {
+        "user": user, "L": get_labels(db, user.tenant_id),
+        **_nav_ctx(db, user),
+    })
 
 
 @app.get("/check-slug")
@@ -4414,7 +4436,7 @@ def edit_employee(
         tenant_tabs = set(get_tenant_enabled_tabs(tenant, db))
         selected_tabs = [t for t in tabs if t in tenant_tabs]
         emp.tab_access_json = _json.dumps(selected_tabs)
-        emp.module_access_json = _json.dumps([t for t in selected_tabs if t in ("SALES", "INVENTORY")])
+        emp.module_access_json = _json.dumps([t for t in selected_tabs if t in ("SALES", "INVENTORY", "COLLECTIONS", "ATTENDANCE")])
     db.commit()
     return redirect(f"/employees?msg=Profile+updated+for+{emp.name}")
 
@@ -4816,7 +4838,7 @@ def resend_whatsapp(
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     variables = _json_resend.loads(log.variables_json)
-    success, error, template_id, template_category, gupshup_message_id = send_whatsapp_template(
+    success, error, template_id, template_category, gupshup_message_id, raw_response = send_whatsapp_template(
         tenant, log.recipient_phone, log.template_name, variables)
     log.status = "SENT" if success else "FAILED"
     log.error_message = error
@@ -4824,9 +4846,12 @@ def resend_whatsapp(
         log.template_id = template_id
     if template_category:
         log.template_category = template_category
+    raw = list(log.raw_status_webhook_payloads or [])
     if gupshup_message_id:
-        raw = list(log.raw_status_webhook_payloads or [])
         raw.append({"id": gupshup_message_id})
+    if raw_response:
+        raw.append({"send_response": raw_response})
+    if raw != (log.raw_status_webhook_payloads or []):
         log.raw_status_webhook_payloads = raw
     log.attempt_count += 1
     log.last_attempted_at = datetime.utcnow()
@@ -5289,6 +5314,251 @@ async def setup_notifications_post(
     tenant.wa_notif_po_accepted = form.get("wa_notif_po_accepted") == "true"
     db.commit()
     return redirect("/setup/notifications?saved=1")
+
+
+# ── Collections & Escalation Engine — Setup config (A1) ──────────────────────
+@app.get("/setup/collections")
+def setup_collections_get(request: Request, saved: str = "",
+                           user: User = Depends(require_admin),
+                           db: Session = Depends(get_db)):
+    """Collections & Escalation Engine — Setup config panel. Admin only, and
+    only reachable when the tenant has the COLLECTIONS_MODULE feature enabled."""
+    from .constants import has_feature
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "COLLECTIONS_MODULE", db):
+        raise HTTPException(status_code=403, detail="Collections module not enabled for this tenant")
+    return templates.TemplateResponse("setup/collections.html", {
+        "request": request, "user": user, "tenant": tenant,
+        "saved": saved == "1",
+        "L": get_labels(db, user.tenant_id),
+        **_nav_ctx(db, user),
+    })
+
+
+@app.post("/setup/collections")
+async def setup_collections_post(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Save Collections & Escalation config — Admin only."""
+    from .constants import has_feature
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "COLLECTIONS_MODULE", db):
+        raise HTTPException(status_code=403, detail="Collections module not enabled for this tenant")
+    form = await request.form()
+    try:
+        tenant.collections_call_attempt_cap = max(1, int(form.get("collections_call_attempt_cap") or 2))
+    except (ValueError, TypeError):
+        tenant.collections_call_attempt_cap = 2
+    raw_tiers = (form.get("collections_escalation_tiers") or "30,60,90").strip()
+    valid_tiers = sorted(set(int(d.strip()) for d in raw_tiers.split(",") if d.strip().isdigit() and int(d.strip()) > 0))
+    tenant.collections_escalation_tiers = ",".join(str(d) for d in valid_tiers) or "30,60,90"
+    tenant.collections_channel_sms_enabled = form.get("collections_channel_sms_enabled") == "true"
+    tenant.collections_channel_whatsapp_enabled = form.get("collections_channel_whatsapp_enabled") == "true"
+    tenant.collections_channel_email_enabled = form.get("collections_channel_email_enabled") == "true"
+    tenant.collections_owner_notify_enabled = form.get("collections_owner_notify_enabled") == "true"
+    db.commit()
+    return redirect("/setup/collections?saved=1")
+
+
+# ── Attendance & Leave — Setup config (B1) ───────────────────────────────────
+@app.get("/setup/attendance")
+def setup_attendance_get(request: Request, saved: str = "",
+                          user: User = Depends(require_admin),
+                          db: Session = Depends(get_db)):
+    """Attendance & Leave — geofence config panel. Admin only, and only
+    reachable when the tenant has ATTENDANCE_MODULE enabled."""
+    from .constants import has_feature
+    from .database import AttendanceGeofence
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "ATTENDANCE_MODULE", db):
+        raise HTTPException(status_code=403, detail="Attendance module not enabled for this tenant")
+    branches = db.query(Branch).filter(
+        Branch.tenant_id == user.tenant_id, Branch.is_deleted == False,
+    ).order_by(Branch.name).all()
+    geofences = {
+        g.branch_id: g for g in db.query(AttendanceGeofence).filter(
+            AttendanceGeofence.tenant_id == user.tenant_id,
+            AttendanceGeofence.is_deleted == False,
+        ).all()
+    }
+    return templates.TemplateResponse("setup/attendance.html", {
+        "request": request, "user": user, "tenant": tenant,
+        "saved": saved == "1",
+        "branches": branches, "geofences": geofences,
+        "L": get_labels(db, user.tenant_id),
+        **_nav_ctx(db, user),
+    })
+
+
+@app.post("/setup/attendance")
+async def setup_attendance_post(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Save geofence config (per-branch, or tenant-wide default) — Admin only."""
+    from .constants import has_feature
+    from .database import AttendanceGeofence
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "ATTENDANCE_MODULE", db):
+        raise HTTPException(status_code=403, detail="Attendance module not enabled for this tenant")
+    form = await request.form()
+
+    branch_ids = form.getlist("branch_id")
+    lats = form.getlist("center_lat")
+    lngs = form.getlist("center_lng")
+    radii = form.getlist("radius_meters")
+
+    for branch_id, lat_raw, lng_raw, radius_raw in zip(branch_ids, lats, lngs, radii):
+        bid = branch_id or None
+        lat_raw, lng_raw, radius_raw = lat_raw.strip(), lng_raw.strip(), radius_raw.strip()
+        if not lat_raw or not lng_raw:
+            continue  # no coordinates entered for this row — leave unconfigured
+        try:
+            lat, lng = float(lat_raw), float(lng_raw)
+            radius = int(radius_raw) if radius_raw else 200
+        except ValueError:
+            continue
+
+        existing = db.query(AttendanceGeofence).filter(
+            AttendanceGeofence.tenant_id == user.tenant_id,
+            AttendanceGeofence.branch_id == bid,
+            AttendanceGeofence.is_deleted == False,
+        ).first()
+        if existing:
+            existing.center_lat, existing.center_lng, existing.radius_meters = lat, lng, radius
+        else:
+            db.add(AttendanceGeofence(
+                tenant_id=user.tenant_id, branch_id=bid,
+                center_lat=lat, center_lng=lng, radius_meters=radius,
+            ))
+    db.commit()
+    return redirect("/setup/attendance?saved=1")
+
+
+# ── Attendance & Leave — tenant-defined classification rules (B5) ────────────
+_ATT_RULE_MAX_CONDITIONS = 3
+
+
+@app.get("/setup/attendance-rules")
+def setup_attendance_rules_get(request: Request, saved: str = "", edit: str = "",
+                                user: User = Depends(require_admin),
+                                db: Session = Depends(get_db)):
+    from .constants import has_feature
+    from .database import AttendanceRule
+    from .attendance_rules import FIELD_CHOICES, OPERATORS_BY_KIND, OUTCOME_CHOICES
+    import json as _json
+
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "ATTENDANCE_MODULE", db):
+        raise HTTPException(status_code=403, detail="Attendance module not enabled for this tenant")
+
+    rules = db.query(AttendanceRule).filter(
+        AttendanceRule.tenant_id == user.tenant_id, AttendanceRule.is_deleted == False,
+    ).order_by(AttendanceRule.priority.asc()).all()
+    for r in rules:
+        try:
+            r.conditions = _json.loads(r.conditions_json or "[]")
+        except (ValueError, TypeError):
+            r.conditions = []
+
+    edit_rule = None
+    if edit:
+        edit_rule = next((r for r in rules if r.id == edit), None)
+
+    return templates.TemplateResponse("setup/attendance_rules.html", {
+        "request": request, "user": user, "tenant": tenant,
+        "saved": saved == "1", "rules": rules, "edit_rule": edit_rule,
+        "field_choices": FIELD_CHOICES, "operators_by_kind": OPERATORS_BY_KIND,
+        "outcome_choices": OUTCOME_CHOICES, "max_conditions": range(_ATT_RULE_MAX_CONDITIONS),
+        "L": get_labels(db, user.tenant_id),
+        **_nav_ctx(db, user),
+    })
+
+
+@app.post("/setup/attendance-rules")
+async def setup_attendance_rules_save(
+    request: Request,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Create or update (if rule_id is present) a tenant-defined attendance
+    rule. Up to 3 conditions per rule — empty condition rows are dropped."""
+    from .constants import has_feature
+    from .database import AttendanceRule
+    from .attendance_rules import FIELD_CHOICES, OUTCOME_CHOICES
+    import json as _json
+
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not has_feature(tenant, "ATTENDANCE_MODULE", db):
+        raise HTTPException(status_code=403, detail="Attendance module not enabled for this tenant")
+
+    form = await request.form()
+    rule_id = (form.get("rule_id") or "").strip()
+    name = (form.get("name") or "").strip()
+    outcome = form.get("outcome") or ""
+    condition_logic = form.get("condition_logic") or "ALL"
+    if not name or outcome not in OUTCOME_CHOICES:
+        return redirect("/setup/attendance-rules?err=Name+and+outcome+are+required")
+    try:
+        priority = int(form.get("priority") or 0)
+    except (ValueError, TypeError):
+        priority = 0
+
+    conditions = []
+    for i in range(_ATT_RULE_MAX_CONDITIONS):
+        field = form.get(f"cond_field_{i}") or ""
+        operator = form.get(f"cond_operator_{i}") or ""
+        value = form.get(f"cond_value_{i}") or ""
+        if field and operator and field in FIELD_CHOICES:
+            conditions.append({"field": field, "operator": operator, "value": value})
+    if not conditions:
+        return redirect("/setup/attendance-rules?err=At+least+one+condition+is+required")
+
+    if rule_id:
+        rule = db.query(AttendanceRule).filter(
+            AttendanceRule.id == rule_id, AttendanceRule.tenant_id == user.tenant_id,
+        ).first()
+        if not rule:
+            raise HTTPException(404, "Rule not found")
+        rule.name, rule.outcome, rule.priority = name, outcome, priority
+        rule.condition_logic = condition_logic
+        rule.conditions_json = _json.dumps(conditions)
+    else:
+        db.add(AttendanceRule(
+            tenant_id=user.tenant_id, name=name, outcome=outcome, priority=priority,
+            condition_logic=condition_logic, conditions_json=_json.dumps(conditions),
+        ))
+    db.commit()
+    return redirect("/setup/attendance-rules?saved=1")
+
+
+@app.post("/setup/attendance-rules/{rule_id}/toggle")
+def setup_attendance_rules_toggle(rule_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from .database import AttendanceRule
+    rule = db.query(AttendanceRule).filter(
+        AttendanceRule.id == rule_id, AttendanceRule.tenant_id == user.tenant_id,
+    ).first()
+    if not rule:
+        raise HTTPException(404, "Rule not found")
+    rule.is_active = not rule.is_active
+    db.commit()
+    return redirect("/setup/attendance-rules")
+
+
+@app.post("/setup/attendance-rules/{rule_id}/delete")
+def setup_attendance_rules_delete(rule_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from .database import AttendanceRule
+    rule = db.query(AttendanceRule).filter(
+        AttendanceRule.id == rule_id, AttendanceRule.tenant_id == user.tenant_id,
+    ).first()
+    if not rule:
+        raise HTTPException(404, "Rule not found")
+    rule.is_deleted = True
+    db.commit()
+    return redirect("/setup/attendance-rules")
 
 
 # ── Performance Formula ───────────────────────────────────────────────────────
