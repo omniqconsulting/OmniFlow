@@ -60,14 +60,7 @@
   </div>
 </div>
 <nav class="nav">
-  {# Workstream C, C1: the flat per-module link row is retired ONLY for
-     Admin/Manager, in favor of the grouped-box hub at /home — the logo is
-     the way back to it. Employees have no grouped hub (C3: their nav must
-     stay flat, not just their PWA home) and would otherwise be stranded
-     with zero desktop navigation, so they keep the original flat link row
-     unchanged below. #}
-  <a href="{{ '/home' if user.role in ('ADMIN','MANAGER') else '/dashboard' }}" class="logo" style="text-decoration:none">OmniFlow</a>
-  {% if user.role not in ('ADMIN', 'MANAGER') %}
+  <span class="logo">OmniFlow</span>
   <a href="/dashboard" {% if request.url.path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
   {% if has_tickets is not defined or has_tickets %}
   <a href="/tickets" {% if '/tickets' in request.url.path %}class="active"{% endif %}>{{ L.Tickets if L is defined else 'Tickets' }}</a>
@@ -91,9 +84,15 @@
   {% if has_inventory_module %}
   <a href="/inventory-v2" {% if '/inventory-v2' in request.url.path %}class="active"{% endif %}>Inventory</a>
   {% endif %}
-  {% if has_attendance %}
-  <a href="/attendance" {% if '/attendance' in request.url.path %}class="active"{% endif %}>Attendance</a>
+  {% if user.role in ('ADMIN','MANAGER') %}
+  <a href="/employees" {% if '/employees' in request.url.path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>
   {% endif %}
+  {% if user.role == 'ADMIN' %}
+  <a href="/setup" {% if '/setup' in request.url.path %}class="active"{% endif %}>Setup</a>
+  <a href="/plan"  {% if '/plan'  in request.url.path or '/help' in request.url.path %}class="active"{% endif %}>Contact Us</a>
+  {% endif %}
+  {% if user.role == 'ADMIN' %}
+  <a href="/ai" class="ai-pill {% if '/ai' in request.url.path %}active{% endif %}">✦ Ask AI</a>
   {% endif %}
   <span class="spacer"></span>
   <!-- Phase 1: WS connection status dot -->
@@ -109,13 +108,6 @@
   <a href="/profile" style="font-size:12px;color:var(--text-muted);margin-right:4px;padding:5px 8px;border-radius:6px;transition:all 0.12s" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">{{ user.name }} · {{ user.role }}</a>
   <a href="/logout" class="logout">Logout</a>
 </nav>
-{% if user.role == 'ADMIN' %}
-{# Workstream C, C2: static Ask AI entry point, Admin-only, on every Admin
-   page — not part of the .nav row so it survives even if that bar scrolls
-   or is hidden on narrower desktop widths. Points at the existing /ai
-   feature unchanged; this is UI placement only. #}
-<a href="/ai" class="ai-fab {% if '/ai' in request.url.path %}active{% endif %}" title="Ask AI">✦ Ask AI</a>
-{% endif %}
 {% include "partials/bottom_nav.html" %}
 {% endif %}
 <div class="container{% block container_class %}{% endblock %}">{% block content %}{% endblock %}</div>

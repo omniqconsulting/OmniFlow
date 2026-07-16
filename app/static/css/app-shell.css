@@ -89,11 +89,6 @@ a:hover{color:#93c5fd}
 .nav a.ai-pill{background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);color:#fff;border-radius:20px;padding:5px 13px;font-size:12px;font-weight:700;letter-spacing:0.3px;box-shadow:0 0 12px rgba(99,102,241,0.35)}
 .nav a.ai-pill:hover{box-shadow:0 0 20px rgba(99,102,241,0.55);transform:translateY(-1px);color:#fff}
 .nav a.ai-pill.active{background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);box-shadow:0 0 22px rgba(99,102,241,0.65)}
-/* ── C2: static Ask AI floating button (Admin-only, top-right, all pages) ── */
-a.ai-fab{position:fixed;top:14px;right:20px;z-index:500;display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);color:#fff;text-decoration:none;border-radius:20px;padding:7px 16px;font-size:12px;font-weight:700;letter-spacing:0.3px;box-shadow:0 2px 12px rgba(99,102,241,0.35);transition:all .15s}
-a.ai-fab:hover{box-shadow:0 4px 20px rgba(99,102,241,0.55);transform:translateY(-1px)}
-a.ai-fab.active{background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%)}
-@media (max-width:640px){a.ai-fab{display:none}}
 /* ── Nav icon buttons (theme toggle, mute) ── */
 .nav-icon-btn{background:none;border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-faint);font-size:14px;padding:4px 8px;cursor:pointer;transition:all .12s;line-height:1;display:flex;align-items:center}
 /* ── Nav dropdown (Sales) ── */

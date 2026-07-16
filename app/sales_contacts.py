@@ -342,19 +342,6 @@ def log_call(
         "last_contacted_at": c_at,
     })
 
-    # Collections A2: enforce the call-attempt cap only against an open case
-    # (open_balance_lock) — logging calls for ordinary CRM follow-up is
-    # untouched. Auto-escalates once the tenant's configured cap is reached.
-    if customer.open_balance_lock:
-        tenant = db.query(Tenant).get(user.tenant_id)
-        cap = (tenant.collections_call_attempt_cap or 2) if tenant else 2
-        new_count = (customer.collections_call_attempt_count or 0) + 1
-        case_updates = {"collections_call_attempt_count": new_count}
-        if new_count >= cap and not customer.collections_escalated:
-            case_updates["collections_escalated"] = True
-            case_updates["collections_escalated_at"] = c_at
-        db.query(Customer).filter(Customer.id == customer_id).update(case_updates)
-
     db.commit()
 
     if ajax:
@@ -377,184 +364,6 @@ def log_call(
         return _redir(f"/sales/orders/new?customer_id={customer_id}&call_log_id={log.id}")
 
     return _redir(f"/sales/contacts/{customer_id}?msg=Call+logged")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# COLLECTIONS & ESCALATION — A2-A4 (call-cap enforcement, escalation queue,
-# dashboard rollups, payment status, invoice/receipt uploads).
-# Every route here is a no-op unless COLLECTIONS_MODULE is enabled.
-# ══════════════════════════════════════════════════════════════════════════════
-
-_require_collections = require_module("COLLECTIONS", "COLLECTIONS_MODULE")
-
-COLLECTIONS_DOC_TYPES = ("INVOICE", "STATEMENT", "PAYMENT_RECEIPT", "OTHER")
-_ALLOWED_COLLECTIONS_DOC_MIME = {"image/jpeg", "image/png", "application/pdf"}
-_MAX_COLLECTIONS_DOC_MB = 10
-
-
-@router.post("/sales/contacts/{customer_id}/collections/open")
-def collections_open_case(
-    customer_id: str,
-    due_date: str = Form(...),
-    outstanding_amount: str = Form(""),
-    user: User = Depends(_require_collections),
-    db: Session = Depends(get_db),
-):
-    """Opens a collections case for this party: sets the outstanding-balance
-    lock (blocks duplicate re-entry, Req #1), the due date the day-tier
-    filters are computed against, and the outstanding amount the dashboard
-    rollup (Req #17) reconciles against."""
-    customer = get_customer_or_404(db, customer_id, user.tenant_id)
-    try:
-        due = datetime.fromisoformat(due_date).date()
-    except ValueError:
-        return _redir(f"/sales/contacts/{customer_id}?err=Invalid+due+date")
-    try:
-        amount = float(outstanding_amount) if outstanding_amount else None
-    except ValueError:
-        amount = None
-    customer.open_balance_lock = True
-    customer.collections_case_due_date = due
-    customer.collections_outstanding_amount = amount
-    customer.collections_payment_status = "PENDING"
-    customer.collections_call_attempt_count = 0
-    customer.collections_escalated = False
-    customer.collections_escalated_at = None
-    customer.collections_last_tier_notified = None
-    customer.collections_non_responsive_alerted = False
-    db.commit()
-    return _redir(f"/sales/contacts/{customer_id}?msg=Collections+case+opened")
-
-
-@router.post("/sales/contacts/{customer_id}/collections/mark-partial")
-def collections_mark_partial(
-    customer_id: str,
-    user: User = Depends(_require_collections),
-    db: Session = Depends(get_db),
-):
-    """Req #16 — marks a partial payment received; the case stays open (call
-    cap / escalation tracking untouched) but the status is clearly surfaced."""
-    customer = get_customer_or_404(db, customer_id, user.tenant_id)
-    if not customer.open_balance_lock:
-        return _redir(f"/sales/contacts/{customer_id}?err=No+open+collections+case")
-    customer.collections_payment_status = "PARTIAL"
-    db.commit()
-    return _redir(f"/sales/contacts/{customer_id}?msg=Marked+as+partially+paid")
-
-
-@router.post("/sales/contacts/{customer_id}/collections/resolve")
-def collections_resolve_case(
-    customer_id: str,
-    user: User = Depends(_require_collections),
-    db: Session = Depends(get_db),
-):
-    """Closes the open collections case (payment received / written off)."""
-    from .collections_notify import notify_owner_payment_received
-
-    customer = get_customer_or_404(db, customer_id, user.tenant_id)
-    tenant = db.query(Tenant).get(user.tenant_id)
-    customer.open_balance_lock = False
-    customer.collections_case_due_date = None
-    customer.collections_outstanding_amount = None
-    customer.collections_payment_status = "COMPLETED"
-    customer.collections_call_attempt_count = 0
-    customer.collections_escalated = False
-    customer.collections_escalated_at = None
-    customer.collections_last_tier_notified = None
-    customer.collections_non_responsive_alerted = False
-    db.commit()
-    notify_owner_payment_received(db, tenant, customer)  # Req #12 — non-blocking
-    return _redir(f"/sales/contacts/{customer_id}?msg=Collections+case+resolved")
-
-
-async def _check_collections_doc_constraints(file: UploadFile):
-    content = await file.read()
-    if len(content) > _MAX_COLLECTIONS_DOC_MB * 1024 * 1024:
-        raise HTTPException(413, f"'{file.filename}' is too large. Max {_MAX_COLLECTIONS_DOC_MB} MB.")
-    ct = (file.content_type or "").lower()
-    if ct not in _ALLOWED_COLLECTIONS_DOC_MIME:
-        raise HTTPException(400, f"'{file.filename}': only JPG, PNG, or PDF files are allowed.")
-    await file.seek(0)
-
-
-@router.post("/sales/contacts/{customer_id}/collections/documents")
-async def collections_upload_document(
-    customer_id: str,
-    doc_type: str = Form(...),
-    file: UploadFile = File(...),
-    user: User = Depends(_require_collections),
-    db: Session = Depends(get_db),
-):
-    """Req #19 — invoice / statement / payment-receipt upload on the party
-    record. Reuses the existing polymorphic MediaUpload table and the shared
-    save_upload() disk-write helper — no new upload infrastructure."""
-    from .database import MediaUpload
-    from .uploads import save_upload
-
-    customer = get_customer_or_404(db, customer_id, user.tenant_id)
-    if doc_type not in COLLECTIONS_DOC_TYPES:
-        return _redir(f"/sales/contacts/{customer_id}?err=Invalid+document+type")
-    if not file or not file.filename:
-        return _redir(f"/sales/contacts/{customer_id}?err=No+file+selected")
-
-    await _check_collections_doc_constraints(file)
-    info = await save_upload(file, user.tenant_id)
-    db.add(MediaUpload(
-        tenant_id=user.tenant_id,
-        entity_type=f"collections_document_{doc_type.lower()}",
-        entity_id=customer.id,
-        file_name=info["file_name"], file_path=info["file_path"],
-        file_type=info["file_type"], file_size=info["file_size"],
-        uploaded_by_id=user.id,
-    ))
-    db.commit()
-    return _redir(f"/sales/contacts/{customer_id}?msg=Document+uploaded")
-
-
-@router.get("/sales/collections/escalation", response_class=HTMLResponse)
-def collections_escalation(
-    request: Request,
-    tier: str = Query(""),
-    user: User = Depends(_require_collections),
-    db: Session = Depends(get_db),
-):
-    """Collections Dashboard — outstanding/overdue rollups (Req #17) plus the
-    escalation queue of cases that reached the call-attempt cap, filterable
-    by overdue day-tier (Req #11, #3)."""
-    tenant = db.query(Tenant).get(user.tenant_id)
-    tiers = sorted(set(int(t.strip()) for t in (tenant.collections_escalation_tiers or "30,60,90").split(",") if t.strip().isdigit()))
-    today = date.today()
-
-    open_cases = db.query(Customer).filter(
-        Customer.tenant_id == user.tenant_id,
-        Customer.is_deleted == False,
-        Customer.open_balance_lock == True,
-    ).all()
-    total_outstanding = sum(c.collections_outstanding_amount or 0 for c in open_cases)
-    total_overdue = sum(
-        c.collections_outstanding_amount or 0 for c in open_cases
-        if c.collections_case_due_date and c.collections_case_due_date < today
-    )
-
-    cases = [c for c in open_cases if c.collections_escalated]
-    cases.sort(key=lambda c: c.collections_escalated_at or datetime.min, reverse=True)
-
-    rows = []
-    for c in cases:
-        days_overdue = (today - c.collections_case_due_date).days if c.collections_case_due_date else None
-        case_tier = max([t for t in tiers if days_overdue is not None and days_overdue >= t], default=None)
-        rows.append({"customer": c, "days_overdue": days_overdue, "tier": case_tier})
-
-    if tier and tier.isdigit():
-        # Cumulative filter, matching the "30+ / 60+ / 90+ days" labels —
-        # a 76-day-overdue case shows up under both the 30+ and 60+ filters.
-        rows = [r for r in rows if r["days_overdue"] is not None and r["days_overdue"] >= int(tier)]
-
-    return templates.TemplateResponse(request, "sales/collections_escalation.html", _ctx(
-        db, user, rows=rows, tiers=tiers, selected_tier=tier,
-        total_outstanding=total_outstanding, total_overdue=total_overdue,
-        open_case_count=len(open_cases),
-    ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1042,14 +851,6 @@ def contact_detail(
         PriceList.is_active == True,
     ).order_by(PriceList.name).all()
 
-    # Req #19 — invoice/statement/payment-receipt uploads for this party.
-    from .database import MediaUpload
-    collections_documents = db.query(MediaUpload).filter(
-        MediaUpload.tenant_id == user.tenant_id,
-        MediaUpload.entity_type.like("collections_document_%"),
-        MediaUpload.entity_id == customer_id,
-    ).order_by(MediaUpload.created_at.desc()).all()
-
     # PWA-installed sessions get the mobile-redesigned "record view" (design
     # section 5a); desktop keeps contact_detail.html.
     template_name = "sales/contact_detail_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/contact_detail.html"
@@ -1066,7 +867,6 @@ def contact_detail(
         order_count=order_count, order_total=order_total,
         days_since_last_order=days_since_last_order, avg_cycle_days=avg_cycle_days,
         trend=trend, now=datetime.utcnow(),
-        collections_documents=collections_documents, collections_doc_types=COLLECTIONS_DOC_TYPES,
     ))
 
 
@@ -1188,19 +988,6 @@ def contact_create(
     p = phone.strip()
     if p and not _PHONE_RE.match(p):
         return _redir(f"{err_redirect}?err=Invalid+phone+number+format")
-
-    # Collections A1 (Req #1): block a duplicate party entry for the same
-    # phone number while an earlier record for that party has an open,
-    # unresolved balance (open_balance_lock).
-    if p:
-        locked = db.query(Customer).filter(
-            Customer.tenant_id == user.tenant_id,
-            Customer.phone == p,
-            Customer.is_deleted == False,
-            Customer.open_balance_lock == True,
-        ).first()
-        if locked:
-            return _redir(f"{err_redirect}?err=A+party+with+this+phone+number+has+an+outstanding+balance+and+cannot+be+re-added")
 
     agent_id = assigned_agent_id if user.role in ("ADMIN", "MANAGER") and assigned_agent_id else user.id
     try:

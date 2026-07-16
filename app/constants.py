@@ -70,8 +70,6 @@ FEATURE_CATALOG = {
     "INVENTORY_MODULE":     ("Godown / Stock Management",    "Modules",      PLAN_PROFESSIONAL),
     "SALES_ANALYTICS":      ("Sales Intelligence & AI",      "Modules",      PLAN_PROFESSIONAL),
     "SALES_BULK_OPS":       ("Sales Bulk Import/Export",     "Modules",      PLAN_PROFESSIONAL),
-    "COLLECTIONS_MODULE":   ("Collections & Escalation",     "Modules",      PLAN_PROFESSIONAL),
-    "ATTENDANCE_MODULE":    ("Attendance & Leave",           "Modules",      PLAN_PROFESSIONAL),
 }
 
 # Back-compat: keep the flat FEATURES dict so existing has_feature() calls work
@@ -132,8 +130,6 @@ TAB_CATALOG = [
     ("SALES",      "Sales",       "SALES_MODULE"),
     ("INVENTORY",  "Inventory",   "INVENTORY_MODULE"),
     ("SALES_ANALYTICS", "Sales Insights", "SALES_ANALYTICS"),
-    ("COLLECTIONS", "Collections", "COLLECTIONS_MODULE"),
-    ("ATTENDANCE", "Attendance & Leave", "ATTENDANCE_MODULE"),
 ]
 
 
@@ -341,38 +337,6 @@ WHATSAPP_TEMPLATES = {
         "gupshup_template_id": None,
         "gupshup_template_category": "UTILITY",
         "variable_order": ["recipient_name", "po_number", "vendor_name"],
-    },
-    # Collections & Escalation Engine (Workstream A, A3) — awaiting Meta
-    # approval, same as most templates above.
-    "omniflow_collections_payment_reminder": {
-        "msg91_template_id": None,
-        "gupshup_template_id": None,
-        "gupshup_template_category": "UTILITY",
-        "variable_order": ["party_name", "due_date", "days_overdue"],
-    },
-    "omniflow_collections_owner_overdue": {
-        "msg91_template_id": None,
-        "gupshup_template_id": None,
-        "gupshup_template_category": "UTILITY",
-        "variable_order": ["owner_name", "party_name", "days_overdue"],
-    },
-    "omniflow_collections_escalation_tier": {
-        "msg91_template_id": None,
-        "gupshup_template_id": None,
-        "gupshup_template_category": "UTILITY",
-        "variable_order": ["owner_name", "party_name", "tier_days"],
-    },
-    "omniflow_collections_payment_received": {
-        "msg91_template_id": None,
-        "gupshup_template_id": None,
-        "gupshup_template_category": "UTILITY",
-        "variable_order": ["owner_name", "party_name"],
-    },
-    "omniflow_collections_non_responsive": {
-        "msg91_template_id": None,
-        "gupshup_template_id": None,
-        "gupshup_template_category": "UTILITY",
-        "variable_order": ["owner_name", "party_name", "attempt_count"],
     },
 }
 

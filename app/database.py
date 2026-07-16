@@ -171,15 +171,6 @@ class Tenant(Base):
     wa_notif_fms_ticket_flagged   = Column(Boolean, default=True)
     wa_notif_po_placed            = Column(Boolean, default=True)
     wa_notif_po_accepted          = Column(Boolean, default=True)
-    # Collections & Escalation Engine (Workstream A) — Setup > Collections config.
-    # Module visibility itself is gated via FEATURE_CATALOG["COLLECTIONS_MODULE"]/
-    # TenantFeatureOverride (SA opt-in per paying tenant), not by a flag here.
-    collections_call_attempt_cap     = Column(Integer, default=2)
-    collections_escalation_tiers     = Column(String,  default='30,60,90')   # comma-separated overdue-day tiers
-    collections_channel_sms_enabled       = Column(Boolean, default=False)
-    collections_channel_whatsapp_enabled  = Column(Boolean, default=False)
-    collections_channel_email_enabled     = Column(Boolean, default=False)
-    collections_owner_notify_enabled      = Column(Boolean, default=False)  # Req #10/#12 — configurable, off by default
 
     users = relationship("User", back_populates="tenant")
     branches = relationship("Branch", back_populates="tenant")
@@ -1258,22 +1249,6 @@ class Customer(Base):
     billing_address   = Column(Text,   nullable=True)
     shipping_address  = Column(Text,   nullable=True)
     default_payment_terms = Column(String, nullable=True)
-    # Collections & Escalation Engine (A1, Req #1) — blocks duplicate party entry
-    # while a payment is outstanding, and tracks calls made against the open case.
-    open_balance_lock          = Column(Boolean, default=False)
-    collections_call_attempt_count = Column(Integer, default=0)
-    # A2 — due-date basis for day-tier escalation filters, and the auto-flag
-    # state set once collections_call_attempt_count reaches the tenant's cap.
-    collections_case_due_date  = Column(Date, nullable=True)
-    collections_escalated      = Column(Boolean, default=False)
-    collections_escalated_at   = Column(DateTime, nullable=True)
-    # A3 — dedup markers so the daily notification job doesn't re-alert the
-    # same tier/non-responsive state every run.
-    collections_last_tier_notified     = Column(Integer, nullable=True)
-    collections_non_responsive_alerted = Column(Boolean, default=False)
-    # A4 — dashboard rollups (Req #17) and payment status (Req #16).
-    collections_outstanding_amount = Column(Float, nullable=True)
-    collections_payment_status     = Column(String, nullable=True, default='PENDING')  # PENDING / PARTIAL / COMPLETED
 
     tenant         = relationship("Tenant")
     created_by     = relationship("User", foreign_keys=[created_by_id])
@@ -2377,25 +2352,6 @@ def _pg_add_columns():
         # Checklists: due date vs due time distinction, per template
         "ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS due_time_mode VARCHAR DEFAULT 'ANYTIME'",
         "ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS due_time VARCHAR",
-        # Collections & Escalation Engine — A1 schema
-        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS collections_call_attempt_cap INTEGER DEFAULT 2",
-        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS collections_escalation_tiers VARCHAR DEFAULT '30,60,90'",
-        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS collections_channel_sms_enabled BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS collections_channel_whatsapp_enabled BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS collections_channel_email_enabled BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS collections_owner_notify_enabled BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS open_balance_lock BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS collections_call_attempt_count INTEGER DEFAULT 0",
-        # Collections & Escalation Engine — A2 schema
-        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS collections_case_due_date DATE",
-        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS collections_escalated BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS collections_escalated_at TIMESTAMP",
-        # Collections & Escalation Engine — A3 schema
-        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS collections_last_tier_notified INTEGER",
-        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS collections_non_responsive_alerted BOOLEAN DEFAULT FALSE",
-        # Collections & Escalation Engine — A4 schema
-        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS collections_outstanding_amount FLOAT",
-        "ALTER TABLE customers ADD COLUMN IF NOT EXISTS collections_payment_status VARCHAR DEFAULT 'PENDING'",
     ]
     try:
         with engine.begin() as conn:
@@ -2543,107 +2499,5 @@ class AnomalyAlert(Base):
     is_read       = Column(Boolean, default=False)
     is_dismissed  = Column(Boolean, default=False)
     detected_at   = Column(DateTime, default=datetime.utcnow)
-
-    tenant = relationship("Tenant")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Workstream B — Attendance & Leave Module (Phase B1: schema only, fully inert
-# until ATTENDANCE_MODULE is enabled — see app/constants.py FEATURE_CATALOG).
-# Extends the app via new related tables; the Employee/User table itself is
-# not altered in place, per the standing scope rule.
-# ══════════════════════════════════════════════════════════════════════════════
-
-class AttendanceGeofence(Base):
-    """Per-tenant/site geofence config used by B2's punch-in validation.
-    branch_id=None represents a tenant-wide default site."""
-    __tablename__ = "attendance_geofences"
-    id            = Column(String,  primary_key=True, default=new_id)
-    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
-    branch_id     = Column(String,  ForeignKey("branches.id"), nullable=True)
-    center_lat    = Column(Float,   nullable=False)
-    center_lng    = Column(Float,   nullable=False)
-    radius_meters = Column(Integer, default=200)
-    is_deleted    = Column(Boolean, default=False)
-    created_at    = Column(DateTime, default=datetime.utcnow)
-
-    tenant = relationship("Tenant")
-    branch = relationship("Branch")
-
-
-class AttendanceRecord(Base):
-    """One row per employee per calendar day — single check-in/check-out
-    pair (B2 scope: not multiple in/out punches per day)."""
-    __tablename__ = "attendance_records"
-    id                  = Column(String,  primary_key=True, default=new_id)
-    tenant_id           = Column(String,  ForeignKey("tenants.id"), nullable=False)
-    user_id             = Column(String,  ForeignKey("users.id"),   nullable=False)
-    branch_id           = Column(String,  ForeignKey("branches.id"), nullable=True)
-    record_date         = Column(Date,    nullable=False)   # the calendar day this record is for
-    check_in_at         = Column(DateTime, nullable=True)
-    check_in_lat        = Column(Float,   nullable=True)
-    check_in_lng        = Column(Float,   nullable=True)
-    check_in_in_fence   = Column(Boolean, nullable=True)     # None until first punch
-    check_in_photo_path = Column(String,  nullable=True)     # mandatory on first punch of the day (B2)
-    out_of_fence_reason = Column(Text,    nullable=True)     # required when check_in_in_fence is False
-    check_out_at        = Column(DateTime, nullable=True)
-    check_out_lat       = Column(Float,   nullable=True)
-    check_out_lng        = Column(Float,   nullable=True)
-    # B4 — reconciliation/forward-compat: manual half-day override (e.g. late
-    # arrival / early leave), so a future payroll consumer can read a full
-    # present/absent/leave/half-day status per day without a schema change.
-    is_half_day         = Column(Boolean, default=False)
-    is_deleted          = Column(Boolean, default=False)
-    created_at          = Column(DateTime, default=datetime.utcnow)
-
-    tenant = relationship("Tenant")
-    user   = relationship("User", foreign_keys=[user_id])
-    branch = relationship("Branch")
-
-
-class LeaveRequest(Base):
-    """Employee leave application/approval — B3 scope builds the workflow UI
-    on top of this; B1 is schema only."""
-    __tablename__ = "leave_requests"
-    id            = Column(String,  primary_key=True, default=new_id)
-    tenant_id     = Column(String,  ForeignKey("tenants.id"), nullable=False)
-    user_id       = Column(String,  ForeignKey("users.id"),   nullable=False)
-    leave_type    = Column(String,  nullable=False)   # CASUAL / SICK / EARNED / OTHER
-    date_from     = Column(Date,    nullable=False)
-    date_to       = Column(Date,    nullable=False)
-    reason        = Column(Text,    nullable=True)
-    status        = Column(String,  default="PENDING")   # PENDING / APPROVED / REJECTED
-    approver_id   = Column(String,  ForeignKey("users.id"), nullable=True)
-    decided_at    = Column(DateTime, nullable=True)
-    # B4 — half-day leave (single-day only), same forward-compat rationale
-    # as AttendanceRecord.is_half_day.
-    is_half_day   = Column(Boolean, default=False)
-    is_deleted    = Column(Boolean, default=False)
-    created_at    = Column(DateTime, default=datetime.utcnow)
-
-    tenant   = relationship("Tenant")
-    user     = relationship("User", foreign_keys=[user_id])
-    approver = relationship("User", foreign_keys=[approver_id])
-
-
-class AttendanceRule(Base):
-    """Workstream B, Phase B5 — tenant-defined, tenant-editable rule for
-    auto-classifying a punch record as Present/Half-Day/Absent from raw
-    check-in/check-out data (late arrival, insufficient hours, missed
-    punch-out, etc.). Rules are evaluated in ascending `priority` order,
-    first match wins (per client decision 2026-07-16) — there is no fixed
-    catalog of rule types; each tenant defines their own from a fixed set
-    of available condition fields/operators (see app/attendance_rules.py)."""
-    __tablename__ = "attendance_rules"
-    id               = Column(String,  primary_key=True, default=new_id)
-    tenant_id        = Column(String,  ForeignKey("tenants.id"), nullable=False)
-    name             = Column(String,  nullable=False)
-    is_active        = Column(Boolean, default=True)
-    priority         = Column(Integer, default=0)   # ascending — lower evaluates first
-    conditions_json  = Column(Text,    nullable=False)  # JSON list of {field, operator, value, value2}
-    condition_logic  = Column(String,  default="ALL")   # ALL (AND) / ANY (OR) across this rule's conditions
-    outcome          = Column(String,  nullable=False)   # PRESENT / HALF_DAY / ABSENT
-    is_deleted       = Column(Boolean, default=False)
-    created_at       = Column(DateTime, default=datetime.utcnow)
 
     tenant = relationship("Tenant")

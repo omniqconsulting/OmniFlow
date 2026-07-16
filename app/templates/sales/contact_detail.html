@@ -89,68 +89,6 @@
   </div>
 </div>
 
-{% if has_collections %}
-{% set status_colors = {'PENDING':'#f59e0b','PARTIAL':'#3b82f6','COMPLETED':'#22c55e'} %}
-<div class="card" style="padding:16px;margin-bottom:18px">
-  <h3 style="margin-top:0">Collections</h3>
-  {% if customer.open_balance_lock %}
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;font-size:13px;margin-bottom:12px">
-    <div><div class="muted">Status</div><div style="color:#ef4444;font-weight:600">{{ 'Escalated' if customer.collections_escalated else 'Open' }}</div></div>
-    <div><div class="muted">Payment Status</div><div style="color:{{ status_colors.get(customer.collections_payment_status, '#94a3b8') }};font-weight:600">{{ customer.collections_payment_status or 'PENDING' }}</div></div>
-    <div><div class="muted">Outstanding Amount</div><div>{{ customer.collections_outstanding_amount if customer.collections_outstanding_amount is not none else '—' }}</div></div>
-    <div><div class="muted">Call Attempts</div><div>{{ customer.collections_call_attempt_count or 0 }}</div></div>
-    <div><div class="muted">Due Date</div><div>{{ customer.collections_case_due_date.strftime('%d %b %Y') if customer.collections_case_due_date else '—' }}</div></div>
-  </div>
-  <div style="display:flex;gap:8px;margin-bottom:16px">
-    {% if customer.collections_payment_status != 'PARTIAL' %}
-    <form method="post" action="/sales/contacts/{{ customer.id }}/collections/mark-partial">
-      <button type="submit" class="btn btn-sm btn-outline">Mark Partially Paid</button>
-    </form>
-    {% endif %}
-    <form method="post" action="/sales/contacts/{{ customer.id }}/collections/resolve">
-      <button type="submit" class="btn btn-sm btn-outline">Mark Resolved</button>
-    </form>
-  </div>
-
-  <h4 style="font-size:12px;color:var(--text-faint);letter-spacing:.03em;margin-bottom:8px">DOCUMENTS</h4>
-  {% if collections_documents %}
-  <ul style="margin:0 0 10px;padding-left:18px;font-size:13px">
-    {% for doc in collections_documents %}
-    <li><a href="{{ doc.file_path }}" target="_blank">{{ doc.file_name }}</a> <span class="muted">({{ doc.entity_type.replace('collections_document_', '').replace('_', ' ').title() }})</span></li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <div class="muted" style="font-size:12px;margin-bottom:10px">No documents uploaded yet.</div>
-  {% endif %}
-  <form method="post" action="/sales/contacts/{{ customer.id }}/collections/documents" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
-    <div class="form-group" style="margin:0">
-      <label class="form-label">Type</label>
-      <select name="doc_type" class="form-input">
-        {% for dt in collections_doc_types %}<option value="{{ dt }}">{{ dt.replace('_',' ').title() }}</option>{% endfor %}
-      </select>
-    </div>
-    <div class="form-group" style="margin:0">
-      <label class="form-label">File</label>
-      <input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf" required>
-    </div>
-    <button type="submit" class="btn btn-sm btn-outline">Upload</button>
-  </form>
-  {% else %}
-  <form method="post" action="/sales/contacts/{{ customer.id }}/collections/open" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
-    <div class="form-group" style="margin:0">
-      <label class="form-label">Payment due date</label>
-      <input type="date" name="due_date" class="form-input" required>
-    </div>
-    <div class="form-group" style="margin:0">
-      <label class="form-label">Outstanding amount</label>
-      <input type="number" step="0.01" min="0" name="outstanding_amount" class="form-input">
-    </div>
-    <button type="submit" class="btn btn-sm btn-primary">Open Collections Case</button>
-  </form>
-  {% endif %}
-</div>
-{% endif %}
-
 <div class="card" style="padding:16px;margin-bottom:18px">
   <h3 style="margin-top:0">Engagement — last 6 months</h3>
   {% set max_v = (trend | map(attribute='orders') | list + trend | map(attribute='calls') | list) | max %}
