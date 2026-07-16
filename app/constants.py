@@ -298,7 +298,7 @@ WHATSAPP_TEMPLATES = {
     # New event templates — awaiting Meta approval, same as most templates above.
     "omniflow_optin_confirmed": {
         "msg91_template_id": None,
-        "gupshup_template_id": None,
+        "gupshup_template_id": "2177556309644566",
         "gupshup_template_category": "UTILITY",
         "variable_order": ["name"],
     },
