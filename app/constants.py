@@ -298,14 +298,23 @@ WHATSAPP_TEMPLATES = {
     # New event templates — awaiting Meta approval, same as most templates above.
     "omniflow_optin_confirmed": {
         "msg91_template_id": None,
-        "gupshup_template_id": "2177556309644566",
+        # Gupshup's own template UUID, not the Facebook numeric template ID —
+        # per docs.gupshup.io's whatsapp-business-api page, `template.id` on
+        # POST api.gupshup.io/sm/api/v1/template/msg expects the Gupshup UUID
+        # (visible as "Gupshup temp ID" in the console's template list).
+        # Sending the Facebook numeric ID there instead is the likely cause
+        # of the earlier "401 Portal User Not Found With APIKey" — a
+        # malformed template reference apparently surfaces as a generic
+        # auth-style rejection on this endpoint rather than a clean
+        # "template not found" error. Confirmed against this tenant's
+        # Gupshup console, 2026-07-16.
+        "gupshup_template_id": "2f6856e7-2b48-41be-932c-66015dbc4827",
+        "gupshup_facebook_template_id": "2177556309644566",
         "gupshup_template_category": "UTILITY",
         "variable_order": ["name"],
-        # Exact approved body text, {{n}} placeholders — required by the
-        # Gupshup Gateway API (mediaapi.smsgupshup.com), which validates
-        # sends against the fully-rendered message rather than separate
-        # params. Must match the approved template in the Gupshup console
-        # character-for-character or Gupshup will reject the send.
+        # Exact approved body text with {{n}} placeholders — kept for
+        # reference/validation, not sent to the API (this endpoint accepts
+        # separate params, unlike the Gateway API this code previously used).
         "body": "Thank you for choosing to opt-in for regular updates from {{1}}. You'll receive task assignments, reminders, and status updates here.",
     },
     "omniflow_ticket_closed": {
@@ -356,7 +365,7 @@ PLATFORM_ALERT_TENANT_ID = os.environ.get("PLATFORM_ALERT_TENANT_ID", "")
 
 # Gupshup Gateway/Enterprise API — per-tenant credentials live on Tenant model
 # (gupshup_client_id / gupshup_secret_token / gupshup_source_number).
-GUPSHUP_API_BASE = "https://mediaapi.smsgupshup.com/GatewayAPI/rest"
+GUPSHUP_API_BASE = "https://api.gupshup.io/sm/api/v1/template/msg"
 # Public domain this OmniFlow instance is reachable at, for constructing each
 # tenant's webhook Callback URL: https://<domain>/webhooks/gupshup/{token}
 OMNIFLOW_PUBLIC_DOMAIN = os.environ.get("OMNIFLOW_PUBLIC_DOMAIN", "omniflow.omniqconsulting.com")
