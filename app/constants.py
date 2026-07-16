@@ -301,6 +301,12 @@ WHATSAPP_TEMPLATES = {
         "gupshup_template_id": "2177556309644566",
         "gupshup_template_category": "UTILITY",
         "variable_order": ["name"],
+        # Exact approved body text, {{n}} placeholders — required by the
+        # Gupshup Gateway API (mediaapi.smsgupshup.com), which validates
+        # sends against the fully-rendered message rather than separate
+        # params. Must match the approved template in the Gupshup console
+        # character-for-character or Gupshup will reject the send.
+        "body": "Thank you for choosing to opt-in for regular updates from {{1}}. You'll receive task assignments, reminders, and status updates here.",
     },
     "omniflow_ticket_closed": {
         "msg91_template_id": None,
@@ -350,7 +356,7 @@ PLATFORM_ALERT_TENANT_ID = os.environ.get("PLATFORM_ALERT_TENANT_ID", "")
 
 # Gupshup Gateway/Enterprise API — per-tenant credentials live on Tenant model
 # (gupshup_client_id / gupshup_secret_token / gupshup_source_number).
-GUPSHUP_API_BASE = "https://api.gupshup.io/sm/api/v1/template/msg"
+GUPSHUP_API_BASE = "https://mediaapi.smsgupshup.com/GatewayAPI/rest"
 # Public domain this OmniFlow instance is reachable at, for constructing each
 # tenant's webhook Callback URL: https://<domain>/webhooks/gupshup/{token}
 OMNIFLOW_PUBLIC_DOMAIN = os.environ.get("OMNIFLOW_PUBLIC_DOMAIN", "omniflow.omniqconsulting.com")
