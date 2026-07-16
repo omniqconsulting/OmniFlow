@@ -480,7 +480,10 @@ def sa_tenant_detail(request: Request, tenant_id: str,
     callback_url = None
     if tenant.gupshup_webhook_token:
         callback_url = f"https://{OMNIFLOW_PUBLIC_DOMAIN}/webhooks/gupshup/{tenant.gupshup_webhook_token}"
-    opt_in_link = tenant.whatsapp_opt_in_link or (
+    # Built live (not from the cached whatsapp_opt_in_link column) so it always
+    # reflects the current opt-in message template, even for tenants configured
+    # before a template wording change.
+    opt_in_link = (
         build_opt_in_link(tenant.gupshup_source_number, tenant.name)
         if tenant.gupshup_source_number else None
     )
@@ -679,9 +682,10 @@ def sa_whatsapp_qr(tenant_id: str, sa: SuperAdmin = Depends(get_current_sa),
                     db: Session = Depends(get_db)):
     from .services.qr_optin import render_qr_png
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-    if not tenant or not tenant.whatsapp_opt_in_link:
+    if not tenant or not tenant.gupshup_source_number:
         raise HTTPException(404)
-    png = render_qr_png(tenant.whatsapp_opt_in_link)
+    link = build_opt_in_link(tenant.gupshup_source_number, tenant.name)
+    png = render_qr_png(link)
     return StreamingResponse(io.BytesIO(png), media_type="image/png")
 
 
