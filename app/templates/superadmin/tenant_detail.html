@@ -354,8 +354,13 @@
         </td>
         <td>
           {% if m.delivery_status_history %}
-          <details><summary style="cursor:pointer;font-size:11px;color:#94a3b8">history</summary>
+          <details><summary style="cursor:pointer;font-size:11px;color:#94a3b8">delivery status</summary>
           <pre style="font-size:10px;white-space:pre-wrap;max-width:400px">{{ m.delivery_status_history | tojson(indent=2) }}</pre>
+          </details>
+          {% endif %}
+          {% if m.raw_status_webhook_payloads %}
+          <details><summary style="cursor:pointer;font-size:11px;color:#94a3b8">raw Gupshup response</summary>
+          <pre style="font-size:10px;white-space:pre-wrap;max-width:400px">{{ m.raw_status_webhook_payloads | tojson(indent=2) }}</pre>
           </details>
           {% endif %}
         </td>
