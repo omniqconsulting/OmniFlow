@@ -340,7 +340,12 @@
         <td style="font-size:12px">{{ m.recipient.name if m.recipient else m.recipient_phone }}</td>
         <td style="font-size:12px">{{ m.template_name }}</td>
         <td style="font-size:12px">{{ m.template_category or '—' }}</td>
-        <td><span class="badge {% if m.status == 'SENT' %}badge-green{% elif m.status == 'FAILED' %}badge-red{% else %}badge-gray{% endif %}">{{ m.status }}</span></td>
+        <td>
+          <span class="badge {% if m.status == 'SENT' %}badge-green{% elif m.status == 'FAILED' %}badge-red{% else %}badge-gray{% endif %}">{{ m.status }}</span>
+          {% if m.status == 'FAILED' and m.error_message %}
+          <div style="font-size:10px;color:#f87171;margin-top:2px;max-width:280px;white-space:normal">{{ m.error_message }}</div>
+          {% endif %}
+        </td>
         <td>
           {% if m.delivery_status_history %}
           <details><summary style="cursor:pointer;font-size:11px;color:#94a3b8">history</summary>
