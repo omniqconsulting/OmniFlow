@@ -81,26 +81,29 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
     variables: ordered list matching the template's approved variable order exactly.
 
     Returns (success: bool, error_message: str | None, template_id: str | None,
-             template_category: str | None, gupshup_message_id: str | None) — the
-    message id lets webhook status events (Section 6.3) be matched back to
-    this send's WhatsAppMessageLog row via raw_status_webhook_payloads.
+             template_category: str | None, gupshup_message_id: str | None,
+             raw_response: dict | None) — the message id lets webhook status
+    events (Section 6.3) be matched back to this send's WhatsAppMessageLog
+    row via raw_status_webhook_payloads; raw_response is Gupshup's full
+    parsed response body, kept for debugging sends that report success but
+    never actually reach the recipient.
     NEVER raises — every failure path returns success=False with a reason.
     """
     template = WHATSAPP_TEMPLATES.get(template_name)
     if not template:
-        return False, f"Unknown template: {template_name}", None, None, None
+        return False, f"Unknown template: {template_name}", None, None, None, None
 
     if not (tenant and tenant.gupshup_client_id and tenant.gupshup_secret_token and tenant.gupshup_source_number):
-        return False, "Tenant has no Gupshup WhatsApp configuration", None, None, None
+        return False, "Tenant has no Gupshup WhatsApp configuration", None, None, None, None
 
     if tenant.gupshup_waba_status == "SUSPENDED":
-        return False, "Tenant's Gupshup WABA is SUSPENDED — send blocked", None, None, None
+        return False, "Tenant's Gupshup WABA is SUSPENDED — send blocked", None, None, None, None
 
     if len(variables) != len(template["variable_order"]):
         return False, (
             f"Variable count mismatch for {template_name}: "
             f"expected {len(template['variable_order'])}, got {len(variables)}"
-        ), None, None, None
+        ), None, None, None, None
 
     template_id = template.get("gupshup_template_id")
     template_category = template.get("gupshup_template_category", "UTILITY")
@@ -128,6 +131,16 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
                 },
                 data=form_data,
             )
+        # raw_response is captured on every path (success or failure) and
+        # surfaced in the Outbound Message Log — the parsed status/id alone
+        # wasn't enough to diagnose a "SENT" send that never actually reached
+        # WhatsApp (Gateway API 200s just mean the request was accepted for
+        # processing, not that Meta delivered it).
+        raw_response = None
+        try:
+            raw_response = resp.json()
+        except Exception:
+            raw_response = {"raw_text": resp.text[:500]}
         if resp.status_code in range(200, 300):
             gupshup_message_id = None
             resp_status = None
@@ -142,7 +155,7 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
             return True, None, template_id, template_category, gupshup_message_id
         return False, f"Gupshup returned {resp.status_code}: {resp.text[:300]}", template_id, template_category, None
     except httpx.TimeoutException:
-        return False, "Gupshup request timed out", template_id, template_category, None
+        return False, "Gupshup request timed out", template_id, template_category, None, None
     except Exception as exc:
         logger.exception("Gupshup send failed for tenant=%s template=%s", getattr(tenant, "id", None), template_name)
-        return False, str(exc), template_id, template_category, None
+        return False, str(exc), template_id, template_category, None, None

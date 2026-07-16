@@ -4816,7 +4816,7 @@ def resend_whatsapp(
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     variables = _json_resend.loads(log.variables_json)
-    success, error, template_id, template_category, gupshup_message_id = send_whatsapp_template(
+    success, error, template_id, template_category, gupshup_message_id, raw_response = send_whatsapp_template(
         tenant, log.recipient_phone, log.template_name, variables)
     log.status = "SENT" if success else "FAILED"
     log.error_message = error
@@ -4824,9 +4824,12 @@ def resend_whatsapp(
         log.template_id = template_id
     if template_category:
         log.template_category = template_category
+    raw = list(log.raw_status_webhook_payloads or [])
     if gupshup_message_id:
-        raw = list(log.raw_status_webhook_payloads or [])
         raw.append({"id": gupshup_message_id})
+    if raw_response:
+        raw.append({"send_response": raw_response})
+    if raw != (log.raw_status_webhook_payloads or []):
         log.raw_status_webhook_payloads = raw
     log.attempt_count += 1
     log.last_attempted_at = datetime.utcnow()
