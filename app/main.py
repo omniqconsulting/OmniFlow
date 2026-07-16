@@ -4674,6 +4674,33 @@ def mark_employee_mismatch(
     return RedirectResponse("/employees", status_code=303)
 
 
+@app.post("/employees/{emp_id}/reset-optin")
+def reset_employee_optin(
+    emp_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db),
+):
+    """Reset an already-verified employee back to PENDING so their next QR
+    scan re-triggers the omniflow_optin_confirmed send. Needed because the
+    webhook only fires that confirmation on a PENDING/MISMATCH -> OPTED_IN
+    transition (webhooks_gupshup.py) — without this, an employee who's
+    already OPTED_IN can never receive a resend (e.g. after a template fix)
+    just by scanning the QR again."""
+    from .database import WhatsAppConsentEvent
+    emp = db.query(User).filter(
+        User.id == emp_id, User.tenant_id == user.tenant_id, User.is_deleted == False,
+    ).first()
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    emp.whatsapp_opt_in_status = "PENDING"
+    emp.opt_in_actor_id = user.id
+    db.add(WhatsAppConsentEvent(
+        tenant_id=user.tenant_id, employee_id=emp.id, event_type="OPT_IN_RESET",
+        phone_number=emp.phone or "", source="MANUAL_OVERRIDE", actor_id=user.id,
+        notes="Reset to PENDING for re-opt-in / resend of confirmation",
+    ))
+    db.commit()
+    return RedirectResponse("/employees", status_code=303)
+
+
 @app.post("/employees/{emp_id}/correct-phone")
 def correct_employee_phone(
     emp_id: str, corrected_phone: str = Form(...),

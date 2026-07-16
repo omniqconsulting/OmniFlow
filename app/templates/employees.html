@@ -193,6 +193,9 @@
             <button type="submit" class="btn btn-sm btn-gray" style="font-size:10px;padding:2px 6px" title="Employee is verified but still receives WhatsApp — mute to stop">🔔 Mute WhatsApp</button>
             {% endif %}
           </form>
+          <form method="post" action="/employees/{{ emp.id }}/reset-optin" style="display:inline" onsubmit="return confirm('Reset {{ emp.name }} to Pending? They will need to scan the QR code again, and will receive the opt-in confirmation message on their next scan.')">
+            <button type="submit" class="btn btn-sm btn-gray" style="font-size:10px;padding:2px 6px" title="Reset to Pending so their next QR scan resends the opt-in confirmation">↺ Reset Opt-in</button>
+          </form>
           {% endif %}
         </div>
         {% endif %}
