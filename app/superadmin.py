@@ -499,12 +499,19 @@ def sa_tenant_detail(request: Request, tenant_id: str,
 
     wa_filter_employee = request.query_params.get("wf_employee", "")
     wa_filter_status = request.query_params.get("wf_status", "")
+    wa_filter_template = request.query_params.get("wf_template", "")
     wa_logs_q = db.query(WhatsAppMessageLog).filter(WhatsAppMessageLog.tenant_id == tenant_id)
     if wa_filter_employee:
         wa_logs_q = wa_logs_q.filter(WhatsAppMessageLog.recipient_user_id == wa_filter_employee)
     if wa_filter_status:
         wa_logs_q = wa_logs_q.filter(WhatsAppMessageLog.status == wa_filter_status)
+    if wa_filter_template:
+        wa_logs_q = wa_logs_q.filter(WhatsAppMessageLog.template_name == wa_filter_template)
     wa_logs = wa_logs_q.order_by(WhatsAppMessageLog.created_at.desc()).limit(200).all()
+    wa_template_names = sorted({
+        row[0] for row in db.query(WhatsAppMessageLog.template_name)
+        .filter(WhatsAppMessageLog.tenant_id == tenant_id).distinct().all()
+    })
 
     return templates.TemplateResponse(request, "superadmin/tenant_detail.html", {
         "sa": sa, "tenant": tenant, "stats": stats,
@@ -534,6 +541,8 @@ def sa_tenant_detail(request: Request, tenant_id: str,
         "consent_filter_type": consent_filter_type,
         "wa_filter_employee": wa_filter_employee,
         "wa_filter_status": wa_filter_status,
+        "wa_filter_template": wa_filter_template,
+        "wa_template_names": wa_template_names,
     })
 
 
