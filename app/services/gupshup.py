@@ -108,7 +108,7 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
     template_id = template.get("gupshup_template_id")
     template_category = template.get("gupshup_template_category", "UTILITY")
     if not template_id:
-        return False, f"No Gupshup template UUID configured for {template_name}", template_id, template_category, None
+        return False, f"No Gupshup template UUID configured for {template_name}", template_id, template_category, None, None
     mobile_norm = normalize_mobile(mobile)
     source_norm = normalize_mobile(tenant.gupshup_source_number)
 
@@ -151,9 +151,9 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
             except Exception:
                 pass
             if resp_status and resp_status not in ("submitted", "success"):
-                return False, f"Gupshup returned {resp.status_code} but status={resp_status}: {resp.text[:300]}", template_id, template_category, None
-            return True, None, template_id, template_category, gupshup_message_id
-        return False, f"Gupshup returned {resp.status_code}: {resp.text[:300]}", template_id, template_category, None
+                return False, f"Gupshup returned {resp.status_code} but status={resp_status}: {resp.text[:300]}", template_id, template_category, None, raw_response
+            return True, None, template_id, template_category, gupshup_message_id, raw_response
+        return False, f"Gupshup returned {resp.status_code}: {resp.text[:300]}", template_id, template_category, None, raw_response
     except httpx.TimeoutException:
         return False, "Gupshup request timed out", template_id, template_category, None, None
     except Exception as exc:
