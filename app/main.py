@@ -62,6 +62,7 @@ from .constants import (
 )
 from .labels import get_labels, DEFAULT_L, INDUSTRY_NAMES, INDUSTRY_PRESETS
 from .bulk_common import check_required_headers
+from .services.qr_optin import build_opt_in_link
 
 app = FastAPI(title="OmniFlow")
 
@@ -4063,19 +4064,26 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_red
         "kpi_terminated": kpi_terminated, "kpi_departments": kpi_departments,
         "tab_catalog": tab_catalog, "doc_type_labels": DOC_TYPE_LABELS,
         "optin_counts": optin_counts, "opt_in_status_filter": opt_in_status,
-        "whatsapp_opt_in_link": tenant.whatsapp_opt_in_link,
+        "whatsapp_opt_in_link": (
+            build_opt_in_link(tenant.gupshup_source_number, tenant.name)
+            if tenant.gupshup_source_number else None
+        ),
     })
 
 @app.get("/employees/whatsapp-qr.png")
 def employees_whatsapp_qr(user: User = Depends(require_manager_or_redirect), db: Session = Depends(get_db)):
-    """Section 7.5 — Share opt-in QR panel image, scoped to the caller's own tenant."""
+    """Section 7.5 — Share opt-in QR panel image, scoped to the caller's own tenant.
+    Built live from build_opt_in_link() on every request so the QR always reflects
+    the current opt-in message template, even for tenants configured before a
+    template wording change."""
     from .services.qr_optin import render_qr_png
     from fastapi.responses import StreamingResponse
     import io as _io
     tenant = db.query(Tenant).get(user.tenant_id)
-    if not tenant or not tenant.whatsapp_opt_in_link:
+    if not tenant or not tenant.gupshup_source_number:
         raise HTTPException(404, "No opt-in link configured for this tenant yet")
-    png = render_qr_png(tenant.whatsapp_opt_in_link)
+    link = build_opt_in_link(tenant.gupshup_source_number, tenant.name)
+    png = render_qr_png(link)
     return StreamingResponse(_io.BytesIO(png), media_type="image/png")
 
 
