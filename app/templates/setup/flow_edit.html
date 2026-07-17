@@ -260,6 +260,10 @@ function tfbRender() {
         '<input type="checkbox" id="tfbReq_'+idx+'" '+(f.required?'checked':'')+' onchange="tfbUpdate('+idx+',\'required\',this.checked)" style="width:auto;accent-color:#8b5cf6">' +
         '<label for="tfbReq_'+idx+'" style="font-size:12px;color:var(--text-faint);cursor:pointer">Yes</label>' +
       '</div>' +
+      '<div style="width:110px;display:flex;align-items:center;gap:6px;padding:0 8px" title="Show this field\'s value next to the ticket number in Enter Data / Complete Stage popups, instead of just the raw ticket number">' +
+        '<input type="checkbox" id="tfbHdr_'+idx+'" '+(f.show_in_header?'checked':'')+' onchange="tfbUpdate('+idx+',\'show_in_header\',this.checked)" style="width:auto;accent-color:#8b5cf6">' +
+        '<label for="tfbHdr_'+idx+'" style="font-size:12px;color:var(--text-faint);cursor:pointer">Show in header</label>' +
+      '</div>' +
       '<button class="tfb-del" onclick="tfbRemove('+idx+')" title="Remove">×</button>';
     tfbSetupDrag(row, idx);
     list.appendChild(row);
@@ -292,7 +296,7 @@ function tfbUpdate(idx, key, val) {
 }
 
 function tfbAddField() {
-  tfbFields.push({ id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)), label: '', field_type: 'text', required: false, order: tfbFields.length });
+  tfbFields.push({ id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)), label: '', field_type: 'text', required: false, show_in_header: false, order: tfbFields.length });
   tfbRender();
   var rows = document.querySelectorAll('.tfb-row');
   if (rows.length) rows[rows.length-1].querySelector('.tfb-label-in').focus();
@@ -665,13 +669,14 @@ function buildStageEl(s, i) {
   }
 
   var colCount = (s.custom_fields || []).length;
-  var cfHtml = (s.custom_fields || []).map(function(c) {
+  var cfHtml = (s.custom_fields || []).map(function(c, colIdx) {
     var typeTag = c.field_type === 'formula'
       ? '<span class="col-row-type" style="color:#a78bfa">formula</span>'
       : c.field_type === 'ref_list'
         ? '<span class="col-row-type" style="color:#34d399">list: ' + _esc(c.ref_list_name || c.ref_list_id || '') + '</span>'
         : '<span class="col-row-type">' + c.field_type + '</span>';
-    return '<div class="col-row" data-col-id="' + c.id + '">' +
+    return '<div class="col-row" draggable="true" data-stage-idx="' + i + '" data-col-idx="' + colIdx + '" data-col-id="' + c.id + '">' +
+      '<span class="col-drag-handle" title="Drag to reorder" style="cursor:grab;color:var(--text-faint);padding:0 2px">⠿</span>' +
       '<span class="col-row-label">' + _esc(c.label) + '</span>' +
       typeTag +
       (c.required ? '<span style="font-size:10px;color:#f87171">req</span>' : '') +
@@ -751,14 +756,14 @@ function buildStageEl(s, i) {
           '<label class="fe-label">{{ L.get("Split","Split") }} Target Field</label>' +
           '<select class="fe-input" onchange="stages[' + i + '].split_target_field=this.value">' +
             '<option value="">— Select —</option>' +
-            _splitFieldOptGroups(s, s.split_target_field) +
+            _splitFieldOptGroups(i, s.split_target_field) +
           '</select>' +
         '</div>' +
         '<div class="fe-group">' +
           '<label class="fe-label">{{ L.get("Split","Split") }} Actual/Entered Field</label>' +
           '<select class="fe-input" onchange="stages[' + i + '].split_actual_field=this.value">' +
             '<option value="">— Select —</option>' +
-            _splitFieldOptGroups(s, s.split_actual_field) +
+            _splitFieldOptGroups(i, s.split_actual_field) +
           '</select>' +
         '</div>' +
       '</div>' : '') +
@@ -770,6 +775,13 @@ function buildStageEl(s, i) {
         '<div id="cfList_' + i + '">' + (cfHtml || '<div style="font-size:11px;color:var(--text-faint);padding:4px 0">No columns defined for this stage.</div>') + '</div>' +
       '</div>' +
     '</div>';
+
+  el.querySelectorAll('.col-row').forEach(function(row) {
+    row.addEventListener('dragstart', onColDragStart);
+    row.addEventListener('dragover',  onColDragOver);
+    row.addEventListener('drop',      onColDrop);
+    row.addEventListener('dragend',   onColDragEnd);
+  });
 
   return el;
 }
@@ -789,17 +801,23 @@ function _formulaDesc(col) {
 function _splitFieldOpt(id, label, selected) {
   return '<option value="' + _esc(id) + '"' + (selected === id ? ' selected' : '') + '>' + _esc(label) + '</option>';
 }
-function _splitFieldOptGroups(stage, selected) {
+function _splitFieldOptGroups(stageIdx, selected) {
   var html = '';
   html += '<optgroup label="Ticket Fields">' +
     _splitFieldOpt('__target_qty__', 'Target Qty (built-in)', selected) +
     (tfbFields || []).filter(function(f){ return f.field_type !== '__priority__' && f.field_type !== '__due_date__'; })
       .map(function(f){ return _splitFieldOpt(f.id, f.label, selected); }).join('') +
   '</optgroup>';
-  if ((stage.custom_fields || []).length) {
-    html += '<optgroup label="Stage Columns">' +
-      (stage.custom_fields || []).map(function(c){ return _splitFieldOpt(c.id, c.label, selected); }).join('') +
-    '</optgroup>';
+  // Stage columns from every stage up to and including this one — not just
+  // this stage's own columns — so a later stage can split on a quantity
+  // captured earlier in the flow, same as the formula-column picker.
+  for (var si = 0; si <= stageIdx; si++) {
+    var st = stages[si];
+    if ((st.custom_fields || []).length) {
+      html += '<optgroup label="' + _esc(st.name || ('Stage ' + (si + 1))) + ' Columns">' +
+        (st.custom_fields || []).map(function(c){ return _splitFieldOpt(c.id, c.label, selected); }).join('') +
+      '</optgroup>';
+    }
   }
   return html;
 }
@@ -889,6 +907,40 @@ function onDrop(e) {
 function onDragEnd(e) {
   this.style.opacity=''; document.querySelectorAll('.stage-row').forEach(function(el){el.style.borderTop='';});
   _dragIdx = null;
+}
+
+// ── Drag-to-reorder: columns within a single stage's Custom Columns list ───
+var _colDragIdx = null;
+var _colDragStageIdx = null;
+function onColDragStart(e) {
+  e.stopPropagation();
+  _colDragStageIdx = parseInt(this.dataset.stageIdx);
+  _colDragIdx = parseInt(this.dataset.colIdx);
+  e.dataTransfer.effectAllowed = 'move';
+  this.style.opacity = '0.4';
+}
+function onColDragOver(e) {
+  e.preventDefault(); e.stopPropagation();
+  if (parseInt(this.dataset.stageIdx) !== _colDragStageIdx) return;
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.col-row').forEach(function(el){ el.style.borderTop=''; });
+  this.style.borderTop = '2px solid #3b82f6';
+}
+function onColDrop(e) {
+  e.preventDefault(); e.stopPropagation();
+  var stageIdx = parseInt(this.dataset.stageIdx);
+  var toIdx = parseInt(this.dataset.colIdx);
+  if (_colDragIdx === null || stageIdx !== _colDragStageIdx || _colDragIdx === toIdx) return;
+  var cols = stages[stageIdx].custom_fields;
+  var m = cols.splice(_colDragIdx, 1)[0];
+  cols.splice(toIdx, 0, m);
+  renderStages();
+}
+function onColDragEnd(e) {
+  e.stopPropagation();
+  this.style.opacity = '';
+  document.querySelectorAll('.col-row').forEach(function(el){ el.style.borderTop=''; });
+  _colDragIdx = null; _colDragStageIdx = null;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1060,9 +1112,14 @@ function _numericColsUpTo(stageIdx) {
   (tfbFields || []).forEach(function(c) {
     if (c.field_type === 'number') cols.push({ col: c, stageName: 'Order Details' });
   });
+  // si <= stageIdx (not <) so a formula column being added to THIS stage can
+  // reference columns already saved earlier in this same stage, not just
+  // columns from stages before it. Formula-type columns are included too
+  // (not just plain number fields) so a formula can chain off another
+  // already-computed formula column, same as the closing-rule picker below.
   for (var si = 0; si <= stageIdx; si++) {
     (stages[si].custom_fields || []).forEach(function(c) {
-      if (c.field_type === 'number') cols.push({ col: c, stageName: stages[si].name });
+      if (c.field_type === 'number' || c.field_type === 'formula') cols.push({ col: c, stageName: stages[si].name });
     });
   }
   return cols;
@@ -1140,7 +1197,7 @@ function _renderFormulaBuilder() {
   });
 
   if (!_availNumericCols.length) {
-    container.innerHTML = '<div style="font-size:12px;color:#f87171;padding:6px 0">No number columns defined yet — add number columns to earlier stages first.</div>';
+    container.innerHTML = '<div style="font-size:12px;color:#f87171;padding:6px 0">No number columns defined yet — add a number column to this or an earlier stage first.</div>';
     document.getElementById('formulaSteps').appendChild;
   }
 

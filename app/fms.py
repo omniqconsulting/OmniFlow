@@ -240,9 +240,13 @@ def _cross_stage_cf(db: Session, ticket_id: str, stages: list, split_id: str = N
     formula columns and 'already captured' field dedup can look up values
     captured in earlier stages — not just the current stage's own fields.
 
-    When split_id is given, scoped strictly to that split's own history rows
-    (plus any legacy rows with no split_id, for safety). Inheritance across
-    a split point is handled NOT here but by fms_split_ticket(), which seeds
+    When split_id is given (a single id, or an iterable of ids — pass a
+    split's full lineage from _split_lineage_ids() to also see values
+    captured under its ancestors' ids before it existed as its own entity,
+    e.g. an auto-split moved split), scoped strictly to those splits' own
+    history rows (plus any legacy rows with no split_id, for safety).
+    Inheritance across a MANUAL split point is handled NOT here but by
+    fms_split_ticket(), which seeds
     a new split's opening history row with a snapshot of everything its
     source split had accumulated at the moment of the split (see that
     function's docstring). A live time-cutoff approach was tried first and
@@ -263,7 +267,8 @@ def _cross_stage_cf(db: Session, ticket_id: str, stages: list, split_id: str = N
         .all()
     )
     if split_id:
-        hist = [h for h in hist if h.split_id is None or h.split_id == split_id]
+        _split_ids = {split_id} if isinstance(split_id, str) else set(split_id)
+        hist = [h for h in hist if h.split_id is None or h.split_id in _split_ids]
     cf_all: dict = {}
     for h in hist:
         if exclude_history_id and h.id == exclude_history_id:
@@ -380,6 +385,25 @@ def _can_act_on_ticket(user: User, ticket: FMSTicket, split=None) -> bool:
         allowed_ids = set()
     return user.id in allowed_ids
 
+
+def _can_create_in_flow(user: User, flow) -> bool:
+    """Ticket creation is normally manager/admin-only, but a flow's
+    'Allowed Employees' whitelist (restrict_to_assignee +
+    allowed_opener_ids_json — set up to let specific employees open/act on
+    that flow's tickets) is meant to fully unlock the flow for them,
+    including creating new tickets in it — not just acting on existing
+    ones. An employee not on any such whitelist still can't create."""
+    if user.role in ("ADMIN", "MANAGER"):
+        return True
+    if not flow or not flow.restrict_to_assignee:
+        return False
+    import json as _json_gate
+    try:
+        allowed_ids = set(_json_gate.loads(flow.allowed_opener_ids_json or "[]"))
+    except Exception:
+        allowed_ids = set()
+    return user.id in allowed_ids
+
 def _get_ticket(db, ticket_id, tenant_id) -> FMSTicket:
     t = db.query(FMSTicket).filter(
         FMSTicket.id == ticket_id,
@@ -432,6 +456,27 @@ def _active_splits(db, ticket_id) -> list:
         FMSTicketSplit.ticket_id == ticket_id,
         FMSTicketSplit.is_deleted == False,
     ).order_by(FMSTicketSplit.created_at).all()
+
+
+def _split_lineage_ids(db, ticket_id: str, split_id: str) -> list:
+    """Walk parent_split_id upward from `split_id` to the root split (S1).
+    Evidence uploaded on an earlier stage attaches to the split that existed
+    at that point in time — once an auto-split carves off a new split entity,
+    that history (and its evidence) belongs to an ancestor, not the new
+    split's own id. Anything scoped to "this split" that should still be
+    reachable after the ticket has moved on (evidence, in particular) needs
+    to look across the whole lineage, not just the current split row."""
+    ids = []
+    all_splits = {s.id: s for s in db.query(FMSTicketSplit).filter(
+        FMSTicketSplit.ticket_id == ticket_id,
+    ).all()}
+    cur = all_splits.get(split_id)
+    seen = set()
+    while cur and cur.id not in seen:
+        seen.add(cur.id)
+        ids.append(cur.id)
+        cur = all_splits.get(cur.parent_split_id) if cur.parent_split_id else None
+    return ids
 
 
 def _ensure_ticket_has_split(db, ticket: FMSTicket) -> FMSTicketSplit:
@@ -548,13 +593,14 @@ def _evaluate_auto_split(db, ticket, split, cur_stage, qty: int,
         existing progression logic just moves the whole `split` forward /
         completes it cleanly — no flag, no exception UI.
 
-    The configured "actual/entered" field is a CUMULATIVE running total
-    (e.g. "Issued Quantity" = total delivered so far, not just this visit's
-    increment — that's what the person entering data actually has in front
-    of them, a scale/count reading, not a mental diff). The engine derives
-    each visit's real increment as
-        delta = this_visit_cumulative - split.last_cumulative_entered
-    and treats `target_value` as the fixed original target (falls back to
+    The configured "actual/entered" field is THIS VISIT'S INCREMENT — the
+    quantity that belongs to the split being worked on right now, not a
+    running cumulative total (asking users for a cumulative figure was
+    confusing once a ticket had multiple splits in flight, since each split
+    only ever has its own partial fulfilment in front of it, not the whole
+    ticket's history). The engine tracks the true cumulative internally on
+    the split row: cumulative_val = split.last_cumulative_entered + delta.
+    `target_value` is the fixed original target (falls back to
     ticket.target_qty), not a per-visit shrinking number — the remainder's
     own `qty` is what tracks "how much is still outstanding" for display.
 
@@ -567,26 +613,35 @@ def _evaluate_auto_split(db, ticket, split, cur_stage, qty: int,
 
     target_val = _resolve_split_field_value(
         cur_stage.split_target_field, custom_fields_data, formula_lookup, ticket.target_qty)
-    cumulative_val = _resolve_split_field_value(
+    delta = _resolve_split_field_value(
         cur_stage.split_actual_field, custom_fields_data, formula_lookup, qty)
 
-    if target_val is None or cumulative_val is None:
+    if target_val is None or delta is None:
         return split  # unconfigured / unparsable — behave as today
 
     prev_cumulative = split.last_cumulative_entered or 0
-    delta = cumulative_val - prev_cumulative
     if delta <= 0:
-        # Same or lower cumulative re-submitted (no new quantity this visit,
-        # or a correction) — nothing new to split off; leave state as-is.
+        # Nothing entered this visit (zero/blank/negative) — nothing new to
+        # split off; leave state as-is.
         return split
+    cumulative_val = prev_cumulative + delta
 
     if cumulative_val >= target_val:
         # R5: fully satisfied (or over-delivered) as of this visit — the
         # whole remainder `split` completes and moves forward as-is, no new
-        # split entity, no flag/exception UI. Record the final increment for
-        # the audit trail / splits-table display.
-        split.entered_value = delta
+        # split entity, no flag/exception UI. entered_value records the
+        # TOTAL received across every visit (not just this final increment)
+        # since that's what "Value Entered" means once the split is done —
+        # a partial-visit number here would misleadingly look like the split
+        # only ever received its last delta. qty is set to this visit's own
+        # increment (mirroring the moved-split case below) since everything
+        # entered on earlier visits already left as separate moved splits —
+        # this is the piece of the target that completes it, and is what the
+        # Target Qty column falls back to for a split with no
+        # target_value_at_split of its own.
+        split.entered_value = cumulative_val
         split.last_cumulative_entered = cumulative_val
+        split.qty = int(delta) if delta == int(delta) else delta
         split.is_remainder = False
         return split
 
@@ -773,7 +828,7 @@ def _ticket_closing_rule_check(db, ticket: FMSTicket, stages: list, rule: dict,
         if sp.id in in_progress_ids:
             lookup = in_progress_values or {}
         else:
-            lookup = _cross_stage_cf(db, ticket.id, stages, split_id=sp.id)
+            lookup = _cross_stage_cf(db, ticket.id, stages, split_id=_split_lineage_ids(db, ticket.id, sp.id))
         raw = lookup.get(col_id, "")
         try:
             total += float(raw)
@@ -904,6 +959,7 @@ async def fms_flow_save_ticket_form(
             "field_type": ftype,
             "required": bool(f.get("required", False)),
             "order": int(f.get("order", len(clean))),
+            "show_in_header": bool(f.get("show_in_header", False)),
         }
         if ftype == "select":
             raw_opts = f.get("options", [])
@@ -1848,22 +1904,55 @@ def _fms_dashboard_inner(
                     if s.current_stage_id == active_stage.id and s.status not in ("COMPLETED", "CLOSED")
                 ]
                 row_split = splits_here[0] if splits_here else _ensure_ticket_has_split(db, t)
-                split_count = len(all_active_splits)
+                # brief §7: the Splits popup/button on a row should reflect only
+                # the split "family" that originated from THIS row's split at
+                # whatever stage it split at — not every active split the
+                # ticket has anywhere. A split that itself gets split again at
+                # a later stage (e.g. S2 -> S2-1/S2-2 at Stage 4) surfaces as
+                # its own separate group on that later stage's row, distinct
+                # from the S1/S2 group shown back at the stage where S1 split.
+                split_family = [row_split] + [
+                    s for s in all_active_splits if s.parent_split_id == row_split.id
+                ]
+                split_count = len(split_family)
 
                 h = _open_history(db, t.id, split_id=row_split.id)
-                # Most recent evidence file uploaded on this split's lineage
-                # (evidence attaches to the history row of the stage it was
-                # required on exit from, so look across all of them).
-                latest_evidence = (
+                # All evidence uploaded anywhere along this split's lineage —
+                # not just this exact split id — so evidence attached before
+                # an auto-split carved off the current split entity is still
+                # reachable from later stages, instead of disappearing once
+                # the ticket moves past the stage it was uploaded on.
+                _lineage_ids = _split_lineage_ids(db, t.id, row_split.id)
+                _lineage_stage_evidence = (
                     db.query(FMSStageHistory)
                     .filter(
                         FMSStageHistory.ticket_id == t.id,
-                        FMSStageHistory.split_id == row_split.id,
+                        FMSStageHistory.split_id.in_(_lineage_ids),
                         FMSStageHistory.evidence_url.isnot(None),
                     )
                     .order_by(FMSStageHistory.entered_at.desc())
-                    .first()
-                )
+                    .all()
+                ) if _lineage_ids else []
+                _lineage_split_evidence = (
+                    db.query(FMSSplitEvidence)
+                    .filter(FMSSplitEvidence.split_id.in_(_lineage_ids))
+                    .order_by(FMSSplitEvidence.created_at.desc())
+                    .all()
+                ) if _lineage_ids else []
+                evidence_payload = [
+                    {
+                        "url": eh.evidence_url, "filename": eh.evidence_filename,
+                        "stage_name": eh.stage_name, "uploaded_at": eh.entered_at.strftime("%d %b %Y, %H:%M") if eh.entered_at else None,
+                    }
+                    for eh in _lineage_stage_evidence
+                ] + [
+                    {
+                        "url": ev.file_url, "filename": ev.file_name,
+                        "stage_name": None, "uploaded_at": ev.created_at.strftime("%d %b %Y, %H:%M") if ev.created_at else None,
+                    }
+                    for ev in _lineage_split_evidence
+                ]
+                latest_evidence = _lineage_stage_evidence[0] if _lineage_stage_evidence else None
                 if h and active_stage.target_tat_hours:
                     pct = _tat_pct(h, active_stage)
                     tc = "green" if pct < 50 else "amber" if pct < 90 else "red"
@@ -1884,14 +1973,31 @@ def _fms_dashboard_inner(
                         cf_all.update(_json.loads(t.ticket_custom_fields_json))
                     except Exception:
                         pass
-                # Scoped to this row's own split — otherwise a sibling split's
-                # custom-field values (e.g. Quantity/Issued Qty at a different
-                # stage) can clobber this row's via shared field ids/labels.
+                # Scoped to this row's own split's full lineage — otherwise a
+                # sibling split's custom-field values (e.g. Quantity/Issued
+                # Qty at a different stage) can clobber this row's via shared
+                # field ids/labels. Lineage (not just the split's own id) so
+                # an auto-split-created split can still see what its parent
+                # captured before this split existed as its own entity —
+                # e.g. Quantity/Price entered at Sales, needed for a formula
+                # at Profit once a piece of the ticket splits forward.
                 cf_all.update(_cross_stage_cf(
                     db, t.id, stage_table_stages,
-                    split_id=row_split.id if row_split else None,
+                    split_id=_split_lineage_ids(db, t.id, row_split.id) if row_split else None,
                 ))
                 _live_eval_formulas(cf_all, stage_table_stages)
+                # The split "actual" field is entered as each visit's own
+                # increment (brief §5), so the raw value picked up by
+                # _cross_stage_cf above is just the LAST delta typed — fine
+                # for the auto-split engine's own bookkeeping, but wrong
+                # wherever this field is displayed as a normal column/value:
+                # a user reading "Actual Quantity" expects the running total
+                # received so far, not whatever number happened to be typed
+                # in the most recent visit. Override with the split's tracked
+                # cumulative wherever this row's own split has one.
+                if (active_stage.split_enabled and active_stage.split_actual_field
+                        and row_split and row_split.last_cumulative_entered is not None):
+                    cf_all[active_stage.split_actual_field] = row_split.last_cumulative_entered
                 planned_end = None
                 pd = _planned_dates(t, stage_table_stages)
                 if active_stage.id in pd:
@@ -1900,7 +2006,7 @@ def _fms_dashboard_inner(
                 # R8: splits popup is a read-only table of ticket-creation columns
                 # + value entered per split — evidence-indicator lookup is a single
                 # cheap query per ticket row (typically 1-3 splits).
-                _split_ids_for_evidence = [s.id for s in all_active_splits]
+                _split_ids_for_evidence = [s.id for s in split_family]
                 _evidence_split_ids = set()
                 if _split_ids_for_evidence:
                     _evidence_split_ids = {
@@ -1933,6 +2039,17 @@ def _fms_dashboard_inner(
                     for fd in _tff_defs
                     if fd.get("field_type") not in ("__priority__", "__due_date__") and fd.get("label")
                 ]
+                # Admin-configurable "identifying" columns (Setup > Ticket
+                # Creation Form > Show in header) — shown next to the ticket
+                # number in Enter Data / Complete Stage popups instead of the
+                # generic auto-generated title (e.g. "Ticket-1"), so the
+                # person filling in data can tell which real order/item
+                # they're working on.
+                header_fields = [
+                    {"label": fd.get("label", ""), "value": _tff_vals.get(fd.get("id", ""), "—")}
+                    for fd in _tff_defs
+                    if fd.get("show_in_header") and fd.get("label")
+                ]
 
                 splits_payload = [
                     {
@@ -1960,7 +2077,7 @@ def _fms_dashboard_inner(
                         "created_at": s.created_at.strftime("%d %b %Y, %H:%M") if s.created_at else None,
                         "has_evidence": s.id in _evidence_split_ids,
                     }
-                    for s in all_active_splits
+                    for s in split_family
                 ] if split_count > 1 else []
                 stage_tickets.append({
                     "ticket": t,
@@ -1975,9 +2092,11 @@ def _fms_dashboard_inner(
                     "split_label": row_split.split_label if row_split else None,
                     "split_last_cumulative": row_split.last_cumulative_entered if row_split else None,
                     "split_count": split_count,
+                    "header_fields": header_fields,
                     "splits_payload": splits_payload,
                     "evidence_url": latest_evidence.evidence_url if latest_evidence else None,
                     "evidence_filename": latest_evidence.evidence_filename if latest_evidence else None,
+                    "evidence_payload": evidence_payload,
                 })
 
     # Next/prev stage maps (used by Mark Done and Move Backward modals)
@@ -2072,7 +2191,7 @@ def _fms_dashboard_inner(
                 cf_for_stage = dict(cf_base)
                 cf_for_stage.update(_cross_stage_cf(
                     db, t.id, stage_table_stages,
-                    split_id=h.split_id if h else None,
+                    split_id=_split_lineage_ids(db, t.id, h.split_id) if (h and h.split_id) else None,
                 ))
                 _live_eval_formulas(cf_for_stage, stage_table_stages)
                 stages_info.append({
@@ -2234,6 +2353,11 @@ def _fms_dashboard_inner(
     from .linked_entities import get_linked_entity_options as _geo
     entity_options = _geo(db, tid)
 
+    # Whether the current user may create new tickets in the active flow —
+    # admins/managers always can; an employee can too if this flow's
+    # "Allowed Employees" whitelist includes them (see _can_create_in_flow).
+    can_create_ticket = _can_create_in_flow(user, active_flow) if active_flow else (user.role in ("ADMIN", "MANAGER"))
+
     # Per-ticket manager-override window flag for stage view (2h after BACKWARD move)
     override_eligible: set = set()
     if user.role in ("ADMIN", "MANAGER") and active_stage and view == "stage":
@@ -2316,6 +2440,7 @@ def _fms_dashboard_inner(
         f_date_to=date_to or "",
         employees=employees,
         entity_options=entity_options,
+        can_create_ticket=can_create_ticket,
         # role-relative ticket classification for employee board symbols
         emp_upcoming_ids=emp_upcoming_ids,
         emp_all_fms_ids=emp_all_fms_ids,
@@ -2366,11 +2491,13 @@ async def fms_ticket_create(
     wo_number: str = Form(""), due_at: str = Form(""),
     target_qty: str = Form(""), qty_unit: str = Form(""),
     evidence_required: bool = Form(False),
-    user: User = Depends(require_manager), db: Session = Depends(get_db),
+    user: User = Depends(get_current_user), db: Session = Depends(get_db),
 ):
     """2-C-1 / P7-06: Create FMS ticket with evidence_required + linked entities."""
     import json as _json
     flow = _get_flow(db, flow_id, user.tenant_id)
+    if not _can_create_in_flow(user, flow):
+        raise HTTPException(403, "Not authorised to create tickets in this flow")
     stage = db.query(FMSStage).filter(
         FMSStage.id == starting_stage_id,
         FMSStage.flow_id == flow_id).first()
@@ -3024,27 +3151,22 @@ def fms_api_flow_defaults(
 def fms_bulk_create_get(
     request: Request,
     flow_id: Optional[str] = Query(default=None),
-    user: User = Depends(require_manager_or_redirect),
+    user: User = Depends(get_current_user_or_redirect),
     db: Session = Depends(get_db),
 ):
     """A3-1: Bulk ticket creation form."""
-    # Role-filtered flows (same logic as dashboard dropdown)
+    # Role-filtered flows (same logic as dashboard dropdown). An employee
+    # sees a flow here only if they're on that flow's "Allowed Employees"
+    # whitelist (_can_create_in_flow) — being whitelisted to open/act on a
+    # flow's tickets unlocks creating tickets in it too.
     all_flows = db.query(FMSFlow).filter(
         FMSFlow.tenant_id == user.tenant_id, FMSFlow.is_active == True,
         FMSFlow.is_deleted == False,
     ).order_by(FMSFlow.name).all()
     if user.role == "EMPLOYEE":
-        emp_flow_ids: set = set()
-        for t in db.query(FMSTicket.flow_id).filter(
-            FMSTicket.tenant_id == user.tenant_id,
-            FMSTicket.is_deleted == False,
-        ).filter(
-            (FMSTicket.current_assignee_id == user.id) |
-            FMSTicket.id.in_(db.query(FMSStageHistory.ticket_id).filter(FMSStageHistory.assignee_id == user.id)) |
-            FMSTicket.stage_assignees_json.like(f'%"{user.id}"%')
-        ).distinct():
-            emp_flow_ids.add(t.flow_id)
-        flows = [f for f in all_flows if f.id in emp_flow_ids]
+        flows = [f for f in all_flows if _can_create_in_flow(user, f)]
+        if not flows:
+            raise HTTPException(403, "Not authorised to create tickets in any flow")
     else:
         flows = all_flows
     # Pre-select flow passed from dashboard
@@ -3058,7 +3180,7 @@ def fms_bulk_create_get(
 @router.post("/tickets/bulk-create")
 async def fms_bulk_create_post(
     request: Request,
-    user: User = Depends(require_manager),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """A3-1: Process bulk ticket creation — all-or-nothing validation."""
@@ -3068,6 +3190,9 @@ async def fms_bulk_create_post(
         FMSFlow.tenant_id == user.tenant_id, FMSFlow.is_active == True,
         FMSFlow.is_deleted == False,
     ).order_by(FMSFlow.name).all()
+    _target_flow = next((f for f in flows if f.id == flow_id), None)
+    if not _can_create_in_flow(user, _target_flow):
+        raise HTTPException(403, "Not authorised to create tickets in this flow")
 
     def _reraise(error, row_errors=None):
         return templates.TemplateResponse(request, "fms/bulk_create.html", _ctx(
@@ -3339,7 +3464,7 @@ async def fms_bulk_transition(
                     pass
             formula_lookup = {
                 **_bulk_tff,
-                **_cross_stage_cf(db, t_id, all_flow_stages, split_id=target_splits[0].id, exclude_history_id=_bulk_open_h.id if _bulk_open_h else None),
+                **_cross_stage_cf(db, t_id, all_flow_stages, split_id=_split_lineage_ids(db, t_id, target_splits[0].id), exclude_history_id=_bulk_open_h.id if _bulk_open_h else None),
                 **custom_fields_data,
             }
 
@@ -3827,7 +3952,7 @@ async def fms_transition(
                 pass
         formula_lookup = {
             **_ticket_tff,
-            **_cross_stage_cf(db, ticket_id, all_flow_stages, split_id=split.id, exclude_history_id=open_h.id if open_h else None),
+            **_cross_stage_cf(db, ticket_id, all_flow_stages, split_id=_split_lineage_ids(db, ticket_id, split.id), exclude_history_id=open_h.id if open_h else None),
             **custom_fields_data,
         }
 
@@ -3985,7 +4110,7 @@ async def fms_transition(
         split_label_suffix = f" [{split.split_label}]" if len(_active_splits(db, ticket_id)) > 1 else ""
 
     # Create new stage history row (2-C-5: non-linear — always new row)
-    db.add(FMSStageHistory(
+    new_h = FMSStageHistory(
         ticket_id=ticket_id, split_id=split.id, stage_id=next_stage_id,
         stage_name=next_stage.name, assignee_id=new_assignee_id,
         direction=direction,
@@ -3994,7 +4119,70 @@ async def fms_transition(
         from_stage_name=cur_stage.name if cur_stage else None,
         planned_start=_nps,
         planned_end=_npe,
-    ))
+    )
+    db.add(new_h)
+
+    # Compute THIS split's formula columns for the stage it's ENTERING, not
+    # just the one it's exiting. Formula computation used to be exit-time
+    # only (or triggered by a manual Enter Data save) — a split arriving at
+    # a new stage with formula columns showed them blank until someone
+    # visited the stage and saved something, or the split moved on again.
+    # Persist the computed values onto the new history row immediately so
+    # they're correct the moment the split lands here, split-scoped like
+    # every other formula evaluation in this route.
+    if next_stage.custom_fields_json:
+        try:
+            _next_field_defs = _json.loads(next_stage.custom_fields_json)
+        except Exception:
+            _next_field_defs = []
+        if any(fd.get("field_type") == "formula" for fd in _next_field_defs):
+            db.flush()  # new_h needs an id to exclude itself from _cross_stage_cf
+            _all_flow_stages_entry = db.query(FMSStage).filter(
+                FMSStage.flow_id == ticket.flow_id, FMSStage.is_deleted == False
+            ).all()
+            _ticket_tff_entry = {}
+            if ticket.ticket_custom_fields_json:
+                try:
+                    _ticket_tff_entry = _json.loads(ticket.ticket_custom_fields_json)
+                except Exception:
+                    pass
+            _entry_formula_lookup = {
+                **_ticket_tff_entry,
+                **_cross_stage_cf(db, ticket_id, _all_flow_stages_entry, split_id=_split_lineage_ids(db, ticket_id, split.id), exclude_history_id=new_h.id),
+            }
+
+            def _eval_entry_formula(steps: list) -> str | None:
+                result = None
+                for i, step in enumerate(steps):
+                    raw = _entry_formula_lookup.get(step.get("col_id", ""), "")
+                    try:
+                        val = float(raw)
+                    except (ValueError, TypeError):
+                        return None
+                    if i == 0:
+                        result = val
+                        continue
+                    op = step.get("op", "+")
+                    if op == "+":   result += val
+                    elif op == "-": result -= val
+                    elif op == "*": result *= val
+                    elif op == "/":
+                        if val == 0:
+                            return None
+                        result /= val
+                if result is None:
+                    return None
+                return str(int(result)) if result == int(result) else f"{result:.4f}".rstrip("0")
+
+            _entry_computed = {}
+            for fdef in _next_field_defs:
+                if fdef.get("field_type") != "formula":
+                    continue
+                computed = _eval_entry_formula(fdef.get("formula_steps") or [])
+                if computed is not None:
+                    _entry_computed[fdef.get("id", "")] = computed
+            if _entry_computed:
+                new_h.custom_fields_data_json = _json.dumps(_entry_computed)
 
     # Update the split (the ticket-level cache is refreshed below via _sync_ticket_cache)
     split.current_stage_id    = next_stage_id
@@ -5108,9 +5296,22 @@ async def fms_save_stage_data(
                 pass
         formula_lookup = {
             **_tff,
-            **_cross_stage_cf(db, ticket.id, all_flow_stages, split_id=split.id, exclude_history_id=history.id),
+            **_cross_stage_cf(db, ticket.id, all_flow_stages, split_id=_split_lineage_ids(db, ticket.id, split.id), exclude_history_id=history.id),
             **existing,
         }
+        # The split "actual" field is entered as THIS VISIT'S increment
+        # (brief §5), but formulas like "Short Quantity" need the running
+        # cumulative to compare against target — swap in the cumulative for
+        # formula evaluation only; `existing` (what's actually persisted for
+        # the field itself) keeps the raw incremental value the user typed.
+        if getattr(cur_stage, "split_enabled", False) and cur_stage.split_actual_field:
+            afield = cur_stage.split_actual_field
+            if afield in existing:
+                try:
+                    delta_val = float(existing[afield])
+                    formula_lookup[afield] = (split.last_cumulative_entered or 0) + delta_val
+                except (TypeError, ValueError):
+                    pass
 
         def _eval_sd_formula(steps):
             result = None
