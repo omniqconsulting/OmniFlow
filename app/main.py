@@ -109,6 +109,8 @@ from .push import router as push_router
 app.include_router(push_router)
 from .webhooks_gupshup import router as gupshup_webhook_router
 app.include_router(gupshup_webhook_router)
+from .my_tasks import router as my_tasks_router
+app.include_router(my_tasks_router)
 from .templates_env import templates, _OrmEncoder, _to_ist, _format_tat  # shared filters
 BASE_DIR = os.path.dirname(__file__)
 

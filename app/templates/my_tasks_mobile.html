@@ -1,0 +1,96 @@
+{# ── my_tasks_mobile.html ─────────────────────────────────────────────────
+   PWA "My Tasks" single action queue — consolidates Delegations, Tickets,
+   FMS and Checklists (plus sales follow-ups) into one color-coded feed with
+   quick filters and inline actions, so agents don't have to hop tabs.
+   Served only when the `pwa_ui` cookie is set, from the same route/context
+   as my_tasks.html — see app/my_tasks.py::my_tasks(). #}
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/tickets-mobile.css">
+
+<div class="tm-header">
+  <div class="tm-title">My Tasks</div>
+  <div class="tm-header-actions">
+    <button type="button" class="tm-icon-btn" onclick="mtToggleFilters()" title="Filters">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z"/></svg>
+      {% if priority or due %}<span class="tm-icon-dot"></span>{% endif %}
+    </button>
+    <a href="/my-tasks/export?export_type=all" class="tm-icon-btn" title="Export CSV">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg>
+    </a>
+  </div>
+</div>
+
+<div id="mt-filters" style="display:none;padding:10px 16px;gap:8px;flex-wrap:wrap">
+  <form method="get" action="/my-tasks" style="display:flex;gap:8px;flex-wrap:wrap;width:100%">
+    <input type="hidden" name="type" value="{{ type }}">
+    <select name="priority" onchange="this.form.submit()" style="flex:1;min-width:110px;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 8px;font-size:12px;color:var(--text-primary)">
+      <option value="" {% if not priority %}selected{% endif %}>All Priorities</option>
+      {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+      <option value="{{ p }}" {% if priority == p %}selected{% endif %}>{{ p | priority_label }}</option>
+      {% endfor %}
+    </select>
+    <select name="due" onchange="this.form.submit()" style="flex:1;min-width:110px;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 8px;font-size:12px;color:var(--text-primary)">
+      <option value="" {% if not due %}selected{% endif %}>Any Time</option>
+      <option value="overdue" {% if due=='overdue' %}selected{% endif %}>Overdue</option>
+      <option value="today" {% if due=='today' %}selected{% endif %}>Due Today</option>
+      <option value="upcoming" {% if due=='upcoming' %}selected{% endif %}>Upcoming</option>
+    </select>
+  </form>
+  {% if priority or due %}<a href="/my-tasks?type={{ type }}" style="font-size:11px;color:var(--text-faint)">Clear filters</a>{% endif %}
+</div>
+<script>
+function mtToggleFilters(){ var el = document.getElementById('mt-filters'); el.style.display = (el.style.display === 'none' ? 'flex' : 'none'); }
+</script>
+
+<div class="tm-tabs" data-tabsscroll>
+  <a class="tm-tab {% if not type %}tm-tab-active{% endif %}" href="/my-tasks">All <span class="tm-tab-count">{{ counts.delegations + counts.tickets + counts.fms + counts.checklists + counts.sales_followups }}</span></a>
+  <a class="tm-tab {% if type=='delegation' %}tm-tab-active{% endif %}" href="/my-tasks?type=delegation" style="border-bottom:2px solid {{ kind_meta.delegation.color }}">Delegations <span class="tm-tab-count">{{ counts.delegations }}</span></a>
+  <a class="tm-tab {% if type=='ticket' %}tm-tab-active{% endif %}" href="/my-tasks?type=ticket" style="border-bottom:2px solid {{ kind_meta.ticket.color }}">Tickets <span class="tm-tab-count">{{ counts.tickets }}</span></a>
+  <a class="tm-tab {% if type=='fms' %}tm-tab-active{% endif %}" href="/my-tasks?type=fms" style="border-bottom:2px solid {{ kind_meta.fms.color }}">Flow Board <span class="tm-tab-count">{{ counts.fms }}</span></a>
+  <a class="tm-tab {% if type=='checklist' %}tm-tab-active{% endif %}" href="/my-tasks?type=checklist" style="border-bottom:2px solid {{ kind_meta.checklist.color }}">Checklists <span class="tm-tab-count">{{ counts.checklists }}</span></a>
+  {% if has_sales %}
+  <a class="tm-tab {% if type=='sales_followup' %}tm-tab-active{% endif %}" href="/my-tasks?type=sales_followup" style="border-bottom:2px solid {{ kind_meta.sales_followup.color }}">Follow-ups <span class="tm-tab-count">{{ counts.sales_followups }}</span></a>
+  {% endif %}
+</div>
+
+{% if action_queue %}
+{% for i in action_queue %}
+<div class="tm-card" style="border-left:3px solid {{ i.color }}">
+  <a href="{{ i.url }}" style="display:block;color:inherit;text-decoration:none">
+    <div class="tm-card-top">
+      <div class="tm-card-lead">
+        <span class="tm-dot" style="background:{% if i.due_at and i.due_at < now %}#ef4444{% else %}{{ i.color }}{% endif %}"></span>
+        <div>
+          <div class="tm-card-title">{{ i.title }}</div>
+          <div class="tm-card-sub">{{ i.kind_label }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="tm-card-meta">
+      <span class="tm-badge tm-badge-gray">{{ i.status }}</span>
+      {% if i.priority %}<span class="tm-badge tm-badge-gray">{{ i.priority | priority_label }}</span>{% endif %}
+      <span class="tm-due {% if i.due_at and i.due_at < now %}tm-due-late{% endif %}">
+        {{ i.due_at | ist('%d %b, %I:%M %p') if i.due_at else '—' }}
+      </span>
+    </div>
+  </a>
+  <div style="display:flex;gap:8px;padding:8px 14px 12px">
+    {% if i.action %}
+    {% if i.action.method == 'post' %}
+    <form method="post" action="{{ i.action.url }}" onclick="event.stopPropagation()">
+      <button type="submit" class="btn btn-sm btn-primary">{{ i.action.label }}</button>
+    </form>
+    {% else %}
+    <a href="{{ i.action.url }}" class="btn btn-sm btn-primary" onclick="event.stopPropagation()">{{ i.action.label }}</a>
+    {% endif %}
+    {% endif %}
+    <a href="{{ i.url }}" class="btn btn-sm btn-outline">{{ i.open_label }} →</a>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<p style="color:var(--text-faint);font-size:13px;padding:24px 16px;text-align:center">Nothing pending — you're all caught up.</p>
+{% endif %}
+
+{% endblock %}

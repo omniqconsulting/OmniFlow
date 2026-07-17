@@ -62,6 +62,7 @@
 <nav class="nav">
   <span class="logo">OmniFlow</span>
   <a href="/dashboard" {% if request.url.path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
+  <a href="/my-tasks" {% if '/my-tasks' in request.url.path %}class="active"{% endif %}>My Tasks</a>
   {% if has_tickets is not defined or has_tickets %}
   <a href="/tickets" {% if '/tickets' in request.url.path %}class="active"{% endif %}>{{ L.Tickets if L is defined else 'Tickets' }}</a>
   {% endif %}
