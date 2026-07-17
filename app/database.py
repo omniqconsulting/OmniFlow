@@ -151,6 +151,9 @@ class Tenant(Base):
     gupshup_client_id       = Column(String, nullable=True)
     gupshup_secret_token    = Column(String, nullable=True)
     gupshup_source_number   = Column(String, nullable=True)   # E.164
+    gupshup_app_name        = Column(String, nullable=True)   # Gupshup app name for this
+                                                                # tenant's WABA; required as
+                                                                # `src.name` on /wa/api/v1/template/msg
     gupshup_waba_status     = Column(String, nullable=True, default=WabaStatus.PENDING.value)
     gupshup_webhook_token   = Column(String, unique=True, nullable=True)
     gupshup_webhook_secret  = Column(String, nullable=True)

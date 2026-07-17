@@ -663,6 +663,7 @@ def sa_save_whatsapp_config(tenant_id: str,
                              gupshup_client_id: str = Form(""),
                              gupshup_secret_token: str = Form(""),
                              gupshup_source_number: str = Form(""),
+                             gupshup_app_name: str = Form(""),
                              sa: SuperAdmin = Depends(get_current_sa),
                              db: Session = Depends(get_db)):
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
@@ -671,6 +672,7 @@ def sa_save_whatsapp_config(tenant_id: str,
     tenant.gupshup_client_id = gupshup_client_id.strip() or None
     tenant.gupshup_secret_token = gupshup_secret_token.strip() or None
     tenant.gupshup_source_number = gupshup_source_number.strip() or None
+    tenant.gupshup_app_name = gupshup_app_name.strip() or None
     # Auto-generate webhook token/secret the first time credentials are saved —
     # Section 3.3 step 7 / Section 8.2: "you don't invent or type any of these".
     if not tenant.gupshup_webhook_token:
