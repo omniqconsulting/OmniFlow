@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2 class="page-title">My Tasks</h2>
+    <p style="font-size:13px;color:var(--text-faint);margin-top:2px">
+      Everything assigned to {{ user.name }}, in one place &nbsp;·&nbsp; {{ now | ist('%d %b %Y') }}
+    </p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <a href="/my-tasks/export?export_type=all" class="btn btn-sm btn-outline">Export CSV ↓</a>
+  </div>
+</div>
+
+<!-- ── Counts strip (also acts as type shortcuts) ──────────────── -->
+<div style="display:grid;grid-template-columns:repeat({{ 4 if not has_sales else 5 }},1fr);gap:12px;margin-bottom:16px">
+  {% for kind in ['delegation','ticket','fms','checklist'] + (['sales_followup'] if has_sales else []) %}
+  {% set count_key = {'delegation':'delegations','ticket':'tickets','fms':'fms','checklist':'checklists','sales_followup':'sales_followups'}[kind] %}
+  <a href="/my-tasks?type={{ kind }}{% if priority %}&priority={{ priority }}{% endif %}{% if due %}&due={{ due }}{% endif %}"
+     class="card" style="margin:0;text-align:center;padding:16px 12px;color:inherit;text-decoration:none;border-top:3px solid {{ kind_meta[kind].color }}{% if type == kind %};background:var(--hover-bg){% endif %}">
+    <div style="font-size:26px;font-weight:700;color:var(--text-primary)">{{ counts[count_key] }}</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:4px">{{ kind_meta[kind].label }}{{ 's' if kind not in ('fms',) else '' }}</div>
+  </a>
+  {% endfor %}
+</div>
+
+<!-- ── Filter bar ───────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:16px">
+  <form method="get" action="/my-tasks" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div>
+      <div style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Type</div>
+      <select name="type" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+        <option value="" {% if not type %}selected{% endif %}>All Types</option>
+        <option value="delegation" {% if type=='delegation' %}selected{% endif %}>Delegations</option>
+        <option value="ticket" {% if type=='ticket' %}selected{% endif %}>Tickets</option>
+        <option value="fms" {% if type=='fms' %}selected{% endif %}>Flow Board</option>
+        <option value="checklist" {% if type=='checklist' %}selected{% endif %}>Checklists</option>
+        {% if has_sales %}<option value="sales_followup" {% if type=='sales_followup' %}selected{% endif %}>Follow-ups</option>{% endif %}
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Priority</div>
+      <select name="priority" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+        <option value="" {% if not priority %}selected{% endif %}>All Priorities</option>
+        {% for p in ['LOW','MEDIUM','HIGH','CRITICAL'] %}
+        <option value="{{ p }}" {% if priority == p %}selected{% endif %}>{{ p | priority_label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Due</div>
+      <select name="due" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none">
+        <option value="" {% if not due %}selected{% endif %}>Any Time</option>
+        <option value="overdue" {% if due=='overdue' %}selected{% endif %}>Overdue</option>
+        <option value="today" {% if due=='today' %}selected{% endif %}>Due Today</option>
+        <option value="upcoming" {% if due=='upcoming' %}selected{% endif %}>Upcoming</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+    {% if type or priority or due %}<a href="/my-tasks" class="btn btn-sm btn-gray">Clear</a>{% endif %}
+  </form>
+</div>
+
+<!-- ── Per-module color-coded sections ─────────────────────────── -->
+{% for kind in ['delegation','ticket','fms','checklist'] + (['sales_followup'] if has_sales else []) %}
+{% set items = grouped_queue[kind] %}
+{% if not type or type == kind %}
+<div class="card" style="border-left:4px solid {{ kind_meta[kind].color }}">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h2 style="margin:0;display:flex;align-items:center;gap:8px">
+      <span style="width:9px;height:9px;border-radius:50%;background:{{ kind_meta[kind].color }};display:inline-block"></span>
+      {{ kind_meta[kind].label }}{{ 's' if kind not in ('fms',) else '' }} ({{ items|length }})
+    </h2>
+  </div>
+  {% if items %}
+  <table>
+    <thead><tr><th>Title</th><th>Status</th><th>Priority</th><th>Due</th><th style="width:220px">Actions</th></tr></thead>
+    <tbody>
+    {% for i in items %}
+    <tr>
+      <td style="font-weight:500;color:var(--text-primary)"><a href="{{ i.url }}" style="color:inherit">{{ i.title }}</a></td>
+      <td style="font-size:12px;color:var(--text-muted)">{{ i.status }}</td>
+      <td style="font-size:12px;color:var(--text-muted)">{{ i.priority | priority_label if i.priority else '—' }}</td>
+      <td style="font-size:12px;{% if i.due_at and i.due_at < now %}color:#f87171{% else %}color:var(--text-muted){% endif %}">
+        {{ i.due_at | ist('%d %b') if i.due_at else '—' }}
+      </td>
+      <td style="white-space:nowrap">
+        {% if i.action %}
+        {% if i.action.method == 'post' %}
+        <form method="post" action="{{ i.action.url }}" style="display:inline">
+          <button type="submit" class="btn btn-sm btn-primary" style="margin-right:6px">{{ i.action.label }}</button>
+        </form>
+        {% else %}
+        <a href="{{ i.action.url }}" class="btn btn-sm btn-primary" style="margin-right:6px">{{ i.action.label }}</a>
+        {% endif %}
+        {% endif %}
+        <a href="{{ i.url }}" class="btn btn-sm btn-outline">{{ i.open_label }} →</a>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:var(--text-faint);font-size:13px;padding:12px 0">Nothing here — you're all caught up.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endfor %}
+
+{% endblock %}
