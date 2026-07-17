@@ -25,6 +25,21 @@ This endpoint expects `template.id` = the Gupshup template UUID and a
 separate `params` array (not a pre-rendered message body) — see
 WHATSAPP_TEMPLATES[...]['gupshup_template_id'] vs
 ['gupshup_facebook_template_id'] in constants.py.
+
+2026-07: Gupshup retired all `/sm` endpoints on 31 Oct 2024 ("Gupshup DOES
+NOT support any /sm endpoints any more" — per their own EOL notice).
+GUPSHUP_API_BASE in constants.py had been left pointing at the retired
+`/sm/api/v1/template/msg` since the very first commit of this integration,
+which is the most likely explanation for the intermittent, misleading
+401 "Portal User Not Found With APIKey" failures seen in the Outbound
+Message Log even with a correct, freshly-verified API key. Switched to
+the replacement endpoint, `/wa/api/v1/template/msg` — same auth header,
+same template object structure — but it requires one additional field,
+`src.name`, which is the Gupshup *app name* the source number belongs to
+(Settings → About / the app selector dropdown in the Gupshup console).
+This is a distinct value from Gupshup Client ID — NOT the WhatsApp
+Display Name or Business Entity Name shown on the WABA details page —
+and is stored per-tenant as Tenant.gupshup_app_name.
 """
 import json
 import httpx
@@ -74,8 +89,8 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
     Send a single WhatsApp message using a tenant's own Gupshup WABA.
 
     tenant: Tenant ORM instance — must have gupshup_client_id, gupshup_secret_token,
-            gupshup_source_number populated (caller is responsible for checking
-            gupshup_waba_status != SUSPENDED before calling, per Decision #12).
+            gupshup_source_number, gupshup_app_name populated (caller is responsible
+            for checking gupshup_waba_status != SUSPENDED before calling, per Decision #12).
     mobile: any format — normalized internally.
     template_name: key into WHATSAPP_TEMPLATES (app/constants.py).
     variables: ordered list matching the template's approved variable order exactly.
@@ -93,7 +108,8 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
     if not template:
         return False, f"Unknown template: {template_name}", None, None, None, None
 
-    if not (tenant and tenant.gupshup_client_id and tenant.gupshup_secret_token and tenant.gupshup_source_number):
+    if not (tenant and tenant.gupshup_client_id and tenant.gupshup_secret_token
+            and tenant.gupshup_source_number and tenant.gupshup_app_name):
         return False, "Tenant has no Gupshup WhatsApp configuration", None, None, None, None
 
     if tenant.gupshup_waba_status == "SUSPENDED":
@@ -115,6 +131,7 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
     form_data = {
         "source": source_norm,
         "destination": mobile_norm,
+        "src.name": tenant.gupshup_app_name,
         "template": json.dumps({
             "id": template_id,
             "params": [str(v) for v in variables],
