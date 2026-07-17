@@ -364,10 +364,15 @@ SA_ALERT_PHONE = os.environ.get("SA_ALERT_PHONE", "")
 PLATFORM_ALERT_TENANT_ID = os.environ.get("PLATFORM_ALERT_TENANT_ID", "")
 
 # Gupshup Gateway/Enterprise API — per-tenant credentials live on Tenant model
-# (gupshup_client_id / gupshup_secret_token / gupshup_source_number / gupshup_app_name).
-# Gupshup retired all /sm endpoints on 31 Oct 2024; use /wa instead — see
-# app/services/gupshup.py module docstring for the full history.
-GUPSHUP_API_BASE = "https://api.gupshup.io/wa/api/v1/template/msg"
+# (gupshup_client_id / gupshup_secret_token / gupshup_source_number). This
+# account is confirmed Enterprise-type, not Partner: the api.gupshup.io /wa
+# family consistently returns 401 "Authentication Failed" for it regardless
+# of API key tried, so sends go through the Gateway API here instead. Gateway
+# API authenticates fine but a prior send never reached the recipient despite
+# a "success" response — Gupshup support ticket opened 2026-07-17, still
+# pending their response. See app/services/gupshup.py module docstring for
+# the full history.
+GUPSHUP_API_BASE = "https://mediaapi.smsgupshup.com/GatewayAPI/rest"
 # Public domain this OmniFlow instance is reachable at, for constructing each
 # tenant's webhook Callback URL: https://<domain>/webhooks/gupshup/{token}
 OMNIFLOW_PUBLIC_DOMAIN = os.environ.get("OMNIFLOW_PUBLIC_DOMAIN", "omniflow.omniqconsulting.com")

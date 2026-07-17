@@ -4,44 +4,44 @@ Single integration point for all outbound Gupshup WhatsApp calls, per-tenant.
 No other file should call the Gupshup API directly — mirrors the existing
 app/services/msg91.py convention for the platform this replaces.
 
-API: POST https://api.gupshup.io/sm/api/v1/template/msg, form-urlencoded,
-`apikey: <secret token>` header — per docs.gupshup.io's official
-whatsapp-business-api reference (confirmed 2026-07-16). Two earlier
-attempts at this integration got this wrong in different ways:
-  1. This exact endpoint/apikey combo, but with `template.id` set to the
-     *Facebook* numeric template ID instead of Gupshup's own template UUID
-     ("Gupshup temp ID" in the console's template list) — produced a
-     misleading 401 "Portal User Not Found With APIKey" even with a
-     correct, freshly-verified API key, because a malformed template
-     reference apparently surfaces as a generic auth-style rejection here
-     rather than a clean "template not found" error.
-  2. Switching to the account's alternate Gateway API
+Full history of this integration, in order:
+  1. api.gupshup.io/sm/api/v1/template/msg (Partner API, `apikey` header),
+     with `template.id` set to the *Facebook* numeric template ID instead of
+     Gupshup's own template UUID ("Gupshup temp ID" in the console's template
+     list) — produced a misleading 401 "Portal User Not Found With APIKey"
+     even with a correct, freshly-verified API key, because a malformed
+     template reference apparently surfaces as a generic auth-style
+     rejection here rather than a clean "template not found" error.
+  2. Switched to the account's Gateway API
      (mediaapi.smsgupshup.com/GatewayAPI/rest, Bearer auth) — this
-     authenticated fine and returned success synchronously, but the
-     message never actually reached the recipient (no delivery webhook,
-     nothing in the WhatsApp thread) — likely a routing/config gap in that
-     legacy API for this account, never fully root-caused.
-This endpoint expects `template.id` = the Gupshup template UUID and a
-separate `params` array (not a pre-rendered message body) — see
-WHATSAPP_TEMPLATES[...]['gupshup_template_id'] vs
-['gupshup_facebook_template_id'] in constants.py.
+     authenticated fine and returned success synchronously, but the message
+     never actually reached the recipient (no delivery webhook, nothing in
+     the WhatsApp thread). Gupshup support ticket opened 2026-07-17 re: this
+     GatewayAPI success-but-no-delivery behavior — still pending their
+     response as of this writing.
+  3. Also discovered `/sm` had been retired by Gupshup on 31 Oct 2024
+     entirely, so tried the replacement Partner endpoint,
+     `/wa/api/v1/template/msg` (same `apikey` header, plus a required
+     `src.name` app-name field). This account turned out to be
+     Enterprise-type, not Partner: `/wa` consistently returned 401
+     "Authentication Failed" regardless of API key tried — this account
+     simply has no valid credentials for the `/wa` family.
+  4. Reverted to the Gateway API (mediaapi.smsgupshup.com/GatewayAPI/rest)
+     pending Gupshup's response on the open ticket, since it's the only
+     endpoint that authenticates for this account at all — but this time
+     with the Facebook-vs-UUID template ID bug from step 1 fixed: this
+     Gateway API's `whatsAppTemplateId` field wants the *Facebook* numeric
+     template ID (WHATSAPP_TEMPLATES[...]['gupshup_facebook_template_id']),
+     NOT the Gupshup UUID (['gupshup_template_id'], which is now populated
+     for the /wa attempt and must NOT be reused here — see the comment at
+     its usage below before ever changing this back).
 
-2026-07: Gupshup retired all `/sm` endpoints on 31 Oct 2024 ("Gupshup DOES
-NOT support any /sm endpoints any more" — per their own EOL notice).
-GUPSHUP_API_BASE in constants.py had been left pointing at the retired
-`/sm/api/v1/template/msg` since the very first commit of this integration,
-which is the most likely explanation for the intermittent, misleading
-401 "Portal User Not Found With APIKey" failures seen in the Outbound
-Message Log even with a correct, freshly-verified API key. Switched to
-the replacement endpoint, `/wa/api/v1/template/msg` — same auth header,
-same template object structure — but it requires one additional field,
-`src.name`, which is the Gupshup *app name* the source number belongs to
-(Settings → About / the app selector dropdown in the Gupshup console).
-This is a distinct value from Gupshup Client ID — NOT the WhatsApp
-Display Name or Business Entity Name shown on the WABA details page —
-and is stored per-tenant as Tenant.gupshup_app_name.
+Gateway API validates template sends against the fully-rendered message text
+(WHATSAPP_TEMPLATES[...]['body']) rather than accepting separate params —
+the caller must substitute {{n}} placeholders itself before sending.
 """
-import json
+import re
+import uuid
 import httpx
 import logging
 from app.constants import WHATSAPP_TEMPLATES, GUPSHUP_API_BASE
@@ -89,8 +89,8 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
     Send a single WhatsApp message using a tenant's own Gupshup WABA.
 
     tenant: Tenant ORM instance — must have gupshup_client_id, gupshup_secret_token,
-            gupshup_source_number, gupshup_app_name populated (caller is responsible
-            for checking gupshup_waba_status != SUSPENDED before calling, per Decision #12).
+            gupshup_source_number populated (caller is responsible for checking
+            gupshup_waba_status != SUSPENDED before calling, per Decision #12).
     mobile: any format — normalized internally.
     template_name: key into WHATSAPP_TEMPLATES (app/constants.py).
     variables: ordered list matching the template's approved variable order exactly.
@@ -108,8 +108,7 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
     if not template:
         return False, f"Unknown template: {template_name}", None, None, None, None
 
-    if not (tenant and tenant.gupshup_client_id and tenant.gupshup_secret_token
-            and tenant.gupshup_source_number and tenant.gupshup_app_name):
+    if not (tenant and tenant.gupshup_client_id and tenant.gupshup_secret_token and tenant.gupshup_source_number):
         return False, "Tenant has no Gupshup WhatsApp configuration", None, None, None, None
 
     if tenant.gupshup_waba_status == "SUSPENDED":
@@ -121,21 +120,37 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
             f"expected {len(template['variable_order'])}, got {len(variables)}"
         ), None, None, None, None
 
-    template_id = template.get("gupshup_template_id")
+    # Gateway API's whatsAppTemplateId wants the *Facebook* numeric template
+    # ID, not Gupshup's own template UUID (gupshup_template_id) — the two
+    # are different values and mixing them up is the exact bug that caused
+    # the original misleading 401s under the /sm Partner API (see module
+    # docstring, step 1). Do not swap this back to gupshup_template_id.
+    template_id = template.get("gupshup_facebook_template_id")
     template_category = template.get("gupshup_template_category", "UTILITY")
-    if not template_id:
-        return False, f"No Gupshup template UUID configured for {template_name}", template_id, template_category, None, None
+    body = template.get("body")
+    if not template_id or not body:
+        return False, f"No Gateway API template configured for {template_name} (needs gupshup_facebook_template_id and body)", template_id, template_category, None, None
     mobile_norm = normalize_mobile(mobile)
-    source_norm = normalize_mobile(tenant.gupshup_source_number)
+
+    rendered = body
+    for i, value in enumerate(variables, start=1):
+        rendered = rendered.replace("{{%d}}" % i, str(value))
+    if re.search(r"\{\{\d+\}\}", rendered):
+        return False, f"Unfilled {{n}} placeholder remains in rendered {template_name} body", template_id, template_category, None, None
 
     form_data = {
-        "source": source_norm,
-        "destination": mobile_norm,
-        "src.name": tenant.gupshup_app_name,
-        "template": json.dumps({
-            "id": template_id,
-            "params": [str(v) for v in variables],
-        }),
+        "send_to": mobile_norm,
+        "msg_type": "text",
+        "userid": tenant.gupshup_client_id,
+        "auth_scheme": "plain",
+        "v": "1.1",
+        "format": "json",
+        "method": "SendMessage",
+        "isHSM": "true",
+        "isTemplate": "true",
+        "msg_id": uuid.uuid4().hex,
+        "whatsAppTemplateId": template_id,
+        "msg": rendered,
     }
 
     try:
@@ -143,7 +158,7 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
             resp = client.post(
                 GUPSHUP_API_BASE,
                 headers={
-                    "apikey": tenant.gupshup_secret_token,
+                    "Authorization": f"Bearer {tenant.gupshup_secret_token}",
                     "Content-Type": "application/x-www-form-urlencoded",
                 },
                 data=form_data,
@@ -162,12 +177,12 @@ def send_whatsapp_template(tenant, mobile: str, template_name: str, variables: l
             gupshup_message_id = None
             resp_status = None
             try:
-                resp_json = resp.json()
-                gupshup_message_id = resp_json.get("messageId")
+                resp_json = raw_response.get("response", {})
+                gupshup_message_id = resp_json.get("id")
                 resp_status = resp_json.get("status")
             except Exception:
                 pass
-            if resp_status and resp_status not in ("submitted", "success"):
+            if resp_status and resp_status != "success":
                 return False, f"Gupshup returned {resp.status_code} but status={resp_status}: {resp.text[:300]}", template_id, template_category, None, raw_response
             return True, None, template_id, template_category, gupshup_message_id, raw_response
         return False, f"Gupshup returned {resp.status_code}: {resp.text[:300]}", template_id, template_category, None, raw_response
