@@ -97,8 +97,18 @@ def _unread(db: Session, user: User) -> int:
 
 
 def _nav_ctx(db: Session, user: User) -> dict:
+    """Nav flags for Setup pages. The top nav (base.html) always uses the
+    user's normal restricted tabs (has_fms/has_sales/...) so it doesn't
+    change shape depending on which page you're on; the Setup sidebar
+    (setup/nav.html) uses the separate setup_has_* keys, which for
+    PRODUCT_MANAGER reflect every tenant-enabled module — same as ADMIN —
+    so the Setup section itself reconciles between the two roles."""
     tenant = db.query(Tenant).get(user.tenant_id)
-    return get_nav_flags(db, user, tenant, for_setup=True)
+    flags = get_nav_flags(db, user, tenant)
+    setup_flags = get_nav_flags(db, user, tenant, for_setup=True)
+    flags["setup_has_fms"] = setup_flags["has_fms"]
+    flags["setup_has_sales"] = setup_flags["has_sales"]
+    return flags
 
 
 # ── Customer CSV columns — shared canonical set, also used by Sales CRM's

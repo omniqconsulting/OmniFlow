@@ -62,14 +62,14 @@ html.light .setup-sidenav .nav-section-label { color: #94a3b8; }
     📏 Units of Measure
   </a>
 
-  {% if has_fms %}
+  {% if setup_has_fms %}
   <div class="nav-section-label">FMS</div>
   <a href="/setup/flows" class="{{ 'active' if active_section == 'flows' else '' }}">
     🔀 Flows
   </a>
   {% endif %}
 
-  {% if has_sales %}
+  {% if setup_has_sales %}
   <div class="nav-section-label">Sales</div>
   <a href="/sales/pricing" class="{{ 'active' if active_section == 'pricing' else '' }}">
     💰 Pricing &amp; Margins
