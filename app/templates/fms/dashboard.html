@@ -182,7 +182,6 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     <a href="/fms/tickets/bulk-template?flow_id={{ active_flow.id if active_flow else '' }}" class="btn btn-outline btn-sm">⬇ Template</a>
     <a href="/fms/tickets/bulk-upload-page{% if active_flow %}?flow_id={{ active_flow.id }}{% endif %}" class="btn btn-outline btn-sm">⬆ Bulk Upload</a>
     {% endif %}
-    {% if can_create_ticket %}
     {# Whitelisted on this flow's "Allowed Employees" list overrides the
        default employee-can't-create restriction — see _can_create_in_flow. #}
     {% if user.role in ('ADMIN','MANAGER') or can_create_ticket %}
