@@ -98,7 +98,7 @@ def _unread(db: Session, user: User) -> int:
 
 def _nav_ctx(db: Session, user: User) -> dict:
     tenant = db.query(Tenant).get(user.tenant_id)
-    return get_nav_flags(db, user, tenant)
+    return get_nav_flags(db, user, tenant, for_setup=True)
 
 
 # ── Customer CSV columns — shared canonical set, also used by Sales CRM's

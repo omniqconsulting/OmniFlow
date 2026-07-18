@@ -5190,7 +5190,7 @@ def setup(request: Request, user: User = Depends(require_admin_or_pm_or_redirect
 
     return templates.TemplateResponse(request, "setup.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
-        **_nav_ctx(db, user),
+        **get_nav_flags(db, user, tenant, for_setup=True),
         "branches": branches, "departments": departments,
         "departments_grouped": departments_grouped,
         "distinct_dept_count": len(departments_grouped),

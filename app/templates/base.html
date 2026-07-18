@@ -51,7 +51,7 @@
     <div class="am-divider"></div>
     <a href="/employees" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">👥</span>{{ L.Employees if L is defined else 'Employees' }}</a>
     {% endif %}
-    {% if user.role in ('ADMIN','PRODUCT_MANAGER') %}
+    {% if user.role == 'ADMIN' %}
     {# Setup is web-only — not offered in the PWA account menu. #}
     <a href="/plan" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">✉️</span>Contact Us</a>
     {% endif %}
@@ -61,8 +61,10 @@
 </div>
 <nav class="nav">
   <span class="logo">OmniFlow</span>
+  {% if user.role != 'PRODUCT_MANAGER' %}
   <a href="/dashboard" {% if request.url.path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
   <a href="/my-tasks" {% if '/my-tasks' in request.url.path %}class="active"{% endif %}>My Tasks</a>
+  {% endif %}
   {% if has_tickets is not defined or has_tickets %}
   <a href="/tickets" {% if '/tickets' in request.url.path %}class="active"{% endif %}>{{ L.Tickets if L is defined else 'Tickets' }}</a>
   {% endif %}
@@ -90,6 +92,8 @@
   {% endif %}
   {% if user.role in ('ADMIN','PRODUCT_MANAGER') %}
   <a href="/setup" {% if '/setup' in request.url.path %}class="active"{% endif %}>Setup</a>
+  {% endif %}
+  {% if user.role == 'ADMIN' %}
   <a href="/plan"  {% if '/plan'  in request.url.path or '/help' in request.url.path %}class="active"{% endif %}>Contact Us</a>
   {% endif %}
   {% if user.role == 'ADMIN' %}
