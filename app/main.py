@@ -26,6 +26,8 @@ from .auth import (
     get_current_user, get_current_user_or_redirect, RedirectToLogin,
     require_admin, require_manager,
     require_admin_or_redirect, require_manager_or_redirect,
+    require_admin_or_pm, require_admin_or_pm_or_redirect,
+    require_manager_or_pm_or_redirect,
     get_user_modules, has_module, get_user_tabs, get_nav_flags,
 )
 from .notifications import (
@@ -769,6 +771,8 @@ async def submit_help_request(
             User.role == "ADMIN",
             User.is_deleted == False,
         ).first() or user
+    from .notifications import add_business_hours
+    tenant_for_due = db.query(Tenant).get(user.tenant_id)
     ticket = Ticket(
         tenant_id=user.tenant_id,
         title=title,
@@ -776,7 +780,7 @@ async def submit_help_request(
         priority="HIGH",
         created_by_id=user.id,
         current_assignee_id=assignee.id,
-        due_at=datetime.utcnow() + timedelta(hours=24),
+        due_at=add_business_hours(tenant_for_due, datetime.utcnow(), 24),
         ticket_type="D",
     )
     if hasattr(ticket, "ticket_category"):
@@ -3987,7 +3991,7 @@ async def checklist_bulk_confirm(request: Request, user: User = Depends(require_
 # ── Employees ─────────────────────────────────────────────────────────────────
 
 @app.get("/employees", response_class=HTMLResponse)
-def employees_page(request: Request, user: User = Depends(require_manager_or_redirect),
+def employees_page(request: Request, user: User = Depends(require_manager_or_pm_or_redirect),
                    search: str = "", opt_in_status: str = "", db: Session = Depends(get_db)):
     tid = user.tenant_id
     if user.role == "MANAGER":
@@ -4091,7 +4095,7 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_red
     })
 
 @app.get("/employees/whatsapp-qr.png")
-def employees_whatsapp_qr(user: User = Depends(require_manager_or_redirect), db: Session = Depends(get_db)):
+def employees_whatsapp_qr(user: User = Depends(require_manager_or_pm_or_redirect), db: Session = Depends(get_db)):
     """Section 7.5 — Share opt-in QR panel image, scoped to the caller's own tenant.
     Built live from build_opt_in_link() on every request so the QR always reflects
     the current opt-in message template, even for tenants configured before a
@@ -4112,7 +4116,7 @@ def create_employee(
     name: str = Form(...), phone: str = Form(...), password: str = Form(...),
     role: str = Form("EMPLOYEE"), department_id: str = Form(""),
     manager_id: str = Form(""), branch_id: str = Form(""),
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     tenant = db.query(Tenant).get(user.tenant_id)
     current_count = db.query(User).filter(
@@ -4144,7 +4148,7 @@ def create_employee(
 
 @app.post("/employees/{emp_id}/assign-manager")
 def assign_manager(emp_id: str, manager_id: str = Form(...),
-                   user: User = Depends(require_admin),
+                   user: User = Depends(require_admin_or_pm),
                    db: Session = Depends(get_db)):
     """Phase 0-A-1: assign manager_id to employee."""
     emp = db.query(User).filter(
@@ -4157,7 +4161,7 @@ def assign_manager(emp_id: str, manager_id: str = Form(...),
 
 @app.get("/employees/import/template")
 def download_csv_template(entity: str = "employees",
-                           user: User = Depends(require_admin),
+                           user: User = Depends(require_admin_or_pm),
                            db: Session = Depends(get_db)):
     """Phase 0-A-6: download CSV template for bulk import."""
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -4227,7 +4231,7 @@ def _validate_employee_row(row: dict, tenant_id: str, db: Session, branch_lkp: d
         return None, "password is required"
     if len(password) < 6:
         return None, "password must be at least 6 characters"
-    if role not in ("EMPLOYEE", "MANAGER", "ADMIN"):
+    if role not in ("EMPLOYEE", "MANAGER", "ADMIN", "PRODUCT_MANAGER"):
         return None, f"invalid role '{role}'"
     if db.query(User).filter(User.tenant_id == tenant_id, User.phone == phone, User.is_deleted == False).first():
         return None, f"phone {phone} already exists"
@@ -4283,7 +4287,7 @@ def _run_employee_validation(rows_in: list, tenant_id: str, db: Session, start_i
 
 
 @app.get("/employees/bulk-upload-page", response_class=HTMLResponse)
-def employees_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
+def employees_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_pm_or_redirect), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
@@ -4295,7 +4299,7 @@ def employees_bulk_upload_page(request: Request, user: User = Depends(require_ad
 
 @app.post("/employees/import")
 async def bulk_import_employees(file: UploadFile = File(...),
-                                user: User = Depends(require_admin),
+                                user: User = Depends(require_admin_or_pm),
                                 db: Session = Depends(get_db)):
     """Phase 0-A-3: bulk import employees with validation + exception report."""
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -4311,7 +4315,7 @@ async def bulk_import_employees(file: UploadFile = File(...),
 
 
 @app.post("/employees/import/revalidate")
-async def bulk_import_employees_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+async def bulk_import_employees_revalidate(request: Request, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     body = await request.json()
     rows_in = body.get("rows", [])
     if len(rows_in) > BULK_IMPORT_MAX_ROWS:
@@ -4320,7 +4324,7 @@ async def bulk_import_employees_revalidate(request: Request, user: User = Depend
 
 
 @app.post("/employees/import/confirm")
-async def bulk_import_employees_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+async def bulk_import_employees_confirm(request: Request, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
@@ -4371,7 +4375,7 @@ async def bulk_import_employees_confirm(request: Request, user: User = Depends(r
 def reset_employee_password(
     emp_id: str,
     temp_password: str = Form(...),
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_pm),
     db: Session = Depends(get_db),
 ):
     """Admin generates a temporary password for an employee (Forgot Password — Option C)."""
@@ -4398,7 +4402,7 @@ def edit_employee(
     branch_id: str = Form(""),
     tabs: list[str] = Form(default=[]),
     tabs_submitted: str = Form(""),
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     phone_err = _validate_phone(phone)
     if phone_err:
@@ -4441,7 +4445,7 @@ def edit_employee(
 
 # ── P8-02: Open-work count (JSON) for terminate modal ────────────────────────
 @app.get("/employees/{emp_id}/open-work")
-def emp_open_work(emp_id: str, user: User = Depends(require_admin),
+def emp_open_work(emp_id: str, user: User = Depends(require_admin_or_pm),
                   db: Session = Depends(get_db)):
     tid = user.tenant_id
     target = db.query(User).filter(
@@ -4495,7 +4499,7 @@ def emp_open_work(emp_id: str, user: User = Depends(require_admin),
 
 # ── Phase 3: Export open work CSV before termination ──────────────────────────
 @app.get("/employees/{emp_id}/open-work/export")
-def emp_open_work_export(emp_id: str, user: User = Depends(require_admin),
+def emp_open_work_export(emp_id: str, user: User = Depends(require_admin_or_pm),
                          db: Session = Depends(get_db)):
     tid = user.tenant_id
     target = db.query(User).filter(
@@ -4550,7 +4554,7 @@ def terminate_employee(
     ticket_reassign_to: str = Form(""),
     checklist_reassign_to: str = Form(""),
     fms_reassign_to: str = Form(""),
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     tid = user.tenant_id
     emp = db.query(User).filter(
@@ -4652,7 +4656,7 @@ def terminate_employee(
 # ── P8-06: Soft-delete employee ───────────────────────────────────────────────
 @app.post("/employees/{emp_id}/delete")
 def delete_employee(
-    emp_id: str, user: User = Depends(require_admin),
+    emp_id: str, user: User = Depends(require_admin_or_pm),
     db: Session = Depends(get_db),
 ):
     emp = db.query(User).filter(
@@ -4675,7 +4679,7 @@ def delete_employee(
 @app.post("/employees/{emp_id}/mark-mismatch")
 def mark_employee_mismatch(
     emp_id: str, reason: str = Form(""),
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     from .database import WhatsAppConsentEvent
     emp = db.query(User).filter(
@@ -4696,7 +4700,7 @@ def mark_employee_mismatch(
 
 @app.post("/employees/{emp_id}/reset-optin")
 def reset_employee_optin(
-    emp_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db),
+    emp_id: str, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     """Reset an already-verified employee back to PENDING so their next QR
     scan re-triggers the omniflow_optin_confirmed send. Needed because the
@@ -4724,7 +4728,7 @@ def reset_employee_optin(
 @app.post("/employees/{emp_id}/correct-phone")
 def correct_employee_phone(
     emp_id: str, corrected_phone: str = Form(...),
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     """Section 7.2 Mismatch row — 'Save & Reset to Pending'. Corrects the
     on-file phone and resets to PENDING; employee must scan the QR again
@@ -4752,7 +4756,7 @@ def correct_employee_phone(
 
 @app.post("/employees/{emp_id}/validate-manually")
 def validate_employee_manually(
-    emp_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db),
+    emp_id: str, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     """Section 7.2 fallback action — for Pending, Mismatch, or Opted-out
     (re-enable) employees. Demoted from primary path per Decision #4."""
@@ -4781,7 +4785,7 @@ def validate_employee_manually(
 # ── WhatsApp: resend a failed message log entry ───────────────────────────────
 @app.post("/employees/{emp_id}/toggle-whatsapp-notifications")
 def toggle_employee_whatsapp_notifications(
-    emp_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db),
+    emp_id: str, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     """
     Employee-level WhatsApp mute/unmute — independent of whatsapp_opt_in_status
@@ -4801,7 +4805,7 @@ def toggle_employee_whatsapp_notifications(
 
 @app.post("/employees/bulk-toggle-whatsapp-notifications")
 async def bulk_toggle_employee_whatsapp_notifications(
-    request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db),
+    request: Request, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     """Bulk mute/unmute WhatsApp sends for a set of employees at once."""
     form = await request.form()
@@ -4818,7 +4822,7 @@ async def bulk_toggle_employee_whatsapp_notifications(
 @app.post("/whatsapp-log/{log_id}/resend")
 def resend_whatsapp(
     log_id: str, request: Request,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_pm),
     db: Session = Depends(get_db),
 ):
     from .database import WhatsAppMessageLog, Tenant
@@ -4861,7 +4865,7 @@ def resend_whatsapp(
 @app.get("/employees/{emp_id}/performance", response_class=HTMLResponse)
 def employee_performance(
     emp_id: str, request: Request, period: str = "30d",
-    user: User = Depends(require_manager_or_redirect), db: Session = Depends(get_db),
+    user: User = Depends(require_manager_or_pm_or_redirect), db: Session = Depends(get_db),
 ):
     tid = user.tenant_id
     emp = db.query(User).filter(
@@ -5000,7 +5004,7 @@ def _run_department_validation(rows_in: list, tenant_id: str, db: Session, start
 
 
 @app.get("/departments/bulk-upload-page", response_class=HTMLResponse)
-def departments_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
+def departments_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_pm_or_redirect), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
@@ -5012,7 +5016,7 @@ def departments_bulk_upload_page(request: Request, user: User = Depends(require_
 
 @app.post("/departments/import")
 async def bulk_import_departments(file: UploadFile = File(...),
-                                   user: User = Depends(require_admin),
+                                   user: User = Depends(require_admin_or_pm),
                                    db: Session = Depends(get_db)):
     """Phase 0-A-4: bulk import departments."""
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -5028,7 +5032,7 @@ async def bulk_import_departments(file: UploadFile = File(...),
 
 
 @app.post("/departments/import/revalidate")
-async def bulk_import_departments_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+async def bulk_import_departments_revalidate(request: Request, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     body = await request.json()
     rows_in = body.get("rows", [])
     if len(rows_in) > BULK_IMPORT_MAX_ROWS:
@@ -5037,7 +5041,7 @@ async def bulk_import_departments_revalidate(request: Request, user: User = Depe
 
 
 @app.post("/departments/import/confirm")
-async def bulk_import_departments_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+async def bulk_import_departments_confirm(request: Request, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
@@ -5074,7 +5078,7 @@ def _run_branch_validation(rows_in: list, start_index: int = 2) -> dict:
 
 
 @app.get("/branches/bulk-upload-page", response_class=HTMLResponse)
-def branches_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
+def branches_bulk_upload_page(request: Request, user: User = Depends(require_admin_or_pm_or_redirect), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
@@ -5086,7 +5090,7 @@ def branches_bulk_upload_page(request: Request, user: User = Depends(require_adm
 
 @app.post("/branches/import")
 async def bulk_import_branches(file: UploadFile = File(...),
-                                user: User = Depends(require_admin),
+                                user: User = Depends(require_admin_or_pm),
                                 db: Session = Depends(get_db)):
     """Phase 0-A-5: bulk import branches."""
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -5102,7 +5106,7 @@ async def bulk_import_branches(file: UploadFile = File(...),
 
 
 @app.post("/branches/import/revalidate")
-async def bulk_import_branches_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+async def bulk_import_branches_revalidate(request: Request, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     body = await request.json()
     rows_in = body.get("rows", [])
     if len(rows_in) > BULK_IMPORT_MAX_ROWS:
@@ -5111,7 +5115,7 @@ async def bulk_import_branches_revalidate(request: Request, user: User = Depends
 
 
 @app.post("/branches/import/confirm")
-async def bulk_import_branches_confirm(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+async def bulk_import_branches_confirm(request: Request, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Requires Professional plan")
@@ -5132,7 +5136,7 @@ async def bulk_import_branches_confirm(request: Request, user: User = Depends(re
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
 @app.get("/setup", response_class=HTMLResponse)
-def setup(request: Request, user: User = Depends(require_admin_or_redirect),
+def setup(request: Request, user: User = Depends(require_admin_or_pm_or_redirect),
           db: Session = Depends(get_db)):
     from .constants import PLAN_LIMITS, PLAN_LABELS
     branches = db.query(Branch).filter(
@@ -5204,7 +5208,7 @@ def setup(request: Request, user: User = Depends(require_admin_or_redirect),
 def setup_checklist_notifications(
     notif_hours: str = Form("8,13,18"),
     overdue_hour: str = Form(""),
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_pm),
     db: Session = Depends(get_db),
 ):
     """Save checklist notification hours and optional overdue WhatsApp hour."""
@@ -5233,7 +5237,7 @@ def setup_checklist_notifications(
 
 @app.get("/setup/notifications")
 def setup_notifications_get(request: Request, saved: str = "",
-                             user: User = Depends(require_admin),
+                             user: User = Depends(require_admin_or_pm),
                              db: Session = Depends(get_db)):
     """E-15: Notification Settings page — Admin only."""
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -5248,7 +5252,7 @@ def setup_notifications_get(request: Request, saved: str = "",
 @app.post("/setup/notifications")
 async def setup_notifications_post(
     request: Request,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_pm),
     db: Session = Depends(get_db),
 ):
     """E-15: Save notification settings — Admin only."""
@@ -5363,7 +5367,7 @@ def _compute_perf_score(kpi_values: dict, weights: dict) -> tuple:
 def setup_performance_formula_get(
     request: Request,
     msg: str = None,
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     tid = user.tenant_id
     active = db.query(PerformanceFormula).filter(
@@ -5386,7 +5390,7 @@ def setup_performance_formula_get(
 @app.post("/setup/performance-formula/save")
 async def setup_performance_formula_save(
     request: Request,
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     form = await request.form()
     label = (form.get("label") or "").strip() or None
@@ -5415,7 +5419,7 @@ async def setup_performance_formula_save(
 @app.post("/setup/branch")
 def add_branch(name: str = Form(...), location: str = Form(""),
                redirect_to: str = Form("/setup?open=branch"),
-               user: User = Depends(require_admin), db: Session = Depends(get_db)):
+               user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
     current = db.query(Branch).filter(Branch.tenant_id == user.tenant_id,
                                        Branch.is_deleted == False).count()
@@ -5428,7 +5432,7 @@ def add_branch(name: str = Form(...), location: str = Form(""),
 
 @app.post("/setup/branch/{branch_id}/edit")
 def edit_branch(branch_id: str, name: str = Form(...), location: str = Form(""),
-                user: User = Depends(require_admin), db: Session = Depends(get_db)):
+                user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     b = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
     if b:
         b.name = name.strip()
@@ -5437,7 +5441,7 @@ def edit_branch(branch_id: str, name: str = Form(...), location: str = Form(""),
     return redirect("/setup")
 
 @app.post("/setup/branch/{branch_id}/delete")
-def delete_branch(branch_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def delete_branch(branch_id: str, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     b = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
     if b:
         b.is_deleted = True
@@ -5448,7 +5452,7 @@ def delete_branch(branch_id: str, user: User = Depends(require_admin), db: Sessi
 async def add_department(
     request: Request,
     redirect_to: str = Form("/setup?open=dept"),
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     form = await request.form()
     name = (form.get("name") or "").strip()
@@ -5469,7 +5473,7 @@ async def add_department(
 async def edit_department(
     request: Request,
     dept_id: str,
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     form = await request.form()
     name = (form.get("name") or "").strip()
@@ -5494,7 +5498,7 @@ async def edit_department(
     return redirect("/setup")
 
 @app.post("/setup/department/{dept_id}/delete")
-def delete_department(dept_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+def delete_department(dept_id: str, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     d = db.query(Department).filter(Department.id == dept_id, Department.tenant_id == user.tenant_id).first()
     if d:
         # Delete all departments with this name across branches
@@ -5508,7 +5512,7 @@ def delete_department(dept_id: str, user: User = Depends(require_admin), db: Ses
 
 @app.get("/setup/wizard", response_class=HTMLResponse)
 def onboarding_wizard(request: Request, step: Optional[int] = None,
-                      user: User = Depends(require_admin_or_redirect),
+                      user: User = Depends(require_admin_or_pm_or_redirect),
                       db: Session = Depends(get_db)):
     """Guided onboarding wizard — auto-continues from where user left off."""
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -5691,7 +5695,7 @@ def export_csv(export_type: str = "tickets",
 # ── Label Configuration — Phase 0-J ──────────────────────────────────────────
 
 @app.get("/settings/labels", response_class=HTMLResponse)
-def labels_page(request: Request, user: User = Depends(require_admin_or_redirect),
+def labels_page(request: Request, user: User = Depends(require_admin_or_pm_or_redirect),
                 db: Session = Depends(get_db)):
     """Tenant admin label configuration page."""
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -5721,7 +5725,7 @@ def save_labels(
     branch_s: str = Form(...),    branch_p: str = Form(...),
     department_s: str = Form(...),department_p: str = Form(...),
     employee_s: str = Form(...),  employee_p: str = Form(...),
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     """Save custom label overrides for this tenant."""
     def _clean(s: str, default: str) -> Optional[str]:
@@ -5752,7 +5756,7 @@ def save_labels(
 @app.post("/settings/labels/preset")
 def apply_preset(
     industry: str = Form(...),
-    user: User = Depends(require_admin), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
 ):
     """Apply an industry preset to this tenant's label config."""
     overrides = INDUSTRY_PRESETS.get(industry, {})

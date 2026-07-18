@@ -217,8 +217,9 @@
             <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Ticket</th>
             <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Stage</th>
             <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Entered (IST)</th>
-            <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Window End</th>
             <th style="padding:8px 10px;text-align:left;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Exited (IST)</th>
+            <th style="padding:8px 10px;text-align:right;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Net Hours / Target</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Visits</th>
             <th style="padding:8px 10px;text-align:center;font-weight:600;color:var(--text-faint);border-bottom:1px solid var(--border-subtle)">Result</th>
           </tr>
         </thead>
@@ -231,8 +232,9 @@
             </td>
             <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.stage_name }}</td>
             <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.entered_at.strftime('%d %b %H:%M') if s.entered_at else '—' }}</td>
-            <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.window_end.strftime('%d %b %H:%M') if s.window_end else '—' }}</td>
             <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.exited_at.strftime('%d %b %H:%M') if s.exited_at else '—' }}</td>
+            <td style="padding:7px 10px;color:var(--text-secondary);text-align:right">{{ s.net_hours if s.net_hours is not none else '—' }}{% if s.target_tat %} / {{ s.target_tat }}h{% endif %}</td>
+            <td style="padding:7px 10px;color:var(--text-secondary);text-align:center">{{ s.visit_count }}</td>
             <td style="padding:7px 10px;text-align:center">
               {% if s.result == 'ON_TIME' %}
               <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#10b98122;color:#6ee7b7;font-weight:700">ON TIME</span>

@@ -294,7 +294,7 @@
             <div class="form-group" style="margin:0">
               <label>Role</label>
               <select name="role">
-                {% for r in ['EMPLOYEE','MANAGER','ADMIN'] %}
+                {% for r in ['EMPLOYEE','MANAGER','ADMIN','PRODUCT_MANAGER'] %}
                 <option value="{{ r }}" {% if emp.role == r %}selected{% endif %}>{{ r }}</option>
                 {% endfor %}
               </select>
@@ -549,7 +549,7 @@
 {% endif %}
 
 <!-- ══ ADD EMPLOYEE MODAL ════════════════════════════════════════════════ -->
-{% if user.role == 'ADMIN' %}
+{% if user.role in ('ADMIN', 'PRODUCT_MANAGER') %}
 <div id="create-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);align-items:center;justify-content:center;z-index:100">
   <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:28px;width:480px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,0.6);max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -581,6 +581,7 @@
             <option value="EMPLOYEE">{{ L.Employee }}</option>
             <option value="MANAGER">Manager</option>
             <option value="ADMIN">Admin</option>
+            <option value="PRODUCT_MANAGER">Product Manager</option>
           </select>
         </div>
         <div class="form-group">

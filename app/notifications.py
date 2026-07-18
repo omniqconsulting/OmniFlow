@@ -73,6 +73,61 @@ def business_hours_elapsed(tenant, start_dt, end_dt):
 
     return elapsed
 
+
+def add_business_hours(tenant, start_dt, hours):
+    """Forward counterpart to business_hours_elapsed: return the datetime
+    that is `hours` of business hours after start_dt, respecting the
+    tenant's configured work days/hours. Used for TaT/due-date planning so a
+    ticket opened at 5pm doesn't get credited with overnight/weekend hours
+    toward its TaT — the clock only runs during office hours.
+
+    Falls back to raw wall-clock arithmetic if office hours aren't
+    configured, matching business_hours_elapsed's fallback. Returns a naive
+    UTC datetime (same convention as the rest of the codebase)."""
+    if hours is None:
+        return start_dt
+    if not getattr(tenant, 'work_start_time', None):
+        return start_dt + timedelta(hours=hours)
+    try:
+        import pytz
+        tz = pytz.timezone(tenant.timezone or 'Asia/Kolkata')
+    except Exception:
+        return start_dt + timedelta(hours=hours)
+
+    work_days = [int(d) for d in (tenant.work_days or '0,1,2,3,4').split(',') if d.strip()]
+    start_h, start_m = map(int, tenant.work_start_time.split(':'))
+    end_h, end_m = map(int, tenant.work_end_time.split(':'))
+    if not work_days:
+        return start_dt + timedelta(hours=hours)
+
+    naive = start_dt.tzinfo is None
+    dt = pytz.utc.localize(start_dt) if naive else start_dt
+    cursor = dt.astimezone(tz)
+    remaining_minutes = hours * 60
+
+    # If the start point falls outside office hours (evening/weekend/before
+    # opening), jump forward to the next working window before the clock
+    # starts running — this is the fix for "opened in the evening" tickets.
+    for _ in range(400):  # hard cap — defends against pathological configs
+        day_start = cursor.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+        day_end = cursor.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+        if cursor.weekday() not in work_days or cursor >= day_end:
+            cursor = (cursor + timedelta(days=1)).replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+            continue
+        if cursor < day_start:
+            cursor = day_start
+
+        available_today = (day_end - cursor).total_seconds() / 60
+        if remaining_minutes <= available_today:
+            cursor = cursor + timedelta(minutes=remaining_minutes)
+            remaining_minutes = 0
+            break
+        remaining_minutes -= available_today
+        cursor = (cursor + timedelta(days=1)).replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+
+    result = cursor.astimezone(pytz.utc)
+    return result.replace(tzinfo=None) if naive else result
+
 from .database import Notification
 from .ws_manager import (
     broadcast_sync,

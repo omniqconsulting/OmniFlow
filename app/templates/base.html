@@ -47,11 +47,11 @@
     <div class="am-user">{{ user.name }} · {{ user.role }}</div>
     <button type="button" class="am-item" onclick="toggleTheme()"><span class="am-icon">🌙</span>Switch theme</button>
     <a href="/profile" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">👤</span>Profile</a>
-    {% if user.role in ('ADMIN','MANAGER') %}
+    {% if user.role in ('ADMIN','MANAGER','PRODUCT_MANAGER') %}
     <div class="am-divider"></div>
     <a href="/employees" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">👥</span>{{ L.Employees if L is defined else 'Employees' }}</a>
     {% endif %}
-    {% if user.role == 'ADMIN' %}
+    {% if user.role in ('ADMIN','PRODUCT_MANAGER') %}
     {# Setup is web-only — not offered in the PWA account menu. #}
     <a href="/plan" class="am-item" onclick="toggleAccountMenu(false)"><span class="am-icon">✉️</span>Contact Us</a>
     {% endif %}
@@ -85,10 +85,10 @@
   {% if has_inventory_module %}
   <a href="/inventory-v2" {% if '/inventory-v2' in request.url.path %}class="active"{% endif %}>Inventory</a>
   {% endif %}
-  {% if user.role in ('ADMIN','MANAGER') %}
+  {% if user.role in ('ADMIN','MANAGER','PRODUCT_MANAGER') %}
   <a href="/employees" {% if '/employees' in request.url.path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>
   {% endif %}
-  {% if user.role == 'ADMIN' %}
+  {% if user.role in ('ADMIN','PRODUCT_MANAGER') %}
   <a href="/setup" {% if '/setup' in request.url.path %}class="active"{% endif %}>Setup</a>
   <a href="/plan"  {% if '/plan'  in request.url.path or '/help' in request.url.path %}class="active"{% endif %}>Contact Us</a>
   {% endif %}

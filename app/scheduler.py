@@ -825,11 +825,13 @@ def delegation_tat_monitor():
                 ]:
                     if threshold_pct == 0 or pct_elapsed < threshold_pct:
                         continue
-                    # Dedup: already notified at this threshold?
+                    # Dedup: already notified at this threshold? Exact bracketed
+                    # tag avoids substring collisions (e.g. threshold 8 matching "80").
+                    tat_tag = f'[tat_alert:{threshold_pct}]'
                     already = db.query(TicketEvent).filter(
                         TicketEvent.ticket_id == ticket.id,
                         TicketEvent.event_type == 'TAT_ALERT',
-                        TicketEvent.notes.like(f'%{threshold_pct}%'),
+                        TicketEvent.notes.like(f'%{tat_tag}%'),
                     ).first()
                     if already:
                         continue
@@ -837,7 +839,7 @@ def delegation_tat_monitor():
                     db.add(TicketEvent(
                         ticket_id=ticket.id,
                         event_type='TAT_ALERT',
-                        notes=f'TaT alert at {threshold_pct}% threshold ({pct_elapsed:.0f}% elapsed)',
+                        notes=f'TaT alert at {threshold_pct}% threshold ({pct_elapsed:.0f}% elapsed) {tat_tag}',
                     ))
                     for uid in set(audience_ids):
                         if not uid:
@@ -909,12 +911,15 @@ def fms_stage_tat_monitor():
                     FMSTicketSplit.is_deleted == False,
                 ).count() > 1
                 label_suffix = f" [{split.split_label}]" if is_multi else ""
-                # Dedup — one alert per split's stage entry
+                # Dedup — one alert per split's stage entry. Exact bracketed
+                # tag (split id + entered_at) avoids substring collisions and
+                # ensures a re-visit to the same stage (entered_at changes)
+                # is treated as a fresh window, not a repeat.
+                stage_entry_tag = f"[ref:{split.id}:{entry.entered_at.isoformat()}]"
                 already = db.query(Notification).filter(
                     Notification.notif_type == "TICKET_REMINDER",
                     Notification.link == f"/fms/tickets/{ticket.id}",
-                    Notification.body.like(f"%stage TaT%{split.id}%"),
-                    Notification.created_at > entry.entered_at,
+                    Notification.body.like(f"%{stage_entry_tag}%"),
                 ).first()
                 if already:
                     continue
@@ -931,7 +936,7 @@ def fms_stage_tat_monitor():
                         tenant_id=tenant.id, user_id=uid,
                         notif_type="TICKET_REMINDER",
                         title=f"⏱ Stage TaT alert: {ticket.title}{label_suffix}",
-                        body=f"{pct_used:.0f}% of stage TaT used at '{stage.name}' stage. [ref:{split.id}]",
+                        body=f"{pct_used:.0f}% of stage TaT used at '{stage.name}' stage. {stage_entry_tag}",
                         link=f"/fms/tickets/{ticket.id}",
                     ))
             db.commit()
@@ -1013,11 +1018,13 @@ def delegation_unacknowledged_monitor():
                 ).all()
                 recipients = list({u.id for u in admins} | ({manager.id} if manager else set()))
                 for uid in recipients:
+                    # Dedup for the lifetime of the ticket, not just the unack
+                    # window — otherwise this refires every tick once the
+                    # window elapses, even though nothing changed.
                     dup = db.query(Notification).filter(
                         Notification.user_id == uid,
                         Notification.notif_type == 'TICKET_ESCALATION',
                         Notification.link == f'/tickets/{ticket.id}',
-                        Notification.created_at > (now - timedelta(hours=unack_hours)),
                     ).first()
                     if not dup:
                         db.add(Notification(

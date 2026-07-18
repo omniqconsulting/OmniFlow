@@ -28,7 +28,7 @@ from .database import (
     CostEntry, SalesOrderItem, StockReservation,
     Category, SubCategory, ProductSchemaField,
 )
-from .auth import require_admin, require_admin_or_redirect, get_nav_flags, has_module
+from .auth import require_admin_or_pm as require_admin, require_admin_or_pm_or_redirect as require_admin_or_redirect, get_nav_flags, has_module
 from .labels import get_labels
 from .constants import BULK_IMPORT_MAX_ROWS
 from .bulk_common import check_required_headers
@@ -2230,6 +2230,8 @@ def setup_flow_edit_get(
             "order": s.order,
             "color": s.color or "#3b82f6",
             "default_assignee_id": s.default_assignee_id or "",
+            "default_assignee_ids": (_jf.loads(s.default_assignee_ids_json) if s.default_assignee_ids_json else
+                                      ([s.default_assignee_id] if s.default_assignee_id else [])),
             "target_tat_hours": s.target_tat_hours,
             "target_tat_unit": s.target_tat_unit or "hours",
             "completion_note_required": s.completion_note_required,
@@ -2335,6 +2337,9 @@ async def setup_flow_create(
         if tat_unit not in ("minutes", "hours", "days"):
             tat_unit = "hours"
         cf = s.get("custom_fields", [])
+        assignee_ids = [a for a in (s.get("default_assignee_ids") or []) if a]
+        if not assignee_ids and s.get("default_assignee_id"):
+            assignee_ids = [s.get("default_assignee_id")]
         db.add(FMSStage(
             id=s.get("id") or new_id(),
             flow_id=flow.id,
@@ -2342,7 +2347,8 @@ async def setup_flow_create(
             name=sname,
             order=i,
             color=(s.get("color") or "#3b82f6").strip(),
-            default_assignee_id=s.get("default_assignee_id") or None,
+            default_assignee_id=(assignee_ids[0] if assignee_ids else None),
+            default_assignee_ids_json=(_jf.dumps(assignee_ids) if assignee_ids else None),
             target_tat_hours=tat,
             target_tat_unit=tat_unit,
             completion_note_required=bool(s.get("completion_note_required")),
@@ -2431,11 +2437,15 @@ async def setup_flow_update(
             tat_unit = "hours"
         cf = s.get("custom_fields", [])
         sid = s.get("id")
+        assignee_ids = [a for a in (s.get("default_assignee_ids") or []) if a]
+        if not assignee_ids and s.get("default_assignee_id"):
+            assignee_ids = [s.get("default_assignee_id")]
         if sid and sid in existing:
             stage = existing[sid]
             stage.name = sname
             stage.order = i
-            stage.default_assignee_id = s.get("default_assignee_id") or None
+            stage.default_assignee_id = assignee_ids[0] if assignee_ids else None
+            stage.default_assignee_ids_json = _jf.dumps(assignee_ids) if assignee_ids else None
             stage.target_tat_hours = tat
             stage.target_tat_unit = tat_unit
             stage.completion_note_required = bool(s.get("completion_note_required"))
@@ -2454,7 +2464,8 @@ async def setup_flow_update(
                 name=sname,
                 order=i,
                 color=(s.get("color") or "#3b82f6").strip(),
-                default_assignee_id=s.get("default_assignee_id") or None,
+                default_assignee_id=(assignee_ids[0] if assignee_ids else None),
+                default_assignee_ids_json=(_jf.dumps(assignee_ids) if assignee_ids else None),
                 target_tat_hours=tat,
                 target_tat_unit=tat_unit,
                 completion_note_required=bool(s.get("completion_note_required")),
@@ -2614,6 +2625,7 @@ def setup_flow_duplicate(
             target_tat_hours=s.target_tat_hours,
             target_tat_unit=s.target_tat_unit,
             default_assignee_id=s.default_assignee_id,
+            default_assignee_ids_json=s.default_assignee_ids_json,
             sub_module_tag=s.sub_module_tag,
             deployed_submodule_id=s.deployed_submodule_id,
             is_mandatory=s.is_mandatory,

@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from .database import get_db, User, EmployeeDocument, EmployeeGadget, EmployeeGadgetDocument
-from .auth import require_admin
+from .auth import require_admin_or_pm as require_admin
 from .uploads import save_upload
 
 router = APIRouter(prefix="/employees", tags=["Employee Documents & Gadgets"])
