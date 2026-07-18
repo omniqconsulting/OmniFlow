@@ -208,6 +208,13 @@ async def startup():
     # same alembic_version row), which is what caused the whatsapp_consent_events
     # "already exists" failure. Single call now; see create_tables().
     create_tables()
+    # Force SQLAlchemy to resolve every mapper/relationship now, at boot, instead
+    # of lazily on whichever request is first to touch a given join combination
+    # (e.g. /home's Ticket+TicketEvent+Customer+Notification join). A bad
+    # relationship then fails loudly in startup logs instead of as a 500 on a
+    # real user's first request after deploy.
+    from sqlalchemy.orm import configure_mappers
+    configure_mappers()
     # ── Auto column guard ─────────────────────────────────────────────────────
     # Introspects every SQLAlchemy model and adds any column that exists in the
     # model but is missing from the live PostgreSQL table.  This is permanently
@@ -1204,7 +1211,7 @@ def home_grouped(request: Request, user: User = Depends(get_current_user_or_redi
         tmpl = db.query(ChecklistTemplate).get(ca.template_id)
         activity.append({
             "icon": "✅", "kind": "op",
-            "title": f"{tmpl.name if tmpl else 'Checklist'} completed",
+            "title": f"{tmpl.title if tmpl else 'Checklist'} completed",
             "meta": actor.name, "ts": ca.completed_at,
         })
 
@@ -1238,7 +1245,7 @@ def home_grouped(request: Request, user: User = Depends(get_current_user_or_redi
         if len(seen_titles) >= 3:
             break
 
-    activity.sort(key=lambda a: a["ts"], reverse=True)
+    activity.sort(key=lambda a: a["ts"] or datetime.min, reverse=True)
     activity = activity[:6]
     for a in activity:
         a["rel"] = _relative_time(a["ts"])

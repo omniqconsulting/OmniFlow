@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Integer, Text, ForeignKey, Float, Date, JSON, UniqueConstraint
+from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Integer, Text, ForeignKey, Float, Date, JSON, UniqueConstraint, event
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, date
 import enum, uuid, os
@@ -17,6 +17,15 @@ else:
     _DB_FILE      = os.path.join(_PROJECT_ROOT, "omniflow.db")
     DATABASE_URL  = f"sqlite:///{_DB_FILE}"
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_wal(dbapi_connection, connection_record):
+        # WAL lets readers proceed while a writer (e.g. the login-event commit)
+        # is mid-transaction, instead of raising "database is locked" on the
+        # very next request — SQLite dev only, no effect on the Postgres branch.
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
