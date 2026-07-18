@@ -102,8 +102,8 @@ def require_manager_or_redirect(user: User = Depends(get_current_user_or_redirec
 
 def get_user_modules(user) -> list:
     """Return list of module tags accessible to this user.
-    Admin and Manager always get all modules."""
-    if user.role in ("ADMIN", "MANAGER"):
+    Admin, Manager and Product Manager always get all modules."""
+    if user.role in ("ADMIN", "MANAGER", "PRODUCT_MANAGER"):
         return ["SALES", "INVENTORY"]
     try:
         return _json.loads(user.module_access_json or "[]")
