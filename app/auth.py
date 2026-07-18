@@ -114,17 +114,19 @@ def has_module(user, module: str) -> bool:
     return module in get_user_modules(user)
 
 
-def get_user_tabs(user, tenant, db: Session = None) -> list:
+def get_user_tabs(user, tenant, db: Session = None, for_setup: bool = False) -> list:
     """Effective nav tabs visible to this user, constrained by tenant-enabled tabs.
     ADMIN and users with no tab_access_json set (None) get every tenant-enabled
     tab — restriction is opt-in per employee/manager. PRODUCT_MANAGER is a
     fixed, non-configurable scope (Setup + Employees only, handled outside
     the nav-tabs list), so it never inherits the "no tab_access_json = all
-    tabs" default."""
+    tabs" default — except within Setup itself (for_setup=True), where PM
+    must see the same tenant-enabled modules (e.g. Flows) as ADMIN so the
+    Setup page reconciles exactly between the two roles."""
     from .constants import get_tenant_enabled_tabs
     tenant_tabs = get_tenant_enabled_tabs(tenant, db)
     if user.role == "PRODUCT_MANAGER":
-        return []
+        return tenant_tabs if for_setup else []
     if user.role == "ADMIN" or not user.tab_access_json:
         return tenant_tabs
     try:
@@ -134,7 +136,7 @@ def get_user_tabs(user, tenant, db: Session = None) -> list:
     return [t for t in tenant_tabs if t in selected]
 
 
-def get_nav_flags(db: Session, user, tenant=None) -> dict:
+def get_nav_flags(db: Session, user, tenant=None, for_setup: bool = False) -> dict:
     """Return nav feature flags for base.html — the single source of truth for
     which tabs are visible, shared by every blueprint so the nav bar stays
     consistent no matter which route rendered the current page."""
@@ -146,7 +148,7 @@ def get_nav_flags(db: Session, user, tenant=None) -> dict:
         t = tenant or db.query(_Tenant).filter(_Tenant.id == user.tenant_id).first()
         modules = get_user_modules(user)
         # Per-employee/manager tab access — falls back to every tenant-enabled tab when unset
-        user_tabs = get_user_tabs(user, t, db) if t else []
+        user_tabs = get_user_tabs(user, t, db, for_setup=for_setup) if t else []
         return {
             "has_inventory":         has_feature(t, "INVENTORY",       db) if t else False,
             "has_tickets":           "TICKETS"    in user_tabs,
