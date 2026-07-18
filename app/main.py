@@ -682,7 +682,7 @@ def login(request: Request, slug: str = Form(...), phone: str = Form(...),
     db.add(LoginEvent(tenant_id=tenant.id, user_id=user.id))
     db.commit()
     token = create_token(user.id, tenant.id, user.role)
-    landing = "/dashboard"
+    landing = "/home" if user.role in ("ADMIN", "MANAGER") else "/dashboard"
     resp = redirect(landing)
     resp.set_cookie("token", token, httponly=True, max_age=86400)
     return resp
@@ -1150,6 +1150,104 @@ def _calc_dept_health(db, tid, date_from_str, date_to_str):
         rate = round(on_time / len(closed) * 100)
         result.append({"dept_id": d.id, "name": d.name, "rate": rate})
     return sorted(result, key=lambda x: x["rate"])
+
+
+def _relative_time(ts) -> str:
+    secs = (datetime.utcnow() - ts).total_seconds()
+    if secs < 60: return "just now"
+    if secs < 3600: return f"{int(secs // 60)}m ago"
+    if secs < 86400: return f"{int(secs // 3600)}h ago"
+    return f"{int(secs // 86400)}d ago"
+
+
+@app.get("/home", response_class=HTMLResponse)
+def home_grouped(request: Request, user: User = Depends(get_current_user_or_redirect),
+                  db: Session = Depends(get_db)):
+    """C1 — grouped post-login landing page for ADMIN/MANAGER. Pure nav/landing
+    restructuring: every box links to an existing, unchanged internal page.
+    EMPLOYEE/PRODUCT_MANAGER keep their existing flat landing (/dashboard)."""
+    if user.role not in ("ADMIN", "MANAGER"):
+        return redirect("/dashboard")
+    tenant = db.query(Tenant).get(user.tenant_id)
+    if not getattr(tenant, "is_approved", True):
+        return redirect("/pending")
+    tid = user.tenant_id
+
+    # Managers are locked to their own team — same pattern used for the
+    # checklist auto-repair query above.
+    team_ids = None
+    if user.role == "MANAGER":
+        team_ids = [u.id for u in db.query(User).filter(
+            User.manager_id == user.id, User.is_deleted == False).all()]
+        team_ids.append(user.id)
+
+    activity = []
+
+    ev_q = db.query(TicketEvent, Ticket, User).join(
+        Ticket, TicketEvent.ticket_id == Ticket.id
+    ).join(User, TicketEvent.actor_id == User.id).filter(Ticket.tenant_id == tid)
+    if team_ids:
+        ev_q = ev_q.filter(TicketEvent.actor_id.in_(team_ids))
+    for ev, tk, actor in ev_q.order_by(TicketEvent.created_at.desc()).limit(5).all():
+        activity.append({
+            "icon": "🎫", "kind": "op",
+            "title": f"{tk.title[:40]} — {ev.event_type.replace('_', ' ').title()}",
+            "meta": actor.name, "ts": ev.created_at,
+        })
+
+    cl_q = db.query(ChecklistAssignment, User).join(
+        User, ChecklistAssignment.user_id == User.id
+    ).filter(ChecklistAssignment.tenant_id == tid, ChecklistAssignment.completed_at.isnot(None))
+    if team_ids:
+        cl_q = cl_q.filter(ChecklistAssignment.user_id.in_(team_ids))
+    for ca, actor in cl_q.order_by(ChecklistAssignment.completed_at.desc()).limit(5).all():
+        tmpl = db.query(ChecklistTemplate).get(ca.template_id)
+        activity.append({
+            "icon": "✅", "kind": "op",
+            "title": f"{tmpl.name if tmpl else 'Checklist'} completed",
+            "meta": actor.name, "ts": ca.completed_at,
+        })
+
+    if has_feature(tenant, "SALES_MODULE", db):
+        from .database import Customer
+        cx_q = db.query(Customer, User).outerjoin(
+            User, Customer.created_by_id == User.id
+        ).filter(Customer.tenant_id == tid, Customer.is_deleted == False)
+        if team_ids:
+            cx_q = cx_q.filter(Customer.created_by_id.in_(team_ids))
+        for cust, actor in cx_q.order_by(Customer.created_at.desc()).limit(5).all():
+            activity.append({
+                "icon": "🤝", "kind": "crm",
+                "title": f"New customer added: {cust.name}",
+                "meta": actor.name if actor else "—", "ts": cust.created_at,
+            })
+
+    nq = db.query(Notification).filter(
+        Notification.tenant_id == tid, Notification.notif_type == "LOW_STOCK_ALERT")
+    if team_ids:
+        nq = nq.filter(Notification.user_id.in_(team_ids))
+    seen_titles = set()
+    for n in nq.order_by(Notification.created_at.desc()).limit(15).all():
+        if n.title in seen_titles:
+            continue
+        seen_titles.add(n.title)
+        activity.append({
+            "icon": "📦", "kind": "sales",
+            "title": n.title, "meta": n.body or "", "ts": n.created_at,
+        })
+        if len(seen_titles) >= 3:
+            break
+
+    activity.sort(key=lambda a: a["ts"], reverse=True)
+    activity = activity[:6]
+    for a in activity:
+        a["rel"] = _relative_time(a["ts"])
+
+    return templates.TemplateResponse(request, "home_grouped.html", {
+        "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
+        **_nav_ctx(db, user, tenant=tenant),
+        "activity": activity,
+    })
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
