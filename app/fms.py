@@ -417,15 +417,6 @@ def _mark_completed_by(ticket, user_id: str) -> None:
     if ticket.status == "COMPLETED" and not ticket.completed_by_id:
         ticket.completed_by_id = user_id
 
-def _can_create_on_flow(user: User, flow: FMSFlow) -> bool:
-    """Ticket creation is normally manager/admin-only, but a flow's 'Allowed
-    Employees' whitelist (restrict_to_assignee + allowed_opener_ids_json —
-    set up to let specific employees open/act on that flow's tickets) is
-    meant to fully unlock the flow for them, including creating new tickets
-    in it — not just acting on existing ones. An employee not on any such
-    whitelist still can't create; the whitelist is what grants the
-    permission, not the absence of a restriction."""
-
 def _can_create_in_flow(user: User, flow) -> bool:
     """Ticket creation is normally manager/admin-only, but a flow's
     'Allowed Employees' whitelist (restrict_to_assignee +
@@ -2430,13 +2421,6 @@ def _fms_dashboard_inner(
         if row.get("split_id") and row.get("split_last_cumulative") is not None
     })
 
-    # Employee create-ticket permission: gated by the flow's own
-    # restrict_to_assignee/allowed_opener_ids_json setup, not a blanket
-    # role check — see _can_create_on_flow.
-    can_create_ticket = user.role in ("ADMIN", "MANAGER") or (
-        active_flow is not None and _can_create_on_flow(user, active_flow)
-    )
-
     template_name = "fms/dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "fms/dashboard.html"
     return templates.TemplateResponse(request, template_name, _ctx(
         request, user, db,
@@ -2492,7 +2476,6 @@ def _fms_dashboard_inner(
         f_date_to=date_to or "",
         employees=employees,
         entity_options=entity_options,
-        can_create_ticket=can_create_ticket,
         # role-relative ticket classification for employee board symbols
         emp_upcoming_ids=emp_upcoming_ids,
         emp_all_fms_ids=emp_all_fms_ids,
