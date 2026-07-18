@@ -58,8 +58,44 @@ html.light {
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg-base);display:flex;align-items:center;justify-content:center;min-height:100vh;color:var(--text-primary);transition:background .2s,color .2s}
+body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg-base);display:flex;align-items:stretch;justify-content:center;min-height:100vh;color:var(--text-primary);transition:background .2s,color .2s}
+.login-shell{display:flex;width:100%;min-height:100vh}
+.brand-panel{
+  flex:1 1 50%; display:flex; flex-direction:column; justify-content:center; gap:36px;
+  padding:56px 64px; background:linear-gradient(160deg,#0B1120 0%,#151f38 55%,#1a1440 100%);
+  color:#e8ecf7; position:relative; overflow:hidden;
+}
+.brand-panel::before{
+  content:''; position:absolute; top:-120px; right:-120px; width:320px; height:320px;
+  border-radius:50%; background:radial-gradient(circle,rgba(45,212,191,0.28),transparent 70%);
+  filter:blur(10px);
+}
+.brand-panel::after{
+  content:''; position:absolute; bottom:-140px; left:-100px; width:300px; height:300px;
+  border-radius:50%; background:radial-gradient(circle,rgba(102,87,242,0.30),transparent 70%);
+  filter:blur(10px);
+}
+.brand-panel > *{position:relative;z-index:1}
+.brand-word{font-size:26px;font-weight:700;letter-spacing:-0.4px}
+.brand-tag{font-size:14px;color:#a9b4d0;margin-top:6px;max-width:360px;line-height:1.5}
+.brand-features{display:flex;flex-direction:column;gap:16px;margin-top:8px}
+.brand-feature{display:flex;align-items:flex-start;gap:12px}
+.brand-feature .bf-icon{
+  width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+  font-size:16px;flex-shrink:0;background:rgba(255,255,255,0.08);
+}
+.brand-feature .bf-text strong{display:block;font-size:13.5px;font-weight:600;color:#f2f4fb}
+.brand-feature .bf-text span{font-size:12px;color:#9aa5c4;line-height:1.4}
+.brand-chart{margin-top:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:18px 20px}
+.brand-chart-label{font-size:11px;text-transform:uppercase;letter-spacing:0.07em;color:#8b96b8;margin-bottom:12px}
+.brand-bars{display:flex;align-items:flex-end;gap:8px;height:64px}
+.brand-bars i{display:block;flex:1;border-radius:5px 5px 2px 2px;background:linear-gradient(180deg,#2DD4BF,#6657F2)}
+.login-side{flex:1 1 50%;display:flex;align-items:center;justify-content:center;padding:40px 24px}
 .wrap{width:360px}
+@media (max-width: 860px){
+  .brand-panel{display:none}
+  .login-side{flex:1 1 100%}
+}
 .logo-row{text-align:center;margin-bottom:32px}
 .logo{font-size:22px;font-weight:700;color:var(--text-strong);letter-spacing:-0.4px}
 .logo-sub{font-size:13px;color:var(--text-faint);margin-top:4px}
@@ -115,7 +151,36 @@ html.light .error{color:#dc2626}
 </head>
 <body>
 <button class="theme-toggle" id="themeBtn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
-<div class="wrap">
+<div class="login-shell">
+  <div class="brand-panel">
+    <div>
+      <div class="brand-word">OmniFlow</div>
+      <div class="brand-tag">The accountability platform that keeps every ticket, checklist and delegation moving — visible, on time, on record.</div>
+    </div>
+    <div class="brand-features">
+      <div class="brand-feature">
+        <div class="bf-icon">🔀</div>
+        <div class="bf-text"><strong>Flow Board</strong><span>Track work end-to-end across custom pipelines</span></div>
+      </div>
+      <div class="brand-feature">
+        <div class="bf-icon">✅</div>
+        <div class="bf-text"><strong>Checklists &amp; Delegations</strong><span>Nothing slips — recurring routines, owned and timestamped</span></div>
+      </div>
+      <div class="brand-feature">
+        <div class="bf-icon">📈</div>
+        <div class="bf-text"><strong>Sales &amp; Inventory Insights</strong><span>Live margins, stock and performance in one place</span></div>
+      </div>
+    </div>
+    <div class="brand-chart">
+      <div class="brand-chart-label">Team activity, this week</div>
+      <div class="brand-bars">
+        <i style="height:42%"></i><i style="height:58%"></i><i style="height:38%"></i>
+        <i style="height:71%"></i><i style="height:64%"></i><i style="height:88%"></i><i style="height:76%"></i>
+      </div>
+    </div>
+  </div>
+  <div class="login-side">
+  <div class="wrap">
   <div class="logo-row">
     <div class="logo">OmniFlow</div>
     <div class="logo-sub">Workforce accountability platform</div>
@@ -150,6 +215,8 @@ html.light .error{color:#dc2626}
       <span class="footer-sep">·</span>
       <a href="/register">Create new account</a>
     </div>
+  </div>
+  </div>
   </div>
 </div>
 

@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.home-hero {
+  position: relative; overflow: hidden; margin: 20px 4px 0; padding: 34px 36px;
+  border-radius: 20px; color: var(--text-primary);
+  background: linear-gradient(120deg, #eef1fb 0%, #f2ecf8 45%, #fdf1e7 100%);
+  border: 1px solid var(--border-subtle);
+}
+html.light .home-hero { background: linear-gradient(120deg, #eef2ff 0%, #f3ebfa 45%, #fdf2e9 100%); }
+html:not(.light) .home-hero {
+  background: linear-gradient(120deg, rgba(102,87,242,0.16) 0%, rgba(45,212,191,0.10) 45%, rgba(234,179,8,0.10) 100%);
+}
+.home-hero-inner { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.home-hero-text { max-width: 480px; }
+.home-hero-eyebrow {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em; color: #fff;
+  background: #0B1120; border-radius: 999px; padding: 5px 12px; margin-bottom: 14px;
+}
+.home-hero-text h1 { font-size: 26px; font-weight: 800; margin: 0 0 10px; color: var(--text-primary); }
+.home-hero-text p { font-size: 13.5px; color: var(--text-muted); line-height: 1.55; margin: 0; }
+.home-hero-art { position: relative; width: 190px; height: 130px; flex-shrink: 0; }
+.hha-node {
+  position: absolute; border-radius: 14px; display: flex; align-items: center; justify-content: center;
+  font-size: 19px; box-shadow: 0 10px 22px rgba(30,20,60,0.16);
+}
+.hha-node.n1 { top: 0; right: 74px; width: 50px; height: 50px; background: linear-gradient(135deg,#2DD4BF,#0ea5a0); }
+.hha-node.n2 { top: 40px; right: 0; width: 56px; height: 56px; background: linear-gradient(135deg,#6657F2,#4c3fc9); }
+.hha-node.n3 { top: 88px; right: 48px; width: 44px; height: 44px; background: linear-gradient(135deg,#3b82f6,#2563eb); }
+
+.home-box-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 22px;
+  padding: 28px 4px;
+}
+.home-box {
+  position: relative; display: flex; flex-direction: column; gap: 16px;
+  padding: 34px 30px; border-radius: 18px; text-decoration: none; min-height: 200px;
+  justify-content: flex-end;
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+.home-box:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(102, 87, 242, 0.14);
+  border-color: rgba(102, 87, 242, 0.32);
+}
+.home-box .hb-icon {
+  width: 58px; height: 58px; border-radius: 15px; display: flex; align-items: center;
+  justify-content: center; font-size: 28px;
+}
+.home-box .hb-title { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.home-box .hb-sub { font-size: 13.5px; color: var(--text-muted); line-height: 1.45; }
+.hb-icon.op   { background: rgba(45, 212, 191, 0.14);  color: #2DD4BF; }
+.hb-icon.crm  { background: rgba(102, 87, 242, 0.14);  color: #6657F2; }
+.hb-icon.sales{ background: rgba(59, 130, 246, 0.14);  color: #3b82f6; }
+.hb-icon.org  { background: rgba(234, 179, 8, 0.14);   color: #eab308; }
+.hb-icon.setup{ background: rgba(148, 163, 184, 0.16); color: #64748b; }
+html.light .home-box { box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+
+.home-activity {
+  background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 16px;
+  padding: 22px 26px 8px; margin: 4px 4px 32px;
+}
+.home-activity-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.home-activity-hdr h2 { font-size: 15px; font-weight: 700; color: var(--text-primary); margin: 0; }
+.home-activity-hdr a { font-size: 12.5px; color: #6657F2; text-decoration: none; font-weight: 600; }
+.home-activity-hdr a:hover { text-decoration: underline; }
+.home-activity-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+.home-activity-item { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-top: 1px solid var(--border-subtle); }
+.home-activity-icon {
+  width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+  font-size: 15px; flex-shrink: 0;
+}
+.home-activity-icon.op   { background: rgba(45, 212, 191, 0.14); }
+.home-activity-icon.crm  { background: rgba(102, 87, 242, 0.14); }
+.home-activity-icon.sales{ background: rgba(59, 130, 246, 0.14); }
+.home-activity-text { flex: 1; min-width: 0; }
+.home-activity-title { font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-activity-meta { font-size: 11.5px; color: var(--text-muted); }
+.home-activity-ts { font-size: 11px; color: var(--text-faint, var(--text-muted)); flex-shrink: 0; }
+.home-activity-empty { padding: 24px 0; text-align: center; color: var(--text-muted); font-size: 13px; }
+@media (max-width: 720px) {
+  .home-activity-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .home-hero { padding: 26px 22px; }
+  .home-hero-art { display: none; }
+  .home-box-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+  .home-box { min-height: 130px; padding: 18px 16px; }
+}
+</style>
+
+<div class="home-hero">
+  <div class="home-hero-inner">
+    <div class="home-hero-text">
+      <span class="home-hero-eyebrow">✦ OmniFlow</span>
+      <h1>Welcome back, {{ user.name.split(' ')[0] if user.name else 'there' }} 👋</h1>
+      <p>{{ L.Tickets if L is defined else 'Tickets' }}, checklists, customers, inventory, and your people — every part of the business, organised into one place. Pick a section below to get started.</p>
+    </div>
+    <div class="home-hero-art">
+      <div class="hha-node n1">🔀</div>
+      <div class="hha-node n2">✅</div>
+      <div class="hha-node n3">📊</div>
+    </div>
+  </div>
+</div>
+
+<div class="home-box-grid">
+  <a class="home-box" href="/dashboard">
+    <div class="hb-icon op">🧭</div>
+    <div class="hb-title">Operations</div>
+    <div class="hb-sub">Dashboard, {{ L.Tickets if L is defined else 'Tickets' }}, Checklists &amp; Flow Board</div>
+  </a>
+
+  {% if has_sales %}
+  <a class="home-box" href="/sales/contacts">
+    <div class="hb-icon crm">🤝</div>
+    <div class="hb-title">CRM</div>
+    <div class="hb-sub">Customers, contacts &amp; accounts</div>
+  </a>
+  {% endif %}
+
+  {% if has_sales or has_inventory_module or has_sales_analytics %}
+  <a class="home-box" href="/inventory-v2">
+    <div class="hb-icon sales">📦</div>
+    <div class="hb-title">Sales &amp; Inventory</div>
+    <div class="hb-sub">Stock, orders &amp; sales insights</div>
+  </a>
+  {% endif %}
+
+  <a class="home-box" href="/employees">
+    <div class="hb-icon org">👥</div>
+    <div class="hb-title">Organization</div>
+    <div class="hb-sub">{{ L.Employees if L is defined else 'Employees' }}{% if has_knowledge_repo %} &amp; Training{% endif %}</div>
+  </a>
+
+  {% if user.role == 'ADMIN' %}
+  <a class="home-box" href="/setup">
+    <div class="hb-icon setup">⚙️</div>
+    <div class="hb-title">Setup</div>
+    <div class="hb-sub">Configuration &amp; preferences</div>
+  </a>
+  {% endif %}
+</div>
+
+<div class="home-activity">
+  <div class="home-activity-hdr">
+    <h2>Recent activity</h2>
+    <a href="/dashboard">View all</a>
+  </div>
+  {% if activity %}
+  <div class="home-activity-grid">
+    {% for a in activity %}
+    <div class="home-activity-item">
+      <div class="home-activity-icon {{ a.kind }}">{{ a.icon }}</div>
+      <div class="home-activity-text">
+        <div class="home-activity-title">{{ a.title }}</div>
+        <div class="home-activity-meta">{{ a.meta }}</div>
+      </div>
+      <div class="home-activity-ts">{{ a.rel }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="home-activity-empty">Nothing to show yet — activity will appear here as your team gets to work.</div>
+  {% endif %}
+</div>
+{% endblock %}

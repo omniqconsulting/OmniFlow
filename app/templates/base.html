@@ -59,45 +59,124 @@
     <a href="/logout" class="am-item"><span class="am-icon">↪️</span>Logout</a>
   </div>
 </div>
+{# ── Grouped nav (C1 follow-up): Admin/Manager see only the tabs belonging
+   to the section they're currently in, plus a switcher to jump straight
+   to any other section from anywhere. Employee/Product Manager keep the
+   original flat nav, unchanged. #}
+{% set path = request.url.path %}
+{% set active_group = '' %}
+{% if user.role in ('ADMIN','MANAGER') %}
+  {% if path.startswith('/dashboard') or path.startswith('/my-tasks') or path.startswith('/tickets') or path.startswith('/checklists') or path.startswith('/fms') %}
+    {% set active_group = 'operations' %}
+  {% elif path.startswith('/sales/contacts') %}
+    {% set active_group = 'crm' %}
+  {% elif path.startswith('/inventory-v2') or path.startswith('/sales/orders') or path.startswith('/sales/analytics') or path.startswith('/sales/pricing') %}
+    {% set active_group = 'sales_inventory' %}
+  {% elif path.startswith('/employees') or path.startswith('/knowledge') %}
+    {% set active_group = 'organization' %}
+  {% elif path.startswith('/setup') %}
+    {% set active_group = 'setup' %}
+  {% endif %}
+<style>
+.group-switch { position: relative; margin-right: 6px; }
+.group-switch-btn {
+  display: flex; align-items: center; gap: 6px; background: var(--hover-bg, rgba(0,0,0,0.04));
+  border: 1px solid var(--border-subtle); border-radius: 8px; padding: 7px 12px;
+  font-size: 13px; font-weight: 600; color: var(--text-primary); cursor: pointer; font-family: inherit;
+}
+.group-switch-btn:hover { border-color: rgba(102,87,242,0.4); }
+.group-switch-menu {
+  display: none; position: absolute; top: calc(100% + 6px); left: 0; min-width: 200px;
+  background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.18); padding: 6px; z-index: 200;
+}
+.group-switch-menu.open { display: block; }
+.group-switch-menu a {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 7px;
+  font-size: 13px; color: var(--text-primary); text-decoration: none;
+}
+.group-switch-menu a:hover { background: var(--hover-bg, rgba(0,0,0,0.05)); }
+.group-switch-menu a.current { color: #6657F2; font-weight: 600; }
+</style>
+{% endif %}
 <nav class="nav">
-  <span class="logo">OmniFlow</span>
+  <a class="logo" href="{{ '/home' if user.role in ('ADMIN','MANAGER') else '/dashboard' }}" style="text-decoration:none;color:inherit">OmniFlow</a>
+  {% if user.role in ('ADMIN','MANAGER') %}
+  <div class="group-switch">
+    <button type="button" class="group-switch-btn" onclick="document.getElementById('groupSwitchMenu').classList.toggle('open')">
+      {% if active_group=='operations' %}🧭 Operations
+      {% elif active_group=='crm' %}🤝 CRM
+      {% elif active_group=='sales_inventory' %}📦 Sales &amp; Inventory
+      {% elif active_group=='organization' %}👥 Organization
+      {% elif active_group=='setup' %}⚙️ Setup
+      {% else %}☰ Sections{% endif %} ▾
+    </button>
+    <div class="group-switch-menu" id="groupSwitchMenu">
+      <a href="/dashboard" class="{% if active_group=='operations' %}current{% endif %}">🧭 Operations</a>
+      {% if has_sales %}<a href="/sales/contacts" class="{% if active_group=='crm' %}current{% endif %}">🤝 CRM</a>{% endif %}
+      {% if has_sales or has_inventory_module or has_sales_analytics %}<a href="/inventory-v2" class="{% if active_group=='sales_inventory' %}current{% endif %}">📦 Sales &amp; Inventory</a>{% endif %}
+      <a href="/employees" class="{% if active_group=='organization' %}current{% endif %}">👥 Organization</a>
+      {% if user.role == 'ADMIN' %}<a href="/setup" class="{% if active_group=='setup' %}current{% endif %}">⚙️ Setup</a>{% endif %}
+    </div>
+  </div>
+  {% if active_group == 'operations' %}
+    <a href="/dashboard" {% if path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
+    <a href="/my-tasks" {% if '/my-tasks' in path %}class="active"{% endif %}>My Tasks</a>
+    {% if has_tickets is not defined or has_tickets %}
+    <a href="/tickets" {% if '/tickets' in path %}class="active"{% endif %}>{{ L.Tickets if L is defined else 'Tickets' }}</a>
+    {% endif %}
+    {% if has_checklists %}
+    <a href="/checklists" {% if '/checklists' in path %}class="active"{% endif %}>{{ L.Checklists if L is defined else 'Checklists' }}</a>
+    {% endif %}
+    {% if has_fms %}
+    <a href="/fms/dashboard" {% if '/fms' in path %}class="active"{% endif %}>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a>
+    {% endif %}
+  {% elif active_group == 'crm' %}
+    <a href="/sales/contacts" class="active">Customers</a>
+  {% elif active_group == 'sales_inventory' %}
+    {% if has_inventory_module %}<a href="/inventory-v2" {% if '/inventory-v2' in path %}class="active"{% endif %}>Inventory</a>{% endif %}
+    {% if has_sales %}<a href="/sales/orders" {% if '/sales/orders' in path %}class="active"{% endif %}>Sell</a>{% endif %}
+    {% if has_sales_analytics %}<a href="/sales/analytics" {% if '/sales/analytics' in path %}class="active"{% endif %}>Sales Insights</a>{% endif %}
+  {% elif active_group == 'organization' %}
+    <a href="/employees" {% if '/employees' in path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>
+    {% if has_knowledge_repo %}<a href="/knowledge" {% if '/knowledge' in path %}class="active"{% endif %}>Training</a>{% endif %}
+  {% elif active_group == 'setup' %}
+    <a href="/setup" class="active">Setup</a>
+  {% endif %}
+  {% else %}
+  {# Employee / Product Manager — original flat nav, unchanged #}
   {% if user.role != 'PRODUCT_MANAGER' %}
-  <a href="/dashboard" {% if request.url.path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
-  <a href="/my-tasks" {% if '/my-tasks' in request.url.path %}class="active"{% endif %}>My Tasks</a>
+  <a href="/dashboard" {% if path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
+  <a href="/my-tasks" {% if '/my-tasks' in path %}class="active"{% endif %}>My Tasks</a>
   {% endif %}
   {% if has_tickets is not defined or has_tickets %}
-  <a href="/tickets" {% if '/tickets' in request.url.path %}class="active"{% endif %}>{{ L.Tickets if L is defined else 'Tickets' }}</a>
+  <a href="/tickets" {% if '/tickets' in path %}class="active"{% endif %}>{{ L.Tickets if L is defined else 'Tickets' }}</a>
   {% endif %}
   {% if has_checklists %}
-  <a href="/checklists" {% if '/checklists' in request.url.path %}class="active"{% endif %}>{{ L.Checklists if L is defined else 'Checklists' }}</a>
+  <a href="/checklists" {% if '/checklists' in path %}class="active"{% endif %}>{{ L.Checklists if L is defined else 'Checklists' }}</a>
   {% endif %}
   {% if has_fms %}
-  <a href="/fms/dashboard" {% if '/fms' in request.url.path %}class="active"{% endif %}>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a>
+  <a href="/fms/dashboard" {% if '/fms' in path %}class="active"{% endif %}>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a>
   {% endif %}
   {% if has_knowledge_repo %}
-  <a href="/knowledge" {% if '/knowledge' in request.url.path %}class="active"{% endif %}>Training</a>
+  <a href="/knowledge" {% if '/knowledge' in path %}class="active"{% endif %}>Training</a>
   {% endif %}
   {% if has_sales %}
-  <a href="/sales/contacts" id="nav-sales-customers" {% if '/sales/contacts' in request.url.path %}class="active"{% endif %}>Customers</a>
-  <a href="/sales/orders" id="nav-sales-sell" {% if '/sales/orders' in request.url.path %}class="active"{% endif %}>Sell</a>
+  <a href="/sales/contacts" id="nav-sales-customers" {% if '/sales/contacts' in path %}class="active"{% endif %}>Customers</a>
+  <a href="/sales/orders" id="nav-sales-sell" {% if '/sales/orders' in path %}class="active"{% endif %}>Sell</a>
   {% endif %}
   {% if has_sales_analytics %}
-  <a href="/sales/analytics" id="nav-sales-insights" {% if '/sales/analytics' in request.url.path %}class="active"{% endif %}>Sales Insights</a>
+  <a href="/sales/analytics" id="nav-sales-insights" {% if '/sales/analytics' in path %}class="active"{% endif %}>Sales Insights</a>
   {% endif %}
   {% if has_inventory_module %}
-  <a href="/inventory-v2" {% if '/inventory-v2' in request.url.path %}class="active"{% endif %}>Inventory</a>
+  <a href="/inventory-v2" {% if '/inventory-v2' in path %}class="active"{% endif %}>Inventory</a>
   {% endif %}
   {% if user.role in ('ADMIN','MANAGER','PRODUCT_MANAGER') %}
-  <a href="/employees" {% if '/employees' in request.url.path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>
+  <a href="/employees" {% if '/employees' in path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>
   {% endif %}
   {% if user.role in ('ADMIN','PRODUCT_MANAGER') %}
-  <a href="/setup" {% if '/setup' in request.url.path %}class="active"{% endif %}>Setup</a>
+  <a href="/setup" {% if '/setup' in path %}class="active"{% endif %}>Setup</a>
   {% endif %}
-  {% if user.role == 'ADMIN' %}
-  <a href="/plan"  {% if '/plan'  in request.url.path or '/help' in request.url.path %}class="active"{% endif %}>Contact Us</a>
-  {% endif %}
-  {% if user.role == 'ADMIN' %}
-  <a href="/ai" class="ai-pill {% if '/ai' in request.url.path %}active{% endif %}">✦ Ask AI</a>
   {% endif %}
   <span class="spacer"></span>
   <!-- Phase 1: WS connection status dot -->
@@ -114,6 +193,23 @@
   <a href="/logout" class="logout">Logout</a>
 </nav>
 {% include "partials/bottom_nav.html" %}
+{% endif %}
+{% if user and user.role == 'ADMIN' %}
+<a href="/ai" class="ai-fab {% if '/ai' in request.url.path %}active{% endif %}" title="Ask AI">✦ Ask AI</a>
+<style>
+.ai-fab {
+  position: fixed; right: 22px; bottom: 22px; z-index: 500;
+  display: flex; align-items: center; gap: 6px;
+  padding: 12px 18px; border-radius: 999px; text-decoration: none;
+  font-size: 13px; font-weight: 650; color: #fff;
+  background: linear-gradient(135deg, #6657F2, #2DD4BF);
+  box-shadow: 0 6px 20px rgba(102, 87, 242, 0.4);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.ai-fab:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(102, 87, 242, 0.5); }
+.ai-fab.active { outline: 2px solid rgba(255,255,255,0.5); outline-offset: 2px; }
+@media (max-width: 640px) { .ai-fab { bottom: 76px; right: 16px; padding: 10px 14px; } }
+</style>
 {% endif %}
 <div class="container{% block container_class %}{% endblock %}">{% block content %}{% endblock %}</div>
 
