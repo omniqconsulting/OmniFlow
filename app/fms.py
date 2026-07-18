@@ -1277,6 +1277,7 @@ def _fms_dashboard_inner(
 ):
     tid = user.tenant_id
     now = datetime.utcnow()
+    tenant = db.query(Tenant).get(tid)
 
     # All active flows for this tenant
     all_flows = db.query(FMSFlow).filter(
@@ -1881,25 +1882,44 @@ def _fms_dashboard_inner(
             # to before (their one split mirrors current_stage_id). Multi-split
             # tickets now correctly show up under every stage they have a live
             # split in.
-            _stage_split_ticket_ids = [
-                row[0] for row in db.query(FMSTicketSplit.ticket_id).filter(
-                    FMSTicketSplit.current_stage_id == active_stage.id,
-                    FMSTicketSplit.is_deleted == False,
-                    FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
-                ).distinct()
-            ]
+            _stage_splits_here = db.query(
+                FMSTicketSplit.ticket_id, FMSTicketSplit.current_assignee_id
+            ).filter(
+                FMSTicketSplit.current_stage_id == active_stage.id,
+                FMSTicketSplit.is_deleted == False,
+                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+            ).all()
+            _stage_split_ticket_ids = list({row[0] for row in _stage_splits_here})
+            # Ticket -> set of assignee ids among the splits actually parked at
+            # THIS stage, so role/assignee scoping can check who owns the work
+            # sitting here, not just the ticket's ticket-wide cached assignee
+            # (which mirrors whichever split is furthest along for multi-split
+            # tickets and can misrepresent ownership at earlier stages).
+            _stage_split_assignees_by_ticket: dict = {}
+            for _tid_row, _aid_row in _stage_splits_here:
+                _stage_split_assignees_by_ticket.setdefault(_tid_row, set()).add(_aid_row)
             q = db.query(FMSTicket).filter(
                 FMSTicket.id.in_(_stage_split_ticket_ids),
                 FMSTicket.is_deleted == False,
                 FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
             ) if _stage_split_ticket_ids else db.query(FMSTicket).filter(FMSTicket.id == None)
             if user.role == "MANAGER":
+                _stage_team_ticket_ids = {
+                    t_id for t_id, aids in _stage_split_assignees_by_ticket.items()
+                    if aids & set(team_ids)
+                }
                 q = q.filter(
+                    (FMSTicket.id.in_(_stage_team_ticket_ids)) |
                     (FMSTicket.current_assignee_id.in_(team_ids)) |
                     (FMSTicket.id.in_(mgr_all_fms_ids))
                 )
             elif user.role == "EMPLOYEE":
+                _stage_emp_ticket_ids = {
+                    t_id for t_id, aids in _stage_split_assignees_by_ticket.items()
+                    if user.id in aids
+                }
                 q = q.filter(
+                    (FMSTicket.id.in_(_stage_emp_ticket_ids)) |
                     (FMSTicket.current_assignee_id == user.id) |
                     (FMSTicket.id.in_(emp_all_fms_ids))
                 )
@@ -1920,7 +1940,14 @@ def _fms_dashboard_inner(
             if priority_filter:
                 q = q.filter(FMSTicket.priority.in_(priority_filter))
             if filter_assignee_ids is not None:
-                q = q.filter(FMSTicket.current_assignee_id.in_(filter_assignee_ids))
+                _stage_filter_ticket_ids = {
+                    t_id for t_id, aids in _stage_split_assignees_by_ticket.items()
+                    if aids & set(filter_assignee_ids)
+                }
+                q = q.filter(
+                    (FMSTicket.id.in_(_stage_filter_ticket_ids)) |
+                    (FMSTicket.current_assignee_id.in_(filter_assignee_ids))
+                )
             if filter_date_from:
                 q = q.filter(FMSTicket.created_at >= filter_date_from)
             if filter_date_to:
