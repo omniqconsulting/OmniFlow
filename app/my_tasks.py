@@ -202,6 +202,9 @@ def my_tasks(request: Request,
              due: str = "",
              user: User = Depends(get_current_user_or_redirect),
              db: Session = Depends(get_db)):
+    if type not in KIND_META:
+        type = ""
+
     tid = user.tenant_id
     data = get_my_task_items(db, user, tid)
     now = datetime.utcnow()
@@ -211,9 +214,27 @@ def my_tasks(request: Request,
         queue = [i for i in queue if i["kind"] == type]
     if priority:
         queue = [i for i in queue if i["priority"] == priority]
+
+    due_counts = {"overdue": 0, "today": 0, "upcoming": 0}
+    for i in queue:
+        b = _due_bucket(i, now)
+        if b in due_counts:
+            due_counts[b] += 1
+    data["due_counts"] = due_counts
+
     if due:
         queue = [i for i in queue if _due_bucket(i, now) == due]
     data["action_queue"] = queue
+
+    data["total_pending"] = sum(data["counts"].values())
+    data["modules_count"] = sum(1 for v in data["counts"].values() if v > 0)
+    data["kind_counts"] = {
+        "delegation": data["counts"]["delegations"],
+        "ticket": data["counts"]["tickets"],
+        "fms": data["counts"]["fms"],
+        "checklist": data["counts"]["checklists"],
+        "sales_followup": data["counts"]["sales_followups"],
+    }
 
     # Group filtered items by kind so each module renders as its own
     # color-coded section (see KIND_META) instead of one flat table.
