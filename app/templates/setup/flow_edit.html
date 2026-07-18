@@ -658,10 +658,13 @@ function buildStageEl(s, i) {
   el.addEventListener('dragend',   onDragEnd);
 
   var defaultAssigneeIds = s.default_assignee_ids || (s.default_assignee_id ? [s.default_assignee_id] : []);
-  var assigneeOpts = EMPLOYEES.map(function(e) {
-      return '<option value="' + e.id + '"' + (defaultAssigneeIds.indexOf(e.id) !== -1 ? ' selected' : '') + '>' +
-             e.name + ' · ' + e.role + '</option>';
+  var assigneeItemsHtml = EMPLOYEES.map(function(e) {
+      return '<label class="ms-item">' +
+        '<input type="checkbox" value="' + e.id + '"' + (defaultAssigneeIds.indexOf(e.id) !== -1 ? ' checked' : '') + ' onchange="onStageAssigneeMsChange(' + i + ',this)">' +
+        _esc(e.name) + ' · ' + _esc(e.role) +
+        '</label>';
     }).join('');
+  var assigneeBtnLabel = defaultAssigneeIds.length ? defaultAssigneeIds.length + ' selected' : 'None';
 
   var tatUnit = s.target_tat_unit || 'hours';
   var tatVal = '';
@@ -725,10 +728,19 @@ function buildStageEl(s, i) {
         '</div>' +
         '<div class="fe-group">' +
           '<label class="fe-label">Default Assignee(s)</label>' +
-          '<select class="fe-input" multiple size="4" style="height:auto" ' +
-            'onchange="stages[' + i + '].default_assignee_ids=Array.from(this.selectedOptions).map(function(o){return o.value;});stages[' + i + '].default_assignee_id=stages[' + i + '].default_assignee_ids[0]||\'\'">' +
-            assigneeOpts + '</select>' +
-          '<div style="font-size:10px;color:var(--text-faint);margin-top:3px">Ctrl/Cmd-click to select more than one. Any of these may be the assignee when a ticket reaches this stage.</div>' +
+          '<div class="ms-wrap" data-placeholder="None">' +
+            '<button type="button" class="ms-btn" onclick="toggleMs(this)">' +
+              '<span class="ms-btn-text">' + assigneeBtnLabel + '</span><span class="ms-caret">▾</span>' +
+            '</button>' +
+            '<div class="ms-panel">' +
+              '<div class="ms-actions">' +
+                '<button type="button" onclick="stageAssigneeMsSelectAll(this,\'all\',' + i + ')">Select all</button>' +
+                '<button type="button" onclick="stageAssigneeMsSelectAll(this,\'none\',' + i + ')">None</button>' +
+              '</div>' +
+              assigneeItemsHtml +
+            '</div>' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--text-faint);margin-top:3px">Select one or more. Any of these may be the assignee when a ticket reaches this stage.</div>' +
         '</div>' +
         '<div class="fe-group">' +
           '<label class="fe-label">Target TaT</label>' +
@@ -797,6 +809,29 @@ function buildStageEl(s, i) {
   });
 
   return el;
+}
+
+function onStageAssigneeMsChange(i, chk) {
+  var wrap = chk.closest('.ms-wrap');
+  var ids = Array.from(wrap.querySelectorAll('.ms-item input:checked')).map(function(c){ return c.value; });
+  stages[i].default_assignee_ids = ids;
+  stages[i].default_assignee_id = ids[0] || '';
+  updateStageAssigneeMsBtn(wrap);
+}
+
+function stageAssigneeMsSelectAll(btn, mode, i) {
+  var wrap = btn.closest('.ms-wrap');
+  wrap.querySelectorAll('.ms-item input[type=checkbox]').forEach(function(c){ c.checked = (mode === 'all'); });
+  var ids = Array.from(wrap.querySelectorAll('.ms-item input:checked')).map(function(c){ return c.value; });
+  stages[i].default_assignee_ids = ids;
+  stages[i].default_assignee_id = ids[0] || '';
+  updateStageAssigneeMsBtn(wrap);
+}
+
+function updateStageAssigneeMsBtn(wrap) {
+  var btnText = wrap.querySelector('.ms-btn-text');
+  var checked = wrap.querySelectorAll('.ms-item input:checked');
+  btnText.textContent = checked.length ? checked.length + ' selected' : (wrap.dataset.placeholder || 'None');
 }
 
 function _esc(s) {
