@@ -178,6 +178,24 @@ templates.env.globals["has_checklists"] = False
 _static_dir = os.path.join(BASE_DIR, "static")
 os.makedirs(_static_dir, exist_ok=True)
 os.makedirs(os.path.join(_static_dir, "uploads"), exist_ok=True)
+
+
+@app.get("/static/sw.js", include_in_schema=False)
+async def _service_worker():
+    # The service worker script must never be served from the browser's HTTP
+    # cache — StaticFiles' default headers (Last-Modified/ETag, no
+    # Cache-Control) let browsers apply heuristic freshness and skip
+    # revalidation for hours, so a bumped SHELL_CACHE version inside sw.js
+    # can go undetected across app restarts. Route matches before the
+    # StaticFiles mount below and forces revalidation on every load.
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        os.path.join(_static_dir, "sw.js"),
+        media_type="text/javascript",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
 app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 

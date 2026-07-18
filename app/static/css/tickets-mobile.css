@@ -103,6 +103,39 @@ html.light .tm-theme-light{display:inline}
 .tm-fab{position:fixed;left:18px;bottom:calc(90px + env(safe-area-inset-bottom));width:52px;height:52px;border-radius:26px;background:var(--accent);border:none;display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;box-shadow:0 10px 24px rgba(59,130,246,0.45);cursor:pointer;z-index:120}
 
 /* ══════════════════════════════════════════════════════════════════════
+   My Tasks (single consolidated action queue — kind dropdown + swipe cards)
+   ══════════════════════════════════════════════════════════════════════ */
+.mt-subtitle{font-size:11.5px;color:var(--text-faint);margin-top:2px}
+
+.mt-due-pills{display:flex;gap:6px;overflow-x:auto;margin:0 0 12px;padding-bottom:2px}
+.mt-due-pills::-webkit-scrollbar{display:none}
+.mt-due-pill{flex-shrink:0;padding:6px 12px;border-radius:99px;font-size:11px;font-weight:600;background:var(--bg-elevated);color:var(--text-muted);text-decoration:none;white-space:nowrap}
+.mt-due-pill-red{background:rgba(239,68,68,0.16);color:#f87171}
+.mt-due-pill-active{background:var(--accent);color:#fff}
+
+.mt-kind-wrap{position:relative;margin-bottom:14px}
+.mt-kind-btn{width:100%;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:14px;background:var(--bg-card);border:1px solid var(--border-subtle);font-family:inherit;cursor:pointer;text-align:left}
+.mt-kind-dot{width:9px;height:9px;border-radius:99px;flex-shrink:0}
+.mt-kind-label{font-size:13px;font-weight:700;color:var(--text-strong)}
+.mt-kind-count{font-size:11.5px;color:var(--text-faint)}
+.mt-kind-chevron{margin-left:auto;font-size:11px;color:var(--text-faint)}
+.mt-kind-panel{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:14px;box-shadow:0 12px 28px rgba(0,0,0,0.35);z-index:20;overflow:hidden}
+.mt-kind-opt{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--border-subtle);text-decoration:none;color:var(--text-strong);font-size:13px;font-weight:600}
+.mt-kind-opt:last-child{border-bottom:none}
+.mt-kind-opt-active{background:rgba(59,130,246,0.12)}
+.mt-kind-opt-count{margin-left:auto;font-size:11.5px;color:var(--text-faint)}
+.mt-kind-opt-check{color:var(--accent);font-size:13px;font-weight:700;margin-left:6px}
+
+.mt-hint{text-align:right;font-size:10px;color:var(--text-faint);margin-bottom:8px}
+.mt-list{display:flex;flex-direction:column;gap:10px;padding-bottom:24px}
+.mt-swipe-wrap{position:relative;border-radius:16px;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,0.12)}
+.mt-swipe-action{position:absolute;top:0;right:0;bottom:0;left:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12.5px;font-weight:700}
+.mt-card{position:relative;background:var(--bg-card);padding:13px 15px;touch-action:pan-y;cursor:grab}
+.mt-kind-tag{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.mt-card-action-row{display:flex;justify-content:flex-end;margin-top:10px}
+.mt-action-pill{display:inline-flex;align-items:center;padding:8px 16px;border-radius:99px;font-size:12px;font-weight:700;color:#fff;border:none;font-family:inherit;cursor:pointer;text-decoration:none;min-height:36px}
+
+/* ══════════════════════════════════════════════════════════════════════
    Ticket detail (section 2 — stepper + sticky action bar)
    ══════════════════════════════════════════════════════════════════════ */
 .tmd-header{display:flex;align-items:center;justify-content:space-between;margin:4px 0 14px}
