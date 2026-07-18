@@ -90,11 +90,14 @@
                  onchange="document.getElementById('allowedOpenersWrap').style.display = this.checked ? 'block' : 'none'"
                  {% if flow and flow.restrict_to_assignee %}checked{% endif %}>
           <label for="restrictToAssigneeCb" style="font-size:13px;color:var(--text-muted)">
-            Only specific employees can open/act on tickets in this flow
+            Only specific employees can create, open, or act on tickets in this flow
           </label>
         </div>
         <div id="allowedOpenersWrap" style="margin-top:10px;{% if not flow or not flow.restrict_to_assignee %}display:none{% endif %}">
           <label class="fe-label">Allowed Employees</label>
+          <div style="font-size:11px;color:var(--text-faint);margin-bottom:6px">
+            Checked employees can create new tickets on this flow, in addition to opening/acting on existing ones. By default (this box unchecked), only Admins/Managers can create tickets here.
+          </div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;max-height:160px;overflow-y:auto;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:10px">
             {% set allowed_ids = (flow.allowed_opener_ids_json | from_json) if flow and flow.allowed_opener_ids_json else [] %}
             {% for e in employees %}

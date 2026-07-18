@@ -413,14 +413,17 @@ def _mark_completed_by(ticket, user_id: str) -> None:
         ticket.completed_by_id = user_id
 
 def _can_create_on_flow(user: User, flow: FMSFlow) -> bool:
-    """Same whitelist gate as _can_act_on_ticket, but for ticket *creation*
-    (no ticket exists yet, so it's checked against the flow directly).
-    Flows without restrict_to_assignee are open to any employee; flows with
-    it require the employee's id in allowed_opener_ids_json."""
+    """Ticket creation is normally manager/admin-only, but a flow's 'Allowed
+    Employees' whitelist (restrict_to_assignee + allowed_opener_ids_json —
+    set up to let specific employees open/act on that flow's tickets) is
+    meant to fully unlock the flow for them, including creating new tickets
+    in it — not just acting on existing ones. An employee not on any such
+    whitelist still can't create; the whitelist is what grants the
+    permission, not the absence of a restriction."""
     if user.role in ("ADMIN", "MANAGER"):
         return True
-    if not (flow and flow.restrict_to_assignee):
-        return True
+    if not flow or not flow.restrict_to_assignee:
+        return False
     import json as _json_gate
     try:
         allowed_ids = set(_json_gate.loads(flow.allowed_opener_ids_json or "[]"))
