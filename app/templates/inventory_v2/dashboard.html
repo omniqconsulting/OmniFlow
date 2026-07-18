@@ -181,6 +181,19 @@
       {% endfor %}
     </tbody>
   </table>
+  {% if total_pages > 1 %}
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;font-size:12.5px;color:var(--text-muted)">
+    <span>Page {{ page }} of {{ total_pages }} · {{ total_rows }} total</span>
+    <div style="display:flex;gap:8px">
+      {% if page > 1 %}
+      <a class="btn btn-sm btn-outline" href="/inventory-v2?{{ page_qs }}&page={{ page - 1 }}">← Prev</a>
+      {% endif %}
+      {% if page < total_pages %}
+      <a class="btn btn-sm btn-outline" href="/inventory-v2?{{ page_qs }}&page={{ page + 1 }}">Next →</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
   {% else %}
   <div style="color:var(--text-faint);font-size:13px">No products match the current filters.</div>
   {% endif %}

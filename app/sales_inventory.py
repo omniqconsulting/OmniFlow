@@ -7,6 +7,7 @@ import csv
 import io
 import json
 from datetime import datetime, date, timedelta
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
@@ -383,6 +384,8 @@ def _active_branches(db: Session, tenant_id: str):
     )
 
 
+INVENTORY_PAGE_SIZE = 50
+
 @router.get("/inventory-v2", response_class=HTMLResponse)
 def inventory_dashboard(
     request: Request,
@@ -392,6 +395,7 @@ def inventory_dashboard(
     search: str = "",
     active: str = "",
     stock_status: list = Query(default=[]),
+    page: int = Query(default=1, ge=1),
     user: User = Depends(_require_inventory_or_redirect),
     db: Session = Depends(get_db),
 ):
@@ -471,7 +475,13 @@ def inventory_dashboard(
             )
             rows.append((sort_key, v, stock, badge_label, badge_color))
     rows.sort(key=lambda r: r[0])
-    stock_rows = [(v, s, lbl, color) for _, v, s, lbl, color in rows]
+    all_stock_rows = [(v, s, lbl, color) for _, v, s, lbl, color in rows]
+
+    total_rows = len(all_stock_rows)
+    total_pages = max(1, -(-total_rows // INVENTORY_PAGE_SIZE))  # ceil division
+    page = min(page, total_pages)
+    start = (page - 1) * INVENTORY_PAGE_SIZE
+    stock_rows = all_stock_rows[start:start + INVENTORY_PAGE_SIZE]
 
     open_pos = db.query(InventoryPurchaseOrder).filter(
         InventoryPurchaseOrder.tenant_id == user.tenant_id,
@@ -494,6 +504,11 @@ def inventory_dashboard(
     ).order_by(SubCategory.name).all()
 
     can_edit = user.role in ("ADMIN", "MANAGER")
+    # Preserve active filters across page links: everything from the current
+    # querystring except 'page' itself, so Next/Prev don't reset filters.
+    filter_params = [(k, v) for k, v in request.query_params.multi_items() if k != "page"]
+    page_qs = urlencode(filter_params)
+
     template_name = "inventory_v2/dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/dashboard.html"
     return templates.TemplateResponse(request, template_name, _ctx(
         db, user,
@@ -510,6 +525,7 @@ def inventory_dashboard(
         kpi_below_threshold_skus=below_threshold_skus, kpi_out_of_stock_skus=out_of_stock_skus,
         kpi_open_pos=len(open_pos), kpi_open_dispatches=len(upcoming_dispatches),
         kpi_pending_po_requests=pending_po_requests,
+        page=page, total_pages=total_pages, total_rows=total_rows, page_qs=page_qs,
         can_edit=can_edit,
         msg=request.query_params.get("msg", ""), err=request.query_params.get("err", ""),
     ))

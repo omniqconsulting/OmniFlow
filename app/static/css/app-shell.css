@@ -71,6 +71,13 @@ html.light .preset-btn { color: #475569; }
 html.light .preset-btn.active, html.light .preset-btn:hover { background: rgba(37,99,235,0.12); color: #1d4ed8; }
 
 *{box-sizing:border-box;margin:0;padding:0}
+/* touch-action was previously forced to pan-y here as a defensive measure,
+   but live device testing (Firefox Android) showed it can itself break
+   single-finger scroll on the root scroller while providing no benefit now
+   that user-select:none (below) already fixes the text-selection-hijack it
+   was meant to guard against. Left at the browser default (auto) — the
+   least restrictive option — on purpose. */
+html,body{-webkit-overflow-scrolling:touch}
 body{font-family:var(--font-family);background:var(--bg-base);color:var(--text-primary);font-size:14px;line-height:1.5;min-height:100vh;transition:background .2s,color .2s;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 a{color:#60a5fa;text-decoration:none}
 a:hover{color:#93c5fd}
@@ -373,16 +380,18 @@ html{-webkit-tap-highlight-color:transparent}
   /* Room for the fixed mobile top bar so content doesn't render underneath it */
   body.has-bottom-nav .container{padding-top:calc(54px + env(safe-area-inset-top) + 12px)}
 
-  /* Android fix: Chrome's built-in "select text on touch-drag" can claim a
-     single-finger drag that starts over a text node (module titles, task
-     rows, table cells) and enter selection mode instead of scrolling —
-     forcing a 2-finger scroll workaround. iOS Safari requires an explicit
-     long-press before selection engages so it never hit this there. Disable
-     selection on non-copyable chrome; genuinely copyable content (ticket
-     descriptions, comments, chat bodies) keeps text selection via
-     [data-selectable] / .selectable so those can still be copied. */
-  .card, .dm-module, .tm-card, table td, .nav, .bottom-nav, .btn,
-  .mobile-topbar, .bottom-nav-inner, .tm-tabs, .tm-tab{
+  /* Android/Firefox fix: touch browsers can claim a single-finger drag that
+     starts over a text node (module titles, task rows, table cells, or any
+     other text anywhere on the page) and enter selection mode instead of
+     scrolling — forcing a 2-finger scroll workaround. iOS Safari requires an
+     explicit long-press before selection engages so it never hit this there.
+     Previously this only disabled selection on a hand-picked list of classes
+     (.card, .dm-module, etc.), which meant any element not on that list —
+     and every new page added since — reintroduced the bug. Disabling
+     selection universally and opting genuinely copyable content back in via
+     [data-selectable] / .selectable is the only version of this fix that
+     doesn't rot as pages are added. */
+  * {
     -webkit-user-select:none;
     user-select:none;
     -webkit-touch-callout:none;
@@ -391,11 +400,6 @@ html{-webkit-tap-highlight-color:transparent}
     -webkit-user-select:text;
     user-select:text;
   }
-
-  /* Defensive backstop: even if something above still grabs the gesture,
-     tell the browser this container's default touch action is vertical
-     scrolling. */
-  body{touch-action:pan-y}
 }
 
 /* 5.1 — Bottom tab navigation (standalone + mobile web only). The desktop
