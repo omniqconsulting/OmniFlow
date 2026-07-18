@@ -73,6 +73,28 @@ def require_admin_or_redirect(user: User = Depends(get_current_user_or_redirect)
         raise HTTPException(status_code=403, detail="Admin only")
     return user
 
+def require_admin_or_pm(user: User = Depends(get_current_user)) -> User:
+    """Gate for Setup + Employees routes: ADMIN has full access everywhere;
+    PRODUCT_MANAGER is scoped to just this module (setup_routes.py,
+    employee_extras.py) so they can manage platform config/employees without
+    needing FMS/ticket/sales admin powers, which stay ADMIN/MANAGER-only."""
+    if user.role not in ("ADMIN", "PRODUCT_MANAGER"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+def require_admin_or_pm_or_redirect(user: User = Depends(get_current_user_or_redirect)) -> User:
+    """require_admin_or_pm for HTML page routes — see require_admin_or_redirect."""
+    if user.role not in ("ADMIN", "PRODUCT_MANAGER"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+def require_manager_or_pm_or_redirect(user: User = Depends(get_current_user_or_redirect)) -> User:
+    """require_manager_or_redirect plus PRODUCT_MANAGER — for the Employees
+    page specifically, which PRODUCT_MANAGER must be able to view/manage."""
+    if user.role not in ("ADMIN", "MANAGER", "PRODUCT_MANAGER"):
+        raise HTTPException(status_code=403, detail="Manager or Admin only")
+    return user
+
 def require_manager_or_redirect(user: User = Depends(get_current_user_or_redirect)) -> User:
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(status_code=403, detail="Manager or Admin only")
@@ -95,9 +117,14 @@ def has_module(user, module: str) -> bool:
 def get_user_tabs(user, tenant, db: Session = None) -> list:
     """Effective nav tabs visible to this user, constrained by tenant-enabled tabs.
     ADMIN and users with no tab_access_json set (None) get every tenant-enabled
-    tab — restriction is opt-in per employee/manager."""
+    tab — restriction is opt-in per employee/manager. PRODUCT_MANAGER is a
+    fixed, non-configurable scope (Setup + Employees only, handled outside
+    the nav-tabs list), so it never inherits the "no tab_access_json = all
+    tabs" default."""
     from .constants import get_tenant_enabled_tabs
     tenant_tabs = get_tenant_enabled_tabs(tenant, db)
+    if user.role == "PRODUCT_MANAGER":
+        return []
     if user.role == "ADMIN" or not user.tab_access_json:
         return tenant_tabs
     try:

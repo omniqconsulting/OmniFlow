@@ -182,6 +182,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     <a href="/fms/tickets/bulk-template?flow_id={{ active_flow.id if active_flow else '' }}" class="btn btn-outline btn-sm">⬇ Template</a>
     <a href="/fms/tickets/bulk-upload-page{% if active_flow %}?flow_id={{ active_flow.id }}{% endif %}" class="btn btn-outline btn-sm">⬆ Bulk Upload</a>
     {% endif %}
+    {% if can_create_ticket %}
     {# Whitelisted on this flow's "Allowed Employees" list overrides the
        default employee-can't-create restriction — see _can_create_in_flow. #}
     {% if user.role in ('ADMIN','MANAGER') or can_create_ticket %}
@@ -1552,7 +1553,7 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
 
 <!-- ── P7-05: Mark Stage Complete modal ──────────────────────────────────── -->
 <div id="stageCompleteModal" class="fms-modal-overlay" onclick="if(event.target===this)closeSCModal()">
-  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;width:420px;max-width:95vw;padding:24px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;width:420px;max-width:95vw;max-height:85vh;overflow-y:auto;padding:24px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
       <div>
         <div style="font-size:15px;font-weight:600;color:var(--text-strong)" id="scModalTitle">Mark Stage Complete</div>
@@ -1669,6 +1670,13 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
         <textarea name="return_reason" id="fmsMoveBackReason" required rows="3"
                   style="width:100%;background:var(--bg-input);border:1px solid rgba(255,255,255,.12);border-radius:7px;padding:8px 11px;font-size:13px;color:var(--text-primary);outline:none;font-family:inherit;resize:vertical;box-sizing:border-box"
                   placeholder="Describe why this ticket is being returned…"></textarea>
+      </div>
+      <div style="margin-bottom:16px;display:flex;align-items:flex-start;gap:8px">
+        <input type="checkbox" name="excluded_from_perf" value="1" id="fmsMoveBackExcludePerf" style="margin-top:3px">
+        <label for="fmsMoveBackExcludePerf" style="font-size:12px;color:var(--text-faint)">
+          This return was caused by factors outside the assignee's control (e.g. client/vendor delay, another
+          department, an external dependency) — exclude the time spent on this visit from their performance score.
+        </label>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" onclick="closeMoveBackModal()" class="btn btn-sm">Cancel</button>

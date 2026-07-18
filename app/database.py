@@ -36,6 +36,7 @@ class UserRole(str, enum.Enum):
     EMPLOYEE = "EMPLOYEE"
     MANAGER = "MANAGER"
     ADMIN = "ADMIN"
+    PRODUCT_MANAGER = "PRODUCT_MANAGER"
 
 class TicketStatus(str, enum.Enum):
     OPEN = "OPEN"
@@ -824,7 +825,8 @@ class FMSStage(Base):
     color                   = Column(String,  default="#3b82f6")
     target_tat_hours        = Column(Float,   nullable=True)         # None = no TaT target; always stored in hours
     target_tat_unit         = Column(String,  default="hours")       # minutes|hours|days — display unit only
-    default_assignee_id     = Column(String,  ForeignKey("users.id"), nullable=True)
+    default_assignee_id     = Column(String,  ForeignKey("users.id"), nullable=True)  # legacy single value — kept for back-compat, superseded by default_assignee_ids_json when set
+    default_assignee_ids_json = Column(Text,  nullable=True)         # JSON array of user ids — multiple eligible default assignees for this stage
     sub_module_tag          = Column(String,  nullable=True)         # PMS|DISPATCH|INVOICE|CUSTOM
     deployed_submodule_id   = Column(String,  ForeignKey("library_submodule_definitions.id"), nullable=True)
     is_mandatory            = Column(Boolean, default=True)
@@ -876,6 +878,7 @@ class FMSTicket(Base):
     flagged_reason      = Column(String)
     has_qty_discrepancy = Column(Boolean, default=False)  # Phase 0: system-detected — active splits' qty no longer sums to target_qty
     completed_at        = Column(DateTime)
+    completed_by_id     = Column(String,  ForeignKey("users.id"), nullable=True)  # who actually performed the completing action (terminal-stage transition)
     closed_at           = Column(DateTime)
     is_deleted          = Column(Boolean, default=False)
     stage_assignees_json  = Column(Text, nullable=True)  # {"stage_id": "user_id", ...}
@@ -889,6 +892,7 @@ class FMSTicket(Base):
     current_stage    = relationship("FMSStage",  foreign_keys=[current_stage_id])
     current_assignee = relationship("User",       foreign_keys=[current_assignee_id])
     created_by       = relationship("User",       foreign_keys=[created_by_id])
+    completed_by     = relationship("User",       foreign_keys=[completed_by_id])
     tenant           = relationship("Tenant")
     stage_history    = relationship("FMSStageHistory", back_populates="ticket",
                                     order_by="FMSStageHistory.entered_at",
@@ -932,6 +936,7 @@ class FMSStageHistory(Base):
     evidence_url          = Column(String,  nullable=True)   # uploaded file path/URL
     evidence_filename     = Column(String,  nullable=True)   # original filename for display
     custom_fields_data_json = Column(Text, nullable=True)    # JSON dict {field_label: value}
+    excluded_from_perf    = Column(Boolean, default=False)   # manager/admin marked this visit's time as caused by factors outside the assignee's control — excluded from on-time scoring
 
     ticket   = relationship("FMSTicket", back_populates="stage_history")
     split    = relationship("FMSTicketSplit", foreign_keys=[split_id])

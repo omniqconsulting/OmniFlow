@@ -638,11 +638,18 @@ def get_fms_stage_breakdown(db: Session, flow_id: str, tenant_id: str) -> list:
 def get_fms_employee_stage_kpis(db: Session, user_id: str, tenant_id: str, since=None) -> dict:
     """Stage-level FMS on-time scoring for one employee — Phase A5.
 
-    Computes FMS on-time rate by measuring whether each stage history row
-    was completed within (entered_at + stage.target_tat_hours).  Scoring is
-    at the ticket level: a ticket is ON_TIME only if every evaluated stage is
-    on time.  Stages without a TaT target and in-progress stages are excluded
-    from the calculation entirely.
+    Scored on NET time spent at a stage, summed across every visit to that
+    stage on that ticket — not per visit. A ticket that bounces back and
+    forth (BACKWARD move, then re-enters the same stage later) is not
+    penalized as long as the total time across all visits stays within
+    target_tat_hours; only genuinely exceeding the stage's TaT counts as
+    LATE. A visit an admin/manager flagged excluded_from_perf (delay caused
+    by something outside the assignee's control — e.g. waiting on another
+    department) doesn't count toward the time total at all.
+
+    Scoring is at the ticket level: a ticket is ON_TIME only if every
+    evaluated stage is on time. Stages without a TaT target, and stages
+    still in progress, are excluded from the calculation entirely.
     """
     from .database import FMSStageHistory, FMSTicket, FMSStage
     from collections import defaultdict
@@ -660,49 +667,55 @@ def get_fms_employee_stage_kpis(db: Session, user_id: str, tenant_id: str, since
         q = q.filter(FMSStageHistory.entered_at >= since)
     rows = q.all()
 
-    by_ticket: dict = defaultdict(list)
+    by_ticket_stage: dict = defaultdict(list)
     for row in rows:
-        by_ticket[row.ticket_id].append(row)
+        by_ticket_stage[(row.ticket_id, row.stage_id)].append(row)
 
-    total_tickets = on_time_tickets = late_tickets = 0
+    by_ticket_results: dict = defaultdict(list)
     stage_detail = []
 
-    for ticket_id, history_rows in by_ticket.items():
-        ticket = history_rows[0].ticket
-        evaluated = []
+    for (ticket_id, stage_id), visits in by_ticket_stage.items():
+        ticket = visits[0].ticket
+        stage = db.query(FMSStage).get(stage_id)
+        target_tat = stage.target_tat_hours if stage else None
+        stage_name = visits[0].stage_name or (stage.name if stage else "—")
 
-        for h in history_rows:
-            stage = db.query(FMSStage).get(h.stage_id)
-            target_tat = stage.target_tat_hours if stage else None
-            window_end = (h.entered_at + timedelta(hours=target_tat)) if (h.entered_at and target_tat) else None
+        counted = [v for v in visits if not v.excluded_from_perf]
+        if not counted:
+            continue  # every visit to this stage was excluded — nothing to score
 
-            if h.exited_at is None:
-                result = "IN_PROGRESS"
-            elif target_tat is None:
-                result = "NO_TAT"
-            elif h.exited_at <= window_end:
-                result = "ON_TIME"
-            else:
-                result = "LATE"
+        if any(v.exited_at is None for v in counted):
+            result = "IN_PROGRESS"
+            net_hours = None
+        elif target_tat is None:
+            result = "NO_TAT"
+            net_hours = None
+        else:
+            net_hours = sum((v.exited_at - v.entered_at).total_seconds() / 3600 for v in counted)
+            result = "ON_TIME" if net_hours <= target_tat else "LATE"
 
-            stage_detail.append({
-                "ticket_display_id": ticket.display_id or ticket_id[:8],
-                "ticket_title":      ticket.title,
-                "stage_name":        h.stage_name or (stage.name if stage else "—"),
-                "entered_at":        (h.entered_at + IST) if h.entered_at else None,
-                "exited_at":         (h.exited_at + IST) if h.exited_at else None,
-                "window_end":        (window_end + IST) if window_end else None,
-                "result":            result,
-            })
+        earliest_entry = min((v.entered_at for v in counted if v.entered_at), default=None)
+        latest_exit = max((v.exited_at for v in counted if v.exited_at), default=None)
 
-            if result in ("ON_TIME", "LATE"):
-                evaluated.append(result)
+        stage_detail.append({
+            "ticket_display_id": ticket.display_id or ticket_id[:8],
+            "ticket_title":      ticket.title,
+            "stage_name":        stage_name,
+            "entered_at":        (earliest_entry + IST) if earliest_entry else None,
+            "exited_at":         (latest_exit + IST) if latest_exit else None,
+            "net_hours":         round(net_hours, 1) if net_hours is not None else None,
+            "target_tat":        target_tat,
+            "visit_count":       len(visits),
+            "result":            result,
+        })
 
-        if not evaluated:
-            continue
+        if result in ("ON_TIME", "LATE"):
+            by_ticket_results[ticket_id].append(result)
 
+    total_tickets = on_time_tickets = late_tickets = 0
+    for ticket_id, results in by_ticket_results.items():
         total_tickets += 1
-        if all(r == "ON_TIME" for r in evaluated):
+        if all(r == "ON_TIME" for r in results):
             on_time_tickets += 1
         else:
             late_tickets += 1

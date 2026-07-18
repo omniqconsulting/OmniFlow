@@ -90,11 +90,14 @@
                  onchange="document.getElementById('allowedOpenersWrap').style.display = this.checked ? 'block' : 'none'"
                  {% if flow and flow.restrict_to_assignee %}checked{% endif %}>
           <label for="restrictToAssigneeCb" style="font-size:13px;color:var(--text-muted)">
-            Only specific employees can open/act on tickets in this flow
+            Only specific employees can create, open, or act on tickets in this flow
           </label>
         </div>
         <div id="allowedOpenersWrap" style="margin-top:10px;{% if not flow or not flow.restrict_to_assignee %}display:none{% endif %}">
           <label class="fe-label">Allowed Employees</label>
+          <div style="font-size:11px;color:var(--text-faint);margin-bottom:6px">
+            Checked employees can create new tickets on this flow, in addition to opening/acting on existing ones. By default (this box unchecked), only Admins/Managers can create tickets here.
+          </div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;max-height:160px;overflow-y:auto;background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:10px">
             {% set allowed_ids = (flow.allowed_opener_ids_json | from_json) if flow and flow.allowed_opener_ids_json else [] %}
             {% for e in employees %}
@@ -654,9 +657,9 @@ function buildStageEl(s, i) {
   el.addEventListener('drop',      onDrop);
   el.addEventListener('dragend',   onDragEnd);
 
-  var assigneeOpts = '<option value="">— None —</option>' +
-    EMPLOYEES.map(function(e) {
-      return '<option value="' + e.id + '"' + (s.default_assignee_id === e.id ? ' selected' : '') + '>' +
+  var defaultAssigneeIds = s.default_assignee_ids || (s.default_assignee_id ? [s.default_assignee_id] : []);
+  var assigneeOpts = EMPLOYEES.map(function(e) {
+      return '<option value="' + e.id + '"' + (defaultAssigneeIds.indexOf(e.id) !== -1 ? ' selected' : '') + '>' +
              e.name + ' · ' + e.role + '</option>';
     }).join('');
 
@@ -721,8 +724,11 @@ function buildStageEl(s, i) {
           '</div>' +
         '</div>' +
         '<div class="fe-group">' +
-          '<label class="fe-label">Default Assignee</label>' +
-          '<select class="fe-input" onchange="stages[' + i + '].default_assignee_id=this.value">' + assigneeOpts + '</select>' +
+          '<label class="fe-label">Default Assignee(s)</label>' +
+          '<select class="fe-input" multiple size="4" style="height:auto" ' +
+            'onchange="stages[' + i + '].default_assignee_ids=Array.from(this.selectedOptions).map(function(o){return o.value;});stages[' + i + '].default_assignee_id=stages[' + i + '].default_assignee_ids[0]||\'\'">' +
+            assigneeOpts + '</select>' +
+          '<div style="font-size:10px;color:var(--text-faint);margin-top:3px">Ctrl/Cmd-click to select more than one. Any of these may be the assignee when a ticket reaches this stage.</div>' +
         '</div>' +
         '<div class="fe-group">' +
           '<label class="fe-label">Target TaT</label>' +
@@ -743,13 +749,20 @@ function buildStageEl(s, i) {
         '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer">' +
           '<input type="checkbox" ' + (s.evidence_required ? 'checked' : '') + ' onchange="stages[' + i + '].evidence_required=this.checked;renderStages()" style="accent-color:#3b82f6"> 📎 Evidence Required' +
         '</label>' +
-        '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer">' +
-          '<input type="checkbox" ' + (s.is_terminal ? 'checked' : '') + ' onchange="stages[' + i + '].is_terminal=this.checked;renderStages()" style="accent-color:#3b82f6"> Terminal Stage' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer" ' +
+          'title="Marks this as the LAST stage of the flow. When a ticket reaches a terminal stage, it is automatically marked COMPLETED, any closing rule is enforced, and a \'ticket closed\' notification goes out. A flow can have more than one terminal stage (e.g. separate \'Approved\' / \'Rejected\' end-points) — a ticket completes as soon as it reaches ANY of them.">' +
+          '<input type="checkbox" ' + (s.is_terminal ? 'checked' : '') + ' onchange="stages[' + i + '].is_terminal=this.checked;renderStages()" style="accent-color:#3b82f6"> Terminal Stage ⓘ' +
         '</label>' +
         '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);cursor:pointer">' +
           '<input type="checkbox" ' + (s.split_enabled ? 'checked' : '') + ' onchange="stages[' + i + '].split_enabled=this.checked;renderStages()" style="accent-color:#3b82f6"> ⑂ {{ L.get("Split","Split") }} on this stage' +
         '</label>' +
       '</div>' +
+      (s.is_terminal ?
+        '<div style="font-size:11px;color:var(--text-faint);background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:7px;padding:8px 10px;margin-bottom:12px">' +
+          '<strong style="color:#6ee7b7">Terminal stage:</strong> once a ticket reaches this stage it is automatically marked ' +
+          '<strong>COMPLETED</strong> — no further stage moves are expected from here. If this flow\'s Closing Rule (below) is set, ' +
+          'it must be satisfied before the ticket is allowed to complete here.' +
+        '</div>' : '') +
       (s.split_enabled ?
       '<div style="display:flex;gap:20px;margin-bottom:14px;flex-wrap:wrap;background:var(--bg-subtle);padding:10px;border-radius:8px">' +
         '<div class="fe-group">' +
@@ -875,7 +888,7 @@ function setStageColor(idx, color, swatchEl, customInput) {
 
 function addStage() {
   stages.push({ id: uuid(), name: '', order: stages.length, color: '#3b82f6',
-    default_assignee_id: '', target_tat_hours: null, target_tat_unit: 'hours',
+    default_assignee_id: '', default_assignee_ids: [], target_tat_hours: null, target_tat_unit: 'hours',
     completion_note_required: false, evidence_required: false, is_terminal: false,
     split_enabled: false, split_target_field: '', split_actual_field: '',
     custom_fields: [], _open: true });

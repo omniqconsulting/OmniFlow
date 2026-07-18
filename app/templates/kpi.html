@@ -68,7 +68,7 @@
       <table>
         <thead>
           <tr>
-            <th>Ticket</th><th>Stage</th><th>Entered (IST)</th><th>Window End</th><th>Exited (IST)</th><th style="text-align:center">Result</th>
+            <th>Ticket</th><th>Stage</th><th>Entered (IST)</th><th>Exited (IST)</th><th style="text-align:right">Net Hours / Target</th><th style="text-align:center">Visits</th><th style="text-align:center">Result</th>
           </tr>
         </thead>
         <tbody>
@@ -80,8 +80,9 @@
             </td>
             <td class="muted">{{ s.stage_name }}</td>
             <td class="muted">{{ s.entered_at.strftime('%d %b %H:%M') if s.entered_at else '—' }}</td>
-            <td class="muted">{{ s.window_end.strftime('%d %b %H:%M') if s.window_end else '—' }}</td>
             <td class="muted">{{ s.exited_at.strftime('%d %b %H:%M') if s.exited_at else '—' }}</td>
+            <td class="muted" style="text-align:right">{{ s.net_hours if s.net_hours is not none else '—' }}{% if s.target_tat %} / {{ s.target_tat }}h{% endif %}</td>
+            <td class="muted" style="text-align:center">{{ s.visit_count }}</td>
             <td style="text-align:center">
               {% if s.result == 'ON_TIME' %}<span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#10b98122;color:#6ee7b7;font-weight:700">ON TIME</span>
               {% elif s.result == 'LATE' %}<span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#ef444422;color:#f87171;font-weight:700">LATE</span>

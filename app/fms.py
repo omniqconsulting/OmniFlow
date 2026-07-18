@@ -215,17 +215,20 @@ def _manager_ids_for(db, assignee_id):
     u = db.query(User).get(assignee_id)
     return [u.manager_id] if u and u.manager_id else []
 
-def _planned_dates(ticket, stages) -> dict:
-    """Calculate (planned_start, planned_end) for each stage from ticket.created_at + TaT.
+def _planned_dates(ticket, stages, tenant=None) -> dict:
+    """Calculate (planned_start, planned_end) for each stage from ticket.created_at + TaT,
+    counted in the tenant's office hours (a ticket opened in the evening starts
+    its TaT clock at the next working hour, not immediately).
     Returns dict mapping stage_id → (planned_start, planned_end).
     If any stage has no target_tat_hours, that stage and all subsequent get (None, None)."""
+    from .notifications import add_business_hours
     sorted_stages = sorted([s for s in stages if not getattr(s, "is_deleted", False)], key=lambda s: s.order)
     result = {}
     cursor = ticket.created_at
     for s in sorted_stages:
         ps = cursor
         if s.target_tat_hours:
-            pe = cursor + timedelta(hours=s.target_tat_hours)
+            pe = add_business_hours(tenant, cursor, s.target_tat_hours) if tenant else cursor + timedelta(hours=s.target_tat_hours)
         else:
             # No TAT defined — give a 1-minute placeholder so plan dates are always present
             pe = cursor + timedelta(minutes=1)
@@ -385,6 +388,43 @@ def _can_act_on_ticket(user: User, ticket: FMSTicket, split=None) -> bool:
         allowed_ids = set()
     return user.id in allowed_ids
 
+def _stage_default_assignee_ids(stage) -> list:
+    """A stage can now have several eligible default assignees (setup page:
+    multi-select). default_assignee_ids_json is the source of truth when
+    set; falls back to the legacy single default_assignee_id column for
+    stages configured before this field existed."""
+    if stage is None:
+        return []
+    if stage.default_assignee_ids_json:
+        try:
+            ids = _json.loads(stage.default_assignee_ids_json)
+            if ids:
+                return ids
+        except Exception:
+            pass
+    return [stage.default_assignee_id] if stage.default_assignee_id else []
+
+def _stage_default_assignee(stage) -> Optional[str]:
+    """Single-value pick for call sites that pre-fill one assignee (e.g. a
+    ticket's current_assignee_id) — the first configured default. Whoever
+    creates/transitions the ticket can still change it before saving."""
+    ids = _stage_default_assignee_ids(stage)
+    return ids[0] if ids else None
+
+def _mark_completed_by(ticket, user_id: str) -> None:
+    """Record who actually performed the completing action, the first time
+    the ticket reaches COMPLETED — distinct from completed_at (when)."""
+    if ticket.status == "COMPLETED" and not ticket.completed_by_id:
+        ticket.completed_by_id = user_id
+
+def _can_create_on_flow(user: User, flow: FMSFlow) -> bool:
+    """Ticket creation is normally manager/admin-only, but a flow's 'Allowed
+    Employees' whitelist (restrict_to_assignee + allowed_opener_ids_json —
+    set up to let specific employees open/act on that flow's tickets) is
+    meant to fully unlock the flow for them, including creating new tickets
+    in it — not just acting on existing ones. An employee not on any such
+    whitelist still can't create; the whitelist is what grants the
+    permission, not the absence of a restriction."""
 
 def _can_create_in_flow(user: User, flow) -> bool:
     """Ticket creation is normally manager/admin-only, but a flow's
@@ -1274,7 +1314,8 @@ def _fms_dashboard_inner(
         for s in db.query(FMSStage.flow_id).filter(
             FMSStage.tenant_id == tid,
             FMSStage.is_deleted == False,
-            FMSStage.default_assignee_id == user.id,
+            (FMSStage.default_assignee_id == user.id) |
+            FMSStage.default_assignee_ids_json.like(f'%"{user.id}"%'),
         ).distinct():
             emp_ticket_flow_ids.add(s.flow_id)
         flows = [f for f in all_flows if f.id in emp_ticket_flow_ids]
@@ -1304,12 +1345,15 @@ def _fms_dashboard_inner(
             mgr_flow_ids.add(t.flow_id)
         # Flows where a team member is configured as a stage's default
         # assignee, even if no ticket has reached that stage yet.
-        for s in db.query(FMSStage.flow_id).filter(
+        mgr_team_ids_set = set(mgr_team_ids)
+        for s in db.query(FMSStage).filter(
             FMSStage.tenant_id == tid,
             FMSStage.is_deleted == False,
-            FMSStage.default_assignee_id.in_(mgr_team_ids),
-        ).distinct():
-            mgr_flow_ids.add(s.flow_id)
+            (FMSStage.default_assignee_id.in_(mgr_team_ids)) |
+            (FMSStage.default_assignee_ids_json != None),
+        ):
+            if s.default_assignee_id in mgr_team_ids_set or mgr_team_ids_set & set(_stage_default_assignee_ids(s)):
+                mgr_flow_ids.add(s.flow_id)
         flows = [f for f in all_flows if f.id in mgr_flow_ids]
     else:
         flows = all_flows
@@ -1999,7 +2043,7 @@ def _fms_dashboard_inner(
                         and row_split and row_split.last_cumulative_entered is not None):
                     cf_all[active_stage.split_actual_field] = row_split.last_cumulative_entered
                 planned_end = None
-                pd = _planned_dates(t, stage_table_stages)
+                pd = _planned_dates(t, stage_table_stages, tenant)
                 if active_stage.id in pd:
                     planned_end = pd[active_stage.id][1]
                 row_assignee = row_split.current_assignee if row_split else t.current_assignee
@@ -2137,7 +2181,7 @@ def _fms_dashboard_inner(
 
         import json as _json
         for t in tq.order_by(FMSTicket.created_at.desc()).all():
-            pd = _planned_dates(t, stage_table_stages)
+            pd = _planned_dates(t, stage_table_stages, tenant)
 
             # Build latest-visit dict from history: stage_id → most recent row
             all_hist = db.query(FMSStageHistory).filter(
@@ -2386,9 +2430,17 @@ def _fms_dashboard_inner(
         if row.get("split_id") and row.get("split_last_cumulative") is not None
     })
 
+    # Employee create-ticket permission: gated by the flow's own
+    # restrict_to_assignee/allowed_opener_ids_json setup, not a blanket
+    # role check — see _can_create_on_flow.
+    can_create_ticket = user.role in ("ADMIN", "MANAGER") or (
+        active_flow is not None and _can_create_on_flow(user, active_flow)
+    )
+
     template_name = "fms/dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "fms/dashboard.html"
     return templates.TemplateResponse(request, template_name, _ctx(
         request, user, db,
+        can_create_ticket=can_create_ticket,
         flows=flows, active_flow=active_flow,
         flow_counts=flow_counts,
         dropdown_ungrouped_flows=dropdown_ungrouped_flows,
@@ -2544,6 +2596,8 @@ async def fms_ticket_create(
     stage_schedule: dict = {}
     start_date_str = form_data.get("schedule_start_date", "").strip()
     if start_date_str:
+        from .notifications import add_business_hours
+        tenant = db.query(Tenant).get(user.tenant_id)
         try:
             cursor = datetime.fromisoformat(start_date_str)
             for fs in all_flow_stages:
@@ -2552,7 +2606,7 @@ async def fms_ticket_create(
                     p_end = datetime.fromisoformat(p_end_str)
                 else:
                     tat_h = fs.target_tat_hours or 24
-                    p_end = cursor + timedelta(hours=tat_h)
+                    p_end = add_business_hours(tenant, cursor, tat_h)
                 stage_schedule[fs.id] = {
                     "planned_start": cursor.isoformat(),
                     "planned_end":   p_end.isoformat(),
@@ -2903,11 +2957,14 @@ def _parse_fms_row(row: dict, stages: list, tenant_id: str, db: Session) -> tupl
     tat_unit_str = cell("TaT Unit (Days/Hours)").lower() or "hours"
     tat_mult = 24.0 if "day" in tat_unit_str else (1 / 60.0 if "min" in tat_unit_str else 1.0)
 
+    from .notifications import add_business_hours
+    tenant = db.query(Tenant).get(tenant_id)
+
     stage_assignees: dict = {}
     stage_schedule: dict = {}
     cursor = datetime.utcnow()
     for s in stages:
-        assignee_id = s.default_assignee_id
+        assignee_id = _stage_default_assignee(s)
         phone = cell(f"{s.name} Assignee Phone")
         if phone:
             u = db.query(User).filter(
@@ -2925,7 +2982,7 @@ def _parse_fms_row(row: dict, stages: list, tenant_id: str, db: Session) -> tupl
                 tat_hours = float(raw) * tat_mult
             except (ValueError, TypeError):
                 pass
-        p_end = cursor + timedelta(hours=tat_hours)
+        p_end = add_business_hours(tenant, cursor, tat_hours)
         stage_schedule[s.id] = {"planned_start": cursor.isoformat(), "planned_end": p_end.isoformat()}
         cursor = p_end
 
@@ -3051,7 +3108,7 @@ async def fms_bulk_confirm(request: Request, user: User = Depends(require_manage
     for r in rows:
         stage_assignees = r.get("stage_assignees") or {}
         stage_schedule = r.get("stage_schedule") or {}
-        first_assignee_id = stage_assignees.get(stages[0].id) or stages[0].default_assignee_id
+        first_assignee_id = stage_assignees.get(stages[0].id) or _stage_default_assignee(stages[0])
         first_sched = stage_schedule.get(stages[0].id, {})
 
         try:
@@ -3102,15 +3159,17 @@ def fms_api_flow_defaults(
     stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order)
     result = []
     for s in stages:
+        default_id = _stage_default_assignee(s)
         assignee_name = None
-        if s.default_assignee_id:
-            u = db.query(User).get(s.default_assignee_id)
+        if default_id:
+            u = db.query(User).get(default_id)
             assignee_name = u.name if u else None
         result.append({
             "id": s.id,
             "name": s.name,
             "default_assignee_name": assignee_name,
-            "default_assignee_id": s.default_assignee_id,
+            "default_assignee_id": default_id,
+            "default_assignee_ids": _stage_default_assignee_ids(s),
             "target_tat_hours": s.target_tat_hours,
             "order": s.order,
         })
@@ -3186,7 +3245,7 @@ async def fms_bulk_create_post(
     """A3-1: Process bulk ticket creation — all-or-nothing validation."""
     form = await request.form()
     flow_id = (form.get("flow_id") or "").strip()
-    flows = db.query(FMSFlow).filter(
+    all_flows = db.query(FMSFlow).filter(
         FMSFlow.tenant_id == user.tenant_id, FMSFlow.is_active == True,
         FMSFlow.is_deleted == False,
     ).order_by(FMSFlow.name).all()
@@ -3203,6 +3262,8 @@ async def fms_bulk_create_post(
 
     if not flow_id:
         return _reraise("Please select a flow before submitting.")
+    if user.role == "EMPLOYEE" and not any(f.id == flow_id for f in flows):
+        raise HTTPException(403, "Not authorised to create tickets on this flow")
 
     flow = _get_flow(db, flow_id, user.tenant_id)
     stages = sorted([s for s in flow.stages if not s.is_deleted], key=lambda s: s.order)
@@ -3270,11 +3331,13 @@ async def fms_bulk_create_post(
             errors.append({"row": i + 1, "title": f"Row {i + 1}", "errors": row_errs})
         else:
             # Collect per-stage assignee and TaT
+            from .notifications import add_business_hours
+            _row_tenant = db.query(Tenant).get(user.tenant_id)
             stage_assignees: dict = {}
             stage_schedule: dict = {}
             cursor = datetime.utcnow()
             for s in stages:
-                aid = (form.get(f"row_stage_assignee_{i}_{s.id}") or "").strip() or s.default_assignee_id
+                aid = (form.get(f"row_stage_assignee_{i}_{s.id}") or "").strip() or _stage_default_assignee(s)
                 if aid:
                     stage_assignees[s.id] = aid
                 tat_hours = float(s.target_tat_hours or 24)
@@ -3284,7 +3347,7 @@ async def fms_bulk_create_post(
                         tat_hours = float(raw_tat) * tat_mult
                     except ValueError:
                         pass
-                p_end = cursor + timedelta(hours=tat_hours)
+                p_end = add_business_hours(_row_tenant, cursor, tat_hours)
                 stage_schedule[s.id] = {"planned_start": cursor.isoformat(), "planned_end": p_end.isoformat()}
                 cursor = p_end
 
@@ -3307,7 +3370,7 @@ async def fms_bulk_create_post(
 
     created = []
     for td in tickets_data:
-        first_assignee_id = td["stage_assignees"].get(first_stage.id) or first_stage.default_assignee_id
+        first_assignee_id = td["stage_assignees"].get(first_stage.id) or _stage_default_assignee(first_stage)
         first_sched = td["stage_schedule"].get(first_stage.id, {})
         ticket = FMSTicket(
             tenant_id=user.tenant_id, flow_id=flow_id,
@@ -3525,7 +3588,7 @@ async def fms_bulk_transition(
                 suffix = f" [{tsplit.split_label}]" if multi else ""
                 _log(db, t_id, user.id, "STAGE_EXITED", f"From: {cur_stage.name if cur_stage else '?'}{suffix}")
 
-            new_assignee_id = next_stage.default_assignee_id or tsplit.current_assignee_id
+            new_assignee_id = _stage_default_assignee(next_stage) or tsplit.current_assignee_id
             db.add(FMSStageHistory(
                 ticket_id=t_id, split_id=tsplit.id, stage_id=next_stage_id,
                 stage_name=next_stage.name, assignee_id=new_assignee_id,
@@ -3542,6 +3605,7 @@ async def fms_bulk_transition(
 
         ticket.updated_at = now
         _sync_ticket_cache(db, ticket)
+        _mark_completed_by(ticket, user.id)
         _check_qty_discrepancy(db, ticket, user.id)
 
         # Notify assignees of the moved split(s)
@@ -3789,6 +3853,7 @@ async def fms_transition(
     is_override: bool = Form(False),
     split_id: str = Form(""),
     evidence_file: UploadFile = File(None),
+    excluded_from_perf: bool = Form(False),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -3844,7 +3909,7 @@ async def fms_transition(
 
         new_assignee_id = (new_assignee_id or "").strip()
         if not new_assignee_id:
-            new_assignee_id = next_stage.default_assignee_id or ""
+            new_assignee_id = _stage_default_assignee(next_stage) or ""
         if not new_assignee_id:
             raise HTTPException(400, "Please select an assignee for the next stage")
 
@@ -3998,16 +4063,27 @@ async def fms_transition(
         open_h.evidence_url           = evidence_url
         open_h.evidence_filename      = evidence_filename
         open_h.custom_fields_data_json = _json.dumps(custom_fields_data) if custom_fields_data else None
+        # Whoever performs the return can flag it — employees return their own
+        # tickets just as often as managers/admins do (see _can_transition),
+        # so restricting this to ADMIN/MANAGER would mean the common case
+        # (an employee returning their own ticket for an external reason)
+        # could never be flagged at the time it happens. The mandatory
+        # return_reason + audit log (below) keeps this reviewable.
+        if direction in ("BACKWARD", "MANAGER_OVERRIDE") and excluded_from_perf:
+            open_h.excluded_from_perf = True
         _log(db, ticket_id, user.id, "STAGE_EXITED",
              f"Stage: {cur_stage.name if cur_stage else '?'}{split_label_suffix} | "
              f"Entered: {open_h.entered_at.strftime('%d %b %H:%M') if open_h.entered_at else '—'} | "
              f"Qty completed: {qty} | Note: {completion_note[:80] or '—'} | "
              f"Evidence: {evidence_filename or '—'} | "
-             f"Custom fields: {_fmt_cf(custom_fields_data)}", meta={
+             f"Custom fields: {_fmt_cf(custom_fields_data)}"
+             + (" | Excluded from performance scoring" if getattr(open_h, "excluded_from_perf", False) else ""),
+             meta={
                  "stage_name": cur_stage.name if cur_stage else None,
                  "qty": qty, "note": completion_note.strip() or None,
                  "evidence_filename": evidence_filename,
                  "custom_fields": _cf_by_label(custom_fields_data, field_defs if cur_stage else []),
+                 "excluded_from_perf": bool(getattr(open_h, "excluded_from_perf", False)),
              })
 
     ticket.updated_at = datetime.utcnow()
@@ -4037,6 +4113,7 @@ async def fms_transition(
         # Completing the current terminal stage — no new history row needed
         split.status = "COMPLETED"
         _sync_ticket_cache(db, ticket)
+        _mark_completed_by(ticket, user.id)
         _check_qty_discrepancy(db, ticket, user.id)
         _log(db, ticket_id, user.id, "COMPLETED",
              f"Completed terminal stage: {cur_stage.name if cur_stage else '?'}{split_label_suffix} | "
@@ -4070,6 +4147,8 @@ async def fms_transition(
         _sched = {}
 
     if direction == "BACKWARD":
+        from .notifications import add_business_hours
+        _tenant_sched = db.query(Tenant).get(user.tenant_id)
         _flow_stages_sched = sorted(
             [s for s in ticket.flow.stages if not s.is_deleted], key=lambda s: s.order
         )
@@ -4081,7 +4160,7 @@ async def fms_transition(
             if not _reached:
                 continue
             _tat_h = _fs.target_tat_hours or 24
-            _p_end = _cursor + timedelta(hours=_tat_h)
+            _p_end = add_business_hours(_tenant_sched, _cursor, _tat_h)
             _sched[_fs.id] = {"planned_start": _cursor.isoformat(), "planned_end": _p_end.isoformat()}
             _cursor = _p_end
         ticket.stage_schedule_json = _json2.dumps(_sched)
@@ -4212,6 +4291,7 @@ async def fms_transition(
         split.status = "ACTIVE"
 
     _sync_ticket_cache(db, ticket)
+    _mark_completed_by(ticket, user.id)
     _check_qty_discrepancy(db, ticket, user.id)
 
     event_type = "RETURNED" if direction == "BACKWARD" else (
@@ -4512,6 +4592,8 @@ async def fms_split_ticket(
     except Exception:
         _sched = {}
     if direction == "BACKWARD":
+        from .notifications import add_business_hours
+        _tenant_sched = db.query(Tenant).get(user.tenant_id)
         _flow_stages_sched = sorted(
             [fs for fs in ticket.flow.stages if not fs.is_deleted], key=lambda fs: fs.order
         )
@@ -4523,7 +4605,7 @@ async def fms_split_ticket(
             if not _reached:
                 continue
             _tat_h = _fs.target_tat_hours or 24
-            _p_end = _cursor + timedelta(hours=_tat_h)
+            _p_end = add_business_hours(_tenant_sched, _cursor, _tat_h)
             _sched[_fs.id] = {"planned_start": _cursor.isoformat(), "planned_end": _p_end.isoformat()}
             _cursor = _p_end
         ticket.stage_schedule_json = _json.dumps(_sched)
@@ -5215,12 +5297,16 @@ def _save_stages(db: Session, flow_id: str, tenant_id: str, stages_json: str):
         if not name:
             continue
         smt = (s.get("sub_module_tag") or "").strip().upper() or None
+        assignee_ids = [a for a in (s.get("default_assignee_ids") or []) if a]
+        if not assignee_ids and s.get("default_assignee_id"):
+            assignee_ids = [s.get("default_assignee_id")]
         db.add(FMSStage(
             flow_id=flow_id, tenant_id=tenant_id,
             name=name, order=s.get("order", i),
             color=s.get("color", "#3b82f6"),
             target_tat_hours=s.get("target_tat_hours") or None,
-            default_assignee_id=s.get("default_assignee_id") or None,
+            default_assignee_id=(assignee_ids[0] if assignee_ids else None),
+            default_assignee_ids_json=(_json.dumps(assignee_ids) if assignee_ids else None),
             sub_module_tag=smt,
             is_mandatory=bool(s.get("is_mandatory", True)),
             completion_note_required=bool(s.get("completion_note_required", False)),
