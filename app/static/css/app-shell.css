@@ -71,13 +71,15 @@ html.light .preset-btn { color: #475569; }
 html.light .preset-btn.active, html.light .preset-btn:hover { background: rgba(37,99,235,0.12); color: #1d4ed8; }
 
 *{box-sizing:border-box;margin:0;padding:0}
-/* touch-action was previously forced to pan-y here as a defensive measure,
-   but live device testing (Firefox Android) showed it can itself break
-   single-finger scroll on the root scroller while providing no benefit now
-   that user-select:none (below) already fixes the text-selection-hijack it
-   was meant to guard against. Left at the browser default (auto) — the
-   least restrictive option — on purpose. */
-html,body{-webkit-overflow-scrolling:touch}
+/* touch-action:pan-y restored (was briefly removed) now that the viewport
+   meta tag (base.html) disables pinch-zoom outright — the two need to be
+   paired. With zoom still possible, pan-y alone left Android's gesture
+   recognizer treating a single-finger drag as ambiguous between "scroll"
+   and "start of a zoom pan," and it was resolving in favor of neither (real
+   document scroll never fired). With zoom disabled at the viewport level,
+   that ambiguity is gone and pan-y is unambiguous: single-finger drags can
+   only mean vertical scroll. */
+html,body{touch-action:pan-y;-webkit-overflow-scrolling:touch}
 body{font-family:var(--font-family);background:var(--bg-base);color:var(--text-primary);font-size:14px;line-height:1.5;min-height:100vh;transition:background .2s,color .2s;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 a{color:#60a5fa;text-decoration:none}
 a:hover{color:#93c5fd}

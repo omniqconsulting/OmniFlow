@@ -1,7 +1,14 @@
 ﻿<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<!-- maximum-scale=1, user-scalable=no: disables pinch-zoom entirely. Without
+     this, some Android touch browsers treat a single-finger drag as
+     ambiguous (could be the start of a scroll, or the start of a pinch-zoom
+     pan) and fail to resolve it as a scroll — a two-finger pinch always
+     unambiguously means zoom, which is why 2-finger "scrolling" (really
+     zoom+pan) worked while 1-finger scroll silently did nothing. Removing
+     zoom as a possibility removes the ambiguity. -->
 <title>OmniFlow</title>
 <!-- P6-01: PWA installability — manifest + iOS-specific tags (iOS ignores parts of the manifest spec) -->
 <link rel="manifest" href="/static/manifest.json">
