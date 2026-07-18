@@ -98,7 +98,7 @@
   <!-- Description -->
   <div class="tmd-card">
     <div class="tmd-card-title">Description</div>
-    <div class="tmd-desc">{{ ticket.description }}</div>
+    <div class="tmd-desc" data-selectable>{{ ticket.description }}</div>
   </div>
 
   {% set readonly = true %}
@@ -238,7 +238,7 @@
           · {{ item.created_at | ist }}
         </div>
         {% if item.__tablename__ == 'ticket_comments' %}
-        <div class="tmd-journey-text">{{ item.body }}</div>
+        <div class="tmd-journey-text" data-selectable>{{ item.body }}</div>
         {% elif item.detail %}
         <div class="tmd-journey-detail">{{ item.detail }}</div>
         {% endif %}

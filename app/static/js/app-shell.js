@@ -26,6 +26,20 @@ if ('serviceWorker' in navigator) {
       console.warn('SW registration failed', err);
     });
   });
+
+  // Reload once when a new service worker takes control (e.g. after a
+  // SHELL_CACHE version bump). Without this, an Android PWA that gets
+  // resumed from the recent-apps tray rather than freshly navigated can
+  // keep running against the OLD worker/cache indefinitely — the new
+  // worker installs and calls clients.claim(), but nothing ever tells the
+  // already-open page to actually pick it up. The _reloaded guard stops a
+  // reload loop if a browser fires controllerchange more than once.
+  var _reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (_reloaded) return;
+    _reloaded = true;
+    window.location.reload();
+  });
 }
 
 // P6-03: auto-tag each <td> with its column header so table.mobile-cards can

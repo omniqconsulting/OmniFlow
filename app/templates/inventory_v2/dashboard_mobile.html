@@ -74,6 +74,20 @@
   {% endfor %}
 </div>
 
+{% if total_pages > 1 %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin:12px 4px 20px;font-size:12px;color:var(--text-muted)">
+  <span>Page {{ page }} / {{ total_pages }} · {{ total_rows }} total</span>
+  <div style="display:flex;gap:8px">
+    {% if page > 1 %}
+    <a class="tm-icon-btn" href="/inventory-v2?{{ page_qs }}&page={{ page - 1 }}">← Prev</a>
+    {% endif %}
+    {% if page < total_pages %}
+    <a class="tm-icon-btn" href="/inventory-v2?{{ page_qs }}&page={{ page + 1 }}">Next →</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <!-- ── Filter bottom sheet ──────────────────────────────────────────────── -->
 <div class="tm-sheet-backdrop tm-sheet-backdrop-full" id="god-filters-backdrop" onclick="if(event.target===this)godToggleFilters(false)">
   <div class="tm-sheet tm-sheet-full">
