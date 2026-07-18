@@ -142,7 +142,7 @@ def get_nav_flags(db: Session, user, tenant=None, for_setup: bool = False) -> di
     consistent no matter which route rendered the current page."""
     from .database import Tenant as _Tenant
     if user is None:
-        return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_checklists": False, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
+        return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_checklists": False, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "has_attendance": False, "user_modules": []}
     try:
         from .constants import has_feature
         t = tenant or db.query(_Tenant).filter(_Tenant.id == user.tenant_id).first()
@@ -161,12 +161,13 @@ def get_nav_flags(db: Session, user, tenant=None, for_setup: bool = False) -> di
                                       and (has_feature(t, "SALES_MODULE", db) if t else False)
                                       and "SALES" in modules and user.role in ("ADMIN", "MANAGER")
                                       and "SALES_ANALYTICS" in user_tabs,
+            "has_attendance":        "ATTENDANCE" in user_tabs,
             "user_modules":          modules,
         }
     except Exception as _e:
         import logging as _log
         _log.getLogger(__name__).warning("get_nav_flags failed: %s", _e)
-        return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_knowledge_repo": False, "has_checklists": True, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "user_modules": []}
+        return {"has_inventory": False, "has_tickets": True, "has_fms": False, "has_knowledge_repo": False, "has_checklists": True, "has_sales": False, "has_inventory_module": False, "has_sales_analytics": False, "has_attendance": False, "user_modules": []}
 
 
 def require_module(module: str, feature: str, redirect_unauthenticated: bool = False):

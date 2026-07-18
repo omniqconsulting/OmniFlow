@@ -243,11 +243,25 @@ def my_tasks(request: Request,
         grouped[i["kind"]].append(i)
     data["grouped_queue"] = grouped
 
+    ctx = _ctx(request, user, db, type=type, priority=priority, due=due, now=now, **data)
+
+    attendance_today = None
+    if ctx.get("has_attendance"):
+        from .database import AttendanceRecord
+        from datetime import date as _date
+        rec = db.query(AttendanceRecord).filter(
+            AttendanceRecord.user_id == user.id, AttendanceRecord.work_date == _date.today()
+        ).first()
+        attendance_today = {
+            "checked_in": bool(rec and rec.check_in_at),
+            "checked_out": bool(rec and rec.check_out_at),
+            "check_in_at": rec.check_in_at if rec else None,
+            "check_out_at": rec.check_out_at if rec else None,
+        }
+    ctx["attendance_today"] = attendance_today
+
     template_name = "my_tasks_mobile.html" if request.cookies.get("pwa_ui") == "1" else "my_tasks.html"
-    return templates.TemplateResponse(request, template_name, _ctx(
-        request, user, db,
-        type=type, priority=priority, due=due, now=now, **data,
-    ))
+    return templates.TemplateResponse(request, template_name, ctx)
 
 
 @router.get("/my-tasks/export")

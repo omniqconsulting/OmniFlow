@@ -138,6 +138,9 @@
     {% if has_fms %}
     <a href="/fms/dashboard" {% if '/fms' in path %}class="active"{% endif %}>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a>
     {% endif %}
+    {% if has_attendance %}
+    <a href="/attendance/punch" {% if '/attendance' in path %}class="active"{% endif %}>Attendance</a>
+    {% endif %}
   {% elif active_group == 'crm' %}
     <a href="/sales/contacts" class="active">Customers</a>
   {% elif active_group == 'sales_inventory' %}
@@ -164,6 +167,9 @@
   {% endif %}
   {% if has_fms %}
   <a href="/fms/dashboard" {% if '/fms' in path %}class="active"{% endif %}>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a>
+  {% endif %}
+  {% if has_attendance %}
+  <a href="/attendance/punch" {% if '/attendance' in path %}class="active"{% endif %}>Attendance</a>
   {% endif %}
   {% if has_knowledge_repo %}
   <a href="/knowledge" {% if '/knowledge' in path %}class="active"{% endif %}>Training</a>

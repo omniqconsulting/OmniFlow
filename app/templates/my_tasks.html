@@ -13,6 +13,25 @@
   </div>
 </div>
 
+{% if has_attendance %}
+  {% if not attendance_today.checked_in %}
+  <a href="/attendance/punch" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#ef4444;color:#fff;border-radius:14px;padding:18px 22px;margin:0 0 16px;text-decoration:none;box-shadow:0 4px 14px rgba(239,68,68,.35)">
+    <div style="font-size:16px;font-weight:800">⚠️ You haven't punched in today</div>
+    <div style="background:rgba(255,255,255,.22);border-radius:10px;padding:10px 18px;font-size:13.5px;font-weight:700;white-space:nowrap">Check In Now →</div>
+  </a>
+  {% elif not attendance_today.checked_out %}
+  <a href="/attendance/punch" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#10b981;color:#fff;border-radius:14px;padding:18px 22px;margin:0 0 16px;text-decoration:none;box-shadow:0 4px 14px rgba(16,185,129,.3)">
+    <div style="font-size:16px;font-weight:800">✅ Checked in at {{ attendance_today.check_in_at | ist('%I:%M %p') }}</div>
+    <div style="background:rgba(255,255,255,.22);border-radius:10px;padding:10px 18px;font-size:13.5px;font-weight:700;white-space:nowrap">Check Out →</div>
+  </a>
+  {% else %}
+  <a href="/attendance/punch" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-primary);border-radius:14px;padding:14px 22px;margin:0 0 16px;text-decoration:none">
+    <div style="font-size:14px;font-weight:600">✅ Day complete — In {{ attendance_today.check_in_at | ist('%I:%M %p') }} · Out {{ attendance_today.check_out_at | ist('%I:%M %p') }}</div>
+    <div style="font-size:12px;color:var(--text-faint)">View →</div>
+  </a>
+  {% endif %}
+{% endif %}
+
 <!-- ── Counts strip (also acts as type shortcuts) ──────────────── -->
 <div style="display:grid;grid-template-columns:repeat({{ 4 if not has_sales else 5 }},1fr);gap:12px;margin-bottom:16px">
   {% for kind in ['delegation','ticket','fms','checklist'] + (['sales_followup'] if has_sales else []) %}

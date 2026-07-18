@@ -1,0 +1,91 @@
+{# ── attendance_leave.html ────────────────────────────────────────────────
+   Leave apply form + own history, plus (Manager/Admin) pending-approval queue. #}
+{% extends "base.html" %}
+{% block content %}
+<div style="max-width:720px;margin:0 auto">
+
+  <div style="display:flex;gap:10px;margin-bottom:16px">
+    <a href="/attendance/punch" class="btn btn-sm btn-outline">📍 Punch</a>
+    <a href="/attendance/leave" class="btn btn-sm" style="background:var(--accent);color:#fff;border:none">🗓️ Leave</a>
+  </div>
+
+  <h2 class="page-title" style="margin-bottom:4px">Leave</h2>
+  {% if on_leave_today %}
+  <div style="background:#60a5fa1a;border:1px solid #60a5fa;color:#60a5fa;border-radius:10px;padding:10px 14px;font-size:13px;margin:10px 0">You're on approved leave today.</div>
+  {% endif %}
+
+  <!-- ── Apply form ───────────────────────────────────────────────── -->
+  <div class="card" style="margin:16px 0">
+    <div style="font-weight:700;margin-bottom:12px">Apply for Leave</div>
+    <form method="post" action="/attendance/leave/apply" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px">
+          <label style="font-size:11px;color:var(--text-faint);font-weight:600">Leave Type</label>
+          <select name="leave_type" style="width:100%;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:8px;font-size:13px;color:var(--text-primary)">
+            <option value="CASUAL">Casual</option>
+            <option value="SICK">Sick</option>
+            <option value="EARNED">Earned</option>
+            <option value="UNPAID">Unpaid</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:130px">
+          <label style="font-size:11px;color:var(--text-faint);font-weight:600">Start Date</label>
+          <input type="date" name="start_date" required style="width:100%;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:8px;font-size:13px;color:var(--text-primary)">
+        </div>
+        <div style="flex:1;min-width:130px">
+          <label style="font-size:11px;color:var(--text-faint);font-weight:600">End Date</label>
+          <input type="date" name="end_date" required style="width:100%;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:8px;font-size:13px;color:var(--text-primary)">
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-primary)">
+        <input type="checkbox" name="is_half_day"> Half day (only applies if start date = end date)
+      </label>
+      <textarea name="reason" rows="2" placeholder="Reason (optional)" style="width:100%;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:8px;font-size:13px;color:var(--text-primary)"></textarea>
+      <button type="submit" class="btn" style="align-self:flex-start;background:var(--accent);color:#fff;border:none">Submit Request</button>
+    </form>
+  </div>
+
+  {% if user.role in ['ADMIN','MANAGER'] %}
+  <!-- ── Pending approval queue ───────────────────────────────────── -->
+  <div class="card" style="margin:16px 0">
+    <div style="font-weight:700;margin-bottom:12px">Pending Approvals ({{ pending_queue | length }})</div>
+    {% for p in pending_queue %}
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)">
+      <div>
+        <div style="font-weight:600;font-size:13.5px">{{ p.user.name if p.user else 'Unknown' }} — {{ p.req.leave_type }}</div>
+        <div style="font-size:12px;color:var(--text-faint)">{{ p.req.start_date }} to {{ p.req.end_date }}{% if p.req.is_half_day %} (half day){% endif %}{% if p.req.reason %} — {{ p.req.reason }}{% endif %}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <form method="post" action="/attendance/leave/{{ p.req.id }}/approve">
+          <button type="submit" class="btn btn-sm" style="background:#10b981;color:#fff;border:none">Approve</button>
+        </form>
+        <form method="post" action="/attendance/leave/{{ p.req.id }}/reject">
+          <button type="submit" class="btn btn-sm" style="background:#ef4444;color:#fff;border:none">Reject</button>
+        </form>
+      </div>
+    </div>
+    {% else %}
+    <div style="color:var(--text-faint);font-size:13px">Nothing pending.</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ── My leave history ─────────────────────────────────────────── -->
+  <div class="card" style="margin:16px 0">
+    <div style="font-weight:700;margin-bottom:12px">My Leave History</div>
+    {% set status_color = {'PENDING':'#f59e0b','APPROVED':'#10b981','REJECTED':'#ef4444'} %}
+    {% for r in my_requests %}
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-subtle)">
+      <div>
+        <div style="font-weight:600;font-size:13.5px">{{ r.leave_type }} — {{ r.start_date }} to {{ r.end_date }}{% if r.is_half_day %} (half day){% endif %}</div>
+        {% if r.reason %}<div style="font-size:12px;color:var(--text-faint)">{{ r.reason }}</div>{% endif %}
+      </div>
+      <span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;color:{{ status_color[r.status] }};background:{{ status_color[r.status] }}1a">{{ r.status }}</span>
+    </div>
+    {% else %}
+    <div style="color:var(--text-faint);font-size:13px">No leave requests yet.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
