@@ -1837,12 +1837,48 @@ def _fms_dashboard_inner(
         )
         # Per-stage counts for badges — Phase 0: count active splits at that
         # stage, not tickets, so a 2-split ticket contributes to both buckets.
+        # Role-scoped the same way as the stage-tab ticket list below (a
+        # MANAGER/EMPLOYEE previously saw a raw tenant-wide count here that
+        # the list underneath could never actually match, e.g. a badge of
+        # "15" next to a stage where their own visible list was empty).
         for s in stage_table_stages:
-            stage_ticket_counts[s.id] = db.query(FMSTicketSplit).filter(
+            _badge_rows = db.query(
+                FMSTicketSplit.ticket_id, FMSTicketSplit.current_assignee_id
+            ).filter(
                 FMSTicketSplit.current_stage_id == s.id,
                 FMSTicketSplit.is_deleted == False,
                 FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
-            ).count()
+            ).all()
+            if user.role == "MANAGER":
+                _badge_tids = {r[0] for r in _badge_rows}
+                _badge_cached = {
+                    row[0] for row in db.query(FMSTicket.id).filter(
+                        FMSTicket.id.in_(_badge_tids),
+                        FMSTicket.current_assignee_id.in_(team_ids),
+                    )
+                } if _badge_tids else set()
+                _badge_visible = (
+                    {r[0] for r in _badge_rows if r[1] in team_ids}
+                    | _badge_cached
+                    | (mgr_all_fms_ids & _badge_tids)
+                )
+                stage_ticket_counts[s.id] = len(_badge_visible)
+            elif user.role == "EMPLOYEE":
+                _badge_tids = {r[0] for r in _badge_rows}
+                _badge_cached = {
+                    row[0] for row in db.query(FMSTicket.id).filter(
+                        FMSTicket.id.in_(_badge_tids),
+                        FMSTicket.current_assignee_id == user.id,
+                    )
+                } if _badge_tids else set()
+                _badge_visible = (
+                    {r[0] for r in _badge_rows if r[1] == user.id}
+                    | _badge_cached
+                    | (emp_all_fms_ids & _badge_tids)
+                )
+                stage_ticket_counts[s.id] = len(_badge_visible)
+            else:
+                stage_ticket_counts[s.id] = len({r[0] for r in _badge_rows})
 
         # "My Work" is scoped to whatever single stage tab happens to be
         # active — with 10 tickets spread across several stages, the tab
