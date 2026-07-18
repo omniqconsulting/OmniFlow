@@ -1,0 +1,86 @@
+{# ── attendance_team.html ─────────────────────────────────────────────────
+   Manager/Admin daily attendance log — B3. Out-of-fence count is
+   informational only, no approval workflow attached to it. #}
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Team Attendance</h2>
+    <p style="font-size:13px;color:var(--text-faint);margin-top:2px">{{ sel_date.strftime('%A, %d %b %Y') }}</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    {% if user.role == 'ADMIN' %}<a href="/attendance/setup/geofence" class="btn btn-sm btn-outline">⚙️ Geofence Setup</a>{% endif %}
+    <form method="get" action="/attendance/team" style="display:flex;gap:6px">
+      <input type="date" name="day" value="{{ sel_date.isoformat() }}"
+             onchange="this.form.submit()"
+             style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
+    </form>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+  <div class="card" style="margin:0;text-align:center;padding:16px">
+    <div style="font-size:26px;font-weight:700">{{ rows | length }}</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:4px">Team Members</div>
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:16px">
+    <div style="font-size:26px;font-weight:700;color:#10b981">{{ rows | selectattr('status', 'equalto', 'PRESENT') | list | length }}</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:4px">Present</div>
+  </div>
+  <div class="card" style="margin:0;text-align:center;padding:16px;border-top:3px solid #ef4444">
+    <div style="font-size:26px;font-weight:700;color:#ef4444">{{ out_of_fence_count }}</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:4px">Out-of-Fence Punches</div>
+  </div>
+</div>
+
+<div class="card" style="padding:0;overflow-x:auto">
+  <table class="mobile-cards" style="width:100%;border-collapse:collapse;font-size:12.5px">
+    <thead>
+      <tr style="text-align:left;border-bottom:1px solid var(--border-subtle)">
+        <th style="padding:10px 12px">Employee</th>
+        <th style="padding:10px 12px">Status</th>
+        <th style="padding:10px 12px">Check In</th>
+        <th style="padding:10px 12px">Check Out</th>
+        <th style="padding:10px 12px">Fence</th>
+        <th style="padding:10px 12px">Half Day</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:10px 12px;font-weight:600">{{ r.user.name }}</td>
+        <td style="padding:10px 12px">
+          {% set status_color = {'PRESENT':'#10b981','HALF_DAY':'#f59e0b','ON_LEAVE':'#60a5fa','ABSENT':'#ef4444','FUTURE':'#94a3b8'} %}
+          <span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;color:{{ status_color[r.status] }};background:{{ status_color[r.status] }}1a">{{ r.status.replace('_',' ') }}</span>
+        </td>
+        <td style="padding:10px 12px">{{ r.record.check_in_at | ist('%I:%M %p') if r.record and r.record.check_in_at else '—' }}</td>
+        <td style="padding:10px 12px">{{ r.record.check_out_at | ist('%I:%M %p') if r.record and r.record.check_out_at else '—' }}</td>
+        <td style="padding:10px 12px">
+          {% if r.out_of_fence %}
+            <span title="{{ r.record.check_in_reason or r.record.check_out_reason or '' }}" style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;color:#ef4444;background:#ef44441a;cursor:help">⚠️ Out of Fence</span>
+          {% elif r.record and r.record.check_in_at %}
+            <span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;color:#10b981;background:#10b9811a">✓ In Fence</span>
+          {% else %}
+            <span style="color:var(--text-faint)">—</span>
+          {% endif %}
+        </td>
+        <td style="padding:10px 12px">
+          {% if r.record %}
+          <form method="post" action="/attendance/team/records/{{ r.record.id }}/toggle-half-day">
+            <button type="submit" class="btn btn-sm {{ 'btn-outline' if not r.record.is_half_day else '' }}" style="{% if r.record.is_half_day %}background:#f59e0b;color:#fff;border:none{% endif %}">
+              {{ 'Half Day ✓' if r.record.is_half_day else 'Mark Half Day' }}
+            </button>
+          </form>
+          {% else %}
+            <span style="color:var(--text-faint)">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text-faint)">No team members found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

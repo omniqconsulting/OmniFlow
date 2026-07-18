@@ -70,6 +70,7 @@ FEATURE_CATALOG = {
     "INVENTORY_MODULE":     ("Godown / Stock Management",    "Modules",      PLAN_PROFESSIONAL),
     "SALES_ANALYTICS":      ("Sales Intelligence & AI",      "Modules",      PLAN_PROFESSIONAL),
     "SALES_BULK_OPS":       ("Sales Bulk Import/Export",     "Modules",      PLAN_PROFESSIONAL),
+    "ATTENDANCE":           ("Attendance & Leave",           "Modules",      PLAN_PROFESSIONAL),
 }
 
 # Back-compat: keep the flat FEATURES dict so existing has_feature() calls work
@@ -130,6 +131,7 @@ TAB_CATALOG = [
     ("SALES",      "Sales",       "SALES_MODULE"),
     ("INVENTORY",  "Inventory",   "INVENTORY_MODULE"),
     ("SALES_ANALYTICS", "Sales Insights", "SALES_ANALYTICS"),
+    ("ATTENDANCE", "Attendance", "ATTENDANCE"),
 ]
 
 

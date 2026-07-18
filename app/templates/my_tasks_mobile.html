@@ -39,6 +39,25 @@
   {% if priority %}<a href="/my-tasks?type={{ type }}&due={{ due }}" style="font-size:11px;color:var(--text-faint)">Clear priority filter</a>{% endif %}
 </div>
 
+{% if has_attendance %}
+  {% if not attendance_today.checked_in %}
+  <a href="/attendance/punch" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#ef4444;color:#fff;border-radius:14px;padding:16px 18px;margin:0 0 14px;text-decoration:none;box-shadow:0 4px 14px rgba(239,68,68,.35)">
+    <div style="font-size:14px;font-weight:800;line-height:1.3">⚠️ You haven't punched in today</div>
+    <div style="background:rgba(255,255,255,.22);border-radius:10px;padding:8px 14px;font-size:12.5px;font-weight:700;white-space:nowrap">Check In Now →</div>
+  </a>
+  {% elif not attendance_today.checked_out %}
+  <a href="/attendance/punch" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#10b981;color:#fff;border-radius:14px;padding:16px 18px;margin:0 0 14px;text-decoration:none;box-shadow:0 4px 14px rgba(16,185,129,.3)">
+    <div style="font-size:14px;font-weight:800;line-height:1.3">✅ Checked in at {{ attendance_today.check_in_at | ist('%I:%M %p') }}</div>
+    <div style="background:rgba(255,255,255,.22);border-radius:10px;padding:8px 14px;font-size:12.5px;font-weight:700;white-space:nowrap">Check Out →</div>
+  </a>
+  {% else %}
+  <a href="/attendance/punch" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-primary);border-radius:14px;padding:14px 18px;margin:0 0 14px;text-decoration:none">
+    <div style="font-size:13px;font-weight:600">✅ Day complete — In {{ attendance_today.check_in_at | ist('%I:%M %p') }} · Out {{ attendance_today.check_out_at | ist('%I:%M %p') }}</div>
+    <div style="font-size:12px;color:var(--text-faint)">View →</div>
+  </a>
+  {% endif %}
+{% endif %}
+
 <div class="mt-due-pills">
   <a class="mt-due-pill mt-due-pill-red {% if due=='overdue' %}mt-due-pill-active{% endif %}" href="/my-tasks?type={{ type }}&priority={{ priority }}&due={{ '' if due=='overdue' else 'overdue' }}">Overdue {{ due_counts.overdue }}</a>
   <a class="mt-due-pill {% if due=='today' %}mt-due-pill-active{% endif %}" href="/my-tasks?type={{ type }}&priority={{ priority }}&due={{ '' if due=='today' else 'today' }}">Due Today {{ due_counts.today }}</a>

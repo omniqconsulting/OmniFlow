@@ -2216,6 +2216,61 @@ class SalesTargetHistory(Base):
     changed_by = relationship("User", foreign_keys=[changed_by_id])
 
 
+# ── Attendance & Leave — Workstream B ────────────────────────────────────────
+
+class AttendanceGeofence(Base):
+    __tablename__ = "attendance_geofences"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    branch_id = Column(String, ForeignKey("branches.id"), nullable=True)  # NULL = tenant-wide default site
+    site_name = Column(String, nullable=False, default="Main Office")
+    center_lat = Column(Float, nullable=False)
+    center_lng = Column(Float, nullable=False)
+    radius_m = Column(Integer, nullable=False, default=200)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AttendanceRecord(Base):
+    __tablename__ = "attendance_records"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    work_date = Column(Date, nullable=False)          # one row per employee per calendar day (local/IST date)
+    check_in_at = Column(DateTime, nullable=True)
+    check_in_lat = Column(Float, nullable=True)
+    check_in_lng = Column(Float, nullable=True)
+    check_in_in_fence = Column(Boolean, nullable=True)
+    check_in_reason = Column(Text, nullable=True)      # required if check_in_in_fence is False
+    check_out_at = Column(DateTime, nullable=True)
+    check_out_lat = Column(Float, nullable=True)
+    check_out_lng = Column(Float, nullable=True)
+    check_out_in_fence = Column(Boolean, nullable=True)
+    check_out_reason = Column(Text, nullable=True)     # required if check_out_in_fence is False
+    photo_path = Column(String, nullable=True)         # captured once, on first punch of the day
+    is_half_day = Column(Boolean, default=False)        # manual admin/manager override toggle
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("user_id", "work_date", name="uq_attendance_user_day"),)
+
+
+class LeaveRequest(Base):
+    __tablename__ = "leave_requests"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    leave_type = Column(String, nullable=False, default="CASUAL")
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    is_half_day = Column(Boolean, default=False)        # single-day-only half-day leave, per client brief
+    reason = Column(Text, nullable=True)
+    status = Column(String, default="PENDING")          # PENDING / APPROVED / REJECTED
+    approver_id = Column(String, ForeignKey("users.id"), nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    decision_note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def create_tables():
     Base.metadata.create_all(bind=engine)
     # Run any pending Alembic migrations on startup

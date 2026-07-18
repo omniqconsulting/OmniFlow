@@ -23,6 +23,11 @@
       <span class="bn-icon">📋</span>My Tasks
     </a>
     {% endif %}
+    {% if has_attendance %}
+    <a href="/attendance/punch" class="{% if request.url.path.startswith('/attendance') %}active{% endif %}">
+      <span class="bn-icon">📍</span>Attendance
+    </a>
+    {% endif %}
     {% if has_tickets is not defined or has_tickets %}
     <a href="/tickets" {% if '/tickets' in request.url.path %}class="active"{% endif %}>
       <span class="bn-icon">🎫</span>{{ L.Tickets if L is defined else 'Tickets' }}
