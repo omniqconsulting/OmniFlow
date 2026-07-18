@@ -183,6 +183,9 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     <a href="/fms/tickets/bulk-upload-page{% if active_flow %}?flow_id={{ active_flow.id }}{% endif %}" class="btn btn-outline btn-sm">⬆ Bulk Upload</a>
     {% endif %}
     {% if can_create_ticket %}
+    {# Whitelisted on this flow's "Allowed Employees" list overrides the
+       default employee-can't-create restriction — see _can_create_in_flow. #}
+    {% if user.role in ('ADMIN','MANAGER') or can_create_ticket %}
     <a href="/fms/tickets/bulk-create?flow_id={{ active_flow.id if active_flow else '' }}" class="btn btn-primary btn-sm">+ New Ticket Create</a>
     {% endif %}
     <a href="/fms/tickets/export?{{ request.query_string.decode() }}" class="btn btn-outline btn-sm" title="Export filtered data as CSV">⬇ Export CSV</a>
@@ -668,14 +671,11 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           {% for fdef in ticket_form_fields %}
           <th style="font-size:11px;color:var(--text-faint);white-space:nowrap" title="From Ticket Creation Form">{{ fdef.label }}</th>
           {% endfor %}
-          {# A4: custom stage columns — show up to 3, rest in tooltip #}
+          {# A4: custom stage columns — list all of them #}
           {% set stage_cf_defs = active_stage.custom_fields_json | from_json if active_stage.custom_fields_json else [] %}
-          {% for fdef in stage_cf_defs[:3] %}
+          {% for fdef in stage_cf_defs %}
           <th style="font-size:11px;color:var(--text-faint);white-space:nowrap">{{ fdef.label }}</th>
           {% endfor %}
-          {% if stage_cf_defs | length > 3 %}
-          <th style="font-size:11px;color:var(--text-faint)" title="{{ stage_cf_defs[3:] | map(attribute='label') | join(', ') }}">+{{ stage_cf_defs | length - 3 }} more</th>
-          {% endif %}
           <th></th>
         </tr>
       </thead>
@@ -705,21 +705,17 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           </span>
           {% if t.is_flagged %} 🚩{% endif %}
           {% if t.has_qty_discrepancy %} <span title="Quantity drift: split totals don't match target_qty">⚠</span>{% endif %}
-          {% if row.evidence_url %}
-            {% set _ev_name = (row.evidence_filename or row.evidence_url) | lower %}
-            {% if _ev_name.endswith('.png') or _ev_name.endswith('.jpg') or _ev_name.endswith('.jpeg') or _ev_name.endswith('.gif') or _ev_name.endswith('.webp') %}
-            <a href="{{ row.evidence_url }}" target="_blank" title="{{ row.evidence_filename or 'Attachment' }}"
-               onclick="event.stopPropagation()" style="display:inline-block;vertical-align:middle;margin-left:5px">
-              <img src="{{ row.evidence_url }}" alt="evidence" style="width:22px;height:22px;object-fit:cover;border-radius:4px;border:1px solid var(--border-med);vertical-align:middle">
-            </a>
-            {% else %}
-            <a href="{{ row.evidence_url }}" target="_blank" title="{{ row.evidence_filename or 'Attachment' }}"
-               onclick="event.stopPropagation()" style="text-decoration:none;font-size:12px;margin-left:4px">📎</a>
-            {% endif %}
+          {% if row.evidence_payload %}
+          <button type="button" data-evidence='{{ row.evidence_payload | tojson | replace("'", "&#39;") }}'
+                  onclick="event.stopPropagation();openEvidenceModal('{{ t.display_id or t.id[:8] }}',JSON.parse(this.dataset.evidence))"
+                  title="{{ row.evidence_payload | length }} attachment{{ 's' if row.evidence_payload | length != 1 else '' }} — click to view all"
+                  style="background:none;border:none;cursor:pointer;font-size:13px;margin-left:5px;vertical-align:middle;color:var(--text-muted);display:inline-flex;align-items:center;gap:2px">
+            📎<span style="font-size:10px">{{ row.evidence_payload | length }}</span>
+          </button>
           {% endif %}
           {% if row.split_count and row.split_count > 1 %}
-          <button type="button" data-splits='{{ row.splits_payload | tojson | replace("'", "&#39;") }}'
-                  onclick="event.stopPropagation();openSplitsModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}',JSON.parse(this.dataset.splits))"
+          <button type="button" data-splits='{{ row.splits_payload | tojson | replace("'", "&#39;") }}' data-header-fields='{{ row.header_fields | tojson | replace("'", "&#39;") }}'
+                  onclick="event.stopPropagation();openSplitsModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}',JSON.parse(this.dataset.splits),JSON.parse(this.dataset.headerFields))"
                   class="btn btn-sm" style="font-size:10px;padding:1px 6px;margin-left:4px;border-color:rgba(96,165,250,.5);color:#60a5fa" title="This ticket has {{ row.split_count }} active splits">
             ⑂ {{ row.split_count }} splits
           </button>
@@ -779,16 +775,13 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
         {% endfor %}
         {# A4: custom stage column values — aggregated from all stage visits #}
         {% if stage_cf_defs %}
-        {% for fdef in stage_cf_defs[:3] %}
+        {% for fdef in stage_cf_defs %}
         {% set cfval = row.cf_all.get(fdef.id, row.cf_all.get(fdef.label, '—')) %}
         {% set cfstyle = fdef | cond_format(cfval) %}
         <td data-cf-cell="{{ t.id }}_{{ fdef.id }}" style="font-size:12px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;{{ cfstyle if cfstyle else 'color:var(--text-muted)' }}">
           {{ cfval }}
         </td>
         {% endfor %}
-        {% if stage_cf_defs | length > 3 %}
-        <td style="font-size:11px;color:var(--text-faint)" title="{{ stage_cf_defs[3:] | map(attribute='label') | join(', ') }}">…</td>
-        {% endif %}
         {% endif %}
         <td onclick="event.stopPropagation()" style="white-space:nowrap">
           <div style="display:flex;align-items:center;gap:6px">
@@ -803,10 +796,20 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           {% endif %}
           {% endif %}
 
-          {# Enter Data button — shown when stage has custom fields and user can act #}
+          {# Enter Data button — shown only when the stage has fields that
+             actually need user input. Formula fields are auto-computed and
+             never have an editable input in the Enter Data form, so a stage
+             made up entirely of formulas has nothing to enter. Carry-forward
+             fields DO still belong here though — carry-forward only means
+             "pre-fill a default from an earlier stage", the field itself
+             stays a normal editable input in the modal (e.g. Quantity/Price
+             reused onto a later stage to feed that stage's own formulas may
+             still need reviewing or correcting there). #}
           {% set stage_cfs = active_stage.custom_fields_json | from_json if active_stage.custom_fields_json else [] %}
-          {% if can_act and stage_cfs and t.status not in ('COMPLETED','CLOSED') %}
-          <button onclick="event.stopPropagation();openStageDataModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ active_stage.id }}','{{ row.split_id or "" }}')"
+          {% set enterable_cfs = stage_cfs | selectattr('field_type', 'ne', 'formula') | list %}
+          {% if can_act and enterable_cfs and t.status not in ('COMPLETED','CLOSED') %}
+          <button data-header-fields='{{ row.header_fields | tojson | replace("'", "&#39;") }}'
+                  onclick="event.stopPropagation();openStageDataModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ active_stage.id }}','{{ row.split_id or "" }}',JSON.parse(this.dataset.headerFields))"
                   class="btn btn-sm" style="font-size:11px;border-color:rgba(167,139,250,0.5);color:#a78bfa" title="Fill stage data fields">
             ✏ Enter Data
           </button>
@@ -816,7 +819,8 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
              rather than buried in the 3-dot menu, same placement as Enter Data #}
           {% if can_act and not active_stage.is_terminal and t.status not in ('COMPLETED','CLOSED') %}
           {% set ns = next_stage_map.get(active_stage.id) %}
-          <button onclick="event.stopPropagation();openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ 'true' if active_stage.evidence_required else 'false' }}','{{ 'true' if active_stage.completion_note_required else 'false' }}','{{ active_stage.id }}','{{ row.split_id or "" }}')"
+          <button data-header-fields='{{ row.header_fields | tojson | replace("'", "&#39;") }}'
+                  onclick="event.stopPropagation();openStageCompleteModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}','{{ active_stage.name }}','{{ 'true' if active_stage.evidence_required else 'false' }}','{{ 'true' if active_stage.completion_note_required else 'false' }}','{{ active_stage.id }}','{{ row.split_id or "" }}',JSON.parse(this.dataset.headerFields))"
                   class="btn btn-sm" style="font-size:11px;border-color:rgba(52,211,153,.5);color:#34d399" title="Mark this stage done and move on">
             ✓ Mark Done{% if ns %} → {{ ns.name[:20] }}{% endif %}
           </button>
@@ -873,8 +877,8 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
                  entry point that keeps the existing manual merge/close-split
                  features reachable. #}
               {% if row.split_count and row.split_count > 1 %}
-              <button type="button" data-splits='{{ row.splits_payload | tojson | replace("'", "&#39;") }}'
-                      onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openManageSplitsModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}',JSON.parse(this.dataset.splits))"
+              <button type="button" data-splits='{{ row.splits_payload | tojson | replace("'", "&#39;") }}' data-header-fields='{{ row.header_fields | tojson | replace("'", "&#39;") }}'
+                      onclick="document.querySelectorAll('.fms-dot-menu').forEach(m=>m.style.display='none');openManageSplitsModal('{{ t.id }}','{{ t.display_id or t.id[:8] }}',JSON.parse(this.dataset.splits),JSON.parse(this.dataset.headerFields))"
                       style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#60a5fa;cursor:pointer;font-family:inherit">
                 ⑂ {{ L.get('ManageSplits','Manage Splits') }}
               </button>
@@ -1492,57 +1496,16 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
           <!-- assignee_id auto-synced from starting stage's per-stage dropdown -->
           <input type="hidden" name="assignee_id" id="modalAssignee" required>
 
-          <!-- Linked entities -->
-          {% if entity_options %}
-          <div style="height:14px"></div>
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-xfaint);margin-bottom:8px">🔗 Linked Records <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
-          {% if entity_options.get('CUSTOMER') %}
-          <div class="fm-group" style="margin-bottom:10px">
-            <label>Customer</label>
-            <select name="linked_customer">
-              <option value="">— None —</option>
-              {% for opt in entity_options['CUSTOMER'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
-            </select>
-          </div>
-          {% endif %}
-          {% if entity_options.get('VENDOR') %}
-          <div class="fm-group" style="margin-bottom:10px">
-            <label>Vendor</label>
-            <select name="linked_vendor">
-              <option value="">— None —</option>
-              {% for opt in entity_options['VENDOR'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
-            </select>
-          </div>
-          {% endif %}
-          {% if entity_options.get('END_PRODUCT') %}
-          <div class="fm-group" style="margin-bottom:10px">
-            <label>End Product</label>
-            <select name="linked_end_product">
-              <option value="">— None —</option>
-              {% for opt in entity_options['END_PRODUCT'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
-            </select>
-          </div>
-          {% endif %}
-          {% if entity_options.get('MATERIAL') %}
-          <div class="fm-group" style="margin-bottom:10px">
-            <label>Raw Material</label>
-            <select name="linked_material">
-              <option value="">— None —</option>
-              {% for opt in entity_options['MATERIAL'] %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
-            </select>
-          </div>
-          {% endif %}
-          {% for key, items in entity_options.items() %}{% if key.startswith('CUSTOM_LIST:') %}
-          {% set parts = key.split(':') %}
-          <div class="fm-group" style="margin-bottom:10px">
-            <label>{{ parts[2] }}</label>
-            <select name="linked_custom_{{ parts[1] }}">
-              <option value="">— None —</option>
-              {% for opt in items %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
-            </select>
-          </div>
-          {% endif %}{% endfor %}
-          {% endif %}
+          <!-- Linked entities — same shared widget ticket_new.html uses, so
+               the "+ Add new — pending approval" flow for custom-list values
+               works from this modal too, not just the standalone /fms/tickets/new
+               page. Backend save (save_linked_entities_from_form) reads the
+               same linked_* field names either way, so this is a drop-in
+               swap for the previous hand-rolled closed-select version. -->
+          {% set parent_type = 'FMS_TICKET' %}
+          {% set parent_id = '' %}
+          {% set readonly = false %}
+          {% include "components/linked_entities.html" %}
 
           <!-- Custom ticket form fields (from flow's Ticket Creation Form) -->
           <div id="ticketCustomFields" style="display:none">
@@ -1884,6 +1847,25 @@ document.querySelectorAll('.ctv-toggle').forEach(cb => {
     </div>
     <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:16px">
       <button type="button" onclick="closeSplitsModal()" class="btn btn-sm">{{ L.get('Close','Close') }}</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Evidence modal: all attachments across a split's full lineage, not
+     just the current stage/split — a ticket that auto-split keeps evidence
+     uploaded before the split reachable from later stages too. ── -->
+<div id="fmsEvidenceModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);align-items:center;justify-content:center;z-index:300;padding:16px">
+  <div style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:14px;padding:24px;width:520px;max-width:96vw;max-height:88vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-strong)">📎 {{ L.get('Attachments','Attachments') }}</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:2px" id="fmsEvidenceSubtitle"></div>
+      </div>
+      <button onclick="closeEvidenceModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-faint)">✕</button>
+    </div>
+    <div id="fmsEvidenceList" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:16px">
+      <button type="button" onclick="closeEvidenceModal()" class="btn btn-sm">{{ L.get('Close','Close') }}</button>
     </div>
   </div>
 </div>
@@ -2498,12 +2480,21 @@ var _sdCurrentTicketId = null;
 var _sdCurrentStageId  = null;
 var _sdCurrentSplitId  = null;
 
-function openStageDataModal(ticketId, displayId, stageName, stageId, splitId) {
+// Setup > Ticket Creation Form > "Show in header" — admin-picked fields
+// (e.g. Item Name, Customer) shown next to the ticket number instead of the
+// generic auto-generated title, so whoever's filling the form can tell
+// which real order/item they're on.
+function _headerFieldsText(displayId, headerFields) {
+  var extra = (headerFields || []).map(function(f){ return f.value; }).filter(function(v){ return v && v !== '—'; }).join(' · ');
+  return displayId + (extra ? ' — ' + extra : '');
+}
+
+function openStageDataModal(ticketId, displayId, stageName, stageId, splitId, headerFields) {
   _sdCurrentTicketId = ticketId;
   _sdCurrentStageId  = stageId;
   _sdCurrentSplitId  = splitId || '';
   document.getElementById('sdModalTitle').textContent   = 'Enter Data: ' + stageName;
-  document.getElementById('sdModalSubtitle').textContent = displayId;
+  document.getElementById('sdModalSubtitle').textContent = _headerFieldsText(displayId, headerFields);
 
   var container = document.getElementById('sdCustomFields');
   container.innerHTML = '';
@@ -2542,7 +2533,7 @@ function openStageDataModal(ticketId, displayId, stageName, stageId, splitId) {
     if (_isSplitActualField) {
       var hint = document.createElement('div');
       hint.style.cssText = 'font-size:11px;color:#f59e0b;margin:-2px 0 6px 0';
-      hint.textContent = '⑂ Enter the TOTAL cumulative quantity received so far (not just this visit\'s increment). The system automatically works out what\'s new since your last entry and splits that portion forward.';
+      hint.textContent = '⑂ Enter only the quantity that belongs to this split (this visit\'s addition) — not the running total. The system keeps track of the cumulative total automatically.';
       grp.appendChild(hint);
     }
 
@@ -2574,7 +2565,12 @@ function openStageDataModal(ticketId, displayId, stageName, stageId, splitId) {
     inp.name = 'sd_cf__' + f.id;
     inp.id   = 'sd_inp_' + f.id;
     if (f.required) inp.required = true;
-    if (saved[f.id] !== undefined) inp.value = saved[f.id];
+    // The split actual field holds THIS VISIT's increment, not persisted
+    // state — pre-filling it with whatever was typed last visit would look
+    // like a leftover cumulative figure and risks getting silently
+    // resubmitted (double-counting that increment). Every other field still
+    // carries its last saved value forward as normal.
+    if (saved[f.id] !== undefined && !_isSplitActualField) inp.value = saved[f.id];
     grp.appendChild(inp);
     container.appendChild(grp);
   });
@@ -2583,6 +2579,8 @@ function openStageDataModal(ticketId, displayId, stageName, stageId, splitId) {
   // then falls back to stageDataStore (cross-stage values) so formulas that
   // reference prior-stage columns resolve correctly.
   var _crossStageVals = Object.assign({}, stageDataStore[_sdKey(ticketId, splitId)] || {});
+  var _splitCfgForRecalc = STAGE_SPLIT_CONFIG[stageId] || {};
+  var _prevCumulative = (splitId && SPLIT_LAST_CUMULATIVE[splitId] !== undefined) ? parseFloat(SPLIT_LAST_CUMULATIVE[splitId]) : 0;
   function _sdRecalc() {
     cfDefs.forEach(function(f) {
       if (f.field_type !== 'formula' || !f.formula_steps || !f.formula_steps.length) return;
@@ -2590,6 +2588,12 @@ function openStageDataModal(ticketId, displayId, stageName, stageId, splitId) {
       f.formula_steps.forEach(function(step, idx) {
         var el = container.querySelector('[name="sd_cf__'+step.col_id+'"]');
         var rawVal = el ? el.value : (_crossStageVals[step.col_id] !== undefined ? String(_crossStageVals[step.col_id]) : '');
+        // The split "actual" field holds this visit's increment, not the
+        // cumulative — formulas comparing against target need the running
+        // total, so substitute prev-cumulative + entered delta here.
+        if (_splitCfgForRecalc.enabled && step.col_id === _splitCfgForRecalc.actual_field && rawVal !== '' && !isNaN(parseFloat(rawVal))) {
+          rawVal = String((isNaN(_prevCumulative) ? 0 : _prevCumulative) + parseFloat(rawVal));
+        }
         var val = parseFloat(rawVal);
         if (isNaN(val)) { valid=false; return; }
         if (idx===0) { result=val; return; }
@@ -2704,7 +2708,16 @@ function tryQuickCompleteStage(ticketId, displayId, stageName, evidenceRequired,
   var ns = NEXT_STAGE_MAP[stageId];
   if (ns && !ns.default_assignee_id) return false;
   var cfDefs = (STAGE_CF_DEFS && stageId) ? (STAGE_CF_DEFS[stageId] || []) : [];
-  if (cfDefs.length) return false;
+  var saved0 = stageDataStore[_sdKey(ticketId, splitId)] || {};
+  // Stage custom fields alone don't require the confirmation dialog — only
+  // if a required field hasn't actually been entered yet (via ✏ Enter Data)
+  // is there anything left to surface. Formula fields are auto-derived, not
+  // user-entered, so they never block quick-complete.
+  var missingRequired = cfDefs.some(function(f) {
+    return f.required && f.field_type !== 'formula' &&
+      (saved0[f.id] === undefined || saved0[f.id] === null || saved0[f.id] === '');
+  });
+  if (missingRequired) return false;
 
   var fd = new FormData();
   fd.append('is_override', 'false');
@@ -2714,8 +2727,7 @@ function tryQuickCompleteStage(ticketId, displayId, stageName, evidenceRequired,
   fd.append('completion_note', '');
   fd.append('qty_completed', '0');
   fd.append('return_reason', '');
-  var saved = stageDataStore[_sdKey(ticketId, splitId)] || {};
-  Object.keys(saved).forEach(function(fieldId) { fd.append('cf__' + fieldId, saved[fieldId]); });
+  Object.keys(saved0).forEach(function(fieldId) { fd.append('cf__' + fieldId, saved0[fieldId]); });
 
   fetch('/fms/tickets/' + ticketId + '/transition', { method: 'POST', body: fd })
     .then(function(res) {
@@ -2728,7 +2740,7 @@ function tryQuickCompleteStage(ticketId, displayId, stageName, evidenceRequired,
   return true;
 }
 
-function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired, noteRequired, stageId, splitId) {
+function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired, noteRequired, stageId, splitId, headerFields) {
   if (tryQuickCompleteStage(ticketId, displayId, stageName, evidenceRequired, noteRequired, stageId, splitId)) return;
   var modal = document.getElementById('stageCompleteModal');
   var form  = document.getElementById('scForm');
@@ -2736,7 +2748,7 @@ function openStageCompleteModal(ticketId, displayId, stageName, evidenceRequired
   document.getElementById('scSplitId').value = splitId || '';
 
   document.getElementById('scModalTitle').textContent = 'Complete Stage: ' + stageName;
-  document.getElementById('scModalSubtitle').textContent = displayId;
+  document.getElementById('scModalSubtitle').textContent = _headerFieldsText(displayId, headerFields);
 
   var activeStageId = stageId || "{{ active_stage.id if active_stage else '' }}";
   _scCurrentStageId = activeStageId;
@@ -2851,16 +2863,15 @@ document.getElementById('scForm').addEventListener('submit', function(e) {
   var splitId  = document.getElementById('scSplitId').value || '';
   var saved = stageDataStore[_sdKey(ticketId, splitId)] || {};
 
-  // Auto-split guard: if this stage's actual/entered field hasn't changed
-  // since the last recorded cumulative value, no new split will be created
-  // (delta<=0 is a correct no-op) — warn before submitting so a "small
-  // entry" that never actually got re-saved via ✏ Enter Data doesn't
-  // silently vanish with no feedback.
+  // Auto-split guard: this stage's actual/entered field is THIS VISIT'S
+  // increment — zero/blank/negative means no new quantity was recorded, so
+  // no new split will be created (a correct no-op) — warn before submitting
+  // so a forgotten entry doesn't silently vanish with no feedback.
   var _guardCfg = STAGE_SPLIT_CONFIG[_scCurrentStageId];
-  if (_guardCfg && _guardCfg.enabled && _guardCfg.actual_field && splitId && SPLIT_LAST_CUMULATIVE[splitId] !== undefined) {
+  if (_guardCfg && _guardCfg.enabled && _guardCfg.actual_field && splitId) {
     var newVal = saved[_guardCfg.actual_field];
-    if (newVal !== undefined && parseFloat(newVal) === parseFloat(SPLIT_LAST_CUMULATIVE[splitId])) {
-      var proceed = confirm('The cumulative quantity you entered (' + newVal + ') is the same as last time — no new split will be created. Did you forget to update it? Click Cancel to go back and update it, or OK to proceed anyway.');
+    if (newVal !== undefined && !(parseFloat(newVal) > 0)) {
+      var proceed = confirm('The quantity you entered for this split (' + newVal + ') is zero or blank — no new split will be created. Did you forget to enter it? Click Cancel to go back and update it, or OK to proceed anyway.');
       if (!proceed) { e.preventDefault(); return; }
     }
   }
@@ -3032,12 +3043,12 @@ function closeHelpModal() {
 /* ── Phase 0/A5: Splits list modal — full ticket-row action parity per split,
    plus multi-select + merge back into one split. ─────────────────────────── */
 var _fmsSplitsTicketId = null;
-function openSplitsModal(ticketId, displayId, splits) {
+function openSplitsModal(ticketId, displayId, splits, headerFields) {
   // R8/§6.3: plain read-only rendering — ticket-creation columns + value
   // entered per split + timestamp + evidence indicator. No checkboxes, no
   // action buttons, no click handlers of any kind on this table.
   _fmsSplitsTicketId = ticketId;
-  document.getElementById('fmsSplitsSubtitle').textContent = displayId;
+  document.getElementById('fmsSplitsSubtitle').textContent = _headerFieldsText(displayId, headerFields);
 
   // Dynamic header — one <th> per field actually configured on this flow's
   // ticket-creation form (varies per flow, so built at render time rather
@@ -3067,13 +3078,25 @@ function openSplitsModal(ticketId, displayId, splits) {
     tr.appendChild(tdLabel);
 
     (s.ticket_form_columns || []).forEach(function(fc) { tr.appendChild(td(fc.value)); });
-    tr.appendChild(td(s.target_value_at_split !== null && s.target_value_at_split !== undefined ? s.target_value_at_split : s.ticket_target_qty));
-    // s.qty is NOT a valid fallback for "value entered" — for an open
-    // remainder it means "how much is still outstanding", the opposite of
-    // what this column claims. Only fall back to s.qty for splits that
-    // predate the auto-split engine entirely (manual splits, which never
-    // populate entered_value and aren't remainders either).
-    tr.appendChild(td(s.entered_value !== null && s.entered_value !== undefined ? s.entered_value : (s.is_remainder ? null : s.qty)));
+    // target_value_at_split is never set on a split that hasn't itself been
+    // carved off of a parent (a remainder still receiving entries, or one
+    // that just completed via full/over-delivery) — its own qty tracks
+    // "how much of the target this split covers" in both cases (outstanding
+    // amount while open, this-visit's completing increment once done), so
+    // fall back to that instead of the ticket's unrelated overall target_qty.
+    var targetQtyDisplay = s.target_value_at_split !== null && s.target_value_at_split !== undefined
+      ? s.target_value_at_split
+      : (s.qty !== null && s.qty !== undefined ? s.qty : s.ticket_target_qty);
+    tr.appendChild(td(targetQtyDisplay));
+    // In THIS popup specifically, "Value Entered" means the actual quantity
+    // typed into the form for this split's own row — s.qty (the split's own
+    // increment: the delta carved off it, or the final delta that completed
+    // it) is that number for every non-remainder split. entered_value can
+    // hold the running CUMULATIVE total instead (e.g. once a split fully
+    // completes) — correct for the table/stage views' own columns, but not
+    // what this column is asking for here. An open remainder hasn't
+    // produced a "this visit" number yet, so it stays blank.
+    tr.appendChild(td(s.is_remainder ? null : s.qty));
     tr.appendChild(td(s.stage_name));
     tr.appendChild(td(s.assignee_name));
 
@@ -3104,11 +3127,47 @@ function closeSplitsModal() {
   document.getElementById('fmsSplitsModal').style.display = 'none';
 }
 
+function openEvidenceModal(displayId, items) {
+  document.getElementById('fmsEvidenceSubtitle').textContent = displayId;
+  var list = document.getElementById('fmsEvidenceList');
+  list.innerHTML = '';
+  (items || []).forEach(function(it) {
+    var row = document.createElement('a');
+    row.href = it.url; row.target = '_blank';
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-subtle);border-radius:8px;text-decoration:none;color:var(--text-primary)';
+    var name = (it.filename || it.url || '').toLowerCase();
+    var isImg = /\.(png|jpe?g|gif|webp)$/.test(name);
+    if (isImg) {
+      var img = document.createElement('img');
+      img.src = it.url; img.alt = 'evidence';
+      img.style.cssText = 'width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border-med);flex-shrink:0';
+      row.appendChild(img);
+    } else {
+      var icon = document.createElement('span');
+      icon.style.cssText = 'font-size:20px;flex-shrink:0'; icon.textContent = '📎';
+      row.appendChild(icon);
+    }
+    var meta = document.createElement('div');
+    meta.style.cssText = 'min-width:0;flex:1';
+    meta.innerHTML = '<div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (it.filename || 'Attachment') + '</div>' +
+      '<div style="font-size:11px;color:var(--text-faint)">' + [it.stage_name, it.uploaded_at].filter(Boolean).join(' · ') + '</div>';
+    row.appendChild(meta);
+    list.appendChild(row);
+  });
+  if (!items || !items.length) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--text-faint);padding:8px 0">No attachments.</div>';
+  }
+  document.getElementById('fmsEvidenceModal').style.display = 'flex';
+}
+function closeEvidenceModal() {
+  document.getElementById('fmsEvidenceModal').style.display = 'none';
+}
+
 /* ── Manage Splits modal (dot-menu): merge / close-split actions live here
    now that the read-only Splits popup above has none (R8/§6.3). ─────────── */
-function openManageSplitsModal(ticketId, displayId, splits) {
+function openManageSplitsModal(ticketId, displayId, splits, headerFields) {
   _fmsSplitsTicketId = ticketId;
-  document.getElementById('fmsManageSplitsSubtitle').textContent = displayId;
+  document.getElementById('fmsManageSplitsSubtitle').textContent = _headerFieldsText(displayId, headerFields);
   var body = document.getElementById('fmsManageSplitsBody');
   body.innerHTML = '';
   splits.forEach(function(s) {

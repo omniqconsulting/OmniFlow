@@ -14,7 +14,7 @@
 
 <div class="fb-header">
   <div class="fb-title">Flow Board</div>
-  {% if user.role in ('ADMIN','MANAGER','EMPLOYEE') and active_flow %}
+  {% if active_flow and (user.role in ('ADMIN','MANAGER') or can_create_ticket) %}
   <button type="button" class="fb-icon-btn" onclick="fbToggleNew(true)" title="New Ticket">+</button>
   {% endif %}
 </div>
@@ -83,12 +83,14 @@
           data-desc="{{ t.description or '' }}" data-assignee="{{ t.current_assignee.name if t.current_assignee else 'Unassigned' }}"
           data-stage="{{ active_stage.name if active_stage else '' }}" data-tat="{{ row.tat_pct if row.tat_pct is not none else '' }}"
           data-splitlabel="{{ row.split_label or '' }}" data-splitcount="{{ row.split_count or 1 }}"
-          data-splitid="{{ row.split_id or '' }}" data-canact="{{ 'true' if can_act else 'false' }}">
+          data-splitid="{{ row.split_id or '' }}" data-canact="{{ 'true' if can_act else 'false' }}"
+          data-headerfields='{{ row.header_fields | tojson | replace("'", "&#39;") }}'>
     <div class="fb-card-top">
       <span class="fb-card-id">{{ t.display_id or t.id[:8] }}{% if row.split_count and row.split_count > 1 and row.split_label %} · {{ row.split_label }}{% endif %}</span>
       <span class="fb-badge {{ prClass }}">{{ t.priority }}</span>
     </div>
-    <div class="fb-card-title">{{ t.title }}</div>
+    {% set _hdr_vals = row.header_fields | selectattr('value') | rejectattr('value', 'equalto', '—') | map(attribute='value') | list %}
+    <div class="fb-card-title">{{ _hdr_vals | join(' · ') if _hdr_vals else t.title }}</div>
     {% if row.tat_pct is not none %}
     <div class="fb-tat-track"><div class="fb-tat-fill" style="width:{{ [row.tat_pct,100]|min }}%;background:{{ tc }}"></div></div>
     {% endif %}
@@ -346,6 +348,10 @@
       <div class="fb-field"><label>{{ f.label }}{% if f.required %} *{% endif %}</label>
         <input name="cf_{{ f.name }}" {% if f.required %}required{% endif %} class="fb-input"></div>
       {% endfor %}
+      {% set parent_type = 'FMS_TICKET' %}
+      {% set parent_id = '' %}
+      {% set readonly = false %}
+      {% include "components/linked_entities.html" %}
       <div class="fb-sheet-footer">
         <button type="button" class="fb-btn fb-btn-outline" onclick="fbToggleNew(false)">Cancel</button>
         <button type="submit" class="fb-btn fb-btn-primary">Create Ticket →</button>
@@ -432,6 +438,16 @@ fetch('/fms/flow-groups/{{ active_flow.group_id }}/members')
 var FB_CURRENT_TICKET = null;
 var FB_CURRENT_SPLIT_ID = null;
 
+// Setup > Ticket Creation Form > "Show in header" — same admin-picked
+// fields desktop shows next to the ticket number; mirrored here since this
+// mobile template is intentionally independent (see file header comment).
+function fbHeaderFieldsText(title, headerFieldsJson) {
+  var fields = [];
+  try { fields = JSON.parse(headerFieldsJson || '[]'); } catch (e) {}
+  var extra = fields.map(function(f){ return f.value; }).filter(function(v){ return v && v !== '—'; }).join(' · ');
+  return extra || title;
+}
+
 function fbOpenTicket(cardEl){
   var id = cardEl.dataset.id;
   var displayId = cardEl.dataset.display;
@@ -448,7 +464,7 @@ function fbOpenTicket(cardEl){
   FB_CURRENT_TICKET = id;
   FB_CURRENT_SPLIT_ID = splitId || null;
   document.getElementById('fb-t-id').textContent = displayId;
-  document.getElementById('fb-t-title').textContent = title;
+  document.getElementById('fb-t-title').textContent = fbHeaderFieldsText(title, cardEl.dataset.headerfields);
   var prEl = document.getElementById('fb-t-priority');
   prEl.textContent = priority;
   prEl.className = 'fb-badge ' + prClass;
