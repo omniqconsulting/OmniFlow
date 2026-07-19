@@ -158,7 +158,7 @@
   <button type="button" class="gp-seg" id="gp-tab-client-btn" onclick="gpSetTab('client')">Client Level</button>
 </div>
 
-<div id="gp-tab-order" class="card" style="padding:0;overflow:hidden">
+<div id="gp-tab-order" class="card" style="padding:0">
   {% if order_rows %}
   <table class="table" style="width:100%">
     <thead><tr><th>Order</th><th>Customer</th><th>Agent</th><th>Date</th><th>Revenue</th><th>Cost</th><th>GP</th><th>GP %</th><th></th></tr></thead>
@@ -185,7 +185,7 @@
   {% endif %}
 </div>
 
-<div id="gp-tab-sku" class="card" style="padding:0;overflow:hidden;display:none">
+<div id="gp-tab-sku" class="card" style="padding:0;display:none">
   {% if sku_rows %}
   <table class="table" style="width:100%">
     <thead><tr><th>Product</th><th>SKU</th><th>Tier</th><th>Qty Sold</th><th>Revenue</th><th>Cost</th><th>GP</th><th>GP %</th><th></th></tr></thead>
@@ -210,7 +210,7 @@
   {% endif %}
 </div>
 
-<div id="gp-tab-client" class="card" style="padding:0;overflow:hidden;display:none">
+<div id="gp-tab-client" class="card" style="padding:0;display:none">
   {% if client_rows %}
   <table class="table" style="width:100%">
     <thead><tr><th>Client</th><th>Tier</th><th>Orders</th><th>Revenue</th><th>Cost</th><th>GP</th><th>GP %</th><th></th></tr></thead>

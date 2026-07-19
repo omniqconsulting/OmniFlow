@@ -704,3 +704,41 @@ document.addEventListener('DOMContentLoaded', function(){
   inner.addEventListener('scroll', updateFades, { passive: true });
   window.addEventListener('resize', updateFades);
 });
+
+// Sticky table headers (app-shell.css `th{top:var(--sticky-stack-offset,52px)}`)
+// need to sit *below* whatever sticky filter-bar/KPI block precedes them,
+// not at the same fixed offset — otherwise the header renders hidden
+// underneath that block. Rather than hardcode each page's stacked height
+// (filter bars wrap and change height at different viewport widths, and the
+// preceding sticky block isn't always a direct sibling of the table's
+// .card — e.g. it can be one level up), find every sticky element that
+// precedes a table's card anywhere earlier in document order and offset
+// from the lowest one, per card, on load/resize.
+function syncStickyTableOffsets(){
+  var stickies = Array.prototype.filter.call(document.querySelectorAll('*'), function(el){
+    return getComputedStyle(el).position === 'sticky';
+  });
+  document.querySelectorAll('.card').forEach(function(card){
+    if(!card.querySelector('table')) return;
+    var maxBottom = 0;
+    stickies.forEach(function(el){
+      if(el === card || card.contains(el) || el.contains(card)) return;
+      if(el.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING){
+        var top = parseFloat(getComputedStyle(el).top) || 0;
+        var bottom = top + el.getBoundingClientRect().height;
+        if(bottom > maxBottom) maxBottom = bottom;
+      }
+    });
+    if(maxBottom > 0){
+      card.style.setProperty('--sticky-stack-offset', maxBottom + 'px');
+    } else {
+      card.style.removeProperty('--sticky-stack-offset');
+    }
+  });
+}
+window.addEventListener('load', syncStickyTableOffsets);
+var stickyOffsetResizeTimer;
+window.addEventListener('resize', function(){
+  clearTimeout(stickyOffsetResizeTimer);
+  stickyOffsetResizeTimer = setTimeout(syncStickyTableOffsets, 150);
+});
