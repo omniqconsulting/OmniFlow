@@ -217,6 +217,27 @@ class Department(Base):
     branch = relationship("Branch", back_populates="departments")
     users = relationship("User", back_populates="department")
 
+
+class AccessRule(Base):
+    """Setup > Access Control — bulk module/tab access by department, branch,
+    or individual employee (replaces the old per-employee tab checkboxes on
+    the Employees page). Rules are applied at save-time onto each matching
+    User's existing tab_access_json/module_access_json columns (not resolved
+    live per-request) — saving a DEPARTMENT/BRANCH rule skips any employee
+    who already has their own EMPLOYEE-level rule, so "most specific wins"
+    without needing to touch the many has_module()/get_user_tabs() call
+    sites across the codebase."""
+    __tablename__ = "access_rules"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    target_type = Column(String, nullable=False)   # DEPARTMENT / BRANCH / EMPLOYEE
+    target_id = Column(String, nullable=False)      # department_id / branch_id / user_id
+    tab_keys_json = Column(Text, nullable=False, default='[]')
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("tenant_id", "target_type", "target_id", name="uq_access_rule_target"),)
+
+
 class User(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, default=new_id)

@@ -17,7 +17,7 @@ import os
 
 from .database import (
     get_db, new_id,
-    User, Tenant, Branch, Department,
+    User, Tenant, Branch, Department, AccessRule,
     Customer, EndProduct, Vendor, RawMaterial, UnitOfMeasure,
     CustomReferenceList, CustomReferenceItem,
     FMSFlow, FMSStage, FMSTicket, FMSStageHistory, FMSFlowGroup,
@@ -30,7 +30,7 @@ from .database import (
 )
 from .auth import require_admin_or_pm as require_admin, require_admin_or_pm_or_redirect as require_admin_or_redirect, get_nav_flags, has_module
 from .labels import get_labels
-from .constants import BULK_IMPORT_MAX_ROWS
+from .constants import BULK_IMPORT_MAX_ROWS, TAB_CATALOG, MODULE_GROUPS, get_tenant_enabled_tabs
 from .bulk_common import check_required_headers
 from .sales_catalog_sync import (
     sync_variant_from_end_product, attach_drive_photo, resolve_or_create_category_pair,
@@ -2806,4 +2806,151 @@ async def setup_flow_group_update(
         f.group_id = group.id
     db.commit()
     return _redir("/setup/flows?msg=Group+updated")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Access Control — bulk module/tab access by department, branch, or employee.
+# Replaces the old per-employee tab checkboxes on the Employees page.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _access_rule_label(db, tenant_id: str, target_type: str, target_id: str) -> str:
+    if target_type == "DEPARTMENT":
+        d = db.query(Department).filter(Department.id == target_id, Department.tenant_id == tenant_id).first()
+        return d.name if d else "(deleted department)"
+    if target_type == "BRANCH":
+        b = db.query(Branch).filter(Branch.id == target_id, Branch.tenant_id == tenant_id).first()
+        return b.name if b else "(deleted branch)"
+    u = db.query(User).filter(User.id == target_id, User.tenant_id == tenant_id).first()
+    return u.name if u else "(deleted employee)"
+
+
+def _matching_users(db, tenant_id: str, target_type: str, target_id: str) -> list:
+    q = db.query(User).filter(User.tenant_id == tenant_id, User.is_deleted == False)
+    if target_type == "DEPARTMENT":
+        return q.filter(User.department_id == target_id).all()
+    if target_type == "BRANCH":
+        return q.filter(User.branch_id == target_id).all()
+    return q.filter(User.id == target_id).all()
+
+
+def _apply_access_rule(db, tenant_id: str, target_type: str, target_id: str, tab_keys: list) -> None:
+    """Writes the resolved tab/module access directly onto every currently
+    matching employee's User row. DEPARTMENT/BRANCH rules skip any employee
+    who already has their own EMPLOYEE-level AccessRule, so a more specific
+    override is never clobbered by a broader one ("most specific wins" is
+    enforced here at write-time rather than via live per-request resolution
+    — has_module()/get_user_tabs() elsewhere in the codebase are untouched)."""
+    protected_ids = set()
+    if target_type != "EMPLOYEE":
+        protected_ids = {
+            r.target_id for r in db.query(AccessRule).filter(
+                AccessRule.tenant_id == tenant_id, AccessRule.target_type == "EMPLOYEE",
+            ).all()
+        }
+    for u in _matching_users(db, tenant_id, target_type, target_id):
+        if u.id in protected_ids and target_type != "EMPLOYEE":
+            continue
+        if u.role in ("ADMIN", "MANAGER", "PRODUCT_MANAGER"):
+            continue  # these roles always see everything regardless of tab_access_json
+        u.tab_access_json = json.dumps(tab_keys)
+        u.module_access_json = json.dumps([t for t in tab_keys if t in ("SALES", "INVENTORY")])
+
+
+@router.get("/setup/access-control", response_class=HTMLResponse)
+def access_control(request: Request, target_type: str = "", target_id: str = "",
+                    user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    tenant_tabs = set(get_tenant_enabled_tabs(tenant, db))
+    # Only show groups/keys the tenant currently has enabled at all — an
+    # unavailable module shouldn't appear as a grantable checkbox.
+    visible_groups = [
+        (gid, glabel, [k for k in keys if k in tenant_tabs])
+        for gid, glabel, keys in MODULE_GROUPS
+    ]
+    visible_groups = [(gid, glabel, keys) for gid, glabel, keys in visible_groups if keys]
+    tab_labels = {key: label for key, label, _feat in TAB_CATALOG}
+
+    departments = db.query(Department).filter(
+        Department.tenant_id == user.tenant_id, Department.is_deleted == False).order_by(Department.name).all()
+    branches = db.query(Branch).filter(
+        Branch.tenant_id == user.tenant_id, Branch.is_deleted == False).order_by(Branch.name).all()
+    employees = db.query(User).filter(
+        User.tenant_id == user.tenant_id, User.is_deleted == False,
+        User.role.notin_(["ADMIN", "MANAGER", "PRODUCT_MANAGER"]),
+    ).order_by(User.name).all()
+
+    rules = db.query(AccessRule).filter(AccessRule.tenant_id == user.tenant_id).all()
+    rules_view = [{
+        "rule": r,
+        "label": _access_rule_label(db, user.tenant_id, r.target_type, r.target_id),
+        "tab_keys": json.loads(r.tab_keys_json or "[]"),
+    } for r in rules]
+    rules_view.sort(key=lambda rv: (rv["rule"].target_type, rv["label"]))
+
+    selected_tab_keys = set()
+    if target_type and target_id:
+        existing = db.query(AccessRule).filter(
+            AccessRule.tenant_id == user.tenant_id, AccessRule.target_type == target_type,
+            AccessRule.target_id == target_id,
+        ).first()
+        if existing:
+            selected_tab_keys = set(json.loads(existing.tab_keys_json or "[]"))
+
+    return templates.TemplateResponse(request, "setup/access_control.html", {
+        "user": user, "L": get_labels(db, user.tenant_id),
+        **get_nav_flags(db, user, tenant, for_setup=True),
+        "active_section": "access_control",
+        "module_groups": visible_groups, "tab_labels": tab_labels,
+        "departments": departments, "branches": branches, "employees": employees,
+        "rules_view": rules_view,
+        "sel_target_type": target_type, "sel_target_id": target_id,
+        "selected_tab_keys": selected_tab_keys,
+        "msg": request.query_params.get("msg", ""), "err": request.query_params.get("err", ""),
+    })
+
+
+@router.post("/setup/access-control")
+async def access_control_save(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    form = await request.form()
+    target_type = (form.get("target_type") or "").strip()
+    target_id = (form.get("target_id") or "").strip()
+    tab_keys = [k for k, _label, _feat in TAB_CATALOG if form.get(f"tab_{k}")]
+    if target_type not in ("DEPARTMENT", "BRANCH", "EMPLOYEE") or not target_id:
+        return RedirectResponse("/setup/access-control?err=Pick+a+department,+branch+or+employee", status_code=303)
+
+    existing = db.query(AccessRule).filter(
+        AccessRule.tenant_id == user.tenant_id, AccessRule.target_type == target_type,
+        AccessRule.target_id == target_id,
+    ).first()
+    if existing:
+        existing.tab_keys_json = json.dumps(tab_keys)
+    else:
+        db.add(AccessRule(tenant_id=user.tenant_id, target_type=target_type, target_id=target_id,
+                           tab_keys_json=json.dumps(tab_keys)))
+    _apply_access_rule(db, user.tenant_id, target_type, target_id, tab_keys)
+    db.commit()
+    return RedirectResponse("/setup/access-control?msg=Access+rule+saved", status_code=303)
+
+
+@router.post("/setup/access-control/{rule_id}/delete")
+def access_control_delete(rule_id: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    rule = db.query(AccessRule).filter(
+        AccessRule.id == rule_id, AccessRule.tenant_id == user.tenant_id).first()
+    if rule:
+        # Reset affected employees back to "no restriction" (all tenant tabs)
+        # unless they have their own more-specific rule — mirrors the
+        # protection logic in _apply_access_rule.
+        db.delete(rule)
+        db.flush()
+        remaining = db.query(AccessRule).filter(AccessRule.tenant_id == user.tenant_id).all()
+        protected_ids = {r.target_id for r in remaining if r.target_type == "EMPLOYEE"}
+        for u in _matching_users(db, user.tenant_id, rule.target_type, rule.target_id):
+            if u.id in protected_ids and rule.target_type != "EMPLOYEE":
+                continue
+            if u.role in ("ADMIN", "MANAGER", "PRODUCT_MANAGER"):
+                continue
+            u.tab_access_json = None
+            u.module_access_json = json.dumps([])
+        db.commit()
+    return RedirectResponse("/setup/access-control?msg=Rule+removed", status_code=303)
 

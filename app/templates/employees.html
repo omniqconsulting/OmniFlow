@@ -340,31 +340,13 @@
             </div>
           </div>
           <div class="form-section" style="margin-bottom:12px">
-            <label>Visible Tabs</label>
+            <label>Module Access</label>
             <p class="help-text" style="font-size:11px;color:var(--text-faint);margin:2px 0 6px">
-              Admin automatically sees all modules.
-              For Manager and Employee roles, select which tabs this user can access.
-              Only tabs your organization currently has enabled are shown below.
+              Module/tab access is now managed centrally at
+              <a href="/setup/access-control?target_type=EMPLOYEE&target_id={{ emp.id }}">Setup &rarr; Access Control</a>
+              (by department, branch, or individual employee).
             </p>
-            {% if emp.role in ("EMPLOYEE", "MANAGER") %}
-            {% if tab_catalog %}
-            <div class="checkbox-group" style="display:flex;gap:16px;flex-wrap:wrap">
-              {% for tkey, tlabel in tab_catalog %}
-              <label style="font-size:12px;display:flex;align-items:center;gap:5px">
-                <input type="checkbox" name="tabs" value="{{ tkey }}"
-                       {% if tkey in emp.effective_tabs %}checked{% endif %}>
-                {{ tlabel }}
-              </label>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="muted" style="font-size:12px;color:var(--text-faint)">No optional tabs are currently enabled for your organization.</p>
-            {% endif %}
-            {% else %}
-            <p class="muted" style="font-size:12px;color:var(--text-faint)">All modules visible (Admin role).</p>
-            {% endif %}
           </div>
-          <input type="hidden" name="tabs_submitted" value="1">
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
             <button type="button" onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>

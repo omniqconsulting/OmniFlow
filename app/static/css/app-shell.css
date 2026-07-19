@@ -414,7 +414,7 @@ html{-webkit-tap-highlight-color:transparent}
      selection universally and opting genuinely copyable content back in via
      [data-selectable] / .selectable is the only version of this fix that
      doesn't rot as pages are added. */
-  * {
+  html {
     -webkit-user-select:none;
     user-select:none;
     -webkit-touch-callout:none;

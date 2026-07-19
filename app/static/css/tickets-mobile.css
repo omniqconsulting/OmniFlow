@@ -130,7 +130,7 @@ html.light .tm-theme-light{display:inline}
 .mt-list{display:flex;flex-direction:column;gap:10px;padding-bottom:24px}
 .mt-swipe-wrap{position:relative;border-radius:16px;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,0.12)}
 .mt-swipe-action{position:absolute;top:0;right:0;bottom:0;left:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12.5px;font-weight:700}
-.mt-card{position:relative;background:var(--bg-card);padding:13px 15px;touch-action:pan-y;cursor:grab}
+.mt-card{position:relative;background:var(--bg-card);padding:13px 15px;cursor:grab}
 .mt-kind-tag{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
 .mt-card-action-row{display:flex;justify-content:flex-end;margin-top:10px}
 .mt-action-pill{display:inline-flex;align-items:center;padding:8px 16px;border-radius:99px;font-size:12px;font-weight:700;color:#fff;border:none;font-family:inherit;cursor:pointer;text-decoration:none;min-height:36px}

@@ -142,6 +142,26 @@ def get_tenant_enabled_tabs(tenant, db=None) -> list:
     return [key for key, _label, feat in TAB_CATALOG if has_feature(tenant, feat, db)]
 
 
+# ── Setup > Access Control module/sub-module grouping ─────────────────────────
+# Mirrors the nav's parent groups (base.html) so "grant full module" vs.
+# "grant specific sub-modules only" maps onto the same mental model as the
+# nav bar. Built from TAB_CATALOG keys only — nothing hardcoded beyond the
+# grouping itself, so any future TAB_CATALOG addition just needs one entry
+# here to show up in Access Control automatically.
+# NOTE: the SALES tab key drives both the CRM group's "Customers" link and
+# the Sales & Inventory group's "Sell" link (they share one permission bit
+# in the current nav — see get_nav_flags' has_sales) — listed once under
+# CRM & Sales below rather than duplicated, to avoid implying they're
+# independently controllable when they aren't.
+MODULE_GROUPS = [
+    ("operations",       "Operations",        ["TICKETS", "CHECKLISTS", "FMS"]),
+    ("task",             "Task",              ["ATTENDANCE"]),
+    ("crm_sales",        "CRM & Sales",       ["SALES", "SALES_ANALYTICS"]),
+    ("inventory",        "Inventory",         ["INVENTORY"]),
+    ("organization",     "Organization",      ["KNOWLEDGE"]),
+]
+
+
 def get_limit(tenant, limit_name: str) -> "int | None":
     """Return the quantitative limit for the tenant's plan. None = unlimited."""
     plan   = getattr(tenant, "plan", PLAN_STARTER) or PLAN_STARTER

@@ -1,0 +1,147 @@
+{# ── setup/access_control.html ────────────────────────────────────────────
+   Bulk module/tab access by department, branch, or individual employee —
+   replaces the old per-employee tab checkboxes on the Employees page.
+   Module groups + tab labels come from constants.MODULE_GROUPS/TAB_CATALOG,
+   so any future module/sub-module lands here automatically (setup_routes.py
+   builds the checkbox list from that catalog, nothing hardcoded here). #}
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header"><h2 class="page-title">Setup</h2></div>
+<div class="setup-layout">
+  {% set active_section = 'access_control' %}
+  {% include "setup/nav.html" %}
+  <div class="setup-content">
+    <h2 style="margin:0 0 4px">Access Control</h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px">
+      Grant module/tab access by department, branch, or individual employee. A more specific rule
+      (employee) always overrides a broader one (branch, then department). Admin, Manager and
+      Product Manager always see every module regardless of these rules.
+    </p>
+
+    {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}
+    {% if err %}<div class="alert alert-red" style="margin-bottom:14px">{{ err }}</div>{% endif %}
+
+    <div style="display:grid;grid-template-columns:260px 1fr;gap:20px;align-items:start">
+      <!-- ── Target picker ─────────────────────────────────────────── -->
+      <div class="card" style="padding:0;max-height:70vh;overflow-y:auto">
+        <div style="padding:12px 14px 6px;font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em">Departments</div>
+        {% for d in departments %}
+        <a href="/setup/access-control?target_type=DEPARTMENT&target_id={{ d.id }}"
+           style="display:block;padding:8px 14px;font-size:13px;text-decoration:none;color:var(--text-primary);{% if sel_target_type=='DEPARTMENT' and sel_target_id==d.id %}background:var(--hover-bg);font-weight:600{% endif %}">
+          🏢 {{ d.name }}
+        </a>
+        {% else %}
+        <div style="padding:6px 14px;font-size:12px;color:var(--text-faint)">No departments yet</div>
+        {% endfor %}
+
+        <div style="padding:12px 14px 6px;font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em">Branches</div>
+        {% for b in branches %}
+        <a href="/setup/access-control?target_type=BRANCH&target_id={{ b.id }}"
+           style="display:block;padding:8px 14px;font-size:13px;text-decoration:none;color:var(--text-primary);{% if sel_target_type=='BRANCH' and sel_target_id==b.id %}background:var(--hover-bg);font-weight:600{% endif %}">
+          🏭 {{ b.name }}
+        </a>
+        {% else %}
+        <div style="padding:6px 14px;font-size:12px;color:var(--text-faint)">No branches yet</div>
+        {% endfor %}
+
+        <div style="padding:12px 14px 6px;font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em">Employees</div>
+        {% for e in employees %}
+        <a href="/setup/access-control?target_type=EMPLOYEE&target_id={{ e.id }}"
+           style="display:block;padding:8px 14px;font-size:13px;text-decoration:none;color:var(--text-primary);{% if sel_target_type=='EMPLOYEE' and sel_target_id==e.id %}background:var(--hover-bg);font-weight:600{% endif %}">
+          👤 {{ e.name }}
+        </a>
+        {% else %}
+        <div style="padding:6px 14px;font-size:12px;color:var(--text-faint)">No employees yet</div>
+        {% endfor %}
+      </div>
+
+      <!-- ── Rule editor for the selected target ───────────────────── -->
+      <div>
+        {% if sel_target_type and sel_target_id %}
+        <div class="card" style="padding:18px;margin-bottom:20px">
+          <h3 style="margin:0 0 12px;font-size:14px">
+            Editing access for:
+            <span style="color:#6657F2">
+              {% if sel_target_type == 'DEPARTMENT' %}{{ departments | selectattr('id','equalto',sel_target_id) | map(attribute='name') | first }} (Department)
+              {% elif sel_target_type == 'BRANCH' %}{{ branches | selectattr('id','equalto',sel_target_id) | map(attribute='name') | first }} (Branch)
+              {% else %}{{ employees | selectattr('id','equalto',sel_target_id) | map(attribute='name') | first }} (Employee)
+              {% endif %}
+            </span>
+          </h3>
+          <form method="post" action="/setup/access-control">
+            <input type="hidden" name="target_type" value="{{ sel_target_type }}">
+            <input type="hidden" name="target_id" value="{{ sel_target_id }}">
+            {% for gid, glabel, keys in module_groups %}
+            <div style="border:1px solid var(--border-subtle);border-radius:8px;padding:10px 14px;margin-bottom:10px">
+              <label style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;cursor:pointer">
+                <input type="checkbox" class="module-group-toggle" data-group="{{ gid }}"
+                       onchange="toggleAcGroup('{{ gid }}', this.checked)">
+                {{ glabel }} <span style="font-weight:400;color:var(--text-faint)">(full module)</span>
+              </label>
+              <div style="display:flex;gap:16px;flex-wrap:wrap;margin:8px 0 0 26px">
+                {% for k in keys %}
+                <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-muted);cursor:pointer">
+                  <input type="checkbox" name="tab_{{ k }}" class="ac-tab-cb" data-group="{{ gid }}"
+                         {% if k in selected_tab_keys %}checked{% endif %} onchange="syncAcGroupToggle('{{ gid }}')">
+                  {{ tab_labels.get(k, k) }}
+                </label>
+                {% endfor %}
+              </div>
+            </div>
+            {% endfor %}
+            <button type="submit" class="btn btn-primary btn-sm" style="margin-top:6px">Save Access Rule</button>
+          </form>
+        </div>
+        {% else %}
+        <div class="card" style="padding:30px;text-align:center;color:var(--text-faint);margin-bottom:20px">
+          Pick a department, branch, or employee on the left to set their module access.
+        </div>
+        {% endif %}
+
+        <!-- ── Existing rules ─────────────────────────────────────── -->
+        <div class="card" style="padding:18px">
+          <h3 style="margin:0 0 12px;font-size:14px">Configured Rules</h3>
+          {% if rules_view %}
+          <table>
+            <thead><tr><th>Target</th><th>Type</th><th>Modules Granted</th><th style="width:80px"></th></tr></thead>
+            <tbody>
+              {% for rv in rules_view %}
+              <tr>
+                <td style="font-weight:500">{{ rv.label }}</td>
+                <td style="color:var(--text-muted);font-size:12px">{{ rv.rule.target_type.title() }}</td>
+                <td style="color:var(--text-muted);font-size:12px">
+                  {{ (rv.tab_keys | map('replace', '_', ' ') | map('title') | list | join(', ')) if rv.tab_keys else '— no modules —' }}
+                </td>
+                <td>
+                  <form method="post" action="/setup/access-control/{{ rv.rule.id }}/delete" onsubmit="return confirm('Remove this access rule?')">
+                    <button type="submit" class="btn btn-sm btn-red" style="padding:3px 8px;font-size:11px">🗑</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p style="color:var(--text-faint);font-size:13px">No access rules configured yet — everyone gets every enabled module by default.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleAcGroup(gid, checked) {
+  document.querySelectorAll('.ac-tab-cb[data-group="' + gid + '"]').forEach(function(cb){ cb.checked = checked; });
+}
+function syncAcGroupToggle(gid) {
+  const boxes = document.querySelectorAll('.ac-tab-cb[data-group="' + gid + '"]');
+  const allChecked = Array.from(boxes).every(function(cb){ return cb.checked; });
+  const groupToggle = document.querySelector('.module-group-toggle[data-group="' + gid + '"]');
+  if (groupToggle) groupToggle.checked = allChecked;
+}
+document.querySelectorAll('.module-group-toggle').forEach(function(toggle){
+  syncAcGroupToggle(toggle.dataset.group);
+});
+</script>
+{% endblock %}
