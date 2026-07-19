@@ -26,6 +26,10 @@
 .cd-kpi{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:14px 16px}
 .cd-kpi .val{font-size:24px;font-weight:700;color:var(--text-strong);line-height:1.1}
 .cd-kpi .lbl{font-size:11px;color:var(--text-faint);margin-top:4px;font-weight:500}
+/* Filter bar + KPI strip above are already sticky as one block — a sticky
+   table header would land at the same top offset and render hidden under
+   it, so tables here stay in normal flow instead. */
+table thead th{position:static}
 .cd-chart{display:flex;align-items:flex-end;gap:14px;height:120px;padding:10px 4px 0}
 .cd-chart-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end}
 .cd-chart-bars{display:flex;gap:3px;align-items:flex-end;height:90px}
@@ -49,6 +53,7 @@
   <div style="margin-top:8px"><div class="muted" style="font-size:12px">Shipping Address</div><div>{{ customer.shipping_address or '—' }}</div></div>
 </div>
 
+<div style="position:sticky;top:52px;z-index:44;background:var(--bg-base);padding-top:4px">
 <form method="get" action="/sales/contacts/{{ customer.id }}" class="filter-bar">
   <div class="filter-group">
     <label>From</label>
@@ -87,6 +92,7 @@
     <div class="val">{{ avg_cycle_days if avg_cycle_days is not none else '—' }}</div>
     <div class="lbl">Typical Purchase Cycle (days)</div>
   </div>
+</div>
 </div>
 
 <div class="card" style="padding:16px;margin-bottom:18px">

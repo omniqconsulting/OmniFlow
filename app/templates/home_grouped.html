@@ -113,6 +113,12 @@ html.light .home-box { box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
     <div class="hb-sub">Dashboard, {{ L.Tickets if L is defined else 'Tickets' }}, Checklists &amp; Flow Board</div>
   </a>
 
+  <a class="home-box" href="/my-tasks">
+    <div class="hb-icon op">📋</div>
+    <div class="hb-title">My Tasks</div>
+    <div class="hb-sub">Your personal action queue</div>
+  </a>
+
   {% if has_sales %}
   <a class="home-box" href="/sales/contacts">
     <div class="hb-icon crm">🤝</div>
@@ -129,10 +135,10 @@ html.light .home-box { box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
   </a>
   {% endif %}
 
-  <a class="home-box" href="/employees">
+  <a class="home-box" href="/organization">
     <div class="hb-icon org">👥</div>
     <div class="hb-title">Organization</div>
-    <div class="hb-sub">{{ L.Employees if L is defined else 'Employees' }}{% if has_knowledge_repo %} &amp; Training{% endif %}</div>
+    <div class="hb-sub">{{ L.Employees if L is defined else 'Employees' }}{% if has_knowledge_repo %}, Training{% endif %}{% if has_attendance %}, Attendance &amp; Leave{% endif %}</div>
   </a>
 
   {% if user.role == 'ADMIN' %}

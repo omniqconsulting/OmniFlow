@@ -246,9 +246,11 @@ def my_tasks(request: Request,
     ctx = _ctx(request, user, db, type=type, priority=priority, due=due, now=now, **data)
 
     attendance_today = None
+    attendance_is_working_day = True
     if ctx.get("has_attendance"):
         from .database import AttendanceRecord
         from datetime import date as _date
+        from .attendance import is_working_day
         rec = db.query(AttendanceRecord).filter(
             AttendanceRecord.user_id == user.id, AttendanceRecord.work_date == _date.today()
         ).first()
@@ -258,7 +260,18 @@ def my_tasks(request: Request,
             "check_in_at": rec.check_in_at if rec else None,
             "check_out_at": rec.check_out_at if rec else None,
         }
+        attendance_is_working_day = is_working_day(db, user, _date.today())
     ctx["attendance_today"] = attendance_today
+    ctx["attendance_is_working_day"] = attendance_is_working_day
+
+    # Employees can't reach /organization or /attendance/report (both
+    # manager/admin-gated) — give them the same calendar view of their own
+    # attendance here instead, in a tab alongside the task queue.
+    my_attendance_month = None
+    if ctx.get("has_attendance"):
+        from .attendance import get_self_month_calendar
+        my_attendance_month = get_self_month_calendar(db, user)
+    ctx["my_attendance_month"] = my_attendance_month
 
     template_name = "my_tasks_mobile.html" if request.cookies.get("pwa_ui") == "1" else "my_tasks.html"
     return templates.TemplateResponse(request, template_name, ctx)

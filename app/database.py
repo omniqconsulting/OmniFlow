@@ -199,6 +199,7 @@ class Branch(Base):
     address = Column(String)
     is_deleted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    weekly_off_days = Column(Text, nullable=True, default='[6]')  # JSON list of date.weekday() ints, 0=Mon..6=Sun; default Sunday-off
 
     tenant = relationship("Tenant", back_populates="branches")
     departments = relationship("Department", back_populates="branch")
@@ -2268,6 +2269,23 @@ class LeaveRequest(Base):
     approver_id = Column(String, ForeignKey("users.id"), nullable=True)
     decided_at = Column(DateTime, nullable=True)
     decision_note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AttendanceRule(Base):
+    """Tenant-configurable attendance day-status rule — client's #6. Fixed
+    condition catalog (see app/attendance_rules.py), first-match-wins by
+    ascending priority. Never computes pay — outcome is PRESENT/HALF_DAY/
+    ABSENT status only (B4's no-payroll-logic rule still applies)."""
+    __tablename__ = "attendance_rules"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    name = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+    priority = Column(Integer, default=0)          # ascending, lower evaluates first
+    conditions_json = Column(Text, nullable=False)  # JSON list of {"field":..,"operator":..,"value":..}
+    condition_logic = Column(String, default="ALL")  # ALL (AND) / ANY (OR)
+    outcome = Column(String, nullable=False)         # PRESENT / HALF_DAY / ABSENT
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

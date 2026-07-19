@@ -11,6 +11,11 @@
 .gd-kpi-label{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px}
 .gd-kpi-val{font-size:24px;font-weight:700;color:var(--text-strong);line-height:1}
 .gd-kpi-val.red{color:#f87171}.gd-kpi-val.amber{color:#fbbf24}.gd-kpi-val.green{color:#10b981}
+/* The filter bar + KPI row above are already sticky as one block (see the
+   wrapping <div> around them) — a sticky table header would land at the same
+   top offset and render hidden underneath it, so this page's table header
+   stays in normal flow instead of fighting that block for the same space. */
+.card table thead th{position:static}
 </style>
 
 <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
@@ -39,6 +44,7 @@
 
 {% set badge_colors = {'red': '#ef4444', 'amber': '#f59e0b', 'green': '#22c55e'} %}
 
+<div style="position:sticky;top:52px;z-index:44;background:var(--bg-base);padding-top:4px">
 <form method="get" action="/inventory-v2" class="filter-bar" style="margin-bottom:14px">
   <div class="ms-wrap" data-name="category_id" data-placeholder="All categories">
     <div class="ms-label">Category</div>
@@ -141,6 +147,7 @@
     <div class="gd-kpi-label">Open Dispatch Orders</div>
     <div class="gd-kpi-val">{{ kpi_open_dispatches }}</div>
   </div>
+</div>
 </div>
 
 <div class="card" style="padding:18px">

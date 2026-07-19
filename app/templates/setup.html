@@ -110,6 +110,16 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
             <label>Location / Address</label>
             <input name="location" placeholder="e.g. Plot 12, Industrial Area">
           </div>
+          {% if has_attendance %}
+          <div class="form-group">
+            <label>Weekly Off Day(s)</label>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px">
+              {% for wd_val, wd_label in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+              <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" name="weekly_off_days" value="{{ wd_val }}" {% if wd_val == 6 %}checked{% endif %}> {{ wd_label }}</label>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-primary btn-sm">Save Branch</button>
             <button type="button" onclick="toggleForm('add-branch')" class="btn btn-outline btn-sm">Cancel</button>
@@ -146,6 +156,17 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
               <label>Location</label>
               <input name="location" value="{{ b.address or '' }}" style="font-size:12px;padding:6px 10px">
             </div>
+            {% if has_attendance %}
+            {% set b_off = (b.weekly_off_days | from_json) if b.weekly_off_days else [6] %}
+            <div class="form-group" style="margin:0">
+              <label>Weekly Off</label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px">
+                {% for wd_val, wd_label in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+                <label style="display:flex;align-items:center;gap:3px"><input type="checkbox" name="weekly_off_days" value="{{ wd_val }}" {% if wd_val in b_off %}checked{% endif %}> {{ wd_label }}</label>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
             <button type="submit" class="btn btn-sm btn-primary">Save</button>
             <button type="button" onclick="toggleForm('edit-branch-{{ b.id }}')" class="btn btn-sm btn-gray">Cancel</button>
           </form>

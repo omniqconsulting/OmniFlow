@@ -1,0 +1,117 @@
+{# ── attendance_report.html ───────────────────────────────────────────────
+   Organization attendance reporting view — client feedback #2. Default
+   view: monthly calendar grid, one row per employee, one column per day,
+   color-coded by day-status. Filters: department, branch, employee
+   drill-down (shows in/out times per day for a single selected employee). #}
+{% extends "base.html" %}
+{% block content %}
+<style>
+.arep-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; margin:10px 0 14px; color:var(--text-muted) }
+.arep-legend span { display:inline-flex; align-items:center; gap:5px }
+.arep-dot { width:11px; height:11px; border-radius:3px; display:inline-block }
+.arep-table-wrap { overflow-x:auto; border:1px solid var(--border-subtle); border-radius:10px }
+.arep-table { border-collapse:collapse; width:100%; font-size:11.5px }
+.arep-table th, .arep-table td { padding:4px 3px; text-align:center; border-bottom:1px solid var(--border-subtle); white-space:nowrap }
+.arep-table th.arep-name, .arep-table td.arep-name { text-align:left; padding-left:10px; position:sticky; left:0; background:var(--bg-card); min-width:140px; z-index:1 }
+.arep-cell { width:22px; height:22px; border-radius:4px; display:inline-block; cursor:default }
+.arep-cell.PRESENT { background:#10b981 }
+.arep-cell.HALF_DAY { background:#f59e0b }
+.arep-cell.ON_LEAVE { background:#3b82f6 }
+.arep-cell.ABSENT { background:#ef4444 }
+.arep-cell.WEEKLY_OFF { background:var(--border-med, #94a3b8); opacity:0.5 }
+.arep-cell.FUTURE { background:transparent; border:1px dashed var(--border-subtle) }
+.arep-row-link { cursor:pointer }
+.arep-row-link:hover td { background:var(--bg-modal) }
+</style>
+
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Attendance Report</h2>
+    <p style="font-size:13px;color:var(--text-faint);margin-top:2px">{{ month_name }} {{ year }}</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <a href="/attendance/team" class="btn btn-sm btn-outline">📍 Daily Log</a>
+    {% if user.role == 'ADMIN' %}<a href="/attendance/setup/geofence" class="btn btn-sm btn-outline">⚙️ Geofence</a>{% endif %}
+  </div>
+</div>
+
+<form method="get" action="/attendance/report" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+  <select name="month" onchange="this.form.submit()" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
+    {% for m in range(1,13) %}
+    <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m] }}</option>
+    {% endfor %}
+  </select>
+  <select name="year" onchange="this.form.submit()" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
+    {% for y in range(year-2, year+1) %}
+    <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+    {% endfor %}
+  </select>
+  <select name="department_id" onchange="this.form.submit()" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
+    <option value="">All Departments</option>
+    {% for d in departments %}<option value="{{ d.id }}" {% if d.id == selected_department %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
+  </select>
+  <select name="branch_id" onchange="this.form.submit()" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
+    <option value="">All Branches</option>
+    {% for b in branches %}<option value="{{ b.id }}" {% if b.id == selected_branch %}selected{% endif %}>{{ b.name }}</option>{% endfor %}
+  </select>
+  <select name="employee_id" onchange="this.form.submit()" style="background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary)">
+    <option value="">All Employees</option>
+    {% for e in employees_all %}<option value="{{ e.id }}" {% if e.id == selected_employee %}selected{% endif %}>{{ e.name }}</option>{% endfor %}
+  </select>
+</form>
+
+<div class="arep-legend">
+  <span><i class="arep-dot" style="background:#10b981"></i>Present</span>
+  <span><i class="arep-dot" style="background:#f59e0b"></i>Half Day</span>
+  <span><i class="arep-dot" style="background:#3b82f6"></i>On Leave</span>
+  <span><i class="arep-dot" style="background:#ef4444"></i>Absent</span>
+  <span><i class="arep-dot" style="background:var(--border-med,#94a3b8);opacity:.5"></i>Weekly Off</span>
+  <span><i class="arep-dot" style="border:1px dashed var(--border-subtle)"></i>Future</span>
+</div>
+
+{% if detail_employee %}
+  <!-- ── Single-employee drill-down: full month with in/out times ────── -->
+  <h3 style="font-size:14px;margin:0 0 10px">{{ detail_employee.name }} — full month</h3>
+  <div class="arep-table-wrap">
+    <table class="arep-table">
+      <thead><tr><th class="arep-name">Date</th><th>Status</th><th>Check In</th><th>Check Out</th></tr></thead>
+      <tbody>
+        {% for d in detail_days %}
+        <tr>
+          <td class="arep-name">{{ d.date.strftime('%a %d %b') }}</td>
+          <td><span class="arep-cell {{ d.status }}" title="{{ d.status }}"></span> {{ d.status.replace('_',' ').title() }}</td>
+          <td>{{ d.record.check_in_at | ist('%I:%M %p') if d.record and d.record.check_in_at else '—' }}</td>
+          <td>{{ d.record.check_out_at | ist('%I:%M %p') if d.record and d.record.check_out_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p style="margin-top:12px"><a href="/attendance/report?month={{ month }}&year={{ year }}" class="btn btn-sm btn-outline">← Back to all employees</a></p>
+{% else %}
+  <!-- ── Default: calendar grid, one row per employee ─────────────────── -->
+  <div class="arep-table-wrap">
+    <table class="arep-table">
+      <thead>
+        <tr>
+          <th class="arep-name">Employee</th>
+          {% for d in day_list %}<th>{{ d.day }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in grid %}
+        <tr class="arep-row-link" onclick="window.location='/attendance/report?month={{ month }}&year={{ year }}&employee_id={{ row.user.id }}'">
+          <td class="arep-name">{{ row.user.name }}</td>
+          {% for d in row.days %}
+          <td><span class="arep-cell {{ d.status }}" title="{{ d.date.isoformat() }} — {{ d.status }}"></span></td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+        {% if not grid %}
+        <tr><td colspan="{{ day_list|length + 1 }}" style="padding:20px;color:var(--text-faint)">No employees match these filters.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}
