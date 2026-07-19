@@ -205,10 +205,24 @@ html.light input[type="datetime-local"]{color-scheme:light}
 
 /* ── TABLES ── */
 table{width:100%;border-collapse:collapse;font-size:13.5px}
-th{text-align:left;padding:13px 16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);border-bottom:1px solid var(--border-subtle);position:sticky;top:52px;background:var(--bg-card);z-index:20}
+/* top uses --sticky-stack-offset (set by syncStickyTableOffsets() in
+   app-shell.js) instead of a hardcoded 52px so the header sticks *below*
+   whatever sticky filter-bar/KPI block precedes it on the page, rather than
+   colliding with it at the same offset. Falls back to the nav height (52px)
+   when nothing precedes the table. */
+th{text-align:left;padding:13px 16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);border-bottom:1px solid var(--border-subtle);position:sticky;top:var(--sticky-stack-offset, 52px);background:var(--bg-card);z-index:20}
 td{padding:15px 16px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;color:var(--text-primary);font-size:13.5px}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--row-hover)}
+/* Cards wrapping a full-bleed table (padding:0) used to clip it to the
+   card's rounded corners via overflow:hidden on the card — but overflow
+   anything-but-visible on an ancestor silently disables position:sticky on
+   the thead th inside it. Round the actual corner cells instead so the
+   corners still look clipped without needing overflow on an ancestor. */
+.card table thead tr:first-child th:first-child{border-top-left-radius:10px}
+.card table thead tr:first-child th:last-child{border-top-right-radius:10px}
+.card table tbody tr:last-child td:first-child{border-bottom-left-radius:10px}
+.card table tbody tr:last-child td:last-child{border-bottom-right-radius:10px}
 
 /* ── BADGES ── */
 .badge{display:inline-block;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:600;letter-spacing:0.02em}
@@ -236,12 +250,6 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
 
 /* ── KPI GRID (for dashboard) ── */
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px;position:sticky;top:52px;z-index:44;background:var(--bg-base);padding-top:6px}
-/* A sticky table header would land at the same top offset as a preceding
-   sticky .kpi-grid/.filter-bar and render hidden underneath it (higher
-   z-index) — fall back to a normal (non-sticky) header on any table that
-   follows one, so it's not silently invisible while "stuck". */
-.kpi-grid ~ .card table thead th,
-.filter-bar ~ .card table thead th{position:static}
 .kpi-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:20px 22px}
 .kpi-card .label{font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em}
 .kpi-card .value{font-size:30px;font-weight:700;margin-top:10px;color:var(--text-strong)}
