@@ -13,19 +13,20 @@
 <p style="font-size:13px;color:var(--text-muted);margin-top:0;max-width:600px">
   Select the customer to start building the order. You'll add line items and confirm on the next page.
 </p>
-<form method="post" action="/sales/orders/create" style="max-width:600px">
+<form method="post" action="/sales/orders/create" style="max-width:600px" onsubmit="if(!document.getElementById('customer_select').value){alert('Please select a customer.');return false;}">
   <input type="hidden" name="call_log_id" value="{{ call_log_id }}">
 
   <div class="card" style="padding:20px;margin-bottom:16px">
     <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">PARTY</h3>
     <div style="margin-bottom:6px">
       <label style="font-size:12px;color:var(--text-muted)">Customer *</label>
-      <select name="customer_id" id="customer_select" required style="width:100%" onchange="loadCustomerDefaults(this.value)">
-        <option value="">— Select customer —</option>
-        {% for c in customers %}
-        <option value="{{ c.id }}" {{ 'selected' if customer and c.id == customer.id else '' }}>{{ c.name }} ({{ c.phone or 'no phone' }})</option>
-        {% endfor %}
-      </select>
+      <div style="position:relative">
+        <input type="text" id="customer_search_input" autocomplete="off" placeholder="Type a customer name to search…"
+               value="{{ customer.name if customer else '' }}"
+               style="width:100%" oninput="filterCustomerResults()" onfocus="filterCustomerResults()">
+        <input type="hidden" name="customer_id" id="customer_select" required value="{{ customer.id if customer else '' }}">
+        <div id="customer_results" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:240px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.18);z-index:50"></div>
+      </div>
     </div>
 
     <div>
@@ -93,6 +94,41 @@
 </form>
 
 <script>
+// Same customer list the setup/contacts page manages (rendered server-side
+// from the Customer table) — filtered client-side by partial name match.
+const ALL_CUSTOMERS = [
+  {% for c in customers %}{ id: "{{ c.id }}", name: {{ c.name|tojson }}, phone: {{ (c.phone or 'no phone')|tojson }} }{{ ',' if not loop.last else '' }}{% endfor %}
+];
+
+function selectCustomer(id, name) {
+  document.getElementById('customer_select').value = id;
+  document.getElementById('customer_search_input').value = name;
+  document.getElementById('customer_results').style.display = 'none';
+  loadCustomerDefaults(id);
+}
+
+function filterCustomerResults() {
+  const q = document.getElementById('customer_search_input').value.trim().toLowerCase();
+  const box = document.getElementById('customer_results');
+  document.getElementById('customer_select').value = '';
+  if (!q) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const matches = ALL_CUSTOMERS.filter(c => c.name.toLowerCase().includes(q)).slice(0, 30);
+  if (!matches.length) {
+    box.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No matching customers</div>';
+  } else {
+    box.innerHTML = matches.map(c =>
+      `<div onclick="selectCustomer('${c.id}', ${JSON.stringify(c.name)})" style="padding:8px 10px;font-size:13px;cursor:pointer;border-radius:6px" onmouseover="this.style.background='var(--hover-bg, rgba(0,0,0,0.05))'" onmouseout="this.style.background='transparent'">${c.name} (${c.phone})</div>`
+    ).join('');
+  }
+  box.style.display = 'block';
+}
+
+document.addEventListener('click', function(e){
+  if (!e.target.closest('#customer_search_input') && !e.target.closest('#customer_results')) {
+    document.getElementById('customer_results').style.display = 'none';
+  }
+});
+
 async function loadCustomerDefaults(customerId) {
   if (!customerId) return;
   try {

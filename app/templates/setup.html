@@ -119,6 +119,15 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
               {% endfor %}
             </div>
           </div>
+          <div class="form-group">
+            <label>Attendance Geofence <span style="font-weight:400;color:var(--text-faint)">(optional — leave blank to skip location-fencing for this branch)</span></label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <input name="geo_lat" type="number" step="any" placeholder="Latitude" style="flex:1;min-width:100px">
+              <input name="geo_lng" type="number" step="any" placeholder="Longitude" style="flex:1;min-width:100px">
+              <input name="geo_radius" type="number" min="1" value="200" placeholder="Radius (m)" style="flex:1;min-width:100px">
+              <button type="button" class="btn btn-sm btn-outline" onclick="attGeoUseMyLocation(this)">📍 Use my location</button>
+            </div>
+          </div>
           {% endif %}
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-primary btn-sm">Save Branch</button>
@@ -130,12 +139,20 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
 
     {% if branches %}
     <table>
-      <thead><tr><th>Name</th><th>Location</th><th style="width:80px"></th></tr></thead>
+      <thead><tr><th>Name</th><th>Location</th>{% if has_attendance %}<th>Geofence</th>{% endif %}<th style="width:80px"></th></tr></thead>
       <tbody>
       {% for b in branches %}
+      {% set b_fence = geofences_by_branch.get(b.id) %}
       <tr>
         <td style="font-weight:500;color:var(--text-primary)">{{ b.name }}</td>
         <td style="color:var(--text-muted)">{{ b.address or '—' }}</td>
+        {% if has_attendance %}
+        <td style="color:var(--text-muted);font-size:12px">
+          {% if b_fence %}📍 {{ b_fence.radius_m }}m radius
+          {% elif tenant_wide_geofence %}<span style="color:var(--text-faint)">Using tenant default</span>
+          {% else %}<span style="color:var(--text-faint)">Not set</span>{% endif %}
+        </td>
+        {% endif %}
         <td>
           <div style="display:flex;gap:6px;justify-content:flex-end">
             <button onclick="toggleForm('edit-branch-{{ b.id }}')" class="btn btn-sm btn-gray" style="padding:3px 8px;font-size:11px">✏️</button>
@@ -146,7 +163,7 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
         </td>
       </tr>
       <tr id="edit-branch-{{ b.id }}" style="display:none">
-        <td colspan="3" style="padding:10px 12px;background:var(--bg-input)">
+        <td colspan="4" style="padding:10px 12px;background:var(--bg-input)">
           <form method="post" action="/setup/branch/{{ b.id }}/edit" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
             <div class="form-group" style="margin:0;flex:1;min-width:120px">
               <label>Name</label>
@@ -164,6 +181,15 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
                 {% for wd_val, wd_label in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
                 <label style="display:flex;align-items:center;gap:3px"><input type="checkbox" name="weekly_off_days" value="{{ wd_val }}" {% if wd_val in b_off %}checked{% endif %}> {{ wd_label }}</label>
                 {% endfor %}
+              </div>
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:280px">
+              <label>Geofence (optional)</label>
+              <div style="display:flex;gap:6px">
+                <input name="geo_lat" type="number" step="any" placeholder="Lat" value="{{ b_fence.center_lat if b_fence else '' }}" style="font-size:12px;padding:6px 8px;width:90px">
+                <input name="geo_lng" type="number" step="any" placeholder="Lng" value="{{ b_fence.center_lng if b_fence else '' }}" style="font-size:12px;padding:6px 8px;width:90px">
+                <input name="geo_radius" type="number" min="1" placeholder="Radius (m)" value="{{ b_fence.radius_m if b_fence else 200 }}" style="font-size:12px;padding:6px 8px;width:90px">
+                <button type="button" class="btn btn-sm btn-outline" onclick="attGeoUseMyLocation(this)">📍 Use my location</button>
               </div>
             </div>
             {% endif %}
@@ -361,6 +387,22 @@ html:not(.light) .limit-val-bad  { color:#f87171; }
 function toggleForm(id){
   var el = document.getElementById(id);
   el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'block' : 'none';
+}
+
+// Fills the geofence lat/lng fields from the browser's current location, so
+// an admin standing at the branch can set it without looking up coordinates.
+function attGeoUseMyLocation(btn){
+  if (!navigator.geolocation) { alert('Geolocation is not supported on this device/browser.'); return; }
+  var form = btn.closest('form');
+  btn.disabled = true;
+  navigator.geolocation.getCurrentPosition(function(pos){
+    form.querySelector('[name="geo_lat"]').value = pos.coords.latitude.toFixed(6);
+    form.querySelector('[name="geo_lng"]').value = pos.coords.longitude.toFixed(6);
+    btn.disabled = false;
+  }, function(err){
+    alert('Could not get your location (' + (err.message || 'permission denied') + ').');
+    btn.disabled = false;
+  }, {enableHighAccuracy: true, timeout: 15000});
 }
 
 // Show upgrade modal on limit-hit redirect

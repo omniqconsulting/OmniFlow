@@ -214,7 +214,7 @@
 {% endmacro %}
 
 {% macro media_block() %}
-{% set any_media = variants | selectattr('media_urls_json') | list %}
+{% set any_media = variants | map(attribute='media_urls_json') | select | map('from_json') | select | list %}
 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px">
   {% for v in variants %}
   {% set vmedia = v.media_urls_json | from_json if v.media_urls_json else [] %}
@@ -283,7 +283,7 @@
 <div id="cd-layout-split" style="display:none;grid-template-columns:240px 1fr;gap:16px;align-items:start">
   <div style="position:sticky;top:70px;display:flex;flex-direction:column;gap:12px">
     <div style="height:150px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden">
-      {% set first_media = (variants | selectattr('media_urls_json') | map(attribute='media_urls_json') | map('from_json') | first) %}
+      {% set first_media = (variants | map(attribute='media_urls_json') | select | map('from_json') | select | first) %}
       {% if first_media %}<img src="/static/{{ first_media[0] }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:32px;opacity:.45">&#128230;</span>{% endif %}
     </div>
     <div class="card" style="padding:16px;font-size:12.5px">

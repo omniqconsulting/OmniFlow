@@ -107,16 +107,16 @@ html.light .home-box { box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
 </div>
 
 <div class="home-box-grid">
-  <a class="home-box" href="/dashboard">
-    <div class="hb-icon op">🧭</div>
-    <div class="hb-title">Operations</div>
-    <div class="hb-sub">Dashboard, {{ L.Tickets if L is defined else 'Tickets' }}, Checklists &amp; Flow Board</div>
-  </a>
-
   <a class="home-box" href="/my-tasks">
     <div class="hb-icon op">📋</div>
     <div class="hb-title">My Tasks</div>
     <div class="hb-sub">Your personal action queue</div>
+  </a>
+
+  <a class="home-box" href="/dashboard">
+    <div class="hb-icon op">🧭</div>
+    <div class="hb-title">Operations</div>
+    <div class="hb-sub">Dashboard, {{ L.Tickets if L is defined else 'Tickets' }}, Checklists &amp; Flow Board</div>
   </a>
 
   {% if has_sales %}

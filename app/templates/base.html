@@ -76,7 +76,7 @@
    original flat nav, unchanged. #}
 {% set path = request.url.path %}
 {% set active_group = '' %}
-{% if user.role in ('ADMIN','MANAGER') %}
+{% if user.role in ('ADMIN','MANAGER','EMPLOYEE') %}
   {% if path.startswith('/my-tasks') or path.startswith('/attendance/punch') or path.startswith('/attendance/leave') %}
     {% set active_group = 'my_tasks' %}
   {% elif path.startswith('/dashboard') or path.startswith('/tickets') or path.startswith('/checklists') or path.startswith('/fms') %}
@@ -91,82 +91,98 @@
     {% set active_group = 'setup' %}
   {% endif %}
 <style>
-.group-switch { position: relative; margin-right: 6px; }
-.group-switch-btn {
-  display: flex; align-items: center; gap: 6px; background: var(--hover-bg, rgba(0,0,0,0.04));
-  border: 1px solid var(--border-subtle); border-radius: 8px; padding: 7px 12px;
+/* Top-row module nav (replaces the old single "Sections" filter dropdown):
+   every module is always visible as a tab; hover (desktop) or click (touch)
+   reveals that module's submodules. */
+.module-nav { display: flex; align-items: center; gap: 2px; margin-right: 6px; }
+.module-item { position: relative; }
+.module-btn {
+  display: flex; align-items: center; gap: 6px; background: none;
+  border: none; border-radius: 8px; padding: 7px 12px;
   font-size: 13px; font-weight: 600; color: var(--text-primary); cursor: pointer; font-family: inherit;
 }
-.group-switch-btn:hover { border-color: rgba(102,87,242,0.4); }
-.group-switch-menu {
-  display: none; position: absolute; top: calc(100% + 6px); left: 0; min-width: 200px;
+.module-btn:hover, .module-item.active > .module-btn { background: var(--hover-bg, rgba(0,0,0,0.04)); color: #6657F2; }
+.module-menu {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; min-width: 190px;
   background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.18); padding: 6px; z-index: 200;
 }
-.group-switch-menu.open { display: block; }
-.group-switch-menu a {
-  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 7px;
-  font-size: 13px; color: var(--text-primary); text-decoration: none;
+.module-item.open .module-menu { display: block; }
+@media (hover: hover) {
+  .module-item:hover .module-menu { display: block; }
 }
-.group-switch-menu a:hover { background: var(--hover-bg, rgba(0,0,0,0.05)); }
-.group-switch-menu a.current { color: #6657F2; font-weight: 600; }
+.module-menu a {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 7px;
+  font-size: 13px; color: var(--text-primary); text-decoration: none; white-space: nowrap;
+}
+.module-menu a:hover { background: var(--hover-bg, rgba(0,0,0,0.05)); }
+.module-menu a.active { color: #6657F2; font-weight: 600; }
 </style>
 {% endif %}
 <nav class="nav">
   <a class="logo" href="{{ '/home' if user.role in ('ADMIN','MANAGER') else '/dashboard' }}" style="text-decoration:none;color:inherit">OmniFlow</a>
-  {% if user.role in ('ADMIN','MANAGER') %}
-  <div class="group-switch">
-    <button type="button" class="group-switch-btn" onclick="document.getElementById('groupSwitchMenu').classList.toggle('open')">
-      {% if active_group=='operations' %}🧭 Operations
-      {% elif active_group=='my_tasks' %}📋 Task
-      {% elif active_group=='crm' %}🤝 CRM
-      {% elif active_group=='sales_inventory' %}📦 Sales &amp; Inventory
-      {% elif active_group=='organization' %}👥 Organization
-      {% elif active_group=='setup' %}⚙️ Setup
-      {% else %}☰ Sections{% endif %} ▾
-    </button>
-    <div class="group-switch-menu" id="groupSwitchMenu">
-      <a href="/dashboard" class="{% if active_group=='operations' %}current{% endif %}">🧭 Operations</a>
-      <a href="/my-tasks" class="{% if active_group=='my_tasks' %}current{% endif %}">📋 Task</a>
-      {% if has_sales %}<a href="/sales/contacts" class="{% if active_group=='crm' %}current{% endif %}">🤝 CRM</a>{% endif %}
-      {% if has_sales or has_inventory_module or has_sales_analytics %}<a href="/inventory-v2" class="{% if active_group=='sales_inventory' %}current{% endif %}">📦 Sales &amp; Inventory</a>{% endif %}
-      <a href="/organization" class="{% if active_group=='organization' %}current{% endif %}">👥 Organization</a>
-      {% if user.role == 'ADMIN' %}<a href="/setup" class="{% if active_group=='setup' %}current{% endif %}">⚙️ Setup</a>{% endif %}
+  {% if user.role in ('ADMIN','MANAGER','EMPLOYEE') %}
+  {% if path != '/home' %}
+  {# Home page already surfaces every module as a tile grid, so the tab row's
+     dropdowns would just duplicate that navigation — suppress it there. #}
+  <div class="module-nav">
+    <div class="module-item {% if active_group=='my_tasks' %}active{% endif %}">
+      <button type="button" class="module-btn" onclick="toggleModuleMenu(this)">📋 Task ▾</button>
+      <div class="module-menu">
+        <a href="/my-tasks" class="{% if path.startswith('/my-tasks') %}active{% endif %}">Task</a>
+        {% if has_attendance %}<a href="/attendance/punch" class="{% if path.startswith('/attendance') %}active{% endif %}">Attendance</a>{% endif %}
+      </div>
     </div>
+    <div class="module-item {% if active_group=='operations' %}active{% endif %}">
+      <button type="button" class="module-btn" onclick="toggleModuleMenu(this)">🧭 Operations ▾</button>
+      <div class="module-menu">
+        <a href="/dashboard" class="{% if path=='/dashboard' %}active{% endif %}">Dashboard</a>
+        {% if has_tickets is not defined or has_tickets %}
+        <a href="/tickets" class="{% if '/tickets' in path %}active{% endif %}">{{ L.Tickets if L is defined else 'Tickets' }}</a>
+        {% endif %}
+        {% if has_checklists %}
+        <a href="/checklists" class="{% if '/checklists' in path %}active{% endif %}">{{ L.Checklists if L is defined else 'Checklists' }}</a>
+        {% endif %}
+        {% if has_fms %}
+        <a href="/fms/dashboard" class="{% if '/fms' in path %}active{% endif %}">{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a>
+        {% endif %}
+      </div>
+    </div>
+    {% if has_sales %}
+    <div class="module-item {% if active_group=='crm' %}active{% endif %}">
+      <button type="button" class="module-btn" onclick="toggleModuleMenu(this)">🤝 CRM ▾</button>
+      <div class="module-menu">
+        <a href="/sales/contacts" class="active">Customers</a>
+      </div>
+    </div>
+    {% endif %}
+    {% if has_sales or has_inventory_module or has_sales_analytics %}
+    <div class="module-item {% if active_group=='sales_inventory' %}active{% endif %}">
+      <button type="button" class="module-btn" onclick="toggleModuleMenu(this)">📦 Sales &amp; Inventory ▾</button>
+      <div class="module-menu">
+        {% if has_inventory_module %}<a href="/inventory-v2" class="{% if '/inventory-v2' in path %}active{% endif %}">Inventory</a>{% endif %}
+        {% if has_sales %}<a href="/sales/orders" class="{% if '/sales/orders' in path %}active{% endif %}">Sell</a>{% endif %}
+        {% if has_sales_analytics %}<a href="/sales/analytics" class="{% if '/sales/analytics' in path %}active{% endif %}">Sales Insights</a>{% endif %}
+      </div>
+    </div>
+    {% endif %}
+    {% if user.role in ('ADMIN','MANAGER') or has_knowledge_repo %}
+    <div class="module-item {% if active_group=='organization' %}active{% endif %}">
+      <button type="button" class="module-btn" onclick="toggleModuleMenu(this)">👥 Organization ▾</button>
+      <div class="module-menu">
+        {% if user.role in ('ADMIN','MANAGER') %}<a href="/employees" class="{% if '/employees' in path %}active{% endif %}">{{ L.Employees if L is defined else 'Employees' }}</a>{% endif %}
+        {% if has_knowledge_repo %}<a href="/knowledge" class="{% if '/knowledge' in path %}active{% endif %}">Training</a>{% endif %}
+        {% if has_attendance and user.role in ('ADMIN','MANAGER') %}<a href="/attendance/report" class="{% if '/attendance' in path %}active{% endif %}">Attendance &amp; Leave</a>{% endif %}
+      </div>
+    </div>
+    {% endif %}
+    {% if user.role == 'ADMIN' %}
+    <a href="/setup" class="module-btn {% if active_group=='setup' %}active{% endif %}" style="text-decoration:none">⚙️ Setup</a>
+    {% endif %}
   </div>
-  {% if active_group == 'operations' %}
-    <a href="/dashboard" {% if path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
-    {% if has_tickets is not defined or has_tickets %}
-    <a href="/tickets" {% if '/tickets' in path %}class="active"{% endif %}>{{ L.Tickets if L is defined else 'Tickets' }}</a>
-    {% endif %}
-    {% if has_checklists %}
-    <a href="/checklists" {% if '/checklists' in path %}class="active"{% endif %}>{{ L.Checklists if L is defined else 'Checklists' }}</a>
-    {% endif %}
-    {% if has_fms %}
-    <a href="/fms/dashboard" {% if '/fms' in path %}class="active"{% endif %}>{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</a>
-    {% endif %}
-  {% elif active_group == 'my_tasks' %}
-    <a href="/my-tasks" {% if path.startswith('/my-tasks') %}class="active"{% endif %}>Task</a>
-    {% if has_attendance %}<a href="/attendance/punch" {% if path.startswith('/attendance') %}class="active"{% endif %}>Attendance</a>{% endif %}
-  {% elif active_group == 'crm' %}
-    <a href="/sales/contacts" class="active">Customers</a>
-  {% elif active_group == 'sales_inventory' %}
-    {% if has_inventory_module %}<a href="/inventory-v2" {% if '/inventory-v2' in path %}class="active"{% endif %}>Inventory</a>{% endif %}
-    {% if has_sales %}<a href="/sales/orders" {% if '/sales/orders' in path %}class="active"{% endif %}>Sell</a>{% endif %}
-    {% if has_sales_analytics %}<a href="/sales/analytics" {% if '/sales/analytics' in path %}class="active"{% endif %}>Sales Insights</a>{% endif %}
-  {% elif active_group == 'organization' %}
-    <a href="/employees" {% if '/employees' in path %}class="active"{% endif %}>{{ L.Employees if L is defined else 'Employees' }}</a>
-    {% if has_knowledge_repo %}<a href="/knowledge" {% if '/knowledge' in path %}class="active"{% endif %}>Training</a>{% endif %}
-    {% if has_attendance %}<a href="/attendance/report" {% if '/attendance' in path %}class="active"{% endif %}>Attendance &amp; Leave</a>{% endif %}
-  {% elif active_group == 'setup' %}
-    <a href="/setup" class="active">Setup</a>
   {% endif %}
   {% else %}
-  {# Employee / Product Manager — original flat nav, unchanged #}
-  {% if user.role != 'PRODUCT_MANAGER' %}
-  <a href="/dashboard" {% if path=='/dashboard' %}class="active"{% endif %}>Dashboard</a>
-  <a href="/my-tasks" {% if '/my-tasks' in path %}class="active"{% endif %}>Task</a>
-  {% endif %}
+  {# Product Manager — original flat nav, unchanged #}
   {% if has_tickets is not defined or has_tickets %}
   <a href="/tickets" {% if '/tickets' in path %}class="active"{% endif %}>{{ L.Tickets if L is defined else 'Tickets' }}</a>
   {% endif %}

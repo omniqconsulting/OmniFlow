@@ -105,9 +105,10 @@
       <option value="inactive" {{ 'selected' if active == 'inactive' else '' }}>Inactive</option>
     </select>
   </div>
-  <div class="filter-group" style="flex:1;min-width:200px">
+  <div class="filter-group" style="flex:1;min-width:200px;position:relative">
     <label>Variant</label>
-    <input name="search" value="{{ search }}" placeholder="Search SKU or variant…" style="width:100%">
+    <input name="search" id="inv_variant_search" value="{{ search }}" placeholder="Search SKU or variant…" style="width:100%" autocomplete="off" oninput="filterInvVariantOptions()" onfocus="filterInvVariantOptions()">
+    <div id="inv_variant_results" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.18);z-index:50"></div>
   </div>
   <div style="align-self:flex-end;display:flex;gap:6px">
     <button type="submit" class="btn btn-primary btn-sm">Apply</button>
@@ -148,16 +149,16 @@
 <div class="card" style="padding:18px">
   <h3 style="margin-top:0">Stock Status</h3>
   {% if stock_rows %}
-  <table style="width:100%;font-size:13px;border-collapse:collapse">
+  <table id="inv-stock-table" style="width:100%;font-size:13px;border-collapse:collapse">
     <thead>
       <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
-        <th style="padding:6px 8px"></th>
+        <th data-no-sort style="padding:6px 8px"></th>
         <th style="padding:6px 8px">Product</th><th style="padding:6px 8px">Variant</th><th style="padding:6px 8px">SKU</th>
         {% if show_branch_col %}<th style="padding:6px 8px">Branch</th>{% endif %}
         <th style="padding:6px 8px">Available</th><th style="padding:6px 8px">Reserved</th>
         <th style="padding:6px 8px">In-Transit</th><th style="padding:6px 8px">Status</th>
         <th style="padding:6px 8px">Last Updated</th>
-        {% if can_edit %}<th style="padding:6px 8px"></th>{% endif %}
+        {% if can_edit %}<th data-no-sort style="padding:6px 8px"></th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -171,11 +172,11 @@
         <td style="padding:6px 8px">{{ s.qty_available }}</td>
         <td style="padding:6px 8px">{{ s.qty_reserved }}</td>
         <td style="padding:6px 8px">{{ s.qty_in_transit }}</td>
-        <td style="padding:6px 8px">
+        <td style="padding:6px 8px" data-sort-value="{{ label }}">
           <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ badge_colors.get(color,'#94a3b8') }}">{{ label }}</span>
           {% if not v.is_active %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:#94a3b8;margin-left:4px">Inactive</span>{% endif %}
         </td>
-        <td style="padding:6px 8px;color:var(--text-faint)">{{ s.last_updated_at | ist('%d %b %Y') if s.last_updated_at else '—' }}</td>
+        <td style="padding:6px 8px;color:var(--text-faint)" data-sort-value="{{ s.last_updated_at.isoformat() if s.last_updated_at else '' }}">{{ s.last_updated_at | ist('%d %b %Y') if s.last_updated_at else '—' }}</td>
         {% if can_edit %}
         <td style="padding:6px 8px"><button type="button" class="btn btn-xs btn-outline" onclick="openAdjust('{{ v.id }}','{{ v.sku_code|e }}',{{ s.qty_available }})">Adjust</button></td>
         {% endif %}
@@ -205,4 +206,36 @@
 {% if can_edit %}
 {% include "inventory_v2/_stock_adjust_modal.html" %}
 {% endif %}
+
+<script>
+// Live filter suggestions for the Variant search box — partial match against
+// the same Product/ProductVariant data Catalog/Setup manage. Clicking a
+// suggestion applies it as the filter (submits the form) rather than just
+// requiring "Apply" after a full page reload.
+const INV_VARIANT_OPTIONS = {{ variant_search_options | tojson }};
+function filterInvVariantOptions() {
+  const q = document.getElementById('inv_variant_search').value.trim().toLowerCase();
+  const box = document.getElementById('inv_variant_results');
+  if (!q) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const matches = INV_VARIANT_OPTIONS.filter(v => v.name.toLowerCase().includes(q)).slice(0, 30);
+  box.innerHTML = matches.length
+    ? matches.map(v => `<div onclick="selectInvVariant(${JSON.stringify(v.sku)}, ${JSON.stringify(v.name)})" style="padding:8px 10px;font-size:13px;cursor:pointer;border-radius:6px" onmouseover="this.style.background='var(--hover-bg, rgba(0,0,0,0.05))'" onmouseout="this.style.background='transparent'">${v.name}</div>`).join('')
+    : '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No matching products</div>';
+  box.style.display = 'block';
+}
+function selectInvVariant(sku, name) {
+  // Submit the exact SKU (not the display label) — the backend filter does a
+  // substring match against sku_code/variant_label/product_name individually,
+  // so the concatenated display label would never match any single field.
+  document.getElementById('inv_variant_search').value = sku;
+  document.getElementById('inv_variant_results').style.display = 'none';
+  document.getElementById('inv_variant_search').closest('form').submit();
+}
+document.addEventListener('click', function(e){
+  if (!e.target.closest('#inv_variant_search') && !e.target.closest('#inv_variant_results')) {
+    document.getElementById('inv_variant_results').style.display = 'none';
+  }
+});
+makeSortable('inv-stock-table');
+</script>
 {% endblock %}

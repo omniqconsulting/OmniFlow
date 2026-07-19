@@ -13,7 +13,28 @@
   </div>
 
   <h2 class="page-title" style="margin-bottom:4px">Attendance</h2>
-  <p style="font-size:13px;color:var(--text-faint);margin-bottom:16px">{{ today.strftime('%A, %d %b %Y') if today else '' }}</p>
+  <p style="font-size:13px;color:var(--text-faint);margin-bottom:10px">{{ today.strftime('%A, %d %b %Y') if today else '' }}</p>
+
+  <!-- ── Branch — client's #2: default branch visible up top, switchable
+       pre-check-in (one-time override for today only, see attendance.py). ── -->
+  <div class="card" style="margin-bottom:16px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <div style="font-size:13px">
+      <span style="color:var(--text-faint)">Branch:</span>
+      <b id="att-branch-label" style="color:var(--text-strong)">
+        {%- if record and record.check_in_at and record.branch -%}{{ record.branch.name }}
+        {%- elif default_branch -%}{{ default_branch.name }}
+        {%- else -%}No branch set
+        {%- endif -%}
+      </b>
+    </div>
+    {% if not (record and record.check_in_at) and all_branches|length > 1 %}
+    <select id="att-branch-select" style="font-size:12px;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:6px;padding:5px 8px;color:var(--text-primary)" onchange="document.getElementById('att-branch-label').textContent = this.options[this.selectedIndex].text">
+      {% for b in all_branches %}
+      <option value="{{ b.id }}" {{ 'selected' if default_branch and b.id == default_branch.id else '' }}>{{ b.name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+  </div>
 
   <!-- ── Big status banner ─────────────────────────────────────────── -->
   <div id="att-status-card" class="card" style="margin-bottom:18px;padding:22px;border-radius:16px;text-align:center;border:none">
@@ -52,6 +73,7 @@
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-subtle);font-size:12.5px;text-align:left">
         {% if record.check_in_lat is not none %}
           <div style="color:#10b981;font-weight:700">📍 Location captured for today's check-in ✓</div>
+          <div style="color:var(--text-faint);margin-top:2px;font-family:monospace">{{ '%.5f' | format(record.check_in_lat) }}, {{ '%.5f' | format(record.check_in_lng) }}</div>
           {% if has_fence and checkin_distance_m is not none %}
             {% if record.check_in_in_fence %}
               <div style="color:#10b981;margin-top:2px">{{ checkin_distance_m }}m from office — inside the zone</div>
@@ -60,6 +82,17 @@
             {% endif %}
           {% elif not has_fence %}
             <div style="color:var(--text-faint);margin-top:2px">No office zone configured — location recorded but not validated</div>
+          {% endif %}
+        {% endif %}
+        {% if record.check_out_at and record.check_out_lat is not none %}
+          <div style="color:#10b981;font-weight:700;margin-top:10px">📍 Location captured for today's check-out ✓</div>
+          <div style="color:var(--text-faint);margin-top:2px;font-family:monospace">{{ '%.5f' | format(record.check_out_lat) }}, {{ '%.5f' | format(record.check_out_lng) }}</div>
+          {% if has_fence and checkout_distance_m is not none %}
+            {% if record.check_out_in_fence %}
+              <div style="color:#10b981;margin-top:2px">{{ checkout_distance_m }}m from office — inside the zone</div>
+            {% else %}
+              <div style="color:#f59e0b;margin-top:2px">⚠️ {{ checkout_distance_m }}m from office — outside the zone{% if record.check_out_reason %} ({{ record.check_out_reason }}){% endif %}</div>
+            {% endif %}
           {% endif %}
         {% endif %}
       </div>
@@ -74,10 +107,10 @@
   <div class="card" style="margin-bottom:18px;padding:16px 18px">
     <div style="font-size:13px;font-weight:700;color:var(--text-strong);margin-bottom:8px">HOW TO PUNCH IN — READ FIRST</div>
     <ol style="margin:0;padding-left:18px;font-size:13.5px;color:var(--text-primary);line-height:1.9">
-      <li>Tap the big <b>Check In</b> button below.</li>
-      <li>Allow location access when your browser asks — this tags your punch with GPS.</li>
-      <li>Take a quick photo when the camera opens (first punch of the day only).</li>
-      <li>If you're outside the office zone, a box will appear — tell us why in one line.</li>
+      <li>Tap the big <b>Check In</b> button below and allow location access once — this tags your punch with GPS.</li>
+      <li>Confirm the location shown is correct, then tap <b>Continue</b>.</li>
+      <li>Take a quick selfie (first punch of the day only), then tap <b>Submit</b>.</li>
+      <li>Your check-in time appears immediately once submitted.</li>
     </ol>
   </div>
 
@@ -91,8 +124,16 @@
     <textarea id="att-reason" rows="2" placeholder="e.g. On a client visit" style="width:100%;background:var(--bg-modal);border:1px solid var(--border-med);border-radius:8px;padding:10px;font-size:13px;color:var(--text-primary)"></textarea>
   </div>
 
+  <!-- Explicit "Continue" step — location must be confirmed before moving on
+       to the selfie/submit step, instead of silently chaining straight
+       through (client's #3.1: steps weren't visible). -->
+  <div id="att-continue-box" style="display:none;margin-bottom:14px">
+    <button type="button" class="btn btn-primary" style="width:100%;padding:14px" onclick="attProceedAfterLocation()">Continue →</button>
+  </div>
+
   <div id="att-photo-preview" style="display:none;margin-bottom:14px;text-align:center">
-    <img id="att-photo-img" style="max-width:160px;max-height:160px;border-radius:10px;border:1px solid var(--border-med)">
+    <img id="att-photo-img" style="max-width:160px;max-height:160px;border-radius:10px;border:1px solid var(--border-med);margin-bottom:10px;display:block;margin-left:auto;margin-right:auto">
+    <button type="button" class="btn btn-primary" style="width:100%;padding:14px" onclick="attFinalizeSubmit()">Submit</button>
   </div>
   <input type="file" id="att-photo-input" accept="image/*" capture="environment" style="display:none">
 
@@ -148,66 +189,94 @@ function attShowError(msg){
 }
 function attClearError(){ document.getElementById('att-error').style.display = 'none'; }
 
+// Pending state for the explicit Location → Continue → Selfie → Submit
+// sequence (client's #3.1: steps weren't visible before — this makes each
+// one its own screen instead of silently auto-chaining).
+let attPending = null;
+
 function attPunch(kind){
   attClearError();
   if (!navigator.geolocation){ attShowError('Geolocation is not supported on this device/browser.'); return; }
+  document.getElementById('att-main-btn').disabled = true;
   navigator.geolocation.getCurrentPosition(function(pos){
-    attContinuePunch(kind, pos.coords.latitude, pos.coords.longitude);
+    document.getElementById('att-main-btn').disabled = false;
+    attShowLocationConfirm(kind, pos.coords.latitude, pos.coords.longitude);
   }, function(err){
+    document.getElementById('att-main-btn').disabled = false;
     attShowError('Could not get your location (' + (err.message || 'permission denied') + '). Please allow location access and try again.');
   }, {enableHighAccuracy: true, timeout: 15000});
 }
 
-function attContinuePunch(kind, lat, lng){
+function attShowLocationConfirm(kind, lat, lng){
   let outOfFence = false;
   const geoEl = document.getElementById('att-geo-confirm');
+  const coordsText = lat.toFixed(5) + ', ' + lng.toFixed(5);
   if (ATT_FENCE.has_fence && ATT_FENCE.lat != null){
     const d = attHaversine(lat, lng, ATT_FENCE.lat, ATT_FENCE.lng);
     outOfFence = d > ATT_FENCE.radius;
     const distText = Math.round(d) + 'm from office — ' + (outOfFence ? 'outside the zone' : 'inside the zone');
     geoEl.style.color = outOfFence ? '#f59e0b' : '#10b981';
-    geoEl.innerHTML = '📍 <b>Location captured</b> ✓<br>' + distText;
+    geoEl.innerHTML = '📍 <b>Location entered:</b> ' + coordsText + '<br>' + distText;
   } else {
     geoEl.style.color = 'var(--text-faint)';
-    geoEl.innerHTML = '📍 <b>Location captured</b> ✓<br>No office zone configured — location recorded but not validated';
+    geoEl.innerHTML = '📍 <b>Location entered:</b> ' + coordsText + '<br>No office zone configured — location recorded but not validated';
   }
   geoEl.style.display = 'block';
-  const reasonBox = document.getElementById('att-reason-box');
+  document.getElementById('att-reason-box').style.display = outOfFence ? 'block' : 'none';
+
+  const branchSel = document.getElementById('att-branch-select');
+  attPending = { kind: kind, lat: lat, lng: lng, outOfFence: outOfFence, photoFile: null,
+                 branchId: branchSel ? branchSel.value : null };
+  document.getElementById('att-continue-box').style.display = 'block';
+}
+
+function attProceedAfterLocation(){
+  attClearError();
+  if (!attPending) return;
   let reason = '';
-  if (outOfFence){
-    reasonBox.style.display = 'block';
+  if (attPending.outOfFence){
     reason = document.getElementById('att-reason').value.trim();
     if (!reason){
-      attShowError("Please tell us why you're outside the office zone before submitting.");
+      attShowError("Please tell us why you're outside the office zone before continuing.");
       document.getElementById('att-reason').focus();
       return;
     }
   }
+  attPending.reason = reason;
+  document.getElementById('att-continue-box').style.display = 'none';
 
-  if (kind === 'checkin' && !ATT_HAS_CHECKED_IN){
+  if (attPending.kind === 'checkin' && !ATT_HAS_CHECKED_IN){
     const input = document.getElementById('att-photo-input');
     input.onchange = function(){
       const file = input.files[0];
       if (!file){ attShowError('A photo is required for your first punch of the day.'); return; }
+      attPending.photoFile = file;
       const reader = new FileReader();
       reader.onload = function(e){
         document.getElementById('att-photo-img').src = e.target.result;
         document.getElementById('att-photo-preview').style.display = 'block';
-        attSubmitPunch(kind, lat, lng, reason, file);
       };
       reader.readAsDataURL(file);
     };
     input.click();
     return;
   }
-  attSubmitPunch(kind, lat, lng, reason, null);
+  attSubmitPunch();
 }
 
-function attSubmitPunch(kind, lat, lng, reason, photoFile){
+// Called from the Submit button on the photo-preview step (checkin), or
+// directly from attProceedAfterLocation for checkout (no photo involved).
+function attFinalizeSubmit(){
+  attSubmitPunch();
+}
+
+function attSubmitPunch(){
+  const { kind, lat, lng, reason, photoFile, branchId } = attPending;
   const fd = new FormData();
   fd.append('lat', lat); fd.append('lng', lng);
   if (reason) fd.append('reason', reason);
   if (photoFile) fd.append('photo', photoFile);
+  if (branchId) fd.append('branch_id', branchId);
 
   fetch('/attendance/punch/' + kind, {
     method: 'POST', body: fd, headers: {'X-Requested-With': 'fetch'}
