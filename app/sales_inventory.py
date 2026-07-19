@@ -521,6 +521,13 @@ def inventory_dashboard(
         category_id=category_id, sub_category_id=sub_category_id, branch_id=branch_id,
         search=search, active=active, stock_status=stock_status,
         stock_status_choices=["OK", "LOW", "OUT"],
+        variant_search_options=[
+            {
+                "name": f"{(v.product.name if v.product else '')}{' — ' + v.variant_label if v.variant_label else ''} — {v.sku_code}",
+                "sku": v.sku_code,
+            }
+            for v in variants
+        ],
         kpi_total_skus=total_skus, kpi_active_skus=active_skus,
         kpi_below_threshold_skus=below_threshold_skus, kpi_out_of_stock_skus=out_of_stock_skus,
         kpi_open_pos=len(open_pos), kpi_open_dispatches=len(upcoming_dispatches),

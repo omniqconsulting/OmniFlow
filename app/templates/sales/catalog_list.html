@@ -90,10 +90,10 @@
 {% if products %}
 {% if view == 'list' %}
 <div class="card" style="padding:0">
-  <table class="table" style="width:100%">
+  <table id="catalog-list-table" class="table" style="width:100%">
     <thead>
       <tr>
-        <th>Product</th><th>Category</th><th>Variants</th><th>Tier</th><th>Stock</th><th></th>
+        <th>Product</th><th>Category</th><th>Variants</th><th>Tier</th><th>Stock</th><th data-no-sort></th>
       </tr>
     </thead>
     <tbody>
@@ -104,7 +104,7 @@
         <td>
           <div style="display:flex;align-items:center;gap:10px">
             <div style="width:34px;height:34px;border-radius:7px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">
-              {% set first_vmedia = (p.variants | selectattr('media_urls_json') | map(attribute='media_urls_json') | map('from_json') | first) %}
+              {% set first_vmedia = (p.variants | map(attribute='media_urls_json') | select | map('from_json') | select | first) %}
               {% if first_vmedia %}<img src="/static/{{ first_vmedia[0] }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:14px;opacity:.45">📦</span>{% endif %}
             </div>
             <span style="font-weight:600;color:var(--text-strong)">{{ p.name }}</span>
@@ -112,8 +112,8 @@
         </td>
         <td style="color:var(--text-muted);font-size:12.5px">{{ p.sub_category.category.name if p.sub_category else '—' }} / {{ p.sub_category.name if p.sub_category else '—' }}</td>
         <td style="color:var(--text-muted)">{{ p.variants|length }}</td>
-        <td><span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8','Mixed':'#a855f7'}.get(tier_disp, '#94a3b8') }}">{{ tier_disp }}</span></td>
-        <td>
+        <td data-sort-value="{{ tier_disp }}"><span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8','Mixed':'#a855f7'}.get(tier_disp, '#94a3b8') }}">{{ tier_disp }}</span></td>
+        <td data-sort-value="{{ stock.state if stock else '' }}">
           {% if stock %}
           {% if stock.state == 'IN_STOCK' %}<span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#22c55e">IN STOCK</span>
           {% elif stock.state == 'EXPECTED' %}<span style="font-size:9px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:#f59e0b">EXPECTED</span>
@@ -132,7 +132,7 @@
 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px">
   {% for p in products %}
   {% set stock = stock_status_by_product.get(p.id) %}
-  {% set first_vmedia = (p.variants | selectattr('media_urls_json') | map(attribute='media_urls_json') | map('from_json') | first) %}
+  {% set first_vmedia = (p.variants | map(attribute='media_urls_json') | select | map('from_json') | select | first) %}
   <div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="location.href='/sales/catalog/{{ p.id }}'">
     <div style="height:110px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;overflow:hidden">
       {% if first_vmedia %}
@@ -294,4 +294,5 @@ function addVariantRow() {
 addVariantRow();
 </script>
 {% endif %}
+<script>makeSortable('catalog-list-table');</script>
 {% endblock %}

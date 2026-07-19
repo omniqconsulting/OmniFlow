@@ -5321,12 +5321,26 @@ def setup(request: Request, user: User = Depends(require_admin_or_pm_or_redirect
         })
 
     _setup_flags = get_nav_flags(db, user, tenant, for_setup=True)
+    _nav_flags = get_nav_flags(db, user, tenant)
+    geofences_by_branch = {}
+    tenant_wide_geofence = None
+    if _nav_flags.get("has_attendance"):
+        from .database import AttendanceGeofence
+        for f in db.query(AttendanceGeofence).filter(
+            AttendanceGeofence.tenant_id == user.tenant_id, AttendanceGeofence.is_active == True,
+        ).all():
+            if f.branch_id:
+                geofences_by_branch[f.branch_id] = f
+            else:
+                tenant_wide_geofence = f
     return templates.TemplateResponse(request, "setup.html", {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
-        **get_nav_flags(db, user, tenant),
+        **_nav_flags,
         "setup_has_fms": _setup_flags["has_fms"],
         "setup_has_sales": _setup_flags["has_sales"],
         "branches": branches, "departments": departments,
+        "geofences_by_branch": geofences_by_branch,
+        "tenant_wide_geofence": tenant_wide_geofence,
         "departments_grouped": departments_grouped,
         "distinct_dept_count": len(departments_grouped),
         "tenant": tenant, "employee_count": emp_count,
@@ -5551,6 +5565,32 @@ async def setup_performance_formula_save(
     return redirect("/setup/performance-formula?msg=Formula+saved+successfully")
 
 
+def _upsert_branch_geofence(db: Session, tenant_id: str, branch_id: str, form) -> None:
+    """Setup > Organisation branch form's geofence fields, replacing the old
+    standalone /attendance/setup/geofence page as the primary entry point.
+    Blank lat/lng means "no geofence for this branch" — deletes any existing
+    one rather than leaving stale coordinates around."""
+    from .database import AttendanceGeofence
+    lat = (form.get("geo_lat") or "").strip()
+    lng = (form.get("geo_lng") or "").strip()
+    radius = (form.get("geo_radius") or "").strip()
+    existing = db.query(AttendanceGeofence).filter(
+        AttendanceGeofence.tenant_id == tenant_id, AttendanceGeofence.branch_id == branch_id,
+    ).first()
+    if not lat or not lng:
+        if existing:
+            db.delete(existing)
+        return
+    lat_f, lng_f = float(lat), float(lng)
+    radius_i = int(radius) if radius.isdigit() else 200
+    if existing:
+        existing.center_lat, existing.center_lng, existing.radius_m = lat_f, lng_f, radius_i
+        existing.is_active = True
+    else:
+        db.add(AttendanceGeofence(tenant_id=tenant_id, branch_id=branch_id,
+                                   center_lat=lat_f, center_lng=lng_f, radius_m=radius_i))
+
+
 @app.post("/setup/branch")
 async def add_branch(request: Request, name: str = Form(...), location: str = Form(""),
                redirect_to: str = Form("/setup?open=branch"),
@@ -5564,8 +5604,11 @@ async def add_branch(request: Request, name: str = Form(...), location: str = Fo
     form = await request.form()
     off_days = [int(v) for v in form.getlist("weekly_off_days") if str(v).isdigit()]
     import json as _json
-    db.add(Branch(tenant_id=user.tenant_id, name=name, address=location,
-                   weekly_off_days=_json.dumps(off_days or [6])))
+    branch = Branch(tenant_id=user.tenant_id, name=name, address=location,
+                     weekly_off_days=_json.dumps(off_days or [6]))
+    db.add(branch)
+    db.flush()
+    _upsert_branch_geofence(db, user.tenant_id, branch.id, form)
     db.commit()
     return redirect(redirect_to)
 
@@ -5580,6 +5623,7 @@ async def edit_branch(branch_id: str, request: Request, name: str = Form(...), l
         off_days = [int(v) for v in form.getlist("weekly_off_days") if str(v).isdigit()]
         import json as _json
         b.weekly_off_days = _json.dumps(off_days or [6])
+        _upsert_branch_geofence(db, user.tenant_id, b.id, form)
         db.commit()
     return redirect("/setup")
 

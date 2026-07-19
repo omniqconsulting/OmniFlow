@@ -124,7 +124,7 @@
       <div class="tm-card-lead">
         <span class="tm-dot" style="background:{% if i.due_at and i.due_at < now %}#ef4444{% else %}{{ i.color }}{% endif %}"></span>
         <div style="flex:1">
-          <div class="mt-kind-tag" style="color:{{ i.color }}">{{ i.kind_label }}</div>
+          <div class="mt-kind-tag" style="color:{{ i.color }}">{{ i.sub_label if i.kind == 'ticket' else i.kind_label }}</div>
           <div class="tm-card-title">{{ i.title }}</div>
           <div class="tm-card-meta" style="margin-top:7px">
             <span class="tm-badge tm-badge-gray">{{ i.status }}</span>

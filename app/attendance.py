@@ -209,13 +209,19 @@ def get_self_month_calendar(db, employee, year=None, month=None) -> dict:
 # ── Scope helper (mirrors analytics.py::_resolve_filter_uids pattern) ──────
 
 def _scoped_user_ids(db: Session, user: User) -> list:
-    """MANAGER sees direct reports only; ADMIN sees the whole tenant."""
+    """MANAGER sees direct reports only; ADMIN sees the whole tenant.
+    Deduplicated (dict.fromkeys preserves order) — defensive against a
+    tenant having two employee rows for the same person, which would
+    otherwise surface as that employee appearing twice in the team/report
+    views even though neither query itself joins or fans out rows."""
     if user.role == "ADMIN":
-        return [u.id for u in db.query(User).filter(
+        ids = [u.id for u in db.query(User).filter(
             User.tenant_id == user.tenant_id, User.is_deleted == False).all()]
-    return [u.id for u in db.query(User).filter(
-        User.tenant_id == user.tenant_id, User.is_deleted == False,
-        User.manager_id == user.id).all()]
+    else:
+        ids = [u.id for u in db.query(User).filter(
+            User.tenant_id == user.tenant_id, User.is_deleted == False,
+            User.manager_id == user.id).all()]
+    return list(dict.fromkeys(ids))
 
 
 # ── a) Punch page ────────────────────────────────────────────────────────────
@@ -231,7 +237,17 @@ def punch_page(request: Request, user: User = Depends(get_current_user_or_redire
     today = _date.today()
     record = db.query(AttendanceRecord).filter(
         AttendanceRecord.user_id == user.id, AttendanceRecord.work_date == today).first()
-    fence = _resolve_geofence(db, user.tenant_id, user.branch_id)
+
+    # Branch used for today's geofence: the one-time override chosen at
+    # check-in (record.branch_id) once punched in; otherwise the employee's
+    # own default branch, changeable pre-check-in via the branch picker.
+    effective_branch_id = (record.branch_id if record and record.branch_id else None) or user.branch_id
+    fence = _resolve_geofence(db, user.tenant_id, effective_branch_id)
+
+    default_branch = db.query(Branch).filter(Branch.id == user.branch_id).first() if user.branch_id else None
+    all_branches = db.query(Branch).filter(
+        Branch.tenant_id == user.tenant_id, Branch.is_deleted == False,
+    ).order_by(Branch.name).all()
 
     # Persisted post-submission distance-from-office, computed once here from
     # the record's own stored lat/lng rather than recomputed client-side, so
@@ -239,6 +255,9 @@ def punch_page(request: Request, user: User = Depends(get_current_user_or_redire
     checkin_distance_m = None
     if record and fence and record.check_in_lat is not None:
         checkin_distance_m = round(_haversine_m(record.check_in_lat, record.check_in_lng, fence.center_lat, fence.center_lng))
+    checkout_distance_m = None
+    if record and fence and record.check_out_lat is not None:
+        checkout_distance_m = round(_haversine_m(record.check_out_lat, record.check_out_lng, fence.center_lat, fence.center_lng))
 
     return templates.TemplateResponse(request, "attendance_punch.html", _ctx(
         request, user, db,
@@ -250,6 +269,9 @@ def punch_page(request: Request, user: User = Depends(get_current_user_or_redire
         now=datetime.utcnow(),
         is_working_day=is_working_day(db, user, today),
         checkin_distance_m=checkin_distance_m,
+        checkout_distance_m=checkout_distance_m,
+        default_branch=default_branch,
+        all_branches=all_branches,
         my_month=get_self_month_calendar(db, user),
     ))
 
@@ -258,6 +280,7 @@ def punch_page(request: Request, user: User = Depends(get_current_user_or_redire
 async def punch_checkin(request: Request,
                          lat: float = Form(...), lng: float = Form(...),
                          reason: str = Form(None),
+                         branch_id: str = Form(None),
                          photo: UploadFile = File(...),
                          user: User = Depends(get_current_user_or_redirect),
                          db: Session = Depends(get_db)):
@@ -272,7 +295,16 @@ async def punch_checkin(request: Request,
     if record and record.check_in_at:
         raise HTTPException(status_code=400, detail="Already checked in today")
 
-    fence = _resolve_geofence(db, user.tenant_id, user.branch_id)
+    # One-time branch override for today's punch only (client's #6.2) — must
+    # belong to the same tenant, otherwise silently fall back to the
+    # employee's own default branch.
+    effective_branch_id = user.branch_id
+    if branch_id:
+        picked = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
+        if picked:
+            effective_branch_id = picked.id
+
+    fence = _resolve_geofence(db, user.tenant_id, effective_branch_id)
     in_fence = _check_in_fence(fence, lat, lng)
     reason = (reason or "").strip() or None
     if not in_fence and not reason:
@@ -284,6 +316,7 @@ async def punch_checkin(request: Request,
         record = AttendanceRecord(tenant_id=user.tenant_id, user_id=user.id, work_date=today)
         db.add(record)
 
+    record.branch_id = effective_branch_id
     record.check_in_at = datetime.utcnow()
     record.check_in_lat = lat
     record.check_in_lng = lng
@@ -316,7 +349,9 @@ async def punch_checkout(request: Request,
     if record.check_out_at:
         raise HTTPException(status_code=400, detail="Already checked out today")
 
-    fence = _resolve_geofence(db, user.tenant_id, user.branch_id)
+    # Validate checkout against the same branch chosen at check-in, not
+    # necessarily the employee's default branch.
+    fence = _resolve_geofence(db, user.tenant_id, record.branch_id or user.branch_id)
     in_fence = _check_in_fence(fence, lat, lng)
     reason = (reason or "").strip() or None
     if not in_fence and not reason:

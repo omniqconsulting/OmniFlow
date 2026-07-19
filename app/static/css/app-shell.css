@@ -71,15 +71,15 @@ html.light .preset-btn { color: #475569; }
 html.light .preset-btn.active, html.light .preset-btn:hover { background: rgba(37,99,235,0.12); color: #1d4ed8; }
 
 *{box-sizing:border-box;margin:0;padding:0}
-/* touch-action:pan-y restored (was briefly removed) now that the viewport
-   meta tag (base.html) disables pinch-zoom outright — the two need to be
-   paired. With zoom still possible, pan-y alone left Android's gesture
-   recognizer treating a single-finger drag as ambiguous between "scroll"
-   and "start of a zoom pan," and it was resolving in favor of neither (real
-   document scroll never fired). With zoom disabled at the viewport level,
-   that ambiguity is gone and pan-y is unambiguous: single-finger drags can
-   only mean vertical scroll. */
-html,body{touch-action:pan-y;-webkit-overflow-scrolling:touch}
+/* touch-action:pan-y removed again: Android/Chromium computes the
+   touch-action "non-fast scrollable region" from layout at first paint and
+   doesn't reliably re-run that computation when content loads/resizes
+   dynamically afterward (dashboard data via JS, images, fonts) — leaving
+   scroll stuck until an orientation change forces a full relayout. Default
+   touch-action:auto uses Chromium's normal scroll-region path instead, which
+   does invalidate correctly on dynamic content, and is unambiguous on its
+   own now that user-scalable=no (base.html) already rules out pinch-zoom. */
+html,body{-webkit-overflow-scrolling:touch}
 body{font-family:var(--font-family);background:var(--bg-base);color:var(--text-primary);font-size:14px;line-height:1.5;min-height:100vh;transition:background .2s,color .2s;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
 a{color:#60a5fa;text-decoration:none}
 a:hover{color:#93c5fd}
@@ -222,6 +222,13 @@ tr:hover td{background:var(--row-hover)}
 .card table thead tr:first-child th:first-child{border-top-left-radius:10px}
 .card table thead tr:first-child th:last-child{border-top-right-radius:10px}
 .card table tbody tr:last-child td:first-child{border-bottom-left-radius:10px}
+
+/* Click-to-sort table headers — see makeSortable() in app-shell.js */
+th.sortable-col{cursor:pointer;user-select:none}
+th.sortable-col:hover{color:var(--text-primary)}
+th.sortable-col::after{content:'\2195';margin-left:5px;opacity:0.35;font-size:10px}
+th.sortable-col.sort-asc::after{content:'\2191';opacity:1}
+th.sortable-col.sort-desc::after{content:'\2193';opacity:1}
 .card table tbody tr:last-child td:last-child{border-bottom-right-radius:10px}
 
 /* ── BADGES ── */

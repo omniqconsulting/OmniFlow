@@ -103,13 +103,13 @@
 
 {% if pos %}
 <div class="card" style="padding:0">
-<table style="width:100%;font-size:13px;border-collapse:collapse">
+<table id="po-list-table" style="width:100%;font-size:13px;border-collapse:collapse">
   <thead>
     <tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)">
       <th style="padding:8px 12px">PO ID</th><th style="padding:8px 12px">Vendor</th>
       <th style="padding:8px 12px">Order Date</th>
       <th style="padding:8px 12px">Expected Arrival</th><th style="padding:8px 12px">Items</th>
-      <th style="padding:8px 12px">Status</th><th style="padding:8px 12px"></th>
+      <th style="padding:8px 12px">Status</th><th data-no-sort style="padding:8px 12px"></th>
     </tr>
   </thead>
   <tbody>
@@ -117,10 +117,10 @@
     <tr style="border-bottom:1px solid var(--border-subtle)">
       <td style="padding:8px 12px"><a href="/inventory-v2/purchase-orders/{{ po.id }}">{{ po.display_id }}</a></td>
       <td style="padding:8px 12px">{{ po.vendor_name_snapshot or '—' }}</td>
-      <td style="padding:8px 12px;color:var(--text-faint)">{{ po.created_at | ist('%d %b %Y') if po.created_at else '—' }}</td>
-      <td style="padding:8px 12px">{{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</td>
+      <td style="padding:8px 12px;color:var(--text-faint)" data-sort-value="{{ po.created_at.isoformat() if po.created_at else '' }}">{{ po.created_at | ist('%d %b %Y') if po.created_at else '—' }}</td>
+      <td style="padding:8px 12px" data-sort-value="{{ po.expected_arrival_date.isoformat() if po.expected_arrival_date else '' }}">{{ po.expected_arrival_date.strftime('%d %b %Y') if po.expected_arrival_date else '—' }}</td>
       <td style="padding:8px 12px">{{ po.items|length }}</td>
-      <td style="padding:8px 12px"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(po.status,'#94a3b8') }}">{{ po.status.replace('_',' ') }}</span></td>
+      <td style="padding:8px 12px" data-sort-value="{{ po.status }}"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(po.status,'#94a3b8') }}">{{ po.status.replace('_',' ') }}</span></td>
       <td style="padding:8px 12px;display:flex;gap:6px">
         <a href="/inventory-v2/purchase-orders/{{ po.id }}" class="btn btn-xs btn-outline">View</a>
         {% if po.status in ('SUBMITTED', 'APPROVED', 'PARTIALLY_RECEIVED') %}
@@ -143,13 +143,16 @@
 <!-- New PO modal — modern form-group/form-input styling matching the rest
      of the app's modals (New Product, Adjust Stock, Dispatch, etc). -->
 {% set new_po_body %}
-<form method="post" action="/inventory-v2/purchase-orders/create" id="newPOForm">
+<form method="post" action="/inventory-v2/purchase-orders/create" id="newPOForm" onsubmit="return validatePOForm()">
   <h3 style="margin-top:0;font-size:13px;color:var(--text-faint);letter-spacing:.03em">VENDOR</h3>
-  <div class="form-group"><label class="form-label">Vendor</label>
-    <select name="vendor_id" class="form-input">
-      <option value="">Select vendor (or type name below)…</option>
-      {% for v in vendors %}<option value="{{ v.id }}">{{ v.name }}</option>{% endfor %}
-    </select>
+  <div class="form-group">
+    <label class="form-label">Vendor</label>
+    <div style="position:relative">
+      <input type="text" id="po_vendor_search" class="form-input" autocomplete="off"
+             placeholder="Type vendor name to search…" oninput="filterPOVendors()" onfocus="filterPOVendors()">
+      <input type="hidden" name="vendor_id" id="po_vendor_id">
+      <div id="po_vendor_results" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:220px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.18);z-index:50"></div>
+    </div>
   </div>
   <div class="form-group"><label class="form-label">Vendor Name (if not in list)</label><input type="text" name="vendor_name" class="form-input"></div>
   <div class="form-group"><label class="form-label">Expected Arrival Date</label><input type="date" name="expected_arrival_date" class="form-input"></div>
@@ -164,7 +167,21 @@
     </thead>
     <tbody id="po-items-rows"></tbody>
   </table>
-  <button type="button" class="btn btn-xs btn-outline" onclick="addPORow()">+ Add Line Item</button>
+  <button type="button" class="btn btn-xs btn-outline" onclick="togglePOVariantPicker(true)">+ Add Products</button>
+
+  <!-- Multi-select product picker: type to filter (partial match on name/SKU),
+       check several, then Add Selected creates one line-item row per pick —
+       avoids rendering every variant as a <select> option (was 1000s of DOM
+       nodes per row and a real cause of page slowness). -->
+  <div id="po-variant-picker" style="display:none;margin-top:8px;padding:10px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-input)">
+    <input type="text" id="po_variant_search" class="form-input" autocomplete="off"
+           placeholder="Search product name or SKU (partial match)…" oninput="renderPOVariantOptions()">
+    <div id="po_variant_options" style="max-height:220px;overflow-y:auto;margin-top:8px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button type="button" class="btn btn-xs btn-gray" onclick="togglePOVariantPicker(false)">Close</button>
+      <button type="button" class="btn btn-xs btn-primary" onclick="addSelectedPOVariants()">Add Selected</button>
+    </div>
+  </div>
 
   <div class="form-group" style="margin-top:12px"><label class="form-label">Notes</label><textarea name="notes" rows="2" class="form-input"></textarea></div>
 
@@ -175,7 +192,7 @@
 </form>
 <template id="po-row-template">
   <tr>
-    <td style="padding:4px"><select name="variant_id[]" required style="width:100%"></select></td>
+    <td style="padding:4px"><input type="hidden" name="variant_id[]" required><span class="po-row-variant-label"></span></td>
     <td style="padding:4px"><input type="number" name="qty_ordered[]" step="any" min="0.01" required style="width:80px"></td>
     <td style="padding:4px"><input type="number" name="unit_cost[]" step="any" min="0.01" required style="width:80px"></td>
     <td style="padding:4px"><select name="unit_id[]" style="width:80px"></select></td>
@@ -231,21 +248,89 @@ document.getElementById('receiveResultModal').querySelector('.modal-body').inner
 // ── New PO line items ──
 const PO_VARIANTS = [{% for v in variants %}{id: {{ v.id | tojson }}, name: {{ ((v.product.name if v.product else '') + (' — ' + v.variant_label if v.variant_label else '') + ' — ' + v.sku_code + (' (Inactive)' if not v.is_active else '')) | tojson }}},{% endfor %}];
 const PO_UNITS = [{% for u in units %}{id: {{ u.id | tojson }}, abbr: {{ u.abbreviation | tojson }}},{% endfor %}];
+const PO_VENDORS = [{% for v in vendors %}{id: {{ v.id | tojson }}, name: {{ v.name | tojson }}},{% endfor %}];
 
-function addPORow(presetVariantId) {
+function addPORow(variantId, variantName) {
   const tpl = document.getElementById('po-row-template');
   const tbody = document.getElementById('po-items-rows');
   const frag = tpl.content.cloneNode(true);
-  const variantSel = frag.querySelector('select[name="variant_id[]"]');
-  variantSel.innerHTML = '<option value="">Select…</option>' + PO_VARIANTS.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
-  if (presetVariantId) variantSel.value = presetVariantId;
+  const variantInput = frag.querySelector('input[name="variant_id[]"]');
+  variantInput.value = variantId || '';
+  frag.querySelector('.po-row-variant-label').textContent = variantName || '';
   const unitSel = frag.querySelector('select[name="unit_id[]"]');
   unitSel.innerHTML = '<option value="">—</option>' + PO_UNITS.map(u => `<option value="${u.id}">${u.abbr}</option>`).join('');
   tbody.appendChild(frag);
 }
 
 const PREFILL_VARIANT = {{ prefill_variant | tojson }};
-addPORow(PREFILL_VARIANT || null);
+if (PREFILL_VARIANT) {
+  const pv = PO_VARIANTS.find(v => v.id === PREFILL_VARIANT);
+  addPORow(PREFILL_VARIANT, pv ? pv.name : '');
+}
+
+// ── Vendor search (single-select, partial-match, sourced from setup vendors) ──
+function selectPOVendor(id, name) {
+  document.getElementById('po_vendor_id').value = id;
+  document.getElementById('po_vendor_search').value = name;
+  document.getElementById('po_vendor_results').style.display = 'none';
+}
+function filterPOVendors() {
+  const q = document.getElementById('po_vendor_search').value.trim().toLowerCase();
+  const box = document.getElementById('po_vendor_results');
+  document.getElementById('po_vendor_id').value = '';
+  if (!q) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const matches = PO_VENDORS.filter(v => v.name.toLowerCase().includes(q)).slice(0, 30);
+  box.innerHTML = matches.length
+    ? matches.map(v => `<div onclick="selectPOVendor('${v.id}', ${JSON.stringify(v.name)})" style="padding:8px 10px;font-size:13px;cursor:pointer;border-radius:6px" onmouseover="this.style.background='var(--hover-bg, rgba(0,0,0,0.05))'" onmouseout="this.style.background='transparent'">${v.name}</div>`).join('')
+    : '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No matching vendors — leave this and type a new name in "Vendor Name" below</div>';
+  box.style.display = 'block';
+}
+document.addEventListener('click', function(e){
+  if (!e.target.closest('#po_vendor_search') && !e.target.closest('#po_vendor_results')) {
+    document.getElementById('po_vendor_results').style.display = 'none';
+  }
+});
+
+// ── Variant multi-select picker (true multi-select: check several, Add
+// Selected drops one line-item row per pick). Only the top 50 filtered
+// matches are ever rendered, instead of a <select> with every SKU. ──
+const poVariantSelection = new Set();
+function togglePOVariantPicker(show) {
+  document.getElementById('po-variant-picker').style.display = show ? 'block' : 'none';
+  if (show) { document.getElementById('po_variant_search').value = ''; renderPOVariantOptions(); }
+}
+function renderPOVariantOptions() {
+  const q = document.getElementById('po_variant_search').value.trim().toLowerCase();
+  const box = document.getElementById('po_variant_options');
+  const matches = (q ? PO_VARIANTS.filter(v => v.name.toLowerCase().includes(q)) : PO_VARIANTS).slice(0, 50);
+  box.innerHTML = matches.length
+    ? matches.map(v => `
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;font-size:13px;cursor:pointer;border-radius:6px" onmouseover="this.style.background='var(--hover-bg, rgba(0,0,0,0.05))'" onmouseout="this.style.background='transparent'">
+          <input type="checkbox" onchange="togglePOVariantChecked('${v.id}', this.checked)" ${poVariantSelection.has(v.id) ? 'checked' : ''}>
+          ${v.name}
+        </label>`).join('')
+    : '<div style="padding:10px;font-size:12px;color:var(--text-muted)">No matching products</div>';
+}
+function togglePOVariantChecked(id, checked) {
+  if (checked) poVariantSelection.add(id); else poVariantSelection.delete(id);
+}
+function validatePOForm() {
+  const rows = document.querySelectorAll('#po-items-rows input[name="variant_id[]"]');
+  if (!rows.length || Array.from(rows).some(r => !r.value)) {
+    alert('Please add at least one product line item.');
+    return false;
+  }
+  return true;
+}
+makeSortable('po-list-table');
+function addSelectedPOVariants() {
+  poVariantSelection.forEach(id => {
+    const v = PO_VARIANTS.find(x => x.id === id);
+    if (v) addPORow(v.id, v.name);
+  });
+  poVariantSelection.clear();
+  togglePOVariantPicker(false);
+}
 
 {% if err or prefill_variant %}
 // openModal() lives in app-shell.js, loaded after this inline script — defer

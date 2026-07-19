@@ -16,6 +16,51 @@
 // ────────────────────────────────────────────────────────────────────────
 
 /* ══════════════════════════════════════════════════════════════════════
+   Generic click-to-sort table headers. Usage: give the <table> an id and
+   call makeSortable('that-id') once the table is in the DOM. Clicking a
+   <th> sorts the <tbody> rows by that column, toggling ascending/descending
+   on repeat clicks. Put a data-sort-value attribute on a <td> when its
+   display text isn't the right thing to sort by (e.g. a formatted date or
+   a badge) — otherwise the cell's own text is used, numeric-aware.
+   ══════════════════════════════════════════════════════════════════════ */
+window._sortTableState = {};
+function _sortCellValue(cell) {
+  return cell.dataset.sortValue !== undefined ? cell.dataset.sortValue : cell.textContent.trim();
+}
+function sortTableByColumn(table, colIdx) {
+  const tbody = table.tBodies[0];
+  if (!tbody) return;
+  const key = table.id + ':' + colIdx;
+  const asc = !window._sortTableState[key];
+  window._sortTableState = {};
+  window._sortTableState[key] = asc;
+
+  const rows = Array.from(tbody.rows);
+  rows.sort(function(a, b){
+    const av = _sortCellValue(a.cells[colIdx]), bv = _sortCellValue(b.cells[colIdx]);
+    const an = parseFloat(av), bn = parseFloat(bv);
+    const bothNumeric = av !== '' && bv !== '' && !isNaN(an) && !isNaN(bn);
+    const cmp = bothNumeric ? (an - bn) : av.localeCompare(bv, undefined, {sensitivity: 'base'});
+    return asc ? cmp : -cmp;
+  });
+  rows.forEach(function(r){ tbody.appendChild(r); });
+
+  Array.from(table.tHead.rows[0].cells).forEach(function(th, i){
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (i === colIdx) th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+  });
+}
+function makeSortable(tableId) {
+  const table = document.getElementById(tableId);
+  if (!table || !table.tHead) return;
+  Array.from(table.tHead.rows[0].cells).forEach(function(th, idx){
+    if (th.hasAttribute('data-no-sort')) return;
+    th.classList.add('sortable-col');
+    th.addEventListener('click', function(){ sortTableByColumn(table, idx); });
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════════
    SECTION A — existing site JS (moved from base.html, unchanged)
    ══════════════════════════════════════════════════════════════════════ */
 
@@ -665,6 +710,36 @@ document.addEventListener('keydown', function(e){
   document.querySelectorAll('.omni-modal-backdrop').forEach(function(el){
     if(el.style.display === 'flex') el.style.display = 'none';
   });
+});
+
+// Top-row module nav (base.html): click a module tab to open its submodule
+// list (hover already opens it on desktop via CSS). Clicking the open tab
+// again, clicking another tab, clicking anywhere outside, or Escape closes it.
+window.toggleModuleMenu = function(btn){
+  const item = btn.closest('.module-item');
+  if(!item) return;
+  const willOpen = !item.classList.contains('open');
+  document.querySelectorAll('.module-item.open').forEach(function(el){ el.classList.remove('open'); });
+  if(willOpen) item.classList.add('open');
+};
+document.addEventListener('click', function(e){
+  if(e.target.closest('.module-item')) return;
+  document.querySelectorAll('.module-item.open').forEach(function(el){ el.classList.remove('open'); });
+});
+// A menu opened by click stays open (via the .open class) independent of
+// hover; without this, moving the mouse onto a sibling tab opens it too via
+// the CSS :hover rule while the clicked one is still .open, so both render
+// stacked/overlapping. Closing .open on mouseenter of ANY module-item — the
+// one entered included — hands display back to pure :hover for that hover
+// session, so only the currently-hovered tab's menu shows.
+document.querySelectorAll('.module-nav .module-item').forEach(function(item){
+  item.addEventListener('mouseenter', function(){
+    document.querySelectorAll('.module-item.open').forEach(function(el){ el.classList.remove('open'); });
+  });
+});
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Escape') return;
+  document.querySelectorAll('.module-item.open').forEach(function(el){ el.classList.remove('open'); });
 });
 
 // Mobile top bar's account menu (base.html): tap the account icon to open,

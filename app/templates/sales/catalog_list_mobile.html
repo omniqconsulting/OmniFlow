@@ -39,8 +39,7 @@
   <div class="tm-empty">No products match these filters.</div>
   {% endif %}
   {% for p in products %}
-  {% set first_variant = p.variants[0] if p.variants else none %}
-  {% set media = first_variant.media_urls_json | from_json if first_variant and first_variant.media_urls_json else [] %}
+  {% set media = (p.variants | map(attribute='media_urls_json') | select | map('from_json') | select | first) or [] %}
   {% set stock = stock_status_by_product.get(p.id) %}
   <div class="inv-cat-card" onclick="catOpenDetail('{{ p.id }}')">
     <div class="inv-cat-photo">

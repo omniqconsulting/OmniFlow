@@ -83,10 +83,10 @@
 
 {% if rows %}
 <div class="card" style="padding:0">
-<table class="table" style="width:100%">
+<table id="customers-table" class="table" style="width:100%">
   <thead><tr>
     <th>Name</th><th>Phone</th><th>Tier</th><th>Stage</th><th>Assigned Agent</th>
-    <th>Last Contacted</th><th>Days Since</th><th>Orders</th><th>Order Value</th><th>Actions</th>
+    <th>Last Contacted</th><th>Days Since</th><th>Orders</th><th>Order Value</th><th data-no-sort>Actions</th>
   </tr></thead>
   <tbody>
     {% for row in rows %}
@@ -94,13 +94,13 @@
     <tr>
       <td><a href="/sales/contacts/{{ c.id }}">{{ c.name }}</a></td>
       <td>{{ c.phone or '—' }}</td>
-      <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(c.customer_tier, '#94a3b8') }}">{{ c.customer_tier }}</span></td>
-      <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ stage_colors[row.stage] }}">{{ stage_labels[row.stage] }}</span></td>
+      <td data-sort-value="{{ c.customer_tier }}"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ tier_colors.get(c.customer_tier, '#94a3b8') }}">{{ c.customer_tier }}</span></td>
+      <td data-sort-value="{{ row.stage }}"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ stage_colors[row.stage] }}">{{ stage_labels[row.stage] }}</span></td>
       <td>{{ c.assigned_agent.name if c.assigned_agent else '—' }}</td>
-      <td>{{ (c.last_contacted_at | ist('%d %b %Y')) if c.last_contacted_at else 'Never' }}</td>
+      <td data-sort-value="{{ c.last_contacted_at.isoformat() if c.last_contacted_at else '' }}">{{ (c.last_contacted_at | ist('%d %b %Y')) if c.last_contacted_at else 'Never' }}</td>
       <td>{{ row.days_since_contact if row.days_since_contact is not none else '—' }}</td>
       <td>{{ row.order_count }}</td>
-      <td>{{ '₹%.0f'|format(row.order_total) if row.order_total else '—' }}</td>
+      <td data-sort-value="{{ row.order_total or 0 }}">{{ '₹%.0f'|format(row.order_total) if row.order_total else '—' }}</td>
       <td>
         <a href="/sales/contacts/{{ c.id }}" class="btn btn-xs btn-outline">View</a>
         <a href="/sales/orders/new?customer_id={{ c.id }}" class="btn btn-xs btn-outline">+ Order</a>
@@ -109,6 +109,7 @@
     {% endfor %}
   </tbody>
 </table>
+<script>makeSortable('customers-table');</script>
 </div>
 
 {% macro page_link(p) %}?page={{ p }}&search={{ search }}{% for t in tier %}&tier={{ t }}{% endfor %}{% for a in agent_id %}&agent_id={{ a }}{% endfor %}{% for s in stage %}&stage={{ s }}{% endfor %}&status={{ status }}{% endmacro %}

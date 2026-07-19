@@ -2238,6 +2238,7 @@ class AttendanceRecord(Base):
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     work_date = Column(Date, nullable=False)          # one row per employee per calendar day (local/IST date)
+    branch_id = Column(String, ForeignKey("branches.id"), nullable=True)  # one-time override chosen at check-in; falls back to user.branch_id when unset
     check_in_at = Column(DateTime, nullable=True)
     check_in_lat = Column(Float, nullable=True)
     check_in_lng = Column(Float, nullable=True)
@@ -2252,6 +2253,7 @@ class AttendanceRecord(Base):
     is_half_day = Column(Boolean, default=False)        # manual admin/manager override toggle
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    branch = relationship("Branch", foreign_keys=[branch_id])
     __table_args__ = (UniqueConstraint("user_id", "work_date", name="uq_attendance_user_day"),)
 
 
@@ -2442,6 +2444,10 @@ def _pg_add_columns():
         # Checklists: due date vs due time distinction, per template
         "ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS due_time_mode VARCHAR DEFAULT 'ANYTIME'",
         "ALTER TABLE checklist_templates ADD COLUMN IF NOT EXISTS due_time VARCHAR",
+        # Attendance revamp: one-time branch override at check-in (employee's
+        # default branch_id is unchanged; this only affects which branch's
+        # geofence is used for today's punches).
+        "ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS branch_id VARCHAR REFERENCES branches(id)",
     ]
     try:
         with engine.begin() as conn:

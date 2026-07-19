@@ -41,15 +41,15 @@
 
 <div class="hgm-grid">
   {% if user.role in ('ADMIN', 'MANAGER') %}
-    <a class="hgm-box" href="/dashboard">
-      <div class="hgm-icon op">🧭</div>
-      <div class="hgm-title">Operations</div>
-      <div class="hgm-sub">Dashboard, {{ L.Tickets if L is defined else 'Tickets' }}, Checklists &amp; Flow Board</div>
-    </a>
     <a class="hgm-box" href="/my-tasks">
       <div class="hgm-icon op">📋</div>
       <div class="hgm-title">My Tasks</div>
       <div class="hgm-sub">Your personal action queue</div>
+    </a>
+    <a class="hgm-box" href="/dashboard">
+      <div class="hgm-icon op">🧭</div>
+      <div class="hgm-title">Operations</div>
+      <div class="hgm-sub">Dashboard, {{ L.Tickets if L is defined else 'Tickets' }}, Checklists &amp; Flow Board</div>
     </a>
     {% if has_sales %}
     <a class="hgm-box" href="/sales/contacts">

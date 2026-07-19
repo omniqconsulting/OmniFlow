@@ -76,7 +76,7 @@
     <table class="table" style="width:100%" id="ordersTable">
       <thead><tr>
         <th>Order</th><th>Customer</th><th>Agent</th><th>Status</th>
-        <th>Total</th><th>Items</th><th>Created</th><th>Actions</th>
+        <th>Total</th><th>Items</th><th>Created</th><th data-no-sort>Actions</th>
       </tr></thead>
       <tbody>
         {% for o in orders %}
@@ -86,10 +86,10 @@
             {% if o.customer %}<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;color:#fff;background:{{ tier_colors.get(o.customer.customer_tier, '#94a3b8') }};margin-left:4px">{{ o.customer.customer_tier }}</span>{% endif %}
           </td>
           <td><span style="font-weight:500">{{ o.agent.name if o.agent else '—' }}</span></td>
-          <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(o.status, '#94a3b8') }}">{{ o.status }}</span></td>
-          <td>₹{{ '%.0f'|format(o.total_amount or 0) }}</td>
+          <td data-sort-value="{{ o.status }}"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff;background:{{ status_colors.get(o.status, '#94a3b8') }}">{{ o.status }}</span></td>
+          <td data-sort-value="{{ o.total_amount or 0 }}">₹{{ '%.0f'|format(o.total_amount or 0) }}</td>
           <td>{{ o.items|length }}</td>
-          <td style="color:var(--text-faint)">{{ o.created_at | ist('%d %b %Y') if o.created_at else '—' }}</td>
+          <td style="color:var(--text-faint)" data-sort-value="{{ o.created_at.isoformat() if o.created_at else '' }}">{{ o.created_at | ist('%d %b %Y') if o.created_at else '—' }}</td>
           <td onclick="event.stopPropagation()" style="white-space:nowrap">
             <div style="display:flex;gap:4px;flex-wrap:wrap">
               {% if o.status == 'DRAFT' %}
@@ -178,6 +178,7 @@
 </form>
 
 <script>
+makeSortable('ordersTable');
 function olOpenDrawer(orderId) {
   fetch(`/sales/orders/api/quick-view/${orderId}`).then(r => r.json()).then(d => {
     document.getElementById('ol-drawer-id').textContent = d.displayId;

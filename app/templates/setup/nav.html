@@ -83,6 +83,11 @@ html.light .setup-sidenav .nav-section-label { color: #94a3b8; }
   <a href="/setup/performance-formula" class="{{ 'active' if active_section == 'performance_formula' else '' }}">
     📐 Performance
   </a>
+  {% if has_attendance %}
+  <a href="/attendance/setup/rules" class="{{ 'active' if active_section == 'attendance_rules' else '' }}">
+    🗓️ Day-Status Rules
+  </a>
+  {% endif %}
 
   <div class="nav-section-label">Guide</div>
   <a href="/setup/how-to" class="{{ 'active' if active_section == 'howto' else '' }}">

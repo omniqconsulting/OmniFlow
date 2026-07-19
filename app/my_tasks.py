@@ -55,9 +55,12 @@ CHECKLIST_OPEN_STATUSES = ("PENDING", "IN_PROGRESS", "OVERDUE")
 
 # Per-kind visual identity + labels, shared by desktop/mobile templates so
 # each module reads as its own color-coded lane inside the unified queue.
+# Delegations and Tickets are both rows in the same Ticket table (only
+# ticket_type distinguishes them), so they share one "ticket" lane here —
+# each item still carries its own sub_label ("Delegation"/"Ticket") for
+# per-row display.
 KIND_META = {
-    "delegation":     {"label": "Delegation",  "color": "#3b82f6", "open_label": "Open Delegation"},
-    "ticket":         {"label": "Ticket",       "color": "#8b5cf6", "open_label": "Open Ticket"},
+    "ticket":         {"label": "Ticket",       "color": "#8b5cf6", "open_label": "Open"},
     "fms":            {"label": "Flow Board",  "color": "#f59e0b", "open_label": "Open Flow Board"},
     "checklist":      {"label": "Checklist",   "color": "#10b981", "open_label": "Open Checklists"},
     "sales_followup": {"label": "Follow-up",   "color": "#ec4899", "open_label": "Log Call"},
@@ -133,22 +136,20 @@ def get_my_task_items(db: Session, user: User, tid: str) -> dict:
         open_followups = [c for c in my_followups if not c.follow_up_done]
         done_followups = [c for c in my_followups if c.follow_up_done]
 
-    def _item(kind, obj, id_, title, status, priority, due_at, url, quick_action=None):
+    def _item(kind, obj, id_, title, status, priority, due_at, url, quick_action=None, sub_label=None):
         meta = KIND_META[kind]
         return {"kind": kind, "id": id_, "title": title, "status": status,
                 "priority": priority, "due_at": due_at, "url": url, "obj": obj,
                 "color": meta["color"], "kind_label": meta["label"],
-                "open_label": meta["open_label"], "action": quick_action}
+                "open_label": meta["open_label"], "action": quick_action,
+                "sub_label": sub_label or meta["label"]}
 
     action_queue = []
-    for t in open_delegations:
-        qa = None if t.acknowledged_at else {"label": "Acknowledge", "url": f"/tickets/{t.id}/acknowledge", "method": "post"}
-        action_queue.append(_item("delegation", t, t.id, t.title, t.status, t.priority,
-                                   t.due_at, f"/tickets/{t.id}", qa))
-    for t in open_tickets:
+    for t in open_delegations + open_tickets:
         qa = None if t.acknowledged_at else {"label": "Acknowledge", "url": f"/tickets/{t.id}/acknowledge", "method": "post"}
         action_queue.append(_item("ticket", t, t.id, t.title, t.status, t.priority,
-                                   t.due_at, f"/tickets/{t.id}", qa))
+                                   t.due_at, f"/tickets/{t.id}", qa,
+                                   sub_label="Delegation" if t.ticket_type == "D" else "Ticket"))
     for t in open_fms:
         action_queue.append(_item("fms", t, t.id, t.title, t.status, t.priority,
                                    t.due_at, f"/fms/tickets/{t.id}"))
@@ -175,8 +176,7 @@ def get_my_task_items(db: Session, user: User, tid: str) -> dict:
         "has_sales": has_sales,
         "kind_meta": KIND_META,
         "counts": {
-            "delegations": len(open_delegations),
-            "tickets": len(open_tickets),
+            "tickets": len(open_delegations) + len(open_tickets),
             "fms": len(open_fms),
             "checklists": len(open_checklists),
             "sales_followups": len(open_followups),
@@ -229,7 +229,6 @@ def my_tasks(request: Request,
     data["total_pending"] = sum(data["counts"].values())
     data["modules_count"] = sum(1 for v in data["counts"].values() if v > 0)
     data["kind_counts"] = {
-        "delegation": data["counts"]["delegations"],
         "ticket": data["counts"]["tickets"],
         "fms": data["counts"]["fms"],
         "checklist": data["counts"]["checklists"],
