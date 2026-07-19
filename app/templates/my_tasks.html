@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+/* The counts strip below is already sticky as its own block — a sticky
+   table header would land at the same top offset and render hidden under
+   it, so tables here stay in normal flow instead. */
+table thead th{position:static}
+</style>
 
 <div class="page-header">
   <div>
@@ -14,7 +20,12 @@
 </div>
 
 {% if has_attendance %}
-  {% if not attendance_today.checked_in %}
+  {% if not attendance_today.checked_in and not attendance_is_working_day %}
+  <a href="/attendance/punch" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--bg-card);border:1px solid var(--border-subtle);color:var(--text-primary);border-radius:14px;padding:14px 22px;margin:0 0 16px;text-decoration:none">
+    <div style="font-size:14px;font-weight:600">🏖️ It's your weekly off today</div>
+    <div style="font-size:12px;color:var(--text-faint)">View →</div>
+  </a>
+  {% elif not attendance_today.checked_in %}
   <a href="/attendance/punch" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#ef4444;color:#fff;border-radius:14px;padding:18px 22px;margin:0 0 16px;text-decoration:none;box-shadow:0 4px 14px rgba(239,68,68,.35)">
     <div style="font-size:16px;font-weight:800">⚠️ You haven't punched in today</div>
     <div style="background:rgba(255,255,255,.22);border-radius:10px;padding:10px 18px;font-size:13.5px;font-weight:700;white-space:nowrap">Check In Now →</div>
@@ -32,6 +43,7 @@
   {% endif %}
 {% endif %}
 
+<div style="position:sticky;top:52px;z-index:30;background:var(--bg-base);padding-top:6px;margin:0 -4px;padding-left:4px;padding-right:4px">
 <!-- ── Counts strip (also acts as type shortcuts) ──────────────── -->
 <div style="display:grid;grid-template-columns:repeat({{ 4 if not has_sales else 5 }},1fr);gap:12px;margin-bottom:16px">
   {% for kind in ['delegation','ticket','fms','checklist'] + (['sales_followup'] if has_sales else []) %}
@@ -79,6 +91,7 @@
     <button type="submit" class="btn btn-sm btn-primary">Apply</button>
     {% if type or priority or due %}<a href="/my-tasks" class="btn btn-sm btn-gray">Clear</a>{% endif %}
   </form>
+</div>
 </div>
 
 <!-- ── Per-module color-coded sections ─────────────────────────── -->

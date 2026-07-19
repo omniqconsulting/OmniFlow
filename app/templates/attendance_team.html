@@ -10,7 +10,11 @@
     <p style="font-size:13px;color:var(--text-faint);margin-top:2px">{{ sel_date.strftime('%A, %d %b %Y') }}</p>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-    {% if user.role == 'ADMIN' %}<a href="/attendance/setup/geofence" class="btn btn-sm btn-outline">⚙️ Geofence Setup</a>{% endif %}
+    <a href="/attendance/report" class="btn btn-sm btn-outline">📊 Monthly Report</a>
+    {% if user.role == 'ADMIN' %}
+    <a href="/attendance/setup/geofence" class="btn btn-sm btn-outline">⚙️ Geofence Setup</a>
+    <a href="/attendance/setup/rules" class="btn btn-sm btn-outline">⚙️ Day-Status Rules</a>
+    {% endif %}
     <form method="get" action="/attendance/team" style="display:flex;gap:6px">
       <input type="date" name="day" value="{{ sel_date.isoformat() }}"
              onchange="this.form.submit()"

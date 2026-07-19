@@ -156,7 +156,7 @@ a:hover{color:#93c5fd}
 select option{background:var(--bg-card);color:var(--text-primary)}
 select{scrollbar-width:thin}
 /* Filter bar wraps on narrow screens; overflow must stay visible so dropdowns aren't clipped */
-.filter-bar{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;overflow:visible}
+.filter-bar{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;overflow:visible;position:sticky;top:52px;z-index:45}
 .filter-bar select,.filter-bar input{background:var(--bg-input);border:1px solid var(--border-med);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text-primary);outline:none;font-family:inherit}
 .filter-bar select:focus,.filter-bar input:focus{border-color:var(--accent)}
 .filter-bar label{display:block;font-size:10px;color:var(--text-faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
@@ -205,7 +205,7 @@ html.light input[type="datetime-local"]{color-scheme:light}
 
 /* ── TABLES ── */
 table{width:100%;border-collapse:collapse;font-size:13.5px}
-th{text-align:left;padding:13px 16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);border-bottom:1px solid var(--border-subtle)}
+th{text-align:left;padding:13px 16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);border-bottom:1px solid var(--border-subtle);position:sticky;top:52px;background:var(--bg-card);z-index:20}
 td{padding:15px 16px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;color:var(--text-primary);font-size:13.5px}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--row-hover)}
@@ -235,7 +235,13 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
 .muted{color:var(--text-faint);font-size:13px}
 
 /* ── KPI GRID (for dashboard) ── */
-.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px;position:sticky;top:52px;z-index:44;background:var(--bg-base);padding-top:6px}
+/* A sticky table header would land at the same top offset as a preceding
+   sticky .kpi-grid/.filter-bar and render hidden underneath it (higher
+   z-index) — fall back to a normal (non-sticky) header on any table that
+   follows one, so it's not silently invisible while "stuck". */
+.kpi-grid ~ .card table thead th,
+.filter-bar ~ .card table thead th{position:static}
 .kpi-card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:20px 22px}
 .kpi-card .label{font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em}
 .kpi-card .value{font-size:30px;font-weight:700;margin-top:10px;color:var(--text-strong)}

@@ -691,7 +691,12 @@ def login(request: Request, slug: str = Form(...), phone: str = Form(...),
     db.add(LoginEvent(tenant_id=tenant.id, user_id=user.id))
     db.commit()
     token = create_token(user.id, tenant.id, user.role)
-    landing = "/home" if user.role in ("ADMIN", "MANAGER") else "/dashboard"
+    # Mobile/PWA sessions always land on the box-grid home for every role
+    # (client feedback #7); desktop keeps ADMIN/MANAGER -> /home, others -> /dashboard.
+    if request.cookies.get("pwa_ui") == "1":
+        landing = "/home"
+    else:
+        landing = "/home" if user.role in ("ADMIN", "MANAGER") else "/dashboard"
     resp = redirect(landing)
     resp.set_cookie("token", token, httponly=True, max_age=86400)
     return resp
@@ -1172,11 +1177,22 @@ def _relative_time(ts) -> str:
 @app.get("/home", response_class=HTMLResponse)
 def home_grouped(request: Request, user: User = Depends(get_current_user_or_redirect),
                   db: Session = Depends(get_db)):
-    """C1 — grouped post-login landing page for ADMIN/MANAGER. Pure nav/landing
-    restructuring: every box links to an existing, unchanged internal page.
-    EMPLOYEE/PRODUCT_MANAGER keep their existing flat landing (/dashboard)."""
+    """C1 — grouped post-login landing page for ADMIN/MANAGER on desktop.
+    Pure nav/landing restructuring: every box links to an existing, unchanged
+    internal page. On mobile/PWA (pwa_ui cookie), ALL roles land here — see
+    home_grouped_mobile.html, which role-scopes its own tile set — instead of
+    EMPLOYEE/PRODUCT_MANAGER's desktop-only flat /dashboard landing."""
+    is_pwa = request.cookies.get("pwa_ui") == "1"
     if user.role not in ("ADMIN", "MANAGER"):
-        return redirect("/dashboard")
+        if not is_pwa:
+            return redirect("/dashboard")
+        tenant = db.query(Tenant).get(user.tenant_id)
+        if not getattr(tenant, "is_approved", True):
+            return redirect("/pending")
+        return templates.TemplateResponse(request, "home_grouped_mobile.html", {
+            "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
+            **_nav_ctx(db, user, tenant=tenant),
+        })
     tenant = db.query(Tenant).get(user.tenant_id)
     if not getattr(tenant, "is_approved", True):
         return redirect("/pending")
@@ -1252,11 +1268,20 @@ def home_grouped(request: Request, user: User = Depends(get_current_user_or_redi
     for a in activity:
         a["rel"] = _relative_time(a["ts"])
 
-    return templates.TemplateResponse(request, "home_grouped.html", {
+    template_name = "home_grouped_mobile.html" if is_pwa else "home_grouped.html"
+    return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user, tenant=tenant),
         "activity": activity,
     })
+
+
+@app.get("/organization", response_class=HTMLResponse)
+def organization_hub(user: User = Depends(require_manager_or_pm_or_redirect)):
+    """Organization is a tab strip (partials/organization_tabs.html) shared by
+    Employees / Training / Attendance & Leave, not a separate tile landing
+    page — /organization itself just lands on the first tab, Employees."""
+    return redirect("/employees")
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -5527,7 +5552,7 @@ async def setup_performance_formula_save(
 
 
 @app.post("/setup/branch")
-def add_branch(name: str = Form(...), location: str = Form(""),
+async def add_branch(request: Request, name: str = Form(...), location: str = Form(""),
                redirect_to: str = Form("/setup?open=branch"),
                user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -5536,17 +5561,25 @@ def add_branch(name: str = Form(...), location: str = Form(""),
     if _limit_hit(tenant, "max_branches", current):
         base = redirect_to.split("?")[0]
         return redirect(f"{base}?upgrade=branch&open=branch")
-    db.add(Branch(tenant_id=user.tenant_id, name=name, address=location))
+    form = await request.form()
+    off_days = [int(v) for v in form.getlist("weekly_off_days") if str(v).isdigit()]
+    import json as _json
+    db.add(Branch(tenant_id=user.tenant_id, name=name, address=location,
+                   weekly_off_days=_json.dumps(off_days or [6])))
     db.commit()
     return redirect(redirect_to)
 
 @app.post("/setup/branch/{branch_id}/edit")
-def edit_branch(branch_id: str, name: str = Form(...), location: str = Form(""),
+async def edit_branch(branch_id: str, request: Request, name: str = Form(...), location: str = Form(""),
                 user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     b = db.query(Branch).filter(Branch.id == branch_id, Branch.tenant_id == user.tenant_id).first()
     if b:
         b.name = name.strip()
         b.address = location.strip()
+        form = await request.form()
+        off_days = [int(v) for v in form.getlist("weekly_off_days") if str(v).isdigit()]
+        import json as _json
+        b.weekly_off_days = _json.dumps(off_days or [6])
         db.commit()
     return redirect("/setup")
 

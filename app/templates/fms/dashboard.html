@@ -7,6 +7,10 @@
 .fms-kpi{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:14px 16px;transition:border-color .2s}
 .fms-kpi .val{font-size:26px;font-weight:700;color:var(--text-strong);line-height:1.1}
 .fms-kpi .lbl{font-size:11px;color:var(--text-faint);margin-top:4px;font-weight:500}
+/* Filter bar + KPI strip above are already sticky as one block — a sticky
+   table header would land at the same top offset and render hidden under
+   it, so tables here stay in normal flow instead. */
+table thead th{position:static}
 
 .flow-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .flow-tab{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:8px;border:1.5px solid var(--border-med);background:transparent;text-decoration:none;transition:all .15s;font-size:13px;color:#111111;font-weight:400}
@@ -211,6 +215,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
      branch/dept/manager/priority/assignee board filters, but the Log tab's
      search/event-type/actor filters live in this same consolidated panel, so
      employees still get those when viewing the Log tab. ────────────────── -->
+<div style="position:sticky;top:52px;z-index:44;background:var(--bg-base);padding-top:4px">
 {% if user.role in ('ADMIN','MANAGER') or view == 'log' %}
 <form method="get" action="/fms/dashboard" class="filter-bar" id="fmsBoardFilter">
   <input type="hidden" name="view" value="{{ view }}">
@@ -375,6 +380,7 @@ select option{background:var(--bg-card);color:var(--text-primary)}
     <div class="lbl">Compliance</div>
     <div style="font-size:11px;color:var(--text-faint);margin-top:4px;line-height:1.4">% of tickets completed on time vs total closed</div>
   </div>
+</div>
 </div>
 
 <!-- ── Flash messages ─────────────────────────────────────────────────────── -->

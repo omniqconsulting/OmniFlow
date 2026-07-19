@@ -1,0 +1,117 @@
+{# ── setup/attendance_rules.html ──────────────────────────────────────────
+   Tenant-configurable attendance day-status rule builder — client's #6.
+   Fixed condition catalog, up to 3 condition slots per rule (no dynamic
+   add-row JS — most real rules need 1-2 conditions), AND/OR toggle,
+   priority, outcome. First-match-wins by ascending priority. Routed under
+   /attendance/setup/rules for consistency with /attendance/setup/geofence. #}
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2 class="page-title">Attendance Day-Status Rules</h2>
+    <p style="font-size:13px;color:var(--text-faint);margin-top:2px">First matching rule (by priority, ascending) decides PRESENT / HALF_DAY / ABSENT. A manual half-day toggle on a record always overrides these rules.</p>
+  </div>
+  <a href="/attendance/team" class="btn btn-sm btn-outline">← Back to Attendance</a>
+</div>
+
+<div class="card" style="padding:18px;margin-bottom:20px">
+  <h3 style="margin:0 0 12px;font-size:14px">+ New Rule</h3>
+  <form method="post" action="/attendance/setup/rules">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <div class="form-group" style="flex:2;min-width:180px">
+        <label>Rule Name</label>
+        <input name="name" placeholder="e.g. Late check-in = half day" required>
+      </div>
+      <div class="form-group" style="width:110px">
+        <label>Priority</label>
+        <input name="priority" type="number" value="0">
+      </div>
+      <div class="form-group" style="width:150px">
+        <label>Match</label>
+        <select name="condition_logic">
+          <option value="ALL">ALL conditions (AND)</option>
+          <option value="ANY">ANY condition (OR)</option>
+        </select>
+      </div>
+      <div class="form-group" style="width:150px">
+        <label>Outcome</label>
+        <select name="outcome">
+          {% for o in outcomes %}<option value="{{ o }}">{{ o.replace('_',' ').title() }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {% for i in [1,2,3] %}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:flex-end">
+      <div class="form-group" style="min-width:170px">
+        <label>Condition {{ i }} — Field</label>
+        <select name="field_{{ i }}">
+          <option value="">— none —</option>
+          {% for f in fields %}<option value="{{ f }}">{{ f.replace('_',' ').title() }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="min-width:150px">
+        <label>Operator</label>
+        <select name="operator_{{ i }}">
+          <option value="">—</option>
+          <option value="BEFORE">Before</option>
+          <option value="AFTER">After</option>
+          <option value="LT">Less than</option>
+          <option value="LTE">Less than or equal</option>
+          <option value="GT">Greater than</option>
+          <option value="GTE">Greater than or equal</option>
+          <option value="IS_TRUE">Is true</option>
+          <option value="IS_FALSE">Is false</option>
+        </select>
+      </div>
+      <div class="form-group" style="min-width:150px">
+        <label>Value</label>
+        <input name="value_{{ i }}" placeholder="e.g. 10:00 or 4.5">
+      </div>
+    </div>
+    {% endfor %}
+    <p style="font-size:11.5px;color:var(--text-faint);margin:0 0 10px">Time fields (Check In/Out Time) accept HH:MM (24-hr). Hours Worked accepts a decimal number. Boolean fields (Has Check Out, In Fence) ignore the value box.</p>
+    <button type="submit" class="btn btn-primary btn-sm">Save Rule</button>
+  </form>
+</div>
+
+<div class="arep-table-wrap" style="overflow-x:auto;border:1px solid var(--border-subtle);border-radius:10px">
+<table style="width:100%;border-collapse:collapse;font-size:12.5px">
+  <thead>
+    <tr>
+      <th style="text-align:left;padding:8px">Priority</th>
+      <th style="text-align:left;padding:8px">Name</th>
+      <th style="text-align:left;padding:8px">Conditions</th>
+      <th style="text-align:left;padding:8px">Outcome</th>
+      <th style="text-align:left;padding:8px">Status</th>
+      <th style="padding:8px"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for rv in rules_view %}
+    <tr style="border-top:1px solid var(--border-subtle)">
+      <td style="padding:8px">{{ rv.rule.priority }}</td>
+      <td style="padding:8px;font-weight:600">{{ rv.rule.name }}</td>
+      <td style="padding:8px;color:var(--text-muted)">
+        {{ rv.rule.condition_logic }} of:
+        {% for c in rv.conditions %}{{ c.field }} {{ c.operator }}{% if c.value %} {{ c.value }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}
+      </td>
+      <td style="padding:8px">{{ rv.rule.outcome.replace('_',' ').title() }}</td>
+      <td style="padding:8px">{% if rv.rule.is_active %}<span style="color:#10b981">Active</span>{% else %}<span style="color:var(--text-faint)">Disabled</span>{% endif %}</td>
+      <td style="padding:8px;white-space:nowrap">
+        <form method="post" action="/attendance/setup/rules/{{ rv.rule.id }}/toggle" style="display:inline">
+          <button type="submit" class="btn btn-sm btn-outline">{% if rv.rule.is_active %}Disable{% else %}Enable{% endif %}</button>
+        </form>
+        <form method="post" action="/attendance/setup/rules/{{ rv.rule.id }}/delete" style="display:inline" onsubmit="return confirm('Delete rule {{ rv.rule.name }}?')">
+          <button type="submit" class="btn btn-sm btn-red">🗑</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    {% if not rules_view %}
+    <tr><td colspan="6" style="padding:16px;color:var(--text-faint)">No rules yet — day-status falls back to the mechanical PRESENT/ABSENT check.</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

@@ -1,0 +1,150 @@
+{# ── home_grouped_mobile.html ─────────────────────────────────────────────
+   PWA/mobile landing page — client feedback #7: on mobile, EVERY role lands
+   on the same multi-square-tile grid (no tabs). ADMIN/MANAGER see the same
+   grouped section tiles as desktop (home_grouped.html) plus My Tasks.
+   EMPLOYEE/PRODUCT_MANAGER see only what they can actually reach (mirrors
+   partials/bottom_nav.html, the source of truth for employee-flat nav) —
+   no Organization/Setup/CRM tiles. Back-to-grid affordance lives in the
+   mobile-topbar logo in base.html, gated on the pwa_ui cookie. #}
+{% extends "base.html" %}
+{% block content %}
+<style>
+.hgm-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 16px 4px 90px;
+}
+.hgm-box {
+  display: flex; flex-direction: column; gap: 10px; text-decoration: none;
+  background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 18px;
+  padding: 22px 16px; min-height: 128px; justify-content: flex-end;
+}
+.hgm-box:active { transform: scale(0.97); }
+.hgm-icon {
+  width: 46px; height: 46px; border-radius: 13px; display: flex; align-items: center;
+  justify-content: center; font-size: 24px;
+}
+.hgm-title { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.hgm-sub { font-size: 11.5px; color: var(--text-muted); line-height: 1.3; }
+.hgm-icon.op   { background: rgba(45, 212, 191, 0.14);  color: #2DD4BF; }
+.hgm-icon.crm  { background: rgba(102, 87, 242, 0.14);  color: #6657F2; }
+.hgm-icon.sales{ background: rgba(59, 130, 246, 0.14);  color: #3b82f6; }
+.hgm-icon.org  { background: rgba(234, 179, 8, 0.14);   color: #eab308; }
+.hgm-icon.setup{ background: rgba(148, 163, 184, 0.16); color: #64748b; }
+.hgm-hdr { padding: 10px 6px 0; }
+.hgm-hdr h1 { font-size: 20px; font-weight: 800; margin: 0; color: var(--text-primary); }
+.hgm-hdr p { font-size: 12.5px; color: var(--text-muted); margin: 4px 0 0; }
+</style>
+
+<div class="hgm-hdr">
+  <h1>Hi, {{ user.name.split(' ')[0] if user.name else 'there' }} 👋</h1>
+  <p>Tap a tile to get started.</p>
+</div>
+
+<div class="hgm-grid">
+  {% if user.role in ('ADMIN', 'MANAGER') %}
+    <a class="hgm-box" href="/dashboard">
+      <div class="hgm-icon op">🧭</div>
+      <div class="hgm-title">Operations</div>
+      <div class="hgm-sub">Dashboard, {{ L.Tickets if L is defined else 'Tickets' }}, Checklists &amp; Flow Board</div>
+    </a>
+    <a class="hgm-box" href="/my-tasks">
+      <div class="hgm-icon op">📋</div>
+      <div class="hgm-title">My Tasks</div>
+      <div class="hgm-sub">Your personal action queue</div>
+    </a>
+    {% if has_sales %}
+    <a class="hgm-box" href="/sales/contacts">
+      <div class="hgm-icon crm">🤝</div>
+      <div class="hgm-title">CRM</div>
+      <div class="hgm-sub">Customers, contacts &amp; accounts</div>
+    </a>
+    {% endif %}
+    {% if has_sales or has_inventory_module or has_sales_analytics %}
+    <a class="hgm-box" href="/inventory-v2">
+      <div class="hgm-icon sales">📦</div>
+      <div class="hgm-title">Sales &amp; Inventory</div>
+      <div class="hgm-sub">Stock, orders &amp; sales insights</div>
+    </a>
+    {% endif %}
+    <a class="hgm-box" href="/organization">
+      <div class="hgm-icon org">👥</div>
+      <div class="hgm-title">Organization</div>
+      <div class="hgm-sub">{{ L.Employees if L is defined else 'Employees' }}{% if has_knowledge_repo %}, Training{% endif %}{% if has_attendance %}, Attendance{% endif %}</div>
+    </a>
+    {% if user.role == 'ADMIN' %}
+    <a class="hgm-box" href="/setup">
+      <div class="hgm-icon setup">⚙️</div>
+      <div class="hgm-title">Setup</div>
+      <div class="hgm-sub">Configuration &amp; preferences</div>
+    </a>
+    {% endif %}
+  {% else %}
+    {# EMPLOYEE / PRODUCT_MANAGER — mirrors bottom_nav.html's flat set only. #}
+    {% if user.role != 'PRODUCT_MANAGER' %}
+    <a class="hgm-box" href="/dashboard">
+      <div class="hgm-icon op">🏠</div>
+      <div class="hgm-title">Dashboard</div>
+      <div class="hgm-sub">Your daily overview</div>
+    </a>
+    <a class="hgm-box" href="/my-tasks">
+      <div class="hgm-icon op">📋</div>
+      <div class="hgm-title">My Tasks</div>
+      <div class="hgm-sub">Your personal action queue</div>
+    </a>
+    {% endif %}
+    {% if has_attendance %}
+    <a class="hgm-box" href="/attendance/punch">
+      <div class="hgm-icon op">📍</div>
+      <div class="hgm-title">Attendance</div>
+      <div class="hgm-sub">Punch in/out &amp; leave</div>
+    </a>
+    {% endif %}
+    {% if has_tickets is not defined or has_tickets %}
+    <a class="hgm-box" href="/tickets">
+      <div class="hgm-icon op">🎫</div>
+      <div class="hgm-title">{{ L.Tickets if L is defined else 'Tickets' }}</div>
+      <div class="hgm-sub">Track &amp; resolve tickets</div>
+    </a>
+    {% endif %}
+    {% if has_checklists %}
+    <a class="hgm-box" href="/checklists">
+      <div class="hgm-icon op">✅</div>
+      <div class="hgm-title">{{ L.Checklists if L is defined else 'Checklists' }}</div>
+      <div class="hgm-sub">Your assigned checklists</div>
+    </a>
+    {% endif %}
+    {% if has_fms %}
+    <a class="hgm-box" href="/fms/dashboard">
+      <div class="hgm-icon op">🔀</div>
+      <div class="hgm-title">{{ L.get('Flow_Board', 'Flow Board') if L is defined else 'Flow Board' }}</div>
+      <div class="hgm-sub">Ticket flow board</div>
+    </a>
+    {% endif %}
+    {% if has_knowledge_repo %}
+    <a class="hgm-box" href="/knowledge">
+      <div class="hgm-icon org">🎓</div>
+      <div class="hgm-title">Training</div>
+      <div class="hgm-sub">Knowledge &amp; materials</div>
+    </a>
+    {% endif %}
+    {% if has_inventory_module %}
+    <a class="hgm-box" href="/inventory-v2">
+      <div class="hgm-icon sales">📦</div>
+      <div class="hgm-title">Inventory</div>
+      <div class="hgm-sub">Stock &amp; orders</div>
+    </a>
+    {% endif %}
+    {% if has_sales %}
+    <a class="hgm-box" href="/sales/contacts">
+      <div class="hgm-icon crm">🧑‍💼</div>
+      <div class="hgm-title">Customers</div>
+      <div class="hgm-sub">Contacts &amp; accounts</div>
+    </a>
+    <a class="hgm-box" href="/sales/orders">
+      <div class="hgm-icon sales">🧾</div>
+      <div class="hgm-title">Sell</div>
+      <div class="hgm-sub">Place &amp; manage orders</div>
+    </a>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}
