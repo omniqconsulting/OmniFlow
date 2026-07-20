@@ -411,7 +411,8 @@ select option{background:var(--bg-card);color:var(--text-primary)}
 /* sticky id+title+assignee+priority+status columns */
 .jt thead{position:relative;z-index:3}
 .jt tbody{position:relative;z-index:1}
-.jt th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:12}
+.jt th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:12;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.jt thead tr:nth-child(1) th{height:34px;box-sizing:border-box}
 .jt thead tr:nth-child(2) th{top:34px}
 .jt .jt-s0{position:sticky;left:0;z-index:20;background:#111827;box-shadow:2px 0 4px rgba(0,0,0,.15)}
 .jt thead .jt-s0{background:#0d1424;z-index:30}
@@ -449,12 +450,12 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     <th rowspan="2" style="text-align:center;min-width:90px">Status</th>
     <th rowspan="2" style="text-align:left;min-width:120px">Current Stage</th>
     {% for fdef in ticket_form_fields %}
-    <th rowspan="2" style="text-align:left;min-width:110px" title="From Ticket Creation Form">{{ fdef.label }}</th>
+    <th rowspan="2" style="text-align:left;min-width:110px" title="{{ fdef.label }} (From Ticket Creation Form)">{{ fdef.label }}</th>
     {% endfor %}
     {% for s in stage_table_stages %}
     {% set hex = s.color or '#3b82f6' %}
     {% set jt_cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
-    <th class="jt-stage-th" colspan="{{ 6 + (jt_cf_defs | length) }}" style="background:{{ hex }}">{{ s.name }}</th>
+    <th class="jt-stage-th" colspan="{{ 6 + (jt_cf_defs | length) }}" title="{{ s.name }}" style="background:{{ hex }}">{{ s.name }}</th>
     {% endfor %}
   </tr>
   <!-- Row 2: sub-headers per stage -->
@@ -1053,7 +1054,8 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
 /* thead/tbody stacking contexts so sticky cells sit above scrolling cells */
 .ctv-table thead{position:relative;z-index:3}
 .ctv-table tbody{position:relative;z-index:1}
-.ctv-table th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:12}
+.ctv-table th{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-faint);background:var(--bg-input);position:sticky;top:0;z-index:12;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.ctv-table thead tr:nth-child(1) th{height:34px;box-sizing:border-box}
 .ctv-table thead tr:nth-child(2) th{top:34px}
 .ctv-table td:last-child,.ctv-table th:last-child{border-right:none}
 .ctv-table tr:last-child td{border-bottom:none}
@@ -1112,7 +1114,7 @@ html.light .ctv-table tbody tr:hover .ctv-sticky{background:#eff6ff !important}
     {% set hex = s.color or '#3b82f6' %}
     {% set cf_defs = s.custom_fields_json | from_json if s.custom_fields_json else [] %}
     <th class="ctv-stage-header" colspan="{{ 7 + (cf_defs | length) }}" data-cf-count="{{ cf_defs | length }}"
-        style="background:{{ hex }};color:#fff;text-align:center;border-radius:0">
+        title="{{ s.name }}" style="background:{{ hex }};color:#fff;text-align:center;border-radius:0">
       {{ s.name }}
     </th>
     {% endfor %}

@@ -192,6 +192,7 @@ def escalate_unacknowledged_tickets():
             Ticket.created_at < threshold,
             Ticket.acknowledged_at == None,
             Ticket.is_deleted == False,
+            Ticket.priority.in_(["HIGH", "CRITICAL"]),
         ).all()
 
         for ticket in unacked:
@@ -202,11 +203,12 @@ def escalate_unacknowledged_tickets():
                 User.is_active == True,
             ).all()
             for u in recipients:
+                # Fire once per ticket per recipient for its whole unacknowledged
+                # lifetime -- not a rolling window, which caused repeat spam.
                 dup = db.query(Notification).filter(
                     Notification.user_id == u.id,
                     Notification.notif_type == "TICKET_ESCALATION",
                     Notification.link == f"/tickets/{ticket.id}",
-                    Notification.created_at > (now - timedelta(hours=2)),
                 ).first()
                 if not dup:
                     db.add(Notification(
@@ -995,6 +997,7 @@ def delegation_unacknowledged_monitor():
                 Ticket.tenant_id == tenant.id,
                 Ticket.status == 'OPEN',
                 Ticket.is_deleted == False,
+                Ticket.priority.in_(['HIGH', 'CRITICAL']),
             ).all()
             for ticket in open_tickets:
                 # Any event logged since creation?
