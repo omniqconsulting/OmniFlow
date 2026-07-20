@@ -30,7 +30,7 @@ from .database import (
 )
 from .auth import require_admin_or_pm as require_admin, require_admin_or_pm_or_redirect as require_admin_or_redirect, get_nav_flags, has_module
 from .labels import get_labels
-from .constants import BULK_IMPORT_MAX_ROWS, TAB_CATALOG, MODULE_GROUPS, get_tenant_enabled_tabs
+from .constants import BULK_IMPORT_MAX_ROWS, TAB_CATALOG, MODULE_GROUPS, get_tenant_enabled_tabs, FMS_INACTIVE_STATUSES
 from .bulk_common import check_required_headers
 from .sales_catalog_sync import (
     sync_variant_from_end_product, attach_drive_photo, resolve_or_create_category_pair,
@@ -2142,7 +2142,7 @@ def setup_flows_list(
         active_tickets = db.query(FMSTicket).filter(
             FMSTicket.flow_id == f.id,
             FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
         ).count()
         flow_info.append({
             "flow": f,
@@ -2537,7 +2537,7 @@ def setup_flow_delete(
     active_tickets = db.query(FMSTicket).filter(
         FMSTicket.flow_id == flow_id,
         FMSTicket.is_deleted == False,
-        FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+        FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
     ).count()
     if active_tickets > 0:
         return _redir("/setup/flows?err=Cannot+delete+flow+with+active+tickets")

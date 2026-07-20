@@ -12,6 +12,8 @@ Run:
 """
 import subprocess, sys, time, requests, os, json
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 BASE = "http://127.0.0.1:8765"
 PASS = "\033[32mOK\033[0m"
 FAIL = "\033[31mFAIL\033[0m"

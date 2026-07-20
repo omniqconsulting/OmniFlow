@@ -22,7 +22,7 @@ _srv_proc = None
 
 def start_server():
     global _srv_proc
-    root = os.path.dirname(__file__)
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"}
     _srv_proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--port", "8765", "--log-level", "warning"],
@@ -76,7 +76,7 @@ def make_client() -> httpx.Client:
 
 def setup_db_data():
     """Insert test data directly via SQLAlchemy."""
-    sys.path.insert(0, os.path.dirname(__file__))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from app.database import (
         SessionLocal, Tenant, User, FMSFlow, FMSStage, FMSTicket,
         LibrarySubmoduleDefinition, new_id,
@@ -291,7 +291,7 @@ def test_invoice(client, ctx):
     check("3-C: Invoice visible on panel", inv_num in r3.text, f"status={r3.status_code}")
 
     # Get invoice id from DB
-    sys.path.insert(0, os.path.dirname(__file__))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from app.database import SessionLocal, InvoiceRecord
     db = SessionLocal()
     try:

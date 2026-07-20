@@ -2,8 +2,10 @@
 Phase 4 Smoke Test â€” Inventory Management
 Tests: 4-A (dashboard), 4-B (materials), 4-C (movements), 4-D (purchase orders)
 """
-import requests, sys, json
+import os, requests, sys, json
 from datetime import date
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 BASE = "http://127.0.0.1:8000"
 OK = "[PASS]"; FAIL = "[FAIL]"

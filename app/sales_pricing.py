@@ -23,6 +23,7 @@ from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 from .constants import BULK_IMPORT_MAX_ROWS
+from .sales_common import get_or_404
 
 router = APIRouter()
 
@@ -64,13 +65,7 @@ def _redir(url: str):
 
 
 def get_price_list_or_404(db: Session, list_id: str, tenant_id: str) -> PriceList:
-    pl = db.query(PriceList).filter(
-        PriceList.id == list_id, PriceList.tenant_id == tenant_id,
-        PriceList.is_deleted == False,
-    ).first()
-    if not pl:
-        raise HTTPException(404, "Price list not found")
-    return pl
+    return get_or_404(db, PriceList, list_id, tenant_id, "Price list")
 
 
 def set_price_list_item(db, price_list_id: str, variant_id: str,

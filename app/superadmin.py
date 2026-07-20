@@ -22,7 +22,7 @@ from .constants import OMNIFLOW_PUBLIC_DOMAIN
 from .labels import INDUSTRY_NAMES, INDUSTRY_PRESETS as _PRESETS
 from .constants import (
     FEATURE_CATALOG, PLAN_LIMITS, PLAN_LABELS, PLAN_ORDER,
-    LIMIT_LABELS, has_feature, get_plan_features,
+    LIMIT_LABELS, has_feature, get_plan_features, FMS_INACTIVE_STATUSES,
 )
 from .superadmin_auth import (
     sa_hash, sa_verify, sa_create_token, get_current_sa,
@@ -346,7 +346,7 @@ def sa_tenant_detail(request: Request, tenant_id: str,
         f.active_ticket_count = db.query(FMSTicket).filter(
             FMSTicket.flow_id == f.id,
             FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
         ).count()
 
     # Plan flow limit check

@@ -12,7 +12,7 @@ Run: venv\\Scripts\\python.exe smoke_fms_split.py
 import os, sys, json, threading, subprocess, time
 import requests
 
-PROJ = os.path.dirname(os.path.abspath(__file__))
+PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = os.path.join(PROJ, "venv", "Scripts", "python.exe")
 BASE = "http://localhost:8010"
 

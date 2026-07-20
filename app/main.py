@@ -60,10 +60,10 @@ from .constants import (
     FEATURE_CATALOG, PLAN_LIMITS, PLAN_LABELS, PLAN_ORDER,
     LIMIT_LABELS, feature_label, next_plan, get_plan_features,
     TAB_CATALOG, get_tenant_enabled_tabs,
-    BULK_IMPORT_MAX_ROWS,
+    BULK_IMPORT_MAX_ROWS, FMS_INACTIVE_STATUSES,
 )
 from .labels import get_labels, DEFAULT_L, INDUSTRY_NAMES, INDUSTRY_PRESETS
-from .bulk_common import check_required_headers
+from .bulk_common import check_required_headers, run_bulk_upload, run_bulk_revalidate
 from .services.qr_optin import build_opt_in_link
 
 app = FastAPI(title="OmniFlow")
@@ -1088,7 +1088,7 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
         from .database import FMSTicket as _FT
         fms_active = db.query(_FT).filter(
             _FT.tenant_id == tid, _FT.is_deleted == False,
-            _FT.status.notin_(["COMPLETED", "CLOSED"])).count()
+            _FT.status.notin_(FMS_INACTIVE_STATUSES)).count()
         fms_tat_breaches = 0  # expensive to compute inline; keep 0 for now
     except Exception:
         fms_active = fms_tat_breaches = 0
@@ -1125,7 +1125,7 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
         from .database import FMSTicket as _FT2
         fms_completed = db.query(_FT2).filter(
             _FT2.tenant_id == tid, _FT2.is_deleted == False,
-            _FT2.status.in_(["COMPLETED", "CLOSED"]),
+            _FT2.status.in_(FMS_INACTIVE_STATUSES),
             _FT2.updated_at >= df, _FT2.updated_at <= dt).count()
         _all_emps = db.query(User).filter(
             User.tenant_id == tid, User.is_deleted == False, User.is_active == True).all()
@@ -2425,22 +2425,23 @@ def _run_ticket_validation(rows_in: list, tenant_id: str, db: Session, start_ind
 async def tickets_bulk_upload(file: UploadFile = File(...),
                                user: User = Depends(require_manager),
                                db: Session = Depends(get_db)):
-    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
-    fmt_err = check_required_headers(fieldnames, ["title", "description", "assignee_phone", "due_at"], _TICKET_BULK_COLS)
-    if fmt_err:
-        return JSONResponse({"format_error": fmt_err})
-    for i, row in enumerate(reader, start=2):
-        row["_row"] = i
-    return JSONResponse(_run_ticket_validation(reader, user.tenant_id, db))
+    result = run_bulk_upload(
+        await file.read(), file.filename, read_rows_fn=_read_csv_rows_with_headers,
+        required_headers=["title", "description", "assignee_phone", "due_at"],
+        all_expected_cols=_TICKET_BULK_COLS, validation_fn=_run_ticket_validation,
+        tenant_id=user.tenant_id, db=db,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/tickets/bulk-upload/revalidate")
 async def tickets_bulk_revalidate(request: Request, user: User = Depends(require_manager), db: Session = Depends(get_db)):
     body = await request.json()
-    rows_in = body.get("rows", [])
-    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
-        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    return JSONResponse(_run_ticket_validation(rows_in, user.tenant_id, db))
+    result = run_bulk_revalidate(
+        body.get("rows", []), validation_fn=_run_ticket_validation,
+        tenant_id=user.tenant_id, db=db, max_rows=BULK_IMPORT_MAX_ROWS,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/tickets/bulk-upload/confirm")
@@ -4091,22 +4092,22 @@ def checklist_bulk_upload_page(request: Request, user: User = Depends(require_ad
 async def checklist_bulk_upload(file: UploadFile = File(...),
                                  user: User = Depends(require_admin),
                                  db: Session = Depends(get_db)):
-    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
-    fmt_err = check_required_headers(fieldnames, ["title"], _CHECKLIST_BULK_COLS)
-    if fmt_err:
-        return JSONResponse({"format_error": fmt_err})
-    for i, row in enumerate(reader, start=2):
-        row["_row"] = i
-    return JSONResponse(_run_checklist_validation(reader, user.tenant_id, db))
+    result = run_bulk_upload(
+        await file.read(), file.filename, read_rows_fn=_read_csv_rows_with_headers,
+        required_headers=["title"], all_expected_cols=_CHECKLIST_BULK_COLS,
+        validation_fn=_run_checklist_validation, tenant_id=user.tenant_id, db=db,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/checklists/bulk-upload/revalidate")
 async def checklist_bulk_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
     body = await request.json()
-    rows_in = body.get("rows", [])
-    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
-        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    return JSONResponse(_run_checklist_validation(rows_in, user.tenant_id, db))
+    result = run_bulk_revalidate(
+        body.get("rows", []), validation_fn=_run_checklist_validation,
+        tenant_id=user.tenant_id, db=db, max_rows=BULK_IMPORT_MAX_ROWS,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/checklists/bulk-upload/confirm")
@@ -4448,22 +4449,22 @@ async def bulk_import_employees(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
-    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
-    fmt_err = check_required_headers(fieldnames, ["name", "phone", "password"], _EMPLOYEE_BULK_COLS)
-    if fmt_err:
-        return JSONResponse({"format_error": fmt_err})
-    for i, row in enumerate(reader, start=2):
-        row["_row"] = i
-    return JSONResponse(_run_employee_validation(reader, user.tenant_id, db))
+    result = run_bulk_upload(
+        await file.read(), file.filename, read_rows_fn=_read_csv_rows_with_headers,
+        required_headers=["name", "phone", "password"], all_expected_cols=_EMPLOYEE_BULK_COLS,
+        validation_fn=_run_employee_validation, tenant_id=user.tenant_id, db=db,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/employees/import/revalidate")
 async def bulk_import_employees_revalidate(request: Request, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     body = await request.json()
-    rows_in = body.get("rows", [])
-    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
-        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    return JSONResponse(_run_employee_validation(rows_in, user.tenant_id, db))
+    result = run_bulk_revalidate(
+        body.get("rows", []), validation_fn=_run_employee_validation,
+        tenant_id=user.tenant_id, db=db, max_rows=BULK_IMPORT_MAX_ROWS,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/employees/import/confirm")
@@ -4617,7 +4618,7 @@ def emp_open_work(emp_id: str, user: User = Depends(require_admin_or_pm),
         .join(_FTH, _FTH.ticket_id == FMSTicket.id)
         .filter(_FTH.user_id == emp_id,
                 FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+                FMSTicket.status.notin_(FMS_INACTIVE_STATUSES))
         .all()
     )
     return JSONResponse({
@@ -4661,7 +4662,7 @@ def emp_open_work_export(emp_id: str, user: User = Depends(require_admin_or_pm),
         .join(_FTH, _FTH.ticket_id == FMSTicket.id)
         .filter(_FTH.user_id == emp_id,
                 FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+                FMSTicket.status.notin_(FMS_INACTIVE_STATUSES))
         .all()
     )
     buf = io.StringIO()
@@ -4759,7 +4760,7 @@ def terminate_employee(
                 FMSTicket.tenant_id == tid,
                 FMSTicket.current_assignee_id == emp_id,
                 FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
             ).all()
             for ft in open_fms:
                 ft.current_assignee_id = fms_reassign_to
@@ -4774,7 +4775,7 @@ def terminate_employee(
                 .filter(_FTH.user_id == emp_id)
                 .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
                 .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
-                        FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+                        FMSTicket.status.notin_(FMS_INACTIVE_STATUSES))
                 .all()
             ):
                 fh.user_id = fms_reassign_to

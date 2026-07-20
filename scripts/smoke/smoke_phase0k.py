@@ -8,7 +8,7 @@ def check(label, cond, hint=""):
     if cond: print(f"  OK   {label}"); ok.append(label)
     else:    print(f"  FAIL {label}" + (f"  [{hint}]" if hint else "")); fail.append(label)
 
-proj = os.path.dirname(__file__)
+proj = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 py   = os.path.join(proj, "venv", "Scripts", "python.exe")
 srv  = subprocess.Popen([py, "-m", "uvicorn", "app.main:app", "--port", "8000"],
     cwd=proj, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

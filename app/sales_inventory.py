@@ -29,6 +29,7 @@ from .setup_routes import _nav_ctx, _L, _unread
 from .constants import BULK_IMPORT_MAX_ROWS
 from .bulk_common import check_required_headers
 from .uploads import save_upload
+from .sales_common import get_or_404
 
 router = APIRouter()
 
@@ -552,11 +553,7 @@ async def stock_adjust_submit(
     user: User = Depends(_require_inventory_manager),
     db: Session = Depends(get_db),
 ):
-    variant = db.query(ProductVariant).filter(
-        ProductVariant.id == variant_id, ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
-    ).first()
-    if not variant:
-        raise HTTPException(404, "Variant not found")
+    variant = get_or_404(db, ProductVariant, variant_id, user.tenant_id, "Variant")
     try:
         ledger_entry_id = handle_stock_adjustment(
             db, variant_id, new_qty, reason, user.id, user.tenant_id,
@@ -962,13 +959,7 @@ async def po_create(
 
 
 def _get_po_or_404(db: Session, po_id: str, tenant_id: str) -> InventoryPurchaseOrder:
-    po = db.query(InventoryPurchaseOrder).filter(
-        InventoryPurchaseOrder.id == po_id, InventoryPurchaseOrder.tenant_id == tenant_id,
-        InventoryPurchaseOrder.is_deleted == False,
-    ).first()
-    if not po:
-        raise HTTPException(404, "Purchase order not found")
-    return po
+    return get_or_404(db, InventoryPurchaseOrder, po_id, tenant_id, "Purchase order")
 
 
 @router.get("/inventory-v2/purchase-orders/{po_id}", response_class=HTMLResponse)

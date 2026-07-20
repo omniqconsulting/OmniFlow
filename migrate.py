@@ -10,6 +10,11 @@ Usage (manual):
 Automatic:
     Called by app.database.create_tables() on every server startup.
     Safe to run repeatedly — it skips columns that already exist.
+
+Scope: SQLite (local/dev) only. Production on Postgres (Render) uses
+alembic/ instead — see app/database.py's engine setup, which raises if
+DATABASE_URL is missing on Render rather than falling back to SQLite.
+These two migration paths are intentionally separate, not duplicates.
 """
 
 import sqlite3

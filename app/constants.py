@@ -7,6 +7,12 @@ import os
 # ── Bulk import ──────────────────────────────────────────────────────────────────
 BULK_IMPORT_MAX_ROWS = int(os.environ.get("BULK_IMPORT_MAX_ROWS", "5000"))
 
+# ── FMS ticket/split lifecycle ────────────────────────────────────────────────────
+# Terminal statuses for FMSTicket/FMSTicketSplit.status — used across fms.py,
+# ai_router.py, analytics.py, main.py, scheduler.py, setup_routes.py, superadmin.py
+# and superadmin_library.py to distinguish active tickets from finished ones.
+FMS_INACTIVE_STATUSES = ("COMPLETED", "CLOSED")
+
 # ── Plans ──────────────────────────────────────────────────────────────────────
 PLAN_TRIAL        = "TRIAL"
 PLAN_STARTER      = "STARTER"

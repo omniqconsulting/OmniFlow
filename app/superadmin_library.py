@@ -22,7 +22,7 @@ from .database import (
     LibraryLabelBundle, LibraryOnboardingBundle,
 )
 from .superadmin_auth import get_current_sa
-from .constants import get_limit, PLAN_LABELS
+from .constants import get_limit, PLAN_LABELS, FMS_INACTIVE_STATUSES
 
 router = APIRouter(prefix="/superadmin/library")
 import logging as _lib_log, traceback as _lib_tb
@@ -241,7 +241,7 @@ def lib_flow_delete(flow_id: str, sa: SuperAdmin = Depends(get_current_sa),
         count = db.query(FMSTicket).filter(
             FMSTicket.flow_id == fms.id,
             FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
         ).count()
         if count > 0:
             return _r(f"/superadmin/library/flows?msg=delete_blocked&flow={flow.name}")

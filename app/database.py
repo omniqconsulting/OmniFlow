@@ -2322,6 +2322,11 @@ class AttendanceRule(Base):
 
 
 def create_tables():
+    # Migration strategy: create_all() for brand-new tables, then Alembic
+    # (versioned, applies to both backends) for tracked schema changes, then
+    # backend-specific column backfills for anything not yet captured in an
+    # Alembic revision — _pg_add_columns() for Postgres, migrate.py for SQLite.
+    # These are complementary layers, not competing/duplicate migration tools.
     Base.metadata.create_all(bind=engine)
     # Run any pending Alembic migrations on startup
     try:

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import or_ as _or
 from .database import Ticket, ChecklistAssignment, ChecklistTemplate, User, Department, Tenant
+from .constants import FMS_INACTIVE_STATUSES
 
 
 def _resolve_filter_uids(db, tenant_id, dept_ids=None, manager_ids=None):
@@ -521,7 +522,7 @@ def get_fms_scorecards(db: Session, tenant_id: str, date_from: str = None, date_
         FMSFlow.is_active==True, FMSFlow.is_deleted==False).all()
     total_active = db.query(FMSTicket).filter(FMSTicket.tenant_id==tenant_id,
         FMSTicket.is_deleted==False,
-        FMSTicket.status.notin_(["COMPLETED","CLOSED"])).count()
+        FMSTicket.status.notin_(FMS_INACTIVE_STATUSES)).count()
 
     visits = db.query(FMSStageHistory).join(
         FMSTicket, FMSStageHistory.ticket_id==FMSTicket.id).filter(
@@ -541,7 +542,7 @@ def get_fms_scorecards(db: Session, tenant_id: str, date_from: str = None, date_
 
     due_24h = db.query(FMSTicket).filter(FMSTicket.tenant_id==tenant_id,
         FMSTicket.is_deleted==False,
-        FMSTicket.status.notin_(["COMPLETED","CLOSED"]),
+        FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
         FMSTicket.due_at>=now,
         FMSTicket.due_at<=now+timedelta(hours=24)).all()
 
@@ -571,10 +572,10 @@ def get_fms_flow_summary(db: Session, tenant_id: str) -> list:
             FMSFlow.is_active==True, FMSFlow.is_deleted==False).all():
         def tq(extra=[]): return db.query(FMSTicket).filter(
             FMSTicket.flow_id==flow.id, FMSTicket.is_deleted==False, *extra)
-        active    = tq([FMSTicket.status.notin_(["COMPLETED","CLOSED"])]).count()
-        completed = tq([FMSTicket.status.in_(["COMPLETED","CLOSED"])]).count()
+        active    = tq([FMSTicket.status.notin_(FMS_INACTIVE_STATUSES)]).count()
+        completed = tq([FMSTicket.status.in_(FMS_INACTIVE_STATUSES)]).count()
         flagged   = tq([FMSTicket.is_flagged==True,
-                        FMSTicket.status.notin_(["COMPLETED","CLOSED"])]).count()
+                        FMSTicket.status.notin_(FMS_INACTIVE_STATUSES)]).count()
         visits = db.query(FMSStageHistory).join(
             FMSTicket, FMSStageHistory.ticket_id==FMSTicket.id).filter(
             FMSTicket.flow_id==flow.id, FMSStageHistory.exited_at!=None).all()
@@ -613,7 +614,7 @@ def get_fms_stage_breakdown(db: Session, flow_id: str, tenant_id: str) -> list:
             FMSTicketSplit.current_stage_id==stage.id,
             FMSTicketSplit.is_deleted==False,
             FMSTicket.is_deleted==False,
-            FMSTicketSplit.status.notin_(["COMPLETED","CLOSED"])).all()
+            FMSTicketSplit.status.notin_(FMS_INACTIVE_STATUSES)).all()
         times = []
         for sp in splits:
             h = db.query(FMSStageHistory).filter(
@@ -742,6 +743,6 @@ def get_fms_weekly(db: Session, tenant_id: str) -> dict:
         created_list.append(q().filter(
             FMSTicket.created_at>=w0, FMSTicket.created_at<w1).count())
         completed_list.append(q().filter(
-            FMSTicket.status.in_(["COMPLETED","CLOSED"]),
+            FMSTicket.status.in_(FMS_INACTIVE_STATUSES),
             FMSTicket.completed_at>=w0, FMSTicket.completed_at<w1).count())
     return {"labels": labels, "created": created_list, "completed": completed_list}

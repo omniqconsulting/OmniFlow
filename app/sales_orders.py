@@ -34,6 +34,7 @@ from .sales_inventory import (
 )
 from .constants import SALES_MARGIN_FLOOR_PCT, BULK_IMPORT_MAX_ROWS
 from .bulk_common import check_required_headers
+from .sales_common import get_or_404
 from .uploads import save_upload
 
 router = APIRouter()
@@ -56,14 +57,7 @@ def _redir(url: str):
 
 
 def get_order_or_404(db: Session, order_id: str, tenant_id: str) -> SalesOrder:
-    order = db.query(SalesOrder).filter(
-        SalesOrder.id == order_id,
-        SalesOrder.tenant_id == tenant_id,
-        SalesOrder.is_deleted == False,
-    ).first()
-    if not order:
-        raise HTTPException(404, "Order not found")
-    return order
+    return get_or_404(db, SalesOrder, order_id, tenant_id, "Order")
 
 
 def _can_view_order(user: User, order: SalesOrder) -> bool:

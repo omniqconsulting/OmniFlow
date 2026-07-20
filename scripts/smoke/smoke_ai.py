@@ -1,7 +1,8 @@
 """
 AI Feature smoke test — access control, page render, context endpoint
 """
-import requests, sys
+import os, requests, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 BASE = "http://127.0.0.1:8000"
 OK = "[PASS]"; FAIL = "[FAIL]"
 passed = failed = 0

@@ -28,6 +28,7 @@ from .auth import (
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread, generate_product_sku
 from .constants import BULK_IMPORT_MAX_ROWS
+from .sales_common import get_or_404
 from .bulk_common import check_required_headers
 from .sales_catalog_sync import (
     sync_end_product_from_variant, remove_end_product_for_variant,
@@ -81,25 +82,11 @@ def _ctx(db: Session, user: User, **extra) -> dict:
 
 
 def get_product_or_404(db: Session, product_id: str, tenant_id: str) -> Product:
-    product = db.query(Product).filter(
-        Product.id == product_id,
-        Product.tenant_id == tenant_id,
-        Product.is_deleted == False,
-    ).first()
-    if not product:
-        raise HTTPException(404, "Product not found")
-    return product
+    return get_or_404(db, Product, product_id, tenant_id, "Product")
 
 
 def get_variant_or_404(db: Session, variant_id: str, tenant_id: str) -> ProductVariant:
-    variant = db.query(ProductVariant).filter(
-        ProductVariant.id == variant_id,
-        ProductVariant.tenant_id == tenant_id,
-        ProductVariant.is_deleted == False,
-    ).first()
-    if not variant:
-        raise HTTPException(404, "Variant not found")
-    return variant
+    return get_or_404(db, ProductVariant, variant_id, tenant_id, "Variant")
 
 
 def _active_schema_fields(db: Session, tenant_id: str):

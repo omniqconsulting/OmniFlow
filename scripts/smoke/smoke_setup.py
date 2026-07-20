@@ -6,7 +6,7 @@ def check(label, cond):
     if cond: print("  OK  ", label); ok.append(label)
     else:    print("  FAIL", label); fail.append(label)
 
-proj = os.path.dirname(__file__)
+proj = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 py   = os.path.join(proj, "venv", "Scripts", "python.exe")
 srv  = subprocess.Popen([py,"-m","uvicorn","app.main:app","--port","8000"],
     cwd=proj, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

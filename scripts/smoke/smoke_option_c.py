@@ -15,7 +15,7 @@ def check(label, cond, detail=""):
         print(f"  FAIL  {label}" + (f"  [{detail}]" if detail else ""))
         FAIL.append(label)
 
-proj = os.path.dirname(__file__)
+proj = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 py   = os.path.join(proj, "venv", "Scripts", "python.exe")
 srv  = subprocess.Popen(
     [py, "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],

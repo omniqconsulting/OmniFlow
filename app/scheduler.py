@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+from .constants import FMS_INACTIVE_STATUSES
+
 logger = logging.getLogger(__name__)
 scheduler = BackgroundScheduler(timezone="UTC")
 
@@ -638,7 +640,7 @@ def pms_no_entry_check():
             FMSStage, FMSTicket.current_stage_id == FMSStage.id
         ).filter(
             FMSStage.sub_module_tag == "PMS",
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
             FMSTicket.is_deleted == False,
         ).all()
 
@@ -888,7 +890,7 @@ def fms_stage_tat_monitor():
             ).filter(
                 FMSTicketSplit.tenant_id == tenant.id,
                 FMSTicketSplit.is_deleted == False,
-                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicketSplit.status.notin_(FMS_INACTIVE_STATUSES),
                 FMSTicket.is_deleted == False,
                 FMSTicket.status != "CLOSED",
             ).all()
@@ -969,7 +971,7 @@ def fms_qty_discrepancy_monitor():
         tickets = db.query(FMSTicket).filter(
             FMSTicket.id.in_(multi_ticket_ids),
             FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
         ).all()
         for ticket in tickets:
             _check_qty_discrepancy(db, ticket)

@@ -34,7 +34,7 @@ from .auth import (
     get_nav_flags,
 )
 from .labels import get_labels, DEFAULT_L
-from .constants import has_feature, PLAN_LIMITS, BULK_IMPORT_MAX_ROWS
+from .constants import has_feature, PLAN_LIMITS, BULK_IMPORT_MAX_ROWS, FMS_INACTIVE_STATUSES
 from .bulk_common import check_required_headers
 from .notifications import (
     create_notification,
@@ -48,6 +48,11 @@ from .notifications import (
 )
 from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION
 import json as _json_module
+
+# Terminal statuses for FMSTicket/FMSTicketSplit — "not one of these" means still
+# active/open. Alias of the shared constant (also used by ai_router.py, analytics.py,
+# main.py, scheduler.py, setup_routes.py, superadmin.py, superadmin_library.py).
+_INACTIVE_STATUSES = FMS_INACTIVE_STATUSES
 
 
 def _build_ref_lists_json(tenant_id: str, db) -> str:
@@ -904,7 +909,7 @@ def fms_flows(request: Request, user: User = Depends(require_admin_or_redirect),
         active_tickets = db.query(FMSTicket).filter(
             FMSTicket.flow_id == f.id,
             FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(_INACTIVE_STATUSES),
         ).count()
         flow_info.append({"flow": f, "stage_count": len(active_stages),
                            "active_tickets": active_tickets})
@@ -1431,13 +1436,13 @@ def _fms_dashboard_inner(
         base_q = base_q.filter(FMSTicket.current_assignee_id.in_(_kpi_assignee_ids))
 
     active_tickets = base_q.filter(
-        FMSTicket.status.notin_(["COMPLETED", "CLOSED"])).count()
+        FMSTicket.status.notin_(_INACTIVE_STATUSES)).count()
     flagged_count  = base_q.filter(FMSTicket.is_flagged == True).count()
     awaiting_count = base_q.filter(FMSTicket.status == "ACTIVE").count()
 
     tat_breaches = 0
     open_tickets = base_q.filter(
-        FMSTicket.status.notin_(["COMPLETED", "CLOSED"])).all()
+        FMSTicket.status.notin_(_INACTIVE_STATUSES)).all()
     for t in open_tickets:
         # Phase 0: check every currently-open split, not just one — two splits
         # of the same ticket can breach TAT independently at different stages.
@@ -1482,7 +1487,7 @@ def _fms_dashboard_inner(
     for f in flows:
         flow_counts[f.id] = db.query(FMSTicket).filter(
             FMSTicket.flow_id == f.id, FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(_INACTIVE_STATUSES),
         ).count()
 
     # ── Flow dropdown: ungrouped flows shown individually, grouped flows
@@ -1572,7 +1577,7 @@ def _fms_dashboard_inner(
         swimlane_q = db.query(FMSTicket).filter(
             FMSTicket.flow_id == active_flow.id,
             FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(_INACTIVE_STATUSES),
         )
         if user.role == "MANAGER":
             swimlane_q = swimlane_q.filter(
@@ -1631,9 +1636,9 @@ def _fms_dashboard_inner(
             list_q = list_q.filter(FMSTicket.flow_id == active_flow.id)
         # Status filter
         if status_filter == "open":
-            list_q = list_q.filter(FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+            list_q = list_q.filter(FMSTicket.status.notin_(_INACTIVE_STATUSES))
         elif status_filter == "closed":
-            list_q = list_q.filter(FMSTicket.status.in_(["COMPLETED", "CLOSED"]))
+            list_q = list_q.filter(FMSTicket.status.in_(_INACTIVE_STATUSES))
         elif status_filter:
             list_q = list_q.filter(FMSTicket.status == status_filter.upper())
         # Assignee/dept/manager/branch filter (shared computation above)
@@ -1697,7 +1702,7 @@ def _fms_dashboard_inner(
     if user.role in ("ADMIN", "MANAGER"):
         flagged_tickets = base_q.filter(
             FMSTicket.is_flagged == True,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(_INACTIVE_STATUSES),
         ).limit(10).all()
 
     can_drag = user.role in ("ADMIN", "MANAGER")
@@ -1847,7 +1852,7 @@ def _fms_dashboard_inner(
             ).filter(
                 FMSTicketSplit.current_stage_id == s.id,
                 FMSTicketSplit.is_deleted == False,
-                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicketSplit.status.notin_(_INACTIVE_STATUSES),
             ).all()
             if user.role == "MANAGER":
                 _badge_tids = {r[0] for r in _badge_rows}
@@ -1897,7 +1902,7 @@ def _fms_dashboard_inner(
                     FMSTicket.is_deleted == False,
                     FMSTicketSplit.current_assignee_id == user.id,
                     FMSTicketSplit.is_deleted == False,
-                    FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                    FMSTicketSplit.status.notin_(_INACTIVE_STATUSES),
                 ).distinct().all() if row[0]
             }
 
@@ -1923,7 +1928,7 @@ def _fms_dashboard_inner(
             ).filter(
                 FMSTicketSplit.current_stage_id == active_stage.id,
                 FMSTicketSplit.is_deleted == False,
-                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicketSplit.status.notin_(_INACTIVE_STATUSES),
             ).all()
             _stage_split_ticket_ids = list({row[0] for row in _stage_splits_here})
             # Ticket -> set of assignee ids among the splits actually parked at
@@ -1937,7 +1942,7 @@ def _fms_dashboard_inner(
             q = db.query(FMSTicket).filter(
                 FMSTicket.id.in_(_stage_split_ticket_ids),
                 FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicket.status.notin_(_INACTIVE_STATUSES),
             ) if _stage_split_ticket_ids else db.query(FMSTicket).filter(FMSTicket.id == None)
             if user.role == "MANAGER":
                 _stage_team_ticket_ids = {
@@ -1969,7 +1974,7 @@ def _fms_dashboard_inner(
                         FMSTicketSplit.current_stage_id == active_stage.id,
                         FMSTicketSplit.current_assignee_id == user.id,
                         FMSTicketSplit.is_deleted == False,
-                        FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                        FMSTicketSplit.status.notin_(_INACTIVE_STATUSES),
                     ).distinct()
                 ]
                 q = q.filter(FMSTicket.id.in_(_my_work_ticket_ids))
@@ -2349,7 +2354,7 @@ def _fms_dashboard_inner(
             ).filter(
                 FMSTicketSplit.current_stage_id == s.id,
                 FMSTicketSplit.is_deleted == False,
-                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicketSplit.status.notin_(_INACTIVE_STATUSES),
                 FMSTicket.flow_id == active_flow.id,
                 FMSTicket.is_deleted == False,
             )
