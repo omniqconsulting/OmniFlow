@@ -6,6 +6,15 @@ import enum, uuid, os
 # Use DATABASE_URL env var on Render (Postgres); fall back to local SQLite for dev.
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+if not DATABASE_URL and os.environ.get("RENDER"):
+    # Render sets RENDER=true automatically. If we're on Render but DATABASE_URL
+    # is missing, failing fast beats silently writing to ephemeral SQLite that
+    # gets wiped on every redeploy/restart.
+    raise RuntimeError(
+        "DATABASE_URL is not set on Render — refusing to fall back to local "
+        "SQLite in production. Check the Postgres add-on is linked to this service."
+    )
+
 if DATABASE_URL:
     # Render still issues legacy postgres:// URLs — SQLAlchemy requires postgresql://
     if DATABASE_URL.startswith("postgres://"):

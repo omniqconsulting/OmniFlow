@@ -73,6 +73,17 @@ def _redirect_to_login_handler(request: Request, exc: RedirectToLogin):
     return redirect("/login")
 
 
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    import logging as _logging, traceback as _traceback
+    _logging.getLogger("omniflow.unhandled").error(
+        "Unhandled exception on %s %s: %s\n%s",
+        request.method, request.url.path, exc,
+        "".join(_traceback.format_exception(type(exc), exc, exc.__traceback__)),
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
 # ── Super Admin routers — Phase 0-H / 0-K ────────────────────────────────────
 from .superadmin import router as sa_router
 from .superadmin_library import router as lib_router
