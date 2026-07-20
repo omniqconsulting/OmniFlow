@@ -19,6 +19,12 @@ if DATABASE_URL:
     # Render still issues legacy postgres:// URLs — SQLAlchemy requires postgresql://
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    # Security audit Part 3: enforce TLS on the Postgres connection even if
+    # the DATABASE_URL Render hands us ever omits sslmode — belt-and-braces,
+    # since Render's own connection strings already include it today.
+    if "sslmode=" not in DATABASE_URL:
+        _sep = "&" if "?" in DATABASE_URL else "?"
+        DATABASE_URL = f"{DATABASE_URL}{_sep}sslmode=require"
     # pool_pre_ping: validates connections before use (handles Render idle-timeout drops)
     engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
 else:

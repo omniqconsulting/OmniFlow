@@ -1,11 +1,11 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import DeviceToken, User, get_db
-from .security import get_current_api_user
+from .security import get_current_api_user, limiter
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
 
@@ -23,7 +23,8 @@ class DeviceRegisterOut(BaseModel):
 
 
 @router.post("/register", response_model=DeviceRegisterOut)
-def register_device(body: DeviceRegisterRequest, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
+@limiter.limit("20/minute")
+def register_device(request: Request, body: DeviceRegisterRequest, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
     """Phase 0.5-C: storage + registration only, upserts by device_id. No
     push-sending logic yet — that's a later phase once the app exists and
     can be tested end-to-end."""

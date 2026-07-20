@@ -8,9 +8,20 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from .database import get_db, User, Tenant
 
-# Falls back to the same dev-only value as before if SECRET_KEY isn't set —
-# no behavior change locally, but production should always set a real one.
-SECRET_KEY = os.environ.get("SECRET_KEY", "omniflow-secret-key-change-in-production-32chars")
+_DEV_SECRET_KEY = "omniflow-secret-key-change-in-production-32chars"
+SECRET_KEY = os.environ.get("SECRET_KEY")
+
+if not SECRET_KEY and os.environ.get("RENDER"):
+    # Security audit Part 1/3: never silently sign JWTs with the well-known
+    # dev default in production — anyone who's read this source (it's
+    # public in git history regardless) could forge valid tokens.
+    raise RuntimeError(
+        "SECRET_KEY is not set on Render — refusing to fall back to the "
+        "dev default in production. Set a real SECRET_KEY in the Render "
+        "environment settings."
+    )
+
+SECRET_KEY = SECRET_KEY or _DEV_SECRET_KEY
 ALGORITHM = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

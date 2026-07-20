@@ -28,7 +28,7 @@ _DEV_VAPID_PRIVATE_KEY = (
     "-----END PRIVATE KEY-----\n"
 )
 
-def _resolve_vapid_private_key(raw: str) -> str:
+def _resolve_vapid_private_key(raw: str, is_dev_default: bool) -> str:
     """
     Accepts either a raw multi-line PEM string, or that same PEM
     base64-encoded onto a single line (for env-var UIs that don't support
@@ -41,13 +41,29 @@ def _resolve_vapid_private_key(raw: str) -> str:
     try:
         return base64.b64decode(raw).decode()
     except Exception:
-        logger.warning("VAPID_PRIVATE_KEY is set but not valid PEM or base64 — falling back to dev key")
-        return _DEV_VAPID_PRIVATE_KEY
+        if is_dev_default:
+            return _DEV_VAPID_PRIVATE_KEY
+        # A real VAPID_PRIVATE_KEY was explicitly set but couldn't be parsed —
+        # fail loudly rather than silently signing with the compromised dev
+        # key instead (security audit Part 1/3).
+        raise RuntimeError("VAPID_PRIVATE_KEY is set but is not valid PEM or base64-encoded PEM.")
 
+
+if os.environ.get("RENDER") and not (os.environ.get("VAPID_PUBLIC_KEY") and os.environ.get("VAPID_PRIVATE_KEY")):
+    # Security audit Part 1/3: this dev keypair is checked into source
+    # control and public in git history — treat it as compromised. Refuse
+    # to sign push messages with it in production.
+    raise RuntimeError(
+        "VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY are not set on Render — refusing "
+        "to fall back to the checked-in dev keypair in production. Generate a "
+        "real VAPID keypair and set both env vars."
+    )
 
 VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", _DEV_VAPID_PUBLIC_KEY)
+_raw_vapid_private_key = os.environ.get("VAPID_PRIVATE_KEY")
 VAPID_PRIVATE_KEY = _resolve_vapid_private_key(
-    os.environ.get("VAPID_PRIVATE_KEY", _DEV_VAPID_PRIVATE_KEY)
+    _raw_vapid_private_key or _DEV_VAPID_PRIVATE_KEY,
+    is_dev_default=not _raw_vapid_private_key,
 )
 VAPID_CLAIM_EMAIL = os.environ.get("VAPID_CLAIM_EMAIL", "mailto:admin@omniflow.app")
 

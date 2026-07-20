@@ -66,7 +66,17 @@ from .labels import get_labels, DEFAULT_L, INDUSTRY_NAMES, INDUSTRY_PRESETS
 from .bulk_common import check_required_headers, run_bulk_upload, run_bulk_revalidate
 from .services.qr_optin import build_opt_in_link
 
-app = FastAPI(title="OmniFlow")
+# Security audit Part 5: auto-generated API docs expose every /api/v1 route
+# shape publicly by default. Default to internal-only (disabled) in
+# production; override with ENABLE_API_DOCS=true if you decide they should
+# be public. Always on locally for development convenience.
+_docs_enabled = (not os.environ.get("RENDER")) or os.environ.get("ENABLE_API_DOCS", "").lower() == "true"
+app = FastAPI(
+    title="OmniFlow",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 
 # Phase 0.5 — CORS for the Expo dev client / Expo web preview to call /api/v1.
 # Does not affect the server-rendered website: CORS only governs cross-origin
@@ -85,6 +95,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Security audit Part 3 — baseline security response headers. CSP keeps
+# 'unsafe-inline' for script/style because the existing Jinja2 templates
+# rely heavily on inline <script>/style= throughout (a nonce-based refactor
+# to drop unsafe-inline is a larger follow-up, not done here to avoid
+# breaking the live site) — still meaningfully restricts cross-origin
+# script/resource loading and framing.
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'"
+    )
+    return response
+
 # Phase 0 — /api/v1 rate limiting (login/refresh brute-force protection).
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -99,13 +131,17 @@ def _redirect_to_login_handler(request: Request, exc: RedirectToLogin):
 
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request: Request, exc: Exception):
-    import logging as _logging, traceback as _traceback
+    import logging as _logging, traceback as _traceback, uuid as _uuid
+    correlation_id = str(_uuid.uuid4())
     _logging.getLogger("omniflow.unhandled").error(
-        "Unhandled exception on %s %s: %s\n%s",
-        request.method, request.url.path, exc,
+        "Unhandled exception [%s] on %s %s: %s\n%s",
+        correlation_id, request.method, request.url.path, exc,
         "".join(_traceback.format_exception(type(exc), exc, exc.__traceback__)),
     )
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    # Security audit Part 3: never leak stack trace/SQL/file paths to the
+    # client — generic message + correlation ID only; full detail stays
+    # server-side in the log line above.
+    return JSONResponse(status_code=500, content={"detail": "Internal server error", "correlation_id": correlation_id})
 
 
 # ── Super Admin routers — Phase 0-H / 0-K ────────────────────────────────────

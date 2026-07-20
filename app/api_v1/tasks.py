@@ -1,19 +1,32 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from ..database import ChecklistAssignment, MediaUpload, Ticket, User, get_db
 from ..notifications import notify_checklist_completed
-from ..uploads import ALLOWED_IMAGE, save_upload
+from ..uploads import save_upload
 from ..ws_manager import CHECKLIST_COMPLETED, broadcast_sync
-from .security import get_current_api_user
+from .security import get_current_api_user, limiter
 
 router = APIRouter(tags=["My Tasks / Checklists"])
 
 CHECKLIST_OPEN_STATUSES = ("PENDING", "IN_PROGRESS", "OVERDUE")
+
+
+def _scoped_assignment_query(db: Session, user: User, assignment_id: str):
+    """Tenant filter is unconditional (defense in depth — see security audit
+    Part 4); EMPLOYEE additionally scoped to their own assignments."""
+    q = db.query(ChecklistAssignment).filter(
+        ChecklistAssignment.id == assignment_id,
+        ChecklistAssignment.is_deleted == False,
+        ChecklistAssignment.tenant_id == user.tenant_id,
+    )
+    if user.role not in ("ADMIN", "MANAGER"):
+        q = q.filter(ChecklistAssignment.user_id == user.id)
+    return q
 
 
 class MyTaskItem(BaseModel):
@@ -71,12 +84,7 @@ def my_tasks(user: User = Depends(get_current_api_user), db: Session = Depends(g
 
 @router.get("/checklists/{assignment_id}", response_model=ChecklistAssignmentOut)
 def get_checklist_assignment(assignment_id: str, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
-    q = db.query(ChecklistAssignment).filter(ChecklistAssignment.id == assignment_id, ChecklistAssignment.is_deleted == False)
-    if user.role not in ("ADMIN", "MANAGER"):
-        q = q.filter(ChecklistAssignment.user_id == user.id)
-    else:
-        q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id)
-    a = q.first()
+    a = _scoped_assignment_query(db, user, assignment_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Checklist assignment not found")
     return a
@@ -85,12 +93,7 @@ def get_checklist_assignment(assignment_id: str, user: User = Depends(get_curren
 @router.post("/checklists/{assignment_id}/ack", response_model=ChecklistAssignmentOut)
 def start_checklist_assignment(assignment_id: str, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
     """PENDING -> IN_PROGRESS."""
-    q = db.query(ChecklistAssignment).filter(ChecklistAssignment.id == assignment_id, ChecklistAssignment.is_deleted == False)
-    if user.role not in ("ADMIN", "MANAGER"):
-        q = q.filter(ChecklistAssignment.user_id == user.id)
-    else:
-        q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id)
-    a = q.first()
+    a = _scoped_assignment_query(db, user, assignment_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Checklist assignment not found")
     if a.status == "PENDING":
@@ -107,12 +110,7 @@ def complete_checklist_assignment(assignment_id: str, body: CompleteChecklistReq
     marked DONE here, same as the delay-reason gate below; wiring the actual
     evidence requirement into the mobile flow is a follow-up once the
     Checklists screen is designed."""
-    q = db.query(ChecklistAssignment).filter(ChecklistAssignment.id == assignment_id, ChecklistAssignment.is_deleted == False)
-    if user.role not in ("ADMIN", "MANAGER"):
-        q = q.filter(ChecklistAssignment.user_id == user.id)
-    else:
-        q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id)
-    a = q.first()
+    a = _scoped_assignment_query(db, user, assignment_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Checklist assignment not found")
 
@@ -160,24 +158,20 @@ class EvidenceOut(BaseModel):
 
 
 @router.post("/tasks/{task_id}/evidence", response_model=EvidenceOut)
-async def upload_checklist_evidence(task_id: str, evidence_file: UploadFile = File(...),
+@limiter.limit("30/minute")
+async def upload_checklist_evidence(request: Request, task_id: str, evidence_file: UploadFile = File(...),
                                      user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
     """Phase 0.5-B: dedicated evidence-upload endpoint referenced in the
     complete_checklist_assignment docstring above. Same storage pattern as
     the desktop complete_checklist route (app/main.py) — save_upload ->
     MediaUpload -> sets proof_url on the assignment."""
-    q = db.query(ChecklistAssignment).filter(ChecklistAssignment.id == task_id, ChecklistAssignment.is_deleted == False)
-    if user.role not in ("ADMIN", "MANAGER"):
-        q = q.filter(ChecklistAssignment.user_id == user.id)
-    else:
-        q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id)
-    a = q.first()
+    a = _scoped_assignment_query(db, user, task_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Checklist assignment not found")
-    if (evidence_file.content_type or "").lower() not in ALLOWED_IMAGE:
-        raise HTTPException(status_code=415, detail="Only image uploads are supported")
 
-    info = await save_upload(evidence_file, user.tenant_id)
+    # save_upload validates by real file content (magic bytes), not the
+    # client-declared Content-Type header — see security audit Part 4.
+    info = await save_upload(evidence_file, user.tenant_id, allowed_kinds=("image",))
     db.add(MediaUpload(
         tenant_id=user.tenant_id, entity_type="CHECKLIST_ASSIGNMENT",
         entity_id=task_id, uploaded_by_id=user.id, **info,

@@ -1,18 +1,18 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from ..database import MediaUpload, Tenant, Ticket, TicketComment, TicketEvent, User, get_db
 from ..notifications import notify_ticket_assigned
-from ..uploads import ALLOWED_IMAGE, save_upload
+from ..uploads import save_upload
 from ..ws_manager import TICKET_ASSIGNED, TICKET_COMMENTED, TICKET_STATUS_CHANGED, broadcast_sync
 from .pagination import paginate_cursor
 from .schemas import Page
 from .schemas import UserOut
-from .security import get_current_api_user
+from .security import get_current_api_user, limiter
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
@@ -26,7 +26,7 @@ def _admin_ids(db: Session, tenant_id: str) -> list:
 
 
 def _manager_ids_for_ticket(db: Session, tenant_id: str, assignee_id: str) -> list:
-    assignee = db.query(User).get(assignee_id)
+    assignee = db.query(User).filter(User.id == assignee_id, User.tenant_id == tenant_id).first()
     if assignee and assignee.manager_id:
         return [assignee.manager_id]
     return []
@@ -114,9 +114,13 @@ def get_ticket(ticket_id: str, user: User = Depends(get_current_api_user), db: S
 
 @router.get("/{ticket_id}/comments", response_model=list[TicketCommentOut])
 def list_comments(ticket_id: str, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id).first()
+    ticket = db.query(Ticket).filter(
+        Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id, Ticket.is_deleted == False,
+    ).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    if user.role == "EMPLOYEE" and ticket.current_assignee_id != user.id:
+        raise HTTPException(status_code=403)
     return db.query(TicketComment).filter(TicketComment.ticket_id == ticket_id).order_by(TicketComment.created_at).all()
 
 
@@ -223,7 +227,8 @@ class AttachmentOut(BaseModel):
 
 
 @router.post("/{ticket_id}/attachments", response_model=AttachmentOut)
-async def upload_ticket_attachment(ticket_id: str, file: UploadFile = File(...),
+@limiter.limit("30/minute")
+async def upload_ticket_attachment(request: Request, ticket_id: str, file: UploadFile = File(...),
                                     user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
     """Phase 0.5-B: JSON-friendly counterpart to the desktop /tickets/{id}/upload
     route. Same storage backend (save_upload -> local disk) and same
@@ -232,10 +237,10 @@ async def upload_ticket_attachment(ticket_id: str, file: UploadFile = File(...),
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id, Ticket.is_deleted == False).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    if (file.content_type or "").lower() not in ALLOWED_IMAGE:
-        raise HTTPException(status_code=415, detail="Only image uploads are supported")
 
-    info = await save_upload(file, user.tenant_id)
+    # save_upload validates by real file content (magic bytes), not the
+    # client-declared Content-Type header — see security audit Part 4.
+    info = await save_upload(file, user.tenant_id, allowed_kinds=("image",))
     db.add(MediaUpload(
         tenant_id=user.tenant_id, entity_type="ticket", entity_id=ticket_id,
         uploaded_by_id=user.id, **info,

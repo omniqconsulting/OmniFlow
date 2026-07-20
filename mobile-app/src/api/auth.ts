@@ -7,12 +7,14 @@ export type LoginPayload = {
   password: string;
 };
 
+export type SessionUser = { id: string; name: string; phone: string; role: string; tenant_id: string };
+
 export type TokenResponse = {
   access_token: string;
   refresh_token: string;
   token_type: string;
   expires_in: number;
-  user: { id: string; name: string; phone: string; role: string; tenant_id: string };
+  user: SessionUser;
 };
 
 export async function login(payload: LoginPayload): Promise<TokenResponse> {
