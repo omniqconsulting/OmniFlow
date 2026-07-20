@@ -1,12 +1,13 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from ..database import MediaUpload, Tenant, Ticket, TicketComment, TicketEvent, User, get_db
 from ..notifications import notify_ticket_assigned
+from ..uploads import ALLOWED_IMAGE, save_upload
 from ..ws_manager import TICKET_ASSIGNED, TICKET_COMMENTED, TICKET_STATUS_CHANGED, broadcast_sync
 from .pagination import paginate_cursor
 from .schemas import Page
@@ -212,3 +213,33 @@ def add_comment(ticket_id: str, body: CommentCreateRequest, user: User = Depends
         "ticket_id": ticket.id, "display_id": ticket.display_id, "body": body.body,
     })
     return comment
+
+
+class AttachmentOut(BaseModel):
+    file_name: str
+    file_path: str
+    file_type: str
+    file_size: int
+
+
+@router.post("/{ticket_id}/attachments", response_model=AttachmentOut)
+async def upload_ticket_attachment(ticket_id: str, file: UploadFile = File(...),
+                                    user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
+    """Phase 0.5-B: JSON-friendly counterpart to the desktop /tickets/{id}/upload
+    route. Same storage backend (save_upload -> local disk) and same
+    MediaUpload record, just returns the stored file's reference instead of
+    a redirect."""
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id, Ticket.is_deleted == False).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if (file.content_type or "").lower() not in ALLOWED_IMAGE:
+        raise HTTPException(status_code=415, detail="Only image uploads are supported")
+
+    info = await save_upload(file, user.tenant_id)
+    db.add(MediaUpload(
+        tenant_id=user.tenant_id, entity_type="ticket", entity_id=ticket_id,
+        uploaded_by_id=user.id, **info,
+    ))
+    _log_event(db, ticket.id, user.id, "PROOF_UPLOADED", info["file_name"])
+    db.commit()
+    return info

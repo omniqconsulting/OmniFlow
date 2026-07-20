@@ -1,12 +1,13 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
-from ..database import ChecklistAssignment, Ticket, User, get_db
+from ..database import ChecklistAssignment, MediaUpload, Ticket, User, get_db
 from ..notifications import notify_checklist_completed
+from ..uploads import ALLOWED_IMAGE, save_upload
 from ..ws_manager import CHECKLIST_COMPLETED, broadcast_sync
 from .security import get_current_api_user
 
@@ -149,3 +150,38 @@ def complete_checklist_assignment(assignment_id: str, body: CompleteChecklistReq
         "checklist": tmpl.title if tmpl else "", "completed_by": user.name,
     })
     return a
+
+
+class EvidenceOut(BaseModel):
+    file_name: str
+    file_path: str
+    file_type: str
+    file_size: int
+
+
+@router.post("/tasks/{task_id}/evidence", response_model=EvidenceOut)
+async def upload_checklist_evidence(task_id: str, evidence_file: UploadFile = File(...),
+                                     user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
+    """Phase 0.5-B: dedicated evidence-upload endpoint referenced in the
+    complete_checklist_assignment docstring above. Same storage pattern as
+    the desktop complete_checklist route (app/main.py) — save_upload ->
+    MediaUpload -> sets proof_url on the assignment."""
+    q = db.query(ChecklistAssignment).filter(ChecklistAssignment.id == task_id, ChecklistAssignment.is_deleted == False)
+    if user.role not in ("ADMIN", "MANAGER"):
+        q = q.filter(ChecklistAssignment.user_id == user.id)
+    else:
+        q = q.filter(ChecklistAssignment.tenant_id == user.tenant_id)
+    a = q.first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Checklist assignment not found")
+    if (evidence_file.content_type or "").lower() not in ALLOWED_IMAGE:
+        raise HTTPException(status_code=415, detail="Only image uploads are supported")
+
+    info = await save_upload(evidence_file, user.tenant_id)
+    db.add(MediaUpload(
+        tenant_id=user.tenant_id, entity_type="CHECKLIST_ASSIGNMENT",
+        entity_id=task_id, uploaded_by_id=user.id, **info,
+    ))
+    a.proof_url = info["file_path"]
+    db.commit()
+    return info

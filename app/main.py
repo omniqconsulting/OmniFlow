@@ -68,6 +68,23 @@ from .services.qr_optin import build_opt_in_link
 
 app = FastAPI(title="OmniFlow")
 
+# Phase 0.5 — CORS for the Expo dev client / Expo web preview to call /api/v1.
+# Does not affect the server-rendered website: CORS only governs cross-origin
+# browser/webview requests, which the site never makes against itself.
+from fastapi.middleware.cors import CORSMiddleware
+_cors_env = os.environ.get("CORS_ALLOWED_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] or [
+    "http://localhost:8081",   # Expo dev server default
+    "http://localhost:19006",  # Expo web preview
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Phase 0 — /api/v1 rate limiting (login/refresh brute-force protection).
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded

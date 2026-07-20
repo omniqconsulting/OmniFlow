@@ -533,6 +533,23 @@ class ApiRefreshToken(Base):
 
     user = relationship("User")
 
+
+class DeviceToken(Base):
+    """Phase 0.5-C — native push notification device registration. Storage
+    and upsert-by-device_id only; no send logic yet (that's a later phase
+    once the app exists and can be tested end-to-end)."""
+    __tablename__ = "device_tokens"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    device_id = Column(String, nullable=False, index=True)
+    expo_push_token = Column(String, nullable=False)
+    platform = Column(String, nullable=False)  # "ios" / "android"
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+
 class MediaUpload(Base):
     """Shared media table for tickets, checklists & sales order line items — Phase 0-E-1"""
     __tablename__ = "media_uploads"
