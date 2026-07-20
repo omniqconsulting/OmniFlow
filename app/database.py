@@ -515,6 +515,24 @@ class PushSubscription(Base):
 
     user = relationship("User")
 
+
+class ApiRefreshToken(Base):
+    """Phase 0 — /api/v1 mobile auth. Opaque refresh token, stored hashed
+    (never the raw token) so a DB leak alone can't be replayed. Revocable
+    server-side (logout, or a future "sign out this device" action) — the
+    short-lived JWT access token stays stateless and isn't tracked here."""
+    __tablename__ = "api_refresh_tokens"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    token_hash = Column(String, nullable=False, index=True)
+    device_label = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+
+    user = relationship("User")
+
 class MediaUpload(Base):
     """Shared media table for tickets, checklists & sales order line items — Phase 0-E-1"""
     __tablename__ = "media_uploads"

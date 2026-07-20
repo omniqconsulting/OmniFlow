@@ -17,3 +17,4 @@ alembic
 httpx
 pywebpush>=2.0.0
 qrcode[pil]>=7.4.2
+slowapi>=0.1.9

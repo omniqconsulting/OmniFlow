@@ -124,13 +124,8 @@ file,app/static/fonts/dm-sans-italic-latin.woff2,dm-sans-italic-latin.woff2,.wof
 file,app/static/fonts/dm-sans-normal-latin-ext.woff2,dm-sans-normal-latin-ext.woff2,.woff2,3
 file,app/static/fonts/dm-sans-normal-latin.woff2,dm-sans-normal-latin.woff2,.woff2,3
 file,app/static/fonts/google_fonts.css,google_fonts.css,.css,3
-file,app/static/icon-192.png,icon-192.png,.png,2
-file,app/static/icon-512-maskable.png,icon-512-maskable.png,.png,2
-file,app/static/icon-512.png,icon-512.png,.png,2
 folder,app/static/js,js,,3
 file,app/static/js/app-shell.js,app-shell.js,.js,3
-file,app/static/manifest.json,manifest.json,.json,2
-file,app/static/sw.js,sw.js,.js,2
 folder,app/static/uploads,uploads,,3
 folder,app/static/uploads/52c7f4a4-b84c-434e-839f-a7eae507b080,52c7f4a4-b84c-434e-839f-a7eae507b080,,4
 file,app/static/uploads/52c7f4a4-b84c-434e-839f-a7eae507b080/3ac326dd-39c8-40ba-840b-61eabbae467a.pdf,3ac326dd-39c8-40ba-840b-61eabbae467a.pdf,.pdf,4

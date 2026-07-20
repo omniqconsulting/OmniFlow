@@ -2489,7 +2489,7 @@ def _fms_dashboard_inner(
         if row.get("split_id") and row.get("split_last_cumulative") is not None
     })
 
-    template_name = "fms/dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "fms/dashboard.html"
+    template_name = "fms/dashboard.html"
     return templates.TemplateResponse(request, template_name, _ctx(
         request, user, db,
         can_create_ticket=can_create_ticket,

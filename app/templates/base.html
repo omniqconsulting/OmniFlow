@@ -10,15 +10,6 @@
      zoom+pan) worked while 1-finger scroll silently did nothing. Removing
      zoom as a possibility removes the ambiguity. -->
 <title>OmniFlow</title>
-<!-- P6-01: PWA installability — manifest + iOS-specific tags (iOS ignores parts of the manifest spec) -->
-<link rel="manifest" href="/static/manifest.json">
-<!-- Native-Feel UI Brief Section 5.3: theme-color/status-bar values are sourced
-     from --color-primary in theme-tokens.css — keep these three in sync. -->
-<meta name="theme-color" content="#3b82f6">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="OmniFlow">
-<link rel="apple-touch-icon" href="/static/icon-192.png">
 <!-- Native-Feel UI Brief Section 4: theme-tokens.css must load first, before
      any other stylesheet, since app-shell.css depends on its custom properties. -->
 <link rel="stylesheet" href="/static/css/theme-tokens.css">
@@ -34,16 +25,12 @@
 </head>
 <body class="{% if user %}is-authed{% endif %}">
 {% if user %}
-{# Native-Feel UI Brief follow-up: mobile/standalone-only top bar. Replaces
+{# Native-Feel UI Brief follow-up: mobile-web-only top bar. Replaces
    the desktop .nav's branding + bell/mute/account controls on small
    screens, since .nav is hidden there (app-shell.css). Notifications/theme/
    profile/logout live here instead of the "Others" bottom-sheet now. #}
 <header class="mobile-topbar">
-  {% if request.cookies.get('pwa_ui') == '1' %}
-  <a href="/home" class="mt-logo" style="text-decoration:none;color:inherit" title="Back to home grid">OmniFlow</a>
-  {% else %}
   <span class="mt-logo">OmniFlow</span>
-  {% endif %}
   <div class="mt-actions">
     <a href="/notifications" class="mt-icon-btn" title="Notifications">
       🔔

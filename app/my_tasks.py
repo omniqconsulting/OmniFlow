@@ -272,7 +272,7 @@ def my_tasks(request: Request,
         my_attendance_month = get_self_month_calendar(db, user)
     ctx["my_attendance_month"] = my_attendance_month
 
-    template_name = "my_tasks_mobile.html" if request.cookies.get("pwa_ui") == "1" else "my_tasks.html"
+    template_name = "my_tasks.html"
     return templates.TemplateResponse(request, template_name, ctx)
 
 

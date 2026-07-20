@@ -68,6 +68,13 @@ from .services.qr_optin import build_opt_in_link
 
 app = FastAPI(title="OmniFlow")
 
+# Phase 0 — /api/v1 rate limiting (login/refresh brute-force protection).
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from .api_v1.security import limiter as _api_v1_limiter
+app.state.limiter = _api_v1_limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 @app.exception_handler(RedirectToLogin)
 def _redirect_to_login_handler(request: Request, exc: RedirectToLogin):
     return redirect("/login")
@@ -126,6 +133,13 @@ from .my_tasks import router as my_tasks_router
 app.include_router(my_tasks_router)
 from .attendance import router as attendance_router
 app.include_router(attendance_router)
+
+# Phase 0 — versioned JSON API for the native app. Additive: does not touch
+# any HTML route above. See docs on the pwa-cleanup/phase-0 branch history
+# for the full contract.
+from .api_v1 import router as api_v1_router
+app.include_router(api_v1_router)
+
 from .templates_env import templates, _OrmEncoder, _to_ist, _format_tat  # shared filters
 BASE_DIR = os.path.dirname(__file__)
 
@@ -200,9 +214,9 @@ async def _service_worker():
     # The service worker script must never be served from the browser's HTTP
     # cache — StaticFiles' default headers (Last-Modified/ETag, no
     # Cache-Control) let browsers apply heuristic freshness and skip
-    # revalidation for hours, so a bumped SHELL_CACHE version inside sw.js
-    # can go undetected across app restarts. Route matches before the
-    # StaticFiles mount below and forces revalidation on every load.
+    # revalidation for hours, which would leave push notifications broken
+    # on a stale worker after a deploy. Route matches before the StaticFiles
+    # mount below and forces revalidation on every load.
     from fastapi.responses import FileResponse
     return FileResponse(
         os.path.join(_static_dir, "sw.js"),
@@ -680,13 +694,12 @@ def root():
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    template_name = "login_mobile.html" if request.cookies.get("pwa_ui") == "1" else "login.html"
-    return templates.TemplateResponse(request, template_name, {"error": None})
+    return templates.TemplateResponse(request, "login.html", {"error": None})
 
 @app.post("/login")
 def login(request: Request, slug: str = Form(...), phone: str = Form(...),
           password: str = Form(...), db: Session = Depends(get_db)):
-    template_name = "login_mobile.html" if request.cookies.get("pwa_ui") == "1" else "login.html"
+    template_name = "login.html"
     tenant = db.query(Tenant).filter(Tenant.slug == slug).first()
     if not tenant:
         return templates.TemplateResponse(request, template_name, {"error": "Factory not found"})
@@ -702,12 +715,7 @@ def login(request: Request, slug: str = Form(...), phone: str = Form(...),
     db.add(LoginEvent(tenant_id=tenant.id, user_id=user.id))
     db.commit()
     token = create_token(user.id, tenant.id, user.role)
-    # Mobile/PWA sessions always land on the box-grid home for every role
-    # (client feedback #7); desktop keeps ADMIN/MANAGER -> /home, others -> /dashboard.
-    if request.cookies.get("pwa_ui") == "1":
-        landing = "/home"
-    else:
-        landing = "/home" if user.role in ("ADMIN", "MANAGER") else "/dashboard"
+    landing = "/home" if user.role in ("ADMIN", "MANAGER") else "/dashboard"
     resp = redirect(landing)
     resp.set_cookie("token", token, httponly=True, max_age=86400)
     return resp
@@ -723,15 +731,14 @@ def check_slug_public(slug: str, db: Session = Depends(get_db)):
 
 @app.get("/register", response_class=HTMLResponse)
 def register_page(request: Request):
-    template_name = "register_mobile.html" if request.cookies.get("pwa_ui") == "1" else "register.html"
-    return templates.TemplateResponse(request, template_name, {"error": None})
+    return templates.TemplateResponse(request, "register.html", {"error": None})
 
 @app.post("/register")
 def register(request: Request, factory_name: str = Form(...), slug: str = Form(...),
              name: str = Form(...), phone: str = Form(...), password: str = Form(...),
              contact_email: str = Form(""),
              db: Session = Depends(get_db)):
-    template_name = "register_mobile.html" if request.cookies.get("pwa_ui") == "1" else "register.html"
+    template_name = "register.html"
     if db.query(Tenant).filter(Tenant.slug == slug).first():
         return templates.TemplateResponse(request, template_name,
                                           {"error": "Factory ID already taken"})
@@ -823,7 +830,7 @@ async def submit_help_request(
 def help_page(request: Request, user: User = Depends(get_current_user_or_redirect),
               db: Session = Depends(get_db)):
     unread = _unread_count(db, user)
-    template_name = "help_mobile.html" if request.cookies.get("pwa_ui") == "1" else "help.html"
+    template_name = "help.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": unread, "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -845,7 +852,7 @@ def profile_page(request: Request, user: User = Depends(get_current_user_or_redi
     unread = _unread_count(db, user)
     msg = request.query_params.get("msg", "")
     error = request.query_params.get("error", "")
-    template_name = "profile_mobile.html" if request.cookies.get("pwa_ui") == "1" else "profile.html"
+    template_name = "profile.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": unread, "L": _L(db, user),
         "msg": msg, "error": error,
@@ -1190,20 +1197,10 @@ def home_grouped(request: Request, user: User = Depends(get_current_user_or_redi
                   db: Session = Depends(get_db)):
     """C1 — grouped post-login landing page for ADMIN/MANAGER on desktop.
     Pure nav/landing restructuring: every box links to an existing, unchanged
-    internal page. On mobile/PWA (pwa_ui cookie), ALL roles land here — see
-    home_grouped_mobile.html, which role-scopes its own tile set — instead of
-    EMPLOYEE/PRODUCT_MANAGER's desktop-only flat /dashboard landing."""
-    is_pwa = request.cookies.get("pwa_ui") == "1"
+    internal page. EMPLOYEE/PRODUCT_MANAGER get the desktop-only flat
+    /dashboard landing instead."""
     if user.role not in ("ADMIN", "MANAGER"):
-        if not is_pwa:
-            return redirect("/dashboard")
-        tenant = db.query(Tenant).get(user.tenant_id)
-        if not getattr(tenant, "is_approved", True):
-            return redirect("/pending")
-        return templates.TemplateResponse(request, "home_grouped_mobile.html", {
-            "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
-            **_nav_ctx(db, user, tenant=tenant),
-        })
+        return redirect("/dashboard")
     tenant = db.query(Tenant).get(user.tenant_id)
     if not getattr(tenant, "is_approved", True):
         return redirect("/pending")
@@ -1279,7 +1276,7 @@ def home_grouped(request: Request, user: User = Depends(get_current_user_or_redi
     for a in activity:
         a["rel"] = _relative_time(a["ts"])
 
-    template_name = "home_grouped_mobile.html" if is_pwa else "home_grouped.html"
+    template_name = "home_grouped.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user, tenant=tenant),
@@ -1400,7 +1397,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
             hot_tasks_count = len(hot_tasks)
             hot_tasks = hot_tasks[:10]
 
-            template_name = "dashboard_summary_mobile.html" if request.cookies.get("pwa_ui") == "1" else "dashboard_summary.html"
+            template_name = "dashboard_summary.html"
             return templates.TemplateResponse(request, template_name, {
                 "user": user, "unread": unread, "L": _L(db, user),
                 "now": datetime.utcnow(),
@@ -1598,7 +1595,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
         _emp_fw = _get_active_formula(db, user.tenant_id)
         emp_perf_score, emp_perf_components = _compute_perf_score(_emp_kv, _emp_fw)
 
-        template_name = "employee_dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "employee_dashboard.html"
+        template_name = "employee_dashboard.html"
         return templates.TemplateResponse(request, template_name, {
             "user": user, "unread": unread, "L": _L(db, user),
             "now": datetime.utcnow(),
@@ -1763,11 +1760,7 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
             ).distinct().all()
         }
 
-    # Tickets Redesign (2026-07): installed-PWA sessions get the redesigned
-    # mobile-only templates (tickets_mobile.html), detected via the `pwa_ui`
-    # cookie set by app-shell.js's standalone-mode check. Desktop/browser-tab
-    # traffic is unaffected — same context, same tickets.html as before.
-    template_name = "tickets_mobile.html" if request.cookies.get("pwa_ui") == "1" else "tickets.html"
+    template_name = "tickets.html"
 
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
@@ -2144,8 +2137,7 @@ def ticket_detail(ticket_id: str, request: Request,
         KnowledgeItem.tenant_id == user.tenant_id, KnowledgeItem.is_deleted == False,
     ).order_by(KnowledgeItem.title).all()
     # Tickets Redesign (2026-07): see tickets_list() above for the same
-    # installed-PWA branching via the `pwa_ui` cookie.
-    template_name = "ticket_detail_mobile.html" if request.cookies.get("pwa_ui") == "1" else "ticket_detail.html"
+    template_name = "ticket_detail.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -3092,23 +3084,8 @@ def checklists(request: Request, user: User = Depends(get_current_user_or_redire
         KnowledgeItem.tenant_id == tid, KnowledgeItem.is_deleted == False,
     ).order_by(KnowledgeItem.title).all()
 
-    # Checklists Redesign (2026-07): installed-PWA sessions get the
-    # redesigned mobile-only template (checklists_mobile.html — design
-    # option 3a "Task Feed"), detected via the `pwa_ui` cookie set by
-    # app-shell.js's standalone-mode check. On mobile this is always the
-    # viewer's own worklist (Overdue / Upcoming / History) regardless of
-    # role — template creation, bulk upload and team compliance tables
-    # stay desktop-only. Desktop/browser-tab traffic is unaffected — same
-    # context, same checklists.html as before.
-    template_name = "checklists_mobile.html" if request.cookies.get("pwa_ui") == "1" else "checklists.html"
+    template_name = "checklists.html"
     my_history = []
-    if template_name == "checklists_mobile.html":
-        my_history = db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.tenant_id == tid,
-            ChecklistAssignment.user_id == user.id,
-            ChecklistAssignment.status.in_(["DONE", "FAILED"]),
-            ChecklistAssignment.is_deleted == False,
-        ).order_by(ChecklistAssignment.completed_at.desc()).limit(50).all()
 
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
@@ -4221,7 +4198,7 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_pm_
         e.gadget_list = gadgets_by_user.get(e.id, [])
         e.effective_tabs = get_user_tabs(e, tenant, db)
 
-    template_name = "employees_mobile.html" if request.cookies.get("pwa_ui") == "1" else "employees.html"
+    template_name = "employees.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -5739,7 +5716,7 @@ def onboarding_wizard(request: Request, step: Optional[int] = None,
         5: checklist_count > 0,
     }
 
-    template_name = "onboarding_wizard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "onboarding_wizard.html"
+    template_name = "onboarding_wizard.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         "tenant": tenant, "step": step,
@@ -5761,7 +5738,7 @@ def notifications_page(request: Request, user: User = Depends(get_current_user_o
     push_subscribed = db.query(PushSubscription).filter(
         PushSubscription.user_id == user.id,
     ).first() is not None
-    template_name = "notifications_mobile.html" if request.cookies.get("pwa_ui") == "1" else "notifications.html"
+    template_name = "notifications.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),

@@ -1,11 +1,6 @@
 /* ── theme-tokens.css ──────────────────────────────────────────────────────
  * Single source of truth for colour + font custom properties.
  * Must be loaded on every page, before any other stylesheet (see base.html).
- *
- * SYNC RULE: --color-primary / --color-bg below must always match
- * theme_color / background_color in app/static/manifest.json (and vice
- * versa) so the desktop UI, Android/iOS status bar, and splash colour never
- * drift apart. If you change one, change the other in the same commit.
  * ────────────────────────────────────────────────────────────────────────── */
 
 /* DM Sans — self-hosted so font loads identically on all environments */

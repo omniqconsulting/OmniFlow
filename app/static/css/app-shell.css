@@ -330,7 +330,7 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
 .help-fab{position:fixed;bottom:28px;right:28px;z-index:900;background:#ef4444;color:#fff;border:none;border-radius:99px;padding:12px 20px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 16px rgba(239,68,68,0.45);display:flex;align-items:center;gap:7px;transition:background .15s,transform .15s;animation:help-pulse 2.4s infinite}
 .help-fab:hover{background:#dc2626;transform:scale(1.05);animation:none}
 @keyframes help-pulse{0%,100%{box-shadow:0 4px 16px rgba(239,68,68,0.45)}50%{box-shadow:0 4px 28px rgba(239,68,68,0.75)}}
-/* Draggable on mobile/PWA layouts only (app-shell.js adds this class there) —
+/* Draggable on mobile-web layouts only (app-shell.js adds this class there) —
    so the user can park the SOS button wherever it doesn't collide with a
    module's own floating "+" button instead of every module routing around
    a fixed SOS position. */
@@ -362,18 +362,18 @@ html.light .alert-red{color:#991b1b;background:rgba(239,68,68,0.10);border-color
 .help-success .help-success-sub{font-size:13px;color:var(--text-faint,#64748b)}
 
 /* ══════════════════════════════════════════════════════════════════════════
-   SECTION B — native-feel layer (Native-Feel UI Brief, Section 5)
-   Scoped to standalone PWA + narrow viewports only; desktop browser is
-   untouched above the 768px / non-standalone threshold.
+   SECTION B — mobile-web layer (Native-Feel UI Brief, Section 5)
+   Scoped to narrow viewports only; desktop browser is untouched above the
+   768px threshold.
    ══════════════════════════════════════════════════════════════════════════ */
 
 /* 5.2 — remove default mobile tap highlight globally (harmless on desktop) */
 html{-webkit-tap-highlight-color:transparent}
 
-/* 5.4 — standalone/mobile detection query, reused by every rule below */
-@media (display-mode: standalone), (max-width: 767px) {
+/* mobile detection query, reused by every rule below */
+@media (max-width: 767px) {
 
-  /* 5.2 — kill browser bounce / pull-to-refresh feel inside standalone mode */
+  /* 5.2 — kill browser bounce / pull-to-refresh feel on mobile web */
   body{overscroll-behavior-y:contain}
 
   /* 5.2 — pressed/active feedback on buttons and tappable rows */
@@ -416,11 +416,11 @@ html{-webkit-tap-highlight-color:transparent}
      doesn't rot as pages are added. */
 }
 
-/* 5.1 — Bottom tab navigation (standalone + mobile web only). The desktop
-   top .nav is hidden entirely in this same breakpoint — the bottom nav +
-   its "Others" overflow sheet fully replace it there, so there's no
-   duplicated/wrapped nav clutter on small screens (see bottom_nav.html). */
-@media (display-mode: standalone), (max-width: 767px) {
+/* 5.1 — Bottom tab navigation (mobile web only). The desktop top .nav is
+   hidden entirely in this same breakpoint — the bottom nav + its "Others"
+   overflow sheet fully replace it there, so there's no duplicated/wrapped
+   nav clutter on small screens (see bottom_nav.html). */
+@media (max-width: 767px) {
   .nav{display:none}
 }
 /* Safety net: force these overlays closed at desktop widths, in case one
@@ -440,7 +440,7 @@ html{-webkit-tap-highlight-color:transparent}
   border-top:1px solid var(--border-subtle);
   padding-bottom:env(safe-area-inset-bottom);
 }
-@media (display-mode: standalone), (max-width: 767px) {
+@media (max-width: 767px) {
   .bottom-nav{display:flex}
 }
 .bottom-nav-inner{display:flex;width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -477,7 +477,7 @@ html{-webkit-tap-highlight-color:transparent}
 .bottom-nav a.active{color:var(--color-primary)}
 html.light .bottom-nav{box-shadow:0 -1px 2px rgba(0,0,0,0.08)}
 
-/* Mobile/standalone-only top bar: branding (left) + notifications/mute/
+/* Mobile-web-only top bar: branding (left) + notifications/mute/
    account (right). Replaces the desktop .nav's branding+controls there,
    since .nav is hidden at this breakpoint (see above). */
 .mobile-topbar{
@@ -491,7 +491,7 @@ html.light .bottom-nav{box-shadow:0 -1px 2px rgba(0,0,0,0.08)}
   padding:10px 14px;
   padding-top:calc(10px + env(safe-area-inset-top));
 }
-@media (display-mode: standalone), (max-width: 767px) {
+@media (max-width: 767px) {
   .mobile-topbar{display:flex}
 }
 .mt-logo{font-size:16px;font-weight:700;color:var(--text-strong);letter-spacing:-0.3px}

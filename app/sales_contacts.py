@@ -252,8 +252,7 @@ def contacts_queue(
 
     # PWA-installed sessions get the mobile-redesigned "Priority Feed" (design
     # section 4a); desktop keeps contacts_queue.html — see tickets_list() /
-    # checklists_list() in app/main.py for the same pwa_ui-cookie pattern.
-    template_name = "sales/contacts_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/contacts_queue.html"
+    template_name = "sales/contacts_queue.html"
 
     return templates.TemplateResponse(request, template_name, _ctx(
         db, user,
@@ -847,7 +846,7 @@ def contact_detail(
 
     # PWA-installed sessions get the mobile-redesigned "record view" (design
     # section 5a); desktop keeps contact_detail.html.
-    template_name = "sales/contact_detail_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/contact_detail.html"
+    template_name = "sales/contact_detail.html"
 
     return templates.TemplateResponse(request, template_name, _ctx(
         db, user,

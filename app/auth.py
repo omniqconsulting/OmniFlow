@@ -1,4 +1,5 @@
 import json as _json
+import os
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
@@ -7,7 +8,9 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from .database import get_db, User, Tenant
 
-SECRET_KEY = "omniflow-secret-key-change-in-production-32chars"
+# Falls back to the same dev-only value as before if SECRET_KEY isn't set —
+# no behavior change locally, but production should always set a real one.
+SECRET_KEY = os.environ.get("SECRET_KEY", "omniflow-secret-key-change-in-production-32chars")
 ALGORITHM = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

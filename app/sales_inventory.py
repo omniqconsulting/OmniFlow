@@ -510,7 +510,7 @@ def inventory_dashboard(
     filter_params = [(k, v) for k, v in request.query_params.multi_items() if k != "page"]
     page_qs = urlencode(filter_params)
 
-    template_name = "inventory_v2/dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/dashboard.html"
+    template_name = "inventory_v2/dashboard.html"
     return templates.TemplateResponse(request, template_name, _ctx(
         db, user,
         stock_rows=stock_rows,
@@ -839,7 +839,7 @@ def po_list(
         PurchaseRequest.tenant_id == user.tenant_id, PurchaseRequest.status == "PENDING",
     ).order_by(PurchaseRequest.created_at.asc()).all()
 
-    po_template_name = "inventory_v2/po_list_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/po_list.html"
+    po_template_name = "inventory_v2/po_list.html"
     return templates.TemplateResponse(request, po_template_name, _ctx(
         db, user, pos=pos, variants=variants, vendors=vendors, units=units,
         purchase_requests=purchase_requests,
@@ -1578,7 +1578,7 @@ def dispatch_queue(
             pass
     dispatched_orders = dq.order_by(SalesOrder.dispatched_at.desc().nullslast()).limit(100).all()
 
-    dq_template_name = "inventory_v2/dispatch_queue_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/dispatch_queue.html"
+    dq_template_name = "inventory_v2/dispatch_queue.html"
     return templates.TemplateResponse(request, dq_template_name, _ctx(
         db, user, rows=rows, dispatched_orders=dispatched_orders, branches=branches, demand_projection=demand_projection,
         order_no=order_no, customer=customer, sku=sku,

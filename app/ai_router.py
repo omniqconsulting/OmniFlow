@@ -405,7 +405,7 @@ def ai_home(request: Request,
     usage_row = _get_today_usage(db, user.tenant_id)
     ai_limit = _get_ai_limit(tenant) if tenant else 20
     sections = _active_sections(db, user.tenant_id)
-    template_name = "ai/ask_mobile.html" if request.cookies.get("pwa_ui") == "1" else "ai/ask.html"
+    template_name = "ai/ask.html"
     return templates.TemplateResponse(request, template_name, _ctx(
         request, user, db,
         api_configured=api_configured,

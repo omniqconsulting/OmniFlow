@@ -380,7 +380,7 @@ def orders_list(
         kpi_base = kpi_base.filter(SalesOrder.agent_id.in_(agent_id))
     status_counts = {s: kpi_base.filter(SalesOrder.status == s).count() for s in STATUS_CHOICES}
 
-    list_template_name = "sales/orders_list_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/orders_list.html"
+    list_template_name = "sales/orders_list.html"
     return templates.TemplateResponse(request, list_template_name, _ctx(
         db, user,
         orders=orders, total=total, page=page, page_size=PAGE_SIZE,
@@ -447,7 +447,7 @@ def order_new_form(
         SubCategory.tenant_id == user.tenant_id, SubCategory.is_active == True, SubCategory.is_deleted == False,
     ).order_by(SubCategory.name).all()
 
-    new_template_name = "sales/orders_new_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/order_builder.html"
+    new_template_name = "sales/order_builder.html"
     return templates.TemplateResponse(request, new_template_name, _ctx(
         db, user, customer=customer, customers=customers, call_log_id=call_log_id, products=products,
         agents=_sales_agents(db, user.tenant_id), branches=_active_branches(db, user.tenant_id),
@@ -703,7 +703,7 @@ def order_detail(
     )
     products = [p for p in products if any(v.is_active and not v.is_deleted for v in p.variants)]
 
-    detail_template_name = "sales/order_detail_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/order_detail.html"
+    detail_template_name = "sales/order_detail.html"
     return templates.TemplateResponse(request, detail_template_name, _ctx(
         db, user, order=order, products=products,
         can_edit=(order.status == "DRAFT" and _can_view_order(user, order)),

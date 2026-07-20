@@ -314,7 +314,7 @@ def catalog_list(
         tiers = {v.product_tier for v in live_variants_by_product[p.id]}
         tier_display_by_product[p.id] = tiers.pop() if len(tiers) == 1 else ("Mixed" if tiers else "UNRANKED")
 
-    cat_template_name = "sales/catalog_list_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/catalog_list.html"
+    cat_template_name = "sales/catalog_list.html"
     return templates.TemplateResponse(request, cat_template_name, _ctx(
         db, user,
         products=products, total=total, page=page, page_size=PAGE_SIZE, view=view if view in ("grid", "list") else "grid",
