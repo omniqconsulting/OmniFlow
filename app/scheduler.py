@@ -839,15 +839,18 @@ def delegation_tat_monitor():
                     already = db.query(TicketEvent).filter(
                         TicketEvent.ticket_id == ticket.id,
                         TicketEvent.event_type == 'TAT_ALERT',
-                        TicketEvent.notes.like(f'%{tat_tag}%'),
+                        TicketEvent.detail.like(f'%{tat_tag}%'),
                     ).first()
                     if already:
                         continue
-                    # Log audit event
+                    # Log audit event. TicketEvent.actor_id is NOT NULL and this
+                    # is a system-generated event — attribute it to the ticket
+                    # creator (always set) rather than the assignee (nullable).
                     db.add(TicketEvent(
                         ticket_id=ticket.id,
+                        actor_id=ticket.created_by_id,
                         event_type='TAT_ALERT',
-                        notes=f'TaT alert at {threshold_pct}% threshold ({pct_elapsed:.0f}% elapsed) {tat_tag}',
+                        detail=f'TaT alert at {threshold_pct}% threshold ({pct_elapsed:.0f}% elapsed) {tat_tag}',
                     ))
                     for uid in set(audience_ids):
                         if not uid:
