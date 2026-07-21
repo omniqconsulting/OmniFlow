@@ -4,6 +4,8 @@
 // fixed. Only screens in BUILT_SCREENS actually exist today; everything else
 // taps through to a "not built yet" notice instead of a dead/blank screen.
 
+import { getIstHour } from "../utils/dateFormat";
+
 export type NavCategory = "op" | "crm" | "sales" | "org" | "setup";
 
 export const CATEGORY_COLOR: Record<NavCategory, { bg: string; fg: string }> = {
@@ -86,10 +88,37 @@ export const GREETING_SUB: Record<string, string> = {
 export const BUILT_SCREENS: Partial<Record<NavId, keyof import("../navigation/AuthNavigator").AuthStackParamList>> = {
   home: "Home",
   attendance: "Attendance",
+  tickets: "Tickets",
+  setup: "Setup",
 };
 
+// Maps each nav destination to the Setup > Access Control tab key
+// (app/constants.py TAB_CATALOG) that gates it, mirroring the website's own
+// nav. Destinations not in this map (home, tasks/My Tasks, org, setup,
+// askai) aren't feature-gated on the backend either, so they're never
+// hidden by enabled_tabs.
+const NAV_TAB_KEY: Partial<Record<NavId, string>> = {
+  tickets: "TICKETS",
+  checklists: "CHECKLISTS",
+  fms: "FMS",
+  training: "KNOWLEDGE",
+  inventory: "INVENTORY",
+  customers: "SALES",
+  sell: "SALES",
+  attendance: "ATTENDANCE",
+};
+
+// True if this nav destination should be shown at all, per the tenant's
+// Setup-configured enabled_tabs (GET /api/v1/home). Ungated destinations
+// (see NAV_TAB_KEY above) are always shown.
+export function isNavEnabled(navId: NavId, enabledTabs: string[]): boolean {
+  const tabKey = NAV_TAB_KEY[navId];
+  if (!tabKey) return true;
+  return enabledTabs.includes(tabKey);
+}
+
 export function timeOfDayGreeting(): string {
-  const h = new Date().getHours();
+  const h = getIstHour();
   if (h < 12) return "Good morning";
   if (h < 17) return "Good afternoon";
   return "Good evening";

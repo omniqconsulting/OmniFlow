@@ -168,7 +168,7 @@
       <div class="form-group">
         <label class="form-label">Due Date & Time</label>
         <input type="datetime-local" name="due_at" class="form-input"
-               value="{{ ticket.due_at.strftime('%Y-%m-%dT%H:%M') if ticket.due_at else '' }}">
+               value="{{ ticket.due_at | ist('%Y-%m-%dT%H:%M') if ticket.due_at else '' }}">
       </div>
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);margin-bottom:14px;cursor:pointer">

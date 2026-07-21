@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Easing,
   KeyboardAvoidingView,
@@ -14,10 +15,13 @@ import {
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { ApiError } from "../api/client";
 import { login } from "../api/auth";
+import { getRememberedLogin, setRememberedLogin } from "../api/rememberedLogin";
+import { consumePendingPushTarget, registerForPushNotificationsAsync } from "../notifications/push";
 import type { AuthStackParamList } from "../navigation/AuthNavigator";
 
 const NAVY = "#0B1120";
@@ -46,6 +50,15 @@ export default function LoginScreen({ navigation }: Props) {
     if (stage !== "splash") return;
     setStage("form");
   };
+
+  useEffect(() => {
+    getRememberedLogin().then((remembered) => {
+      if (remembered) {
+        setSlug(remembered.slug);
+        setPhone(remembered.phone);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(advanceToForm, SPLASH_MS);
@@ -90,7 +103,44 @@ export default function LoginScreen({ navigation }: Props) {
     setLoading(true);
     try {
       const trimmedSlug = slug.trim();
-      const res = await login({ slug: trimmedSlug, phone: phone.trim(), password });
+      const trimmedPhone = phone.trim();
+      const res = await login({ slug: trimmedSlug, phone: trimmedPhone, password });
+
+      const remembered = await getRememberedLogin();
+      const alreadyRemembered = remembered?.slug === trimmedSlug && remembered?.phone === trimmedPhone;
+      if (!alreadyRemembered) {
+        await new Promise<void>((resolve) => {
+          Alert.alert(
+            "Save your details?",
+            "Remember your Factory ID and phone number on this device for next time? Your password itself is never stored by the app — save it in your device's password manager if prompted separately.",
+            [
+              { text: "Not now", style: "cancel", onPress: () => resolve() },
+              {
+                text: "Save",
+                onPress: async () => {
+                  await setRememberedLogin(trimmedSlug, trimmedPhone);
+                  resolve();
+                },
+              },
+            ],
+          );
+        });
+      }
+
+      // Fire-and-forget — never let push setup delay or block getting into
+      // the app; registerForPushNotificationsAsync is itself best-effort and
+      // only ever prompts for OS permission once (see push.ts).
+      registerForPushNotificationsAsync();
+
+      // If a push notification tap is what launched the (previously killed)
+      // app, jump straight to what it pointed at instead of Home.
+      const pending = consumePendingPushTarget();
+      if (pending?.link_type === "ticket" && pending.link_id) {
+        navigation.replace("Home", { user: res.user, slug: trimmedSlug });
+        navigation.navigate("TicketDetail", { user: res.user, ticketId: pending.link_id });
+        return;
+      }
+
       navigation.replace("Home", { user: res.user, slug: trimmedSlug });
     } catch (e) {
       if (e instanceof ApiError) {
@@ -182,6 +232,8 @@ export default function LoginScreen({ navigation }: Props) {
                 keyboardType="phone-pad"
                 autoCapitalize="none"
                 autoCorrect={false}
+                textContentType="username"
+                autoComplete="username"
                 value={phone}
                 onChangeText={setPhone}
                 editable={!loading}
@@ -196,12 +248,18 @@ export default function LoginScreen({ navigation }: Props) {
                   placeholder="••••••••"
                   placeholderTextColor="#64748b"
                   secureTextEntry={!showPassword}
+                  textContentType="password"
+                  autoComplete="password"
                   value={password}
                   onChangeText={setPassword}
                   editable={!loading}
                 />
-                <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((v) => !v)}>
-                  <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁"}</Text>
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  onPress={() => setShowPassword((v) => !v)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={19} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -386,9 +444,6 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
-  },
-  eyeIcon: {
-    fontSize: 16,
   },
   error: {
     color: "#f87185",

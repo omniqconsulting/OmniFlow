@@ -48,3 +48,14 @@ def register_device(request: Request, body: DeviceRegisterRequest, user: User = 
     db.add(row)
     db.commit()
     return DeviceRegisterOut(device_id=row.device_id, platform=row.platform, last_seen_at=row.last_seen_at)
+
+
+@router.delete("/{device_id}", status_code=204)
+def unregister_device(device_id: str, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
+    """Called on logout so a signed-out device stops receiving this user's
+    pushes — mirrors push.py's Web Push /push/unsubscribe."""
+    db.query(DeviceToken).filter(
+        DeviceToken.tenant_id == user.tenant_id, DeviceToken.user_id == user.id, DeviceToken.device_id == device_id,
+    ).delete()
+    db.commit()
+    return None

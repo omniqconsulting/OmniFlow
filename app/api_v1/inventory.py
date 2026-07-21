@@ -6,11 +6,12 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from ..database import PurchaseRequest, User, get_db
+from .features import require_feature
 from .pagination import paginate_cursor
 from .schemas import Page
 from .security import get_current_api_user
 
-router = APIRouter(prefix="/inventory", tags=["Inventory"])
+router = APIRouter(prefix="/inventory", tags=["Inventory"], dependencies=[Depends(require_feature("INVENTORY_MODULE"))])
 
 
 class PurchaseRequestOut(BaseModel):

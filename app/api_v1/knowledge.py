@@ -6,11 +6,12 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from ..database import KnowledgeItem, User, get_db
+from .features import require_feature
 from .pagination import paginate_cursor
 from .schemas import Page
 from .security import get_current_api_user
 
-router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
+router = APIRouter(prefix="/knowledge", tags=["Knowledge"], dependencies=[Depends(require_feature("KNOWLEDGE_REPO"))])
 
 
 class KnowledgeItemOut(BaseModel):

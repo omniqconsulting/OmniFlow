@@ -111,6 +111,71 @@ def unsubscribe(
     return JSONResponse({"ok": True})
 
 
+EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+_EXPO_BATCH_SIZE = 100  # Expo's documented max messages per request
+
+
+def send_expo_push_for_user(db: Session, user_id: str, title: str, body: str = "", link: str = ""):
+    """
+    Native app push — fourth, additive notification channel (in-app row +
+    Web Push above + WhatsApp elsewhere). Fans out to every device this user
+    has registered (see api_v1/devices.py DeviceRegister), via Expo's push
+    API rather than talking to APNs/FCM directly — Expo brokers that for us.
+
+    Never raises back into the caller, same contract as send_push_for_user:
+    a push failure must not break in-app notification creation.
+    """
+    import httpx
+    from .database import DeviceToken
+    from .notifications import resolve_notification_link
+
+    tokens = db.query(DeviceToken).filter(DeviceToken.user_id == user_id).all()
+    if not tokens:
+        return
+
+    link_type, link_id = resolve_notification_link(link)
+    messages = [
+        {
+            "to": t.expo_push_token,
+            "title": title,
+            "body": body,
+            "sound": "default",
+            "data": {"link": link, "link_type": link_type, "link_id": link_id},
+        }
+        for t in tokens
+    ]
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            for i in range(0, len(messages), _EXPO_BATCH_SIZE):
+                batch = messages[i:i + _EXPO_BATCH_SIZE]
+                resp = client.post(EXPO_PUSH_URL, json=batch, headers={
+                    "Accept": "application/json", "Content-Type": "application/json",
+                })
+                if resp.status_code != 200:
+                    logger.warning("Expo push batch failed for user %s: HTTP %s", user_id, resp.status_code)
+                    continue
+                _handle_expo_tickets(db, tokens[i:i + _EXPO_BATCH_SIZE], resp.json().get("data", []))
+    except httpx.TimeoutException:
+        logger.warning("Expo push timed out for user %s", user_id)
+    except Exception:
+        logger.warning("Expo push failed for user %s", user_id, exc_info=True)
+
+
+def _handle_expo_tickets(db: Session, tokens_in_batch, tickets: list):
+    """Expo returns one delivery ticket per message, same order as sent.
+    DeviceNotRegistered means the token is dead (app uninstalled, etc.) —
+    same cleanup-on-410 pattern as send_push_for_user's WebPushException
+    handling above."""
+    changed = False
+    for token_row, ticket in zip(tokens_in_batch, tickets):
+        if ticket.get("status") == "error" and ticket.get("details", {}).get("error") == "DeviceNotRegistered":
+            db.delete(token_row)
+            changed = True
+    if changed:
+        db.commit()
+
+
 def send_push_for_user(db: Session, user_id: str, title: str, body: str = "", link: str = ""):
     """
     Best-effort Web Push fan-out to every device subscription for a user.

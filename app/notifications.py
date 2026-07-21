@@ -74,6 +74,24 @@ def business_hours_elapsed(tenant, start_dt, end_dt):
     return elapsed
 
 
+def parse_ist_datetime_local(value: str) -> datetime:
+    """Parses an HTML <input type="datetime-local"> submitted value.
+
+    That input type is always a naive wall-clock string with no timezone
+    info — the browser just shows whatever the OS clock says. Every due_at
+    field fed by one of these inputs (ticket create/edit/reschedule,
+    checklist assign/edit) was previously stored via a bare
+    datetime.fromisoformat(), which silently treated the admin's IST input
+    as if it were UTC — due dates ended up 5.5 hours off from what was
+    actually typed. This converts the IST wall-clock value the admin
+    intended into the naive UTC the rest of the codebase stores
+    (see add_business_hours below for the same naive-UTC convention)."""
+    import pytz
+    naive = datetime.fromisoformat(value)
+    ist = pytz.timezone("Asia/Kolkata")
+    return ist.localize(naive).astimezone(pytz.utc).replace(tzinfo=None)
+
+
 def add_business_hours(tenant, start_dt, hours):
     """Forward counterpart to business_hours_elapsed: return the datetime
     that is `hours` of business hours after start_dt, respecting the
@@ -138,6 +156,21 @@ from .ws_manager import (
 )
 
 
+def resolve_notification_link(link: str) -> tuple:
+    """Only '/tickets/{id}' deep-links today — it's the one destination
+    (TicketDetailScreen) that exists natively. Everything else (FMS
+    dashboard, inventory, sales orders, checklists) has no native screen
+    yet, so it resolves to ('none', None) and the app just marks it read
+    instead of dead-ending on a blank screen. Shared by the in-app list
+    (api_v1/notifications.py) and native push payloads (push.py) so a
+    tapped push opens the same place tapping the in-app row would."""
+    if link and link.startswith("/tickets/"):
+        ticket_id = link[len("/tickets/"):].split("?")[0]
+        if ticket_id:
+            return "ticket", ticket_id
+    return "none", None
+
+
 def create_notification(db, tenant_id: str, user_id: str,
                          notif_type: str, title: str,
                          body: str = "", link: str = ""):
@@ -166,6 +199,13 @@ def create_notification(db, tenant_id: str, user_id: str,
         send_push_for_user(db, user_id, title, body, link)
     except Exception:
         logger.warning("Web push send skipped for user %s", user_id, exc_info=True)
+    # Native app push — fourth, additive channel (lock-screen/background
+    # delivery for the mobile app; see push.py send_expo_push_for_user).
+    try:
+        from .push import send_expo_push_for_user
+        send_expo_push_for_user(db, user_id, title, body, link)
+    except Exception:
+        logger.warning("Expo push send skipped for user %s", user_id, exc_info=True)
 
 
 _OPTED_IN_STATUSES = ("OPTED_IN", "MANUALLY_VERIFIED")

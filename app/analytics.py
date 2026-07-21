@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_ as _or
 from .database import Ticket, ChecklistAssignment, ChecklistTemplate, User, Department, Tenant
 from .constants import FMS_INACTIVE_STATUSES
+from .templates_env import _to_ist
 
 
 def _resolve_filter_uids(db, tenant_id, dept_ids=None, manager_ids=None):
@@ -270,7 +271,7 @@ def get_delegation_scorecards(db: Session, tenant_id: str,
         "due_24h_tickets": [
             {"id": t.id, "title": t.title,
              "assignee": t.current_assignee.name if t.current_assignee else "—",
-             "due_at": t.due_at.strftime("%d %b, %H:%M") if t.due_at else "—",
+             "due_at": _to_ist(t.due_at, "%d %b, %H:%M") if t.due_at else "—",
              "priority": t.priority}
             for t in sorted(due_24h, key=lambda x: x.due_at or datetime.max)
         ],
@@ -450,7 +451,7 @@ def get_checklist_scorecards(db: Session, tenant_id: str, date_from: str = None,
         "due_24h_items": [
             {"title": a.template.title if a.template else "—",
              "assignee": a.user.name if a.user else "—",
-             "due_at": a.due_at.strftime("%d %b, %H:%M") if a.due_at else "—"}
+             "due_at": _to_ist(a.due_at, "%d %b, %H:%M") if a.due_at else "—"}
             for a in sorted(due_24h, key=lambda x: x.due_at or datetime.max)
         ],
     }
@@ -557,7 +558,7 @@ def get_fms_scorecards(db: Session, tenant_id: str, date_from: str = None, date_
              "flow": t.flow.name if t.flow else "—",
              "stage": t.current_stage.name if t.current_stage else "—",
              "assignee": t.current_assignee.name if t.current_assignee else "—",
-             "due_at": t.due_at.strftime("%d %b, %H:%M") if t.due_at else "—",
+             "due_at": _to_ist(t.due_at, "%d %b, %H:%M") if t.due_at else "—",
              "priority": t.priority}
             for t in sorted(due_24h, key=lambda x: x.due_at or datetime.max)
         ],

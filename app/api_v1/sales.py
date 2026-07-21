@@ -6,11 +6,12 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from ..database import Customer, Product, SalesOrder, User, get_db
+from .features import require_feature
 from .pagination import paginate_cursor
 from .schemas import Page
 from .security import get_current_api_user
 
-router = APIRouter(prefix="/sales", tags=["Sales"])
+router = APIRouter(prefix="/sales", tags=["Sales"], dependencies=[Depends(require_feature("SALES_MODULE"))])
 
 
 class SalesOrderOut(BaseModel):

@@ -36,6 +36,7 @@ from .notifications import (
     notify_ticket_flagged, notify_ticket_help_requested,
     notify_checklist_completed,
     notify_checklist_assigned,
+    parse_ist_datetime_local,
 )
 from .ws_manager import (
     manager as ws_manager, set_main_loop, broadcast_sync,
@@ -2005,7 +2006,7 @@ async def create_ticket(
         tenant_id=user.tenant_id, title=title, description=description,
         priority=priority, created_by_id=user.id,
         current_assignee_id=assignee_id,
-        due_at=datetime.fromisoformat(due_at),
+        due_at=parse_ist_datetime_local(due_at),
         ticket_type="D",
     )
     if hasattr(ticket, "evidence_required"):
@@ -2344,7 +2345,7 @@ def ticket_edit(ticket_id: str, title: str = Form(...), description: str = Form(
     ticket.priority = priority
     ticket.current_assignee_id = assignee_id
     try:
-        ticket.due_at = datetime.fromisoformat(due_at)
+        ticket.due_at = parse_ist_datetime_local(due_at)
     except Exception:
         pass
     if hasattr(ticket, "evidence_required"):
@@ -2373,7 +2374,7 @@ def ticket_reschedule(ticket_id: str, due_at: str = Form(...), comment: str = Fo
     if not ticket:
         raise HTTPException(404)
     try:
-        new_due = datetime.fromisoformat(due_at)
+        new_due = parse_ist_datetime_local(due_at)
     except Exception:
         raise HTTPException(400, "Invalid due date")
     old_due = ticket.due_at
@@ -3255,7 +3256,7 @@ def assign_checklist(template_id: str, due_at: str = Form(...),
             User.role == tmpl.assigned_to_role,
             User.is_active == True, User.is_deleted == False).all()
 
-    due = datetime.fromisoformat(due_at)
+    due = parse_ist_datetime_local(due_at)
     new_assignments = []
     for u in target_users:
         a = ChecklistAssignment(
@@ -3939,7 +3940,7 @@ def edit_checklist_assignment(
     ).first()
     if not a:
         raise HTTPException(404, "Assignment not found or already started")
-    a.due_at = datetime.fromisoformat(due_at)
+    a.due_at = parse_ist_datetime_local(due_at)
     db.commit()
     return redirect("/checklists")
 

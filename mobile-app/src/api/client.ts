@@ -1,6 +1,6 @@
 import { clearTokens, getAccessToken, getRefreshToken, storeTokens } from "./tokenStorage";
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
   status: number;
@@ -45,6 +45,46 @@ async function refreshAccessToken(): Promise<string | null> {
   return token;
 }
 
+async function withAuthAndRetry(
+  doFetch: (accessToken: string | null) => Promise<Response>,
+  auth: boolean,
+): Promise<Response> {
+  let accessToken = auth ? await getAccessToken() : null;
+  let res: Response;
+  try {
+    res = await doFetch(accessToken);
+  } catch {
+    throw new ApiError(0, "Network error — check your connection and try again.");
+  }
+
+  if (res.status === 401 && auth) {
+    accessToken = await refreshAccessToken();
+    if (accessToken) {
+      try {
+        res = await doFetch(accessToken);
+      } catch {
+        throw new ApiError(0, "Network error — check your connection and try again.");
+      }
+    }
+  }
+  return res;
+}
+
+async function parseOrThrow<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`;
+    try {
+      const errBody = await res.json();
+      if (typeof errBody?.detail === "string") detail = errBody.detail;
+    } catch {
+      // non-JSON error body, keep default detail
+    }
+    throw new ApiError(res.status, detail);
+  }
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}
+
 type RequestOptions = {
   method?: string;
   body?: unknown;
@@ -64,36 +104,20 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     });
   };
 
-  let accessToken = auth ? await getAccessToken() : null;
-  let res: Response;
-  try {
-    res = await doFetch(accessToken);
-  } catch {
-    throw new ApiError(0, "Network error — check your connection and try again.");
-  }
+  const res = await withAuthAndRetry(doFetch, auth);
+  return parseOrThrow<T>(res);
+}
 
-  if (res.status === 401 && auth) {
-    accessToken = await refreshAccessToken();
-    if (accessToken) {
-      try {
-        res = await doFetch(accessToken);
-      } catch {
-        throw new ApiError(0, "Network error — check your connection and try again.");
-      }
-    }
-  }
+// Multipart upload — used for punch-in/out (photo) and ticket/checklist
+// attachments. Do not set Content-Type manually: fetch computes the
+// multipart boundary itself from the FormData body.
+export async function apiUpload<T>(path: string, formData: FormData, method = "POST"): Promise<T> {
+  const doFetch = async (accessToken: string | null) => {
+    const headers: Record<string, string> = {};
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+    return fetch(`${API_BASE_URL}${path}`, { method, headers, body: formData });
+  };
 
-  if (!res.ok) {
-    let detail = `Request failed (${res.status})`;
-    try {
-      const errBody = await res.json();
-      if (typeof errBody?.detail === "string") detail = errBody.detail;
-    } catch {
-      // non-JSON error body, keep default detail
-    }
-    throw new ApiError(res.status, detail);
-  }
-
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  const res = await withAuthAndRetry(doFetch, true);
+  return parseOrThrow<T>(res);
 }

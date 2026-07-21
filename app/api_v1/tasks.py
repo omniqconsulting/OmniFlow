@@ -2,13 +2,14 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 
 from ..database import ChecklistAssignment, MediaUpload, Ticket, User, get_db
 from ..notifications import notify_checklist_completed
 from ..uploads import save_upload
 from ..ws_manager import CHECKLIST_COMPLETED, broadcast_sync
+from .features import require_feature
 from .security import get_current_api_user, limiter
 
 router = APIRouter(tags=["My Tasks / Checklists"])
@@ -49,6 +50,13 @@ class ChecklistAssignmentOut(BaseModel):
     delay_reason: Optional[str]
     is_flagged: bool
 
+    @field_validator("is_flagged", mode="before")
+    @classmethod
+    def _coerce_is_flagged(cls, v):
+        # Some existing rows have is_flagged=NULL in the DB; treat as False
+        # rather than 500ing on response serialization.
+        return bool(v)
+
 
 class CompleteChecklistRequest(BaseModel):
     delay_reason: Optional[str] = ""
@@ -68,7 +76,7 @@ def my_tasks(user: User = Depends(get_current_api_user), db: Session = Depends(g
         Ticket.status == "OPEN", Ticket.is_deleted == False,
     ).order_by(Ticket.due_at.asc().nullslast()).all()
     for t in tickets:
-        items.append(MyTaskItem(kind="ticket", id=t.id, title=t.title, status=t.status, due_at=t.due_at, is_flagged=t.is_flagged))
+        items.append(MyTaskItem(kind="ticket", id=t.id, title=t.title, status=t.status, due_at=t.due_at, is_flagged=bool(t.is_flagged)))
 
     assignments = db.query(ChecklistAssignment).filter(
         ChecklistAssignment.tenant_id == user.tenant_id, ChecklistAssignment.user_id == user.id,
@@ -76,14 +84,14 @@ def my_tasks(user: User = Depends(get_current_api_user), db: Session = Depends(g
     ).order_by(ChecklistAssignment.due_at.asc()).all()
     for a in assignments:
         title = a.template.title if a.template else "Checklist"
-        items.append(MyTaskItem(kind="checklist", id=a.id, title=title, status=a.status, due_at=a.due_at, is_flagged=a.is_flagged))
+        items.append(MyTaskItem(kind="checklist", id=a.id, title=title, status=a.status, due_at=a.due_at, is_flagged=bool(a.is_flagged)))
 
     items.sort(key=lambda i: i.due_at or datetime.max)
     return items
 
 
 @router.get("/checklists/{assignment_id}", response_model=ChecklistAssignmentOut)
-def get_checklist_assignment(assignment_id: str, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
+def get_checklist_assignment(assignment_id: str, user: User = Depends(require_feature("CHECKLISTS")), db: Session = Depends(get_db)):
     a = _scoped_assignment_query(db, user, assignment_id).first()
     if not a:
         raise HTTPException(status_code=404, detail="Checklist assignment not found")
@@ -91,7 +99,7 @@ def get_checklist_assignment(assignment_id: str, user: User = Depends(get_curren
 
 
 @router.post("/checklists/{assignment_id}/ack", response_model=ChecklistAssignmentOut)
-def start_checklist_assignment(assignment_id: str, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
+def start_checklist_assignment(assignment_id: str, user: User = Depends(require_feature("CHECKLISTS")), db: Session = Depends(get_db)):
     """PENDING -> IN_PROGRESS."""
     a = _scoped_assignment_query(db, user, assignment_id).first()
     if not a:
@@ -104,7 +112,7 @@ def start_checklist_assignment(assignment_id: str, user: User = Depends(get_curr
 
 
 @router.post("/checklists/{assignment_id}/complete", response_model=ChecklistAssignmentOut)
-def complete_checklist_assignment(assignment_id: str, body: CompleteChecklistRequest, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
+def complete_checklist_assignment(assignment_id: str, body: CompleteChecklistRequest, user: User = Depends(require_feature("CHECKLISTS")), db: Session = Depends(get_db)):
     """Evidence upload isn't part of this API pass (deferred to a dedicated
     media-upload endpoint) — assignments with evidence_required still get
     marked DONE here, same as the delay-reason gate below; wiring the actual
@@ -160,7 +168,7 @@ class EvidenceOut(BaseModel):
 @router.post("/tasks/{task_id}/evidence", response_model=EvidenceOut)
 @limiter.limit("30/minute")
 async def upload_checklist_evidence(request: Request, task_id: str, evidence_file: UploadFile = File(...),
-                                     user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
+                                     user: User = Depends(require_feature("CHECKLISTS")), db: Session = Depends(get_db)):
     """Phase 0.5-B: dedicated evidence-upload endpoint referenced in the
     complete_checklist_assignment docstring above. Same storage pattern as
     the desktop complete_checklist route (app/main.py) — save_upload ->

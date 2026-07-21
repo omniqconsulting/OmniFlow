@@ -150,6 +150,7 @@ def mark_overdue_checklists():
 def send_checklist_reminders():
     """Legacy per-assignment reminder — kept for overdue repeat alerts only."""
     from .database import SessionLocal, ChecklistAssignment, Notification
+    from .notifications import create_notification
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -166,14 +167,13 @@ def send_checklist_reminders():
             ).first()
             if not dup:
                 label = a.template.title if a.template else "Checklist"
-                db.add(Notification(
-                    tenant_id=a.tenant_id,
-                    user_id=a.user_id,
+                create_notification(
+                    db, tenant_id=a.tenant_id, user_id=a.user_id,
                     notif_type="CHECKLIST_OVERDUE",
                     title="⚠ Overdue checklist",
                     body=f'"{label}" is overdue. Please complete it now.',
                     link="/checklists",
-                ))
+                )
         db.commit()
     except Exception as e:
         logger.error("send_checklist_reminders error: %s", e)
@@ -185,6 +185,7 @@ def send_checklist_reminders():
 def escalate_unacknowledged_tickets():
     """Phase 0-D-5: alert admins/managers for tickets unacknowledged >2 hours."""
     from .database import SessionLocal, Ticket, Notification, User
+    from .notifications import create_notification
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -213,14 +214,13 @@ def escalate_unacknowledged_tickets():
                     Notification.link == f"/tickets/{ticket.id}",
                 ).first()
                 if not dup:
-                    db.add(Notification(
-                        tenant_id=ticket.tenant_id,
-                        user_id=u.id,
+                    create_notification(
+                        db, tenant_id=ticket.tenant_id, user_id=u.id,
                         notif_type="TICKET_ESCALATION",
                         title="⚠ Ticket not acknowledged",
                         body=f'"{ticket.title}" has been open for 2+ hours without acknowledgement.',
                         link=f"/tickets/{ticket.id}",
-                    ))
+                    )
         db.commit()
     except Exception as e:
         logger.error("escalate_unacknowledged_tickets error: %s", e)
@@ -235,6 +235,7 @@ def morning_ticket_summary():
     """P5-05: 8:00 AM daily — notify each user of their open/in-progress tickets due today or overdue."""
     from datetime import date as _date
     from .database import SessionLocal, Ticket, User, Notification
+    from .notifications import create_notification
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -265,13 +266,13 @@ def morning_ticket_summary():
             if not parts:
                 continue
             tenant_id = user_tickets[0].tenant_id
-            db.add(Notification(
-                tenant_id=tenant_id, user_id=uid,
+            create_notification(
+                db, tenant_id=tenant_id, user_id=uid,
                 notif_type="TICKET_REMINDER",
                 title="🌅 Morning ticket summary",
                 body=f"You have {', '.join(parts)} ticket(s) needing attention.",
                 link="/tickets?status=OPEN",
-            ))
+            )
         db.commit()
         logger.info("Morning ticket summary sent to %d users", len(by_user))
     except Exception as e:
@@ -323,6 +324,7 @@ def send_consolidated_checklist_notifications():
     checklists due today — not one per checklist."""
     from datetime import date as _date
     from .database import SessionLocal, Tenant, ChecklistAssignment, Notification
+    from .notifications import create_notification
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -390,14 +392,13 @@ def send_consolidated_checklist_notifications():
                 if len(titles) > 5:
                     body += f"\n… and {len(titles) - 5} more."
 
-                db.add(Notification(
-                    tenant_id=tenant.id,
-                    user_id=uid,
+                create_notification(
+                    db, tenant_id=tenant.id, user_id=uid,
                     notif_type="CHECKLIST_REMINDER",
                     title=f"{time_label} checklist reminder ({len(items)} due)",
                     body=body,
                     link="/checklists",
-                ))
+                )
 
                 # Pipeline 2A: WhatsApp for PENDING + IN_PROGRESS only (OVERDUE excluded)
                 wa_items = [a for a in items if a.status in ("PENDING", "IN_PROGRESS")]
@@ -628,6 +629,7 @@ def pms_no_entry_check():
     """Phase 3-A-4: At 21:00 UTC log NO_ENTRY for FMS tickets without today's PMS log."""
     from datetime import date as _date
     from .database import SessionLocal, FMSTicket, FMSStage, PMSDailyLog, User, Notification
+    from .notifications import create_notification
     db = SessionLocal()
     try:
         today = _date.today()
@@ -664,13 +666,13 @@ def pms_no_entry_check():
                     User.is_deleted == False,
                 ).all()
                 for mgr in managers:
-                    db.add(Notification(
-                        tenant_id=ticket.tenant_id, user_id=mgr.id,
+                    create_notification(
+                        db, tenant_id=ticket.tenant_id, user_id=mgr.id,
                         notif_type="TICKET_STATUS_CHANGED",
                         title="⚠ No PMS entry today",
                         body=f'"{ticket.title}" has no production log entry for today.',
                         link=f"/fms/tickets/{ticket.id}",
-                    ))
+                    )
         db.commit()
         logger.info("PMS no-entry check done for %d tickets", len(active))
     except Exception as e:
@@ -683,6 +685,7 @@ def pms_no_entry_check():
 def dispatch_pod_overdue_check():
     """Phase 3-B-6: Alert if POD not uploaded N days after expected delivery."""
     from .database import SessionLocal, DispatchRecord, FMSTicket, User, Notification
+    from .notifications import create_notification
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -712,14 +715,14 @@ def dispatch_pod_overdue_check():
                     User.is_deleted == False,
                 ).all()
                 for u in recipients:
-                    db.add(Notification(
-                        tenant_id=rec.tenant_id, user_id=u.id,
+                    create_notification(
+                        db, tenant_id=rec.tenant_id, user_id=u.id,
                         notif_type="TICKET_FLAGGED",
                         title="⚠ POD overdue",
                         body=(f'Dispatch for "{ticket.title}" expected '
                               f'{rec.expected_delivery.strftime("%d %b")} — no POD yet.'),
                         link=f"/submodules/dispatch/{rec.ticket_id}",
-                    ))
+                    )
         db.commit()
         logger.info("POD overdue check done, %d records flagged", len(pending_pods))
     except Exception as e:
@@ -733,6 +736,7 @@ def invoice_overdue_check():
     """Phase 3-C-5: Alert on overdue unpaid invoices."""
     from datetime import date as _date
     from .database import SessionLocal, InvoiceRecord, FMSTicket, User, Notification
+    from .notifications import create_notification
     db = SessionLocal()
     try:
         today = _date.today()
@@ -761,14 +765,14 @@ def invoice_overdue_check():
                     User.is_deleted == False,
                 ).all()
                 for u in recipients:
-                    db.add(Notification(
-                        tenant_id=inv.tenant_id, user_id=u.id,
+                    create_notification(
+                        db, tenant_id=inv.tenant_id, user_id=u.id,
                         notif_type="TICKET_FLAGGED",
                         title="⚠ Invoice overdue",
                         body=(f'Invoice {inv.invoice_number} for "{ticket.title}" '
                               f'was due {inv.due_date.strftime("%d %b")} — payment not received.'),
                         link=f"/submodules/invoice/{inv.ticket_id}",
-                    ))
+                    )
         db.commit()
         logger.info("Invoice overdue check done, %d overdue", len(overdue_inv))
     except Exception as e:
@@ -783,7 +787,7 @@ def invoice_overdue_check():
 def delegation_tat_monitor():
     """E-15: Every 30 min — notify manager at ticket_notif_tat_pct and ticket_notif_tat_pct_both of TaT elapsed."""
     from .database import SessionLocal, Tenant, Ticket, TicketEvent, User, Notification
-    from .notifications import business_hours_elapsed, send_whatsapp_for_ticket_tat_reminder
+    from .notifications import business_hours_elapsed, send_whatsapp_for_ticket_tat_reminder, create_notification
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -848,13 +852,13 @@ def delegation_tat_monitor():
                     for uid in set(audience_ids):
                         if not uid:
                             continue
-                        db.add(Notification(
-                            tenant_id=tenant.id, user_id=uid,
+                        create_notification(
+                            db, tenant_id=tenant.id, user_id=uid,
                             notif_type='TICKET_REMINDER',
                             title=f'⏱ TaT alert: {ticket.display_id or ticket.title}',
                             body=f'{pct_elapsed:.0f}% of allowed time used on this ticket.',
                             link=f'/tickets/{ticket.id}',
-                        ))
+                        )
                         recipient = db.query(User).filter(User.id == uid).first()
                         if recipient:
                             send_whatsapp_for_ticket_tat_reminder(
@@ -876,7 +880,7 @@ def fms_stage_tat_monitor():
     independently, at different stages, at different times, so a per-ticket
     check would only ever catch one of them."""
     from .database import SessionLocal, Tenant, FMSTicket, FMSTicketSplit, FMSStage, FMSStageHistory, User, Notification
-    from .notifications import business_hours_elapsed
+    from .notifications import business_hours_elapsed, create_notification
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -936,13 +940,13 @@ def fms_stage_tat_monitor():
                 manager = db.query(User).filter(User.id == assignee.manager_id).first() if assignee and assignee.manager_id else None
                 audience = list({u.id for u in admins} | ({manager.id} if manager else set()) | ({assignee.id} if assignee else set()))
                 for uid in audience:
-                    db.add(Notification(
-                        tenant_id=tenant.id, user_id=uid,
+                    create_notification(
+                        db, tenant_id=tenant.id, user_id=uid,
                         notif_type="TICKET_REMINDER",
                         title=f"⏱ Stage TaT alert: {ticket.title}{label_suffix}",
                         body=f"{pct_used:.0f}% of stage TaT used at '{stage.name}' stage. {stage_entry_tag}",
                         link=f"/fms/tickets/{ticket.id}",
-                    ))
+                    )
             db.commit()
     except Exception as e:
         logger.error("fms_stage_tat_monitor error: %s", e)
@@ -986,7 +990,7 @@ def fms_qty_discrepancy_monitor():
 def delegation_unacknowledged_monitor():
     """E-15: Every 30 min — notify manager if ticket OPEN with no activity for ticket_notif_unack_hours business hours."""
     from .database import SessionLocal, Tenant, Ticket, TicketEvent, User, Notification
-    from .notifications import business_hours_elapsed
+    from .notifications import business_hours_elapsed, create_notification
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -1032,13 +1036,13 @@ def delegation_unacknowledged_monitor():
                         Notification.link == f'/tickets/{ticket.id}',
                     ).first()
                     if not dup:
-                        db.add(Notification(
-                            tenant_id=tenant.id, user_id=uid,
+                        create_notification(
+                            db, tenant_id=tenant.id, user_id=uid,
                             notif_type='TICKET_ESCALATION',
                             title=f'⚠ No activity on {ticket.display_id or ticket.title}',
                             body=f'Ticket has had no activity for {unack_hours}+ business hours.',
                             link=f'/tickets/{ticket.id}',
-                        ))
+                        )
             db.commit()
     except Exception as e:
         logger.error("delegation_unacknowledged_monitor error: %s", e)

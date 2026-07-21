@@ -381,6 +381,14 @@ class Ticket(Base):
     comments = relationship("TicketComment", back_populates="ticket", order_by="TicketComment.created_at")
     events = relationship("TicketEvent", back_populates="ticket", order_by="TicketEvent.created_at")
     helpers = relationship("TicketAssignee", back_populates="ticket", foreign_keys="TicketAssignee.ticket_id")
+
+    @property
+    def assignee_name(self):
+        return self.current_assignee.name if self.current_assignee else None
+
+    @property
+    def created_by_name(self):
+        return self.created_by.name if self.created_by else None
     media = relationship("MediaUpload", primaryjoin="and_(MediaUpload.entity_type=='ticket', foreign(MediaUpload.entity_id)==Ticket.id)", viewonly=True)
     whatsapp_logs = relationship(
         "WhatsAppMessageLog",
@@ -403,6 +411,10 @@ class TicketAssignee(Base):
     user = relationship("User", foreign_keys=[user_id])
     added_by = relationship("User", foreign_keys=[added_by_id])
 
+    @property
+    def user_name(self):
+        return self.user.name if self.user else None
+
 class TicketComment(Base):
     __tablename__ = "ticket_comments"
     id = Column(String, primary_key=True, default=new_id)
@@ -413,6 +425,10 @@ class TicketComment(Base):
 
     ticket = relationship("Ticket", back_populates="comments")
     user = relationship("User")
+
+    @property
+    def user_name(self):
+        return self.user.name if self.user else None
 
 class TicketEvent(Base):
     __tablename__ = "ticket_events"
@@ -425,6 +441,10 @@ class TicketEvent(Base):
 
     ticket = relationship("Ticket", back_populates="events")
     actor = relationship("User")
+
+    @property
+    def actor_name(self):
+        return self.actor.name if self.actor else None
 
 class ChecklistTemplate(Base):
     __tablename__ = "checklist_templates"
@@ -2322,9 +2342,15 @@ class AttendanceRecord(Base):
     check_out_reason = Column(Text, nullable=True)     # required if check_out_in_fence is False
     photo_path = Column(String, nullable=True)         # captured once, on first punch of the day
     is_half_day = Column(Boolean, default=False)        # manual admin/manager override toggle
+    # Phase 0.7 — mobile "record on behalf" (a manager/admin physically with
+    # an employee captures their photo/GPS and submits it for them, e.g. no
+    # smartphone of their own). NULL means the employee punched themselves.
+    recorded_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    on_behalf_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     branch = relationship("Branch", foreign_keys=[branch_id])
+    recorded_by = relationship("User", foreign_keys=[recorded_by_id])
     __table_args__ = (UniqueConstraint("user_id", "work_date", name="uq_attendance_user_day"),)
 
 
