@@ -6,11 +6,19 @@ from fastapi import APIRouter
 from . import (
     auth, tickets, tasks, home, employees, attendance, fms, sales, inventory,
     knowledge, devices, setup, setup_reference, setup_config, notifications,
+    dashboard, checklists,
 )
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth.router)
 router.include_router(tickets.router)
+# checklists.router is registered before tasks.router: both define routes
+# under /checklists/*, and tasks.router's GET /checklists/{assignment_id}
+# is a single-segment param route that would otherwise swallow any
+# single-segment literal path (e.g. checklists.router's /checklists/filter-
+# options) registered after it — Starlette matches routes in registration
+# order, first full match wins, regardless of literal-vs-param specificity.
+router.include_router(checklists.router)
 router.include_router(tasks.router)
 router.include_router(home.router)
 router.include_router(employees.router)
@@ -30,3 +38,4 @@ router.include_router(setup_reference.uom_router)
 router.include_router(setup_reference.lists_router)
 router.include_router(setup_config.router)
 router.include_router(notifications.router)
+router.include_router(dashboard.router)

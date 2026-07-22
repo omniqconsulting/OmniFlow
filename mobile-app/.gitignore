@@ -34,6 +34,9 @@ yarn-error.*
 .env
 .env*.local
 
+# Firebase config — project-specific, not for source control
+google-services.json
+
 # typescript
 *.tsbuildinfo
 

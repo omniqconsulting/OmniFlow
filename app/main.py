@@ -1067,7 +1067,7 @@ def pending_approval(request: Request, user: User = Depends(get_current_user_or_
                                        "L": _L(db, user)})
 
 
-def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manager_ids=None, dept_name=None):
+def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manager_ids=None, dept_name=None, branch_ids=None):
     """Compute lightweight KPIs for the Summary dashboard view."""
     from datetime import date as _date, datetime as _dt
     try:
@@ -1088,6 +1088,12 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
             Department.tenant_id == tid, Department.name == dept_name,
             Department.is_deleted == False).all()]
     scoped_uids = _rfu(db, tid, _dept_ids or None, manager_ids or None)
+    if branch_ids:
+        _branch_uids = [u.id for u in db.query(User).filter(
+            User.tenant_id == tid, User.branch_id.in_(branch_ids),
+            User.is_deleted == False).all()]
+        scoped_uids = [uid for uid in scoped_uids if uid in _branch_uids] \
+            if scoped_uids is not None else _branch_uids
     if scoped_uids is not None:
         q = q.filter(Ticket.current_assignee_id.in_(scoped_uids))
 
@@ -1150,7 +1156,11 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
         fms_active = db.query(_FT).filter(
             _FT.tenant_id == tid, _FT.is_deleted == False,
             _FT.status.notin_(FMS_INACTIVE_STATUSES)).count()
-        fms_tat_breaches = 0  # expensive to compute inline; keep 0 for now
+        # TaT breach — active FMS tickets already past their due date.
+        fms_tat_breaches = db.query(_FT).filter(
+            _FT.tenant_id == tid, _FT.is_deleted == False,
+            _FT.status.notin_(FMS_INACTIVE_STATUSES),
+            _FT.due_at.isnot(None), _FT.due_at < _dt.utcnow()).count()
     except Exception:
         fms_active = fms_tat_breaches = 0
 
@@ -1417,7 +1427,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
                     active_preset = label
                     break
 
-            kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids, dept_name)
+            kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids, dept_name, [branch_id] if branch_id else None)
             dept_health= _calc_dept_health(db, tid, date_from, date_to)
 
             # ── Summary Performance Score (formula-driven) ────────────────────
@@ -1519,7 +1529,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
                       if (has_fms and expand_flow) else None
 
         # ── Overall Performance Score (formula-driven) ───────────────────────
-        _sk = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids)
+        _sk = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids, None, [branch_id] if branch_id else None)
         _fw = _get_active_formula(db, tid)
         _kv = {
             "ticket_on_time":       _sk.on_time_pct if _sk.total_count > 0 else None,

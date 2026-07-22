@@ -29,7 +29,8 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.RECORD_AUDIO"
       ],
-      "package": "com.omniqconsulting.omniflow"
+      "package": "com.omniqconsulting.omniflow",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"

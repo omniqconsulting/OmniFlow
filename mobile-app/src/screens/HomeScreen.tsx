@@ -103,10 +103,14 @@ export default function HomeScreen({ navigation, route }: Props) {
       Alert.alert("Coming soon", `${NAV_DEF[navId].label} isn't built in the app yet.`);
       return;
     }
-    if (screen === "Home") return; // already here
-    if (screen === "Attendance") navigation.navigate("Attendance", { user });
-    if (screen === "Tickets") navigation.navigate("Tickets", { user });
-    if (screen === "Setup") navigation.navigate("Setup", { user });
+    const navigators: Partial<Record<keyof AuthStackParamList, () => void>> = {
+      Attendance: () => navigation.navigate("Attendance", { user }),
+      Tickets: () => navigation.navigate("Tickets", { user }),
+      Setup: () => navigation.navigate("Setup", { user }),
+      Dashboard: () => navigation.navigate("Dashboard", { user }),
+      Checklists: () => navigation.navigate("Checklists", { user }),
+    };
+    navigators[screen]?.(); // no-op for "Home" (already here)
   };
 
   return (

@@ -17,7 +17,7 @@ export const CATEGORY_COLOR: Record<NavCategory, { bg: string; fg: string }> = {
 };
 
 export type NavId =
-  | "home" | "tasks" | "tickets" | "fms" | "checklists" | "training"
+  | "home" | "tasks" | "tickets" | "fms" | "checklists" | "dashboard" | "training"
   | "inventory" | "customers" | "sell" | "askai" | "attendance" | "org" | "setup";
 
 export const NAV_DEF: Record<NavId, { icon: string; label: string }> = {
@@ -26,6 +26,7 @@ export const NAV_DEF: Record<NavId, { icon: string; label: string }> = {
   tickets: { icon: "🎫", label: "Tickets" },
   fms: { icon: "🔀", label: "Flow Board" },
   checklists: { icon: "✅", label: "Checklists" },
+  dashboard: { icon: "📊", label: "Dashboard" },
   training: { icon: "🎓", label: "Training" },
   inventory: { icon: "📦", label: "Inventory" },
   customers: { icon: "🧑‍💼", label: "Customers" },
@@ -37,8 +38,8 @@ export const NAV_DEF: Record<NavId, { icon: string; label: string }> = {
 };
 
 export const FULL_NAV: Record<string, NavId[]> = {
-  ADMIN: ["home", "tasks", "attendance", "tickets", "checklists", "fms", "training", "inventory", "customers", "sell", "askai"],
-  MANAGER: ["home", "tasks", "attendance", "tickets", "checklists", "fms", "training", "inventory", "customers", "sell"],
+  ADMIN: ["home", "tasks", "attendance", "dashboard", "tickets", "checklists", "fms", "training", "inventory", "customers", "sell", "askai"],
+  MANAGER: ["home", "tasks", "attendance", "dashboard", "tickets", "checklists", "fms", "training", "inventory", "customers", "sell"],
   EMPLOYEE: ["home", "tasks", "attendance", "tickets", "checklists", "training"],
   PRODUCT_MANAGER: ["home", "org", "setup"],
 };
@@ -50,7 +51,7 @@ export type Tile = { icon: string; title: string; sub: string; cat: NavCategory;
 export const TILES: Record<string, Tile[]> = {
   ADMIN: [
     { icon: "📋", title: "My Tasks", sub: "Your personal action queue", cat: "op", nav: "tasks" },
-    { icon: "🧭", title: "Operations", sub: "Dashboard, Tickets, Checklists & Flow Board", cat: "op", nav: "tickets" },
+    { icon: "🧭", title: "Operations", sub: "Dashboard, Tickets, Checklists & Flow Board", cat: "op", nav: "dashboard" },
     { icon: "🤝", title: "CRM", sub: "Customers, contacts & accounts", cat: "crm", nav: "customers" },
     { icon: "📦", title: "Sales & Inventory", sub: "Stock, orders & sales insights", cat: "sales", nav: "inventory" },
     { icon: "👥", title: "Organization", sub: "Employees, Training, Attendance & Leave", cat: "org", nav: "org" },
@@ -58,7 +59,7 @@ export const TILES: Record<string, Tile[]> = {
   ],
   MANAGER: [
     { icon: "📋", title: "My Tasks", sub: "Your personal action queue", cat: "op", nav: "tasks" },
-    { icon: "🧭", title: "Operations", sub: "Dashboard, Tickets, Checklists & Flow Board", cat: "op", nav: "tickets" },
+    { icon: "🧭", title: "Operations", sub: "Dashboard, Tickets, Checklists & Flow Board", cat: "op", nav: "dashboard" },
     { icon: "🤝", title: "CRM", sub: "Customers, contacts & accounts", cat: "crm", nav: "customers" },
     { icon: "📦", title: "Sales & Inventory", sub: "Stock, orders & sales insights", cat: "sales", nav: "inventory" },
     { icon: "👥", title: "Organization", sub: "Employees, Training, Attendance & Leave", cat: "org", nav: "org" },
@@ -90,6 +91,8 @@ export const BUILT_SCREENS: Partial<Record<NavId, keyof import("../navigation/Au
   attendance: "Attendance",
   tickets: "Tickets",
   setup: "Setup",
+  dashboard: "Dashboard",
+  checklists: "Checklists",
 };
 
 // Maps each nav destination to the Setup > Access Control tab key

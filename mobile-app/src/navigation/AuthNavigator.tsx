@@ -5,6 +5,8 @@ import HomeScreen from "../screens/HomeScreen";
 import AttendanceScreen from "../screens/AttendanceScreen";
 import TicketsScreen from "../screens/TicketsScreen";
 import TicketDetailScreen from "../screens/TicketDetailScreen";
+import DashboardScreen from "../screens/DashboardScreen";
+import ChecklistsScreen from "../screens/ChecklistsScreen";
 import SetupScreen from "../screens/SetupScreen";
 import SetupNotificationsScreen from "../screens/SetupNotificationsScreen";
 import BranchesScreen from "../screens/BranchesScreen";
@@ -28,6 +30,8 @@ export type AuthStackParamList = {
   Attendance: { user: SessionUser };
   Tickets: { user: SessionUser };
   TicketDetail: { user: SessionUser; ticketId: string };
+  Dashboard: { user: SessionUser };
+  Checklists: { user: SessionUser };
   Notifications: { user: SessionUser };
   Setup: { user: SessionUser };
   SetupNotifications: { user: SessionUser };
@@ -55,6 +59,8 @@ export default function AuthNavigator() {
       <Stack.Screen name="Attendance" component={AttendanceScreen} />
       <Stack.Screen name="Tickets" component={TicketsScreen} />
       <Stack.Screen name="TicketDetail" component={TicketDetailScreen} />
+      <Stack.Screen name="Dashboard" component={DashboardScreen} />
+      <Stack.Screen name="Checklists" component={ChecklistsScreen} />
       <Stack.Screen name="Setup" component={SetupScreen} />
       <Stack.Screen name="SetupNotifications" component={SetupNotificationsScreen} />
       <Stack.Screen name="SetupBranches" component={BranchesScreen} />
