@@ -23,9 +23,6 @@ export type NotificationSettings = {
   ticket_notif_tat_pct: number;
   ticket_notif_tat_pct_both: number;
   checklist_notif_hours: number[];
-  wa_notif_ticket_assigned: boolean;
-  wa_notif_ticket_escalated: boolean;
-  wa_notif_fms_ticket_created: boolean;
 };
 
 export function getNotificationSettings(): Promise<NotificationSettings> {
@@ -34,13 +31,29 @@ export function getNotificationSettings(): Promise<NotificationSettings> {
 
 export type NotificationSettingsUpdate = {
   suppress_notif_outside_hours: boolean;
-  wa_notif_ticket_assigned: boolean;
-  wa_notif_ticket_escalated: boolean;
-  wa_notif_fms_ticket_created: boolean;
 };
 
 export function updateNotificationSettings(payload: NotificationSettingsUpdate): Promise<NotificationSettings> {
   return apiRequest<NotificationSettings>("/api/v1/setup/notifications", { method: "PUT", body: payload });
+}
+
+// ── Notification rules toggle table ────────────────────────────────────────
+
+export type NotificationCondition = { key: string; category: string; label: string; cadence: string; recipients: string };
+export type NotificationRule = { condition_key: string; in_app: boolean; push: boolean; whatsapp: boolean; recipients: string[] };
+export type NotificationRulesData = {
+  conditions: NotificationCondition[];
+  rules: NotificationRule[];
+  available_roles: string[];
+  role_labels: Record<string, string>;
+};
+
+export function getNotificationRules(): Promise<NotificationRulesData> {
+  return apiRequest<NotificationRulesData>("/api/v1/setup/notification-rules");
+}
+
+export function updateNotificationRules(rules: NotificationRule[]): Promise<NotificationRulesData> {
+  return apiRequest<NotificationRulesData>("/api/v1/setup/notification-rules", { method: "PUT", body: rules });
 }
 
 // ── Branches ────────────────────────────────────────────────────────────
@@ -202,7 +215,8 @@ export type EmployeeUpdateInput = {
 };
 
 export const employeesApi = {
-  list: (): Promise<{ items: EmployeeDetail[]; next_cursor: string | null }> => apiRequest("/api/v1/employees?limit=100"),
+  list: (opts?: { my_team?: boolean }): Promise<{ items: EmployeeDetail[]; next_cursor: string | null }> =>
+    apiRequest(`/api/v1/employees?limit=100${opts?.my_team ? "&my_team=true" : ""}`),
   create: (body: EmployeeCreateInput): Promise<EmployeeDetail> => apiRequest("/api/v1/employees", { method: "POST", body }),
   update: (id: string, body: EmployeeUpdateInput): Promise<EmployeeDetail> => apiRequest(`/api/v1/employees/${id}`, { method: "PUT", body }),
   remove: (id: string): Promise<void> => apiRequest(`/api/v1/employees/${id}`, { method: "DELETE" }),

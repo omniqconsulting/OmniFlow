@@ -88,11 +88,15 @@ export const GREETING_SUB: Record<string, string> = {
 // The only screens that actually exist in the app today.
 export const BUILT_SCREENS: Partial<Record<NavId, keyof import("../navigation/AuthNavigator").AuthStackParamList>> = {
   home: "Home",
+  tasks: "MyTasks",
   attendance: "Attendance",
   tickets: "Tickets",
   setup: "Setup",
   dashboard: "Dashboard",
   checklists: "Checklists",
+  fms: "FMSFlowBoard",
+  org: "Organization",
+  training: "OrgTraining",
 };
 
 // Maps each nav destination to the Setup > Access Control tab key

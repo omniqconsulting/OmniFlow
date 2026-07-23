@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from ..constants import within_limit
 from ..database import (
@@ -358,6 +359,11 @@ def list_products(user: User = Depends(_require_admin_or_pm), db: Session = Depe
 def create_product(payload: EndProductIn, user: User = Depends(_require_admin_or_pm), db: Session = Depends(get_db)):
     if not payload.name.strip():
         raise HTTPException(status_code=422, detail="Name is required")
+    if db.query(EndProduct).filter(
+        EndProduct.tenant_id == user.tenant_id,
+        func.lower(EndProduct.name) == payload.name.strip().lower(), EndProduct.is_deleted == False,
+    ).first():
+        raise HTTPException(status_code=409, detail=f"An end product named '{payload.name.strip()}' already exists")
     row = EndProduct(
         tenant_id=user.tenant_id, name=payload.name.strip(), sku_code=payload.sku_code, unit=payload.unit,
         description=payload.description, is_active=payload.is_active, created_by_id=user.id,

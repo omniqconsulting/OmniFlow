@@ -7,13 +7,14 @@ from sqlalchemy.orm import Session
 
 from ..database import LinkedEntityReference, MediaUpload, Tenant, Ticket, TicketAssignee, TicketComment, TicketEvent, User, get_db
 from ..linked_entities import get_linked_entity_options
-from ..notifications import notify_delay_logged, notify_helper_added, notify_ticket_assigned
+from ..notifications import notify_delay_logged, notify_helper_added, notify_ticket_assigned, notify_ticket_status_changed, notify_ticket_commented, notify_ticket_flagged, notify_ticket_help_requested
 from ..uploads import save_upload
 from ..ws_manager import TICKET_ASSIGNED, TICKET_COMMENTED, TICKET_STATUS_CHANGED, broadcast_sync
 from .pagination import paginate_cursor
 from .features import require_feature
 from .schemas import Page
 from .schemas import UserOut
+from .schemas import UtcDateTime
 from .security import get_current_api_user, limiter
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"], dependencies=[Depends(require_feature("TICKETS"))])
@@ -48,13 +49,13 @@ class TicketOut(BaseModel):
     created_by_name: Optional[str]
     current_assignee_id: Optional[str]
     assignee_name: Optional[str]
-    due_at: Optional[datetime]
-    acknowledged_at: Optional[datetime]
-    closed_at: Optional[datetime]
+    due_at: Optional[UtcDateTime]
+    acknowledged_at: Optional[UtcDateTime]
+    closed_at: Optional[UtcDateTime]
     is_flagged: bool
     flagged_reason: Optional[str]
     evidence_required: bool
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class TicketCommentOut(BaseModel):
@@ -64,7 +65,7 @@ class TicketCommentOut(BaseModel):
     user_id: str
     user_name: Optional[str]
     body: str
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class TicketEventOut(BaseModel):
@@ -75,7 +76,7 @@ class TicketEventOut(BaseModel):
     actor_name: Optional[str]
     event_type: str
     detail: Optional[str]
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class AttachmentListOut(BaseModel):
@@ -86,7 +87,7 @@ class AttachmentListOut(BaseModel):
     file_type: Optional[str]
     file_size: Optional[int]
     uploaded_by_id: str
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class TicketHelperOut(BaseModel):
@@ -95,7 +96,7 @@ class TicketHelperOut(BaseModel):
     user_id: str
     user_name: Optional[str]
     note: Optional[str]
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class HelperAddRequest(BaseModel):
@@ -117,7 +118,7 @@ class LinkedEntityOut(BaseModel):
     entity_id: Optional[str]
     entity_label: Optional[str]
     custom_text: Optional[str]
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class TicketCreateRequest(BaseModel):
@@ -149,6 +150,10 @@ class FlagRequest(BaseModel):
 
 
 class DelayRequest(BaseModel):
+    reason: str
+
+
+class HelpRequestRequest(BaseModel):
     reason: str
 
 
@@ -272,8 +277,10 @@ def create_ticket(body: TicketCreateRequest, user: User = Depends(get_current_ap
 
     assignee = db.query(User).get(assignee_id)
     _log_event(db, ticket.id, user.id, "CREATED", f"Assigned to {assignee.name if assignee else assignee_id}")
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for_ticket(db, user.tenant_id, assignee_id)
     if assignee:
-        notify_ticket_assigned(db, ticket, assignee)
+        notify_ticket_assigned(db, ticket, assignee, admins, managers)
 
     # P5-10: Linked Entities — any role can attach these at creation time,
     # same as the desktop create-ticket form (add/edit later is Admin/Manager only).
@@ -292,7 +299,7 @@ def create_ticket(body: TicketCreateRequest, user: User = Depends(get_current_ap
     db.commit()
     db.refresh(ticket)
 
-    audience = list(set(_admin_ids(db, user.tenant_id) + _manager_ids_for_ticket(db, user.tenant_id, assignee_id) + [assignee_id]))
+    audience = list(set(admins + managers + [assignee_id]))
     broadcast_sync(user.tenant_id, audience, TICKET_ASSIGNED, {
         "ticket_id": ticket.id, "display_id": ticket.display_id,
         "title": ticket.title, "assignee_id": assignee_id,
@@ -325,7 +332,9 @@ def update_ticket(ticket_id: str, body: TicketUpdateRequest, user: User = Depend
         ticket.current_assignee_id = body.assignee_id
         ticket.acknowledged_at = None
         _log_event(db, ticket.id, user.id, "REASSIGNED", f"{old_assignee_name or 'Unassigned'} -> {new_assignee.name}")
-        notify_ticket_assigned(db, ticket, new_assignee)
+        admins = _admin_ids(db, user.tenant_id)
+        managers = _manager_ids_for_ticket(db, user.tenant_id, body.assignee_id)
+        notify_ticket_assigned(db, ticket, new_assignee, admins, managers)
 
     if body.status is not None and body.status != ticket.status:
         if body.status not in ("OPEN", "DONE", "CLOSED"):
@@ -426,11 +435,11 @@ def list_helpers(ticket_id: str, user: User = Depends(get_current_api_user), db:
 
 @router.post("/{ticket_id}/helpers", response_model=TicketHelperOut)
 def add_helper(ticket_id: str, body: HelperAddRequest, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
-    if user.role not in ("ADMIN", "MANAGER"):
-        raise HTTPException(status_code=403)
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id, Ticket.is_deleted == False).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    if user.role not in ("ADMIN", "MANAGER") and ticket.current_assignee_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the ticket's assignee, a manager or an admin can add a helper")
     existing = db.query(TicketAssignee).filter(TicketAssignee.ticket_id == ticket_id, TicketAssignee.user_id == body.user_id).first()
     if existing:
         return existing
@@ -440,8 +449,10 @@ def add_helper(ticket_id: str, body: HelperAddRequest, user: User = Depends(get_
     helper = TicketAssignee(ticket_id=ticket_id, user_id=body.user_id, added_by_id=user.id, note=body.note.strip())
     db.add(helper)
     _log_event(db, ticket_id, user.id, "HELPER_ADDED", f"Helper: {helper_user.name}")
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
     try:
-        notify_helper_added(db, ticket, helper_user)
+        notify_helper_added(db, ticket, helper_user, admins, managers)
     except Exception:
         pass
     db.commit()
@@ -474,6 +485,12 @@ def acknowledge_ticket(ticket_id: str, user: User = Depends(get_current_api_user
     if not ticket.acknowledged_at:
         ticket.acknowledged_at = datetime.utcnow()
         _log_event(db, ticket.id, user.id, "ACKNOWLEDGED")
+        admins = _admin_ids(db, user.tenant_id)
+        managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+        try:
+            notify_ticket_status_changed(db, ticket, user.id, "OPEN", "ACKNOWLEDGED", admins, managers)
+        except Exception:
+            pass
         db.commit()
         db.refresh(ticket)
     return ticket
@@ -489,6 +506,12 @@ def flag_ticket(ticket_id: str, body: FlagRequest, user: User = Depends(get_curr
     ticket.is_flagged = True
     ticket.flagged_reason = body.reason
     _log_event(db, ticket.id, user.id, "FLAGGED", body.reason)
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+    try:
+        notify_ticket_flagged(db, ticket, user.id, admins, manager_ids=managers, actor_name=user.name)
+    except Exception:
+        pass
     db.commit()
     db.refresh(ticket)
     return ticket
@@ -533,6 +556,28 @@ def log_delay(ticket_id: str, body: DelayRequest, user: User = Depends(get_curre
     return ticket
 
 
+@router.post("/{ticket_id}/request-help", response_model=TicketOut)
+def request_help(ticket_id: str, body: HelpRequestRequest, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id, Ticket.is_deleted == False).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if ticket.current_assignee_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the current assignee can request help")
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason is required")
+    _log_event(db, ticket_id, user.id, "HELP_REQUESTED", reason)
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+    try:
+        notify_ticket_help_requested(db, ticket, user.id, admins, managers)
+    except Exception:
+        pass
+    db.commit()
+    db.refresh(ticket)
+    return ticket
+
+
 @router.delete("/{ticket_id}", status_code=204)
 def delete_ticket(ticket_id: str, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
     if user.role != "ADMIN":
@@ -557,10 +602,17 @@ def add_comment(ticket_id: str, body: CommentCreateRequest, user: User = Depends
     comment = TicketComment(ticket_id=ticket_id, user_id=user.id, body=body.body)
     db.add(comment)
     _log_event(db, ticket.id, user.id, "COMMENTED", body.body[:200])
+    helper_ids = [h.user_id for h in db.query(TicketAssignee).filter(TicketAssignee.ticket_id == ticket_id).all()]
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+    try:
+        notify_ticket_commented(db, ticket, user.id, helper_ids, admins, managers)
+    except Exception:
+        pass
     db.commit()
     db.refresh(comment)
 
-    audience = list(set(_admin_ids(db, user.tenant_id) + ([ticket.current_assignee_id] if ticket.current_assignee_id else []) + [ticket.created_by_id]))
+    audience = list(set(admins + managers + ([ticket.current_assignee_id] if ticket.current_assignee_id else []) + [ticket.created_by_id]))
     broadcast_sync(user.tenant_id, audience, TICKET_COMMENTED, {
         "ticket_id": ticket.id, "display_id": ticket.display_id, "body": body.body,
     })

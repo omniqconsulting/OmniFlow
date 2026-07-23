@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..database import Tenant, Ticket, TicketAssignee, User, get_db
 from .features import require_feature
+from .schemas import UtcDateTime
 from .security import get_current_api_user
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"], dependencies=[Depends(require_feature("TICKETS"))])
@@ -69,7 +70,7 @@ class PriorityTaskOut(BaseModel):
     id: str
     title: str
     assignee_name: Optional[str]
-    due_at: Optional[datetime]
+    due_at: Optional[UtcDateTime]
     overdue: bool
 
 

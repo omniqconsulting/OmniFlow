@@ -693,12 +693,14 @@ class LibraryFlowTemplate(Base):
     status      = Column(String,  default="DRAFT")   # DRAFT / ACTIVE / DEPRECATED
     is_system   = Column(Boolean, default=False)     # built-in, cannot be deleted
     notes       = Column(Text)
+    next_flow_id= Column(String,  ForeignKey("library_flow_templates.id"), nullable=True)  # close-and-continue target
     created_by  = Column(String,  ForeignKey("super_admins.id"))
     created_at  = Column(DateTime, default=datetime.utcnow)
     updated_at  = Column(DateTime, default=datetime.utcnow)
 
     stages = relationship("LibraryFlowStage",
                           back_populates="template",
+                          foreign_keys="LibraryFlowStage.template_id",
                           order_by="LibraryFlowStage.order",
                           cascade="all, delete-orphan")
 
@@ -713,6 +715,7 @@ class LibraryFlowStage(Base):
     order       = Column(Integer, default=0)
     color       = Column(String,  default="#3b82f6")
     is_terminal = Column(Boolean, default=False)
+    linked_flow_id                = Column(String,  ForeignKey("library_flow_templates.id"), nullable=True)  # send-to-linked-flow target
     allowed_next_stages_json     = Column(Text,    default="[]")
     target_tat_hours             = Column(Integer, nullable=True)
     sub_module_tag               = Column(String,  nullable=True)   # PMS|DISPATCH|INVOICE|CUSTOM
@@ -724,7 +727,7 @@ class LibraryFlowStage(Base):
     split_target_field           = Column(String,  nullable=True)   # custom field name holding target/expected value
     split_actual_field           = Column(String,  nullable=True)   # custom field name holding entered/received value
 
-    template   = relationship("LibraryFlowTemplate", back_populates="stages")
+    template   = relationship("LibraryFlowTemplate", back_populates="stages", foreign_keys=[template_id])
     submodule  = relationship("LibrarySubmoduleDefinition", foreign_keys=[submodule_id])
 
 
@@ -892,6 +895,7 @@ class FMSFlow(Base):
     restrict_to_assignee     = Column(Boolean, default=False)         # only specific whitelisted employees (allowed_opener_ids_json) may open/act on any ticket in this flow
     allowed_opener_ids_json  = Column(Text,    nullable=True)         # JSON array of user ids — the whitelist restrict_to_assignee enforces
     library_flow_id          = Column(String)                        # source library template (if any)
+    next_library_flow_id     = Column(String,  nullable=True)         # close-and-continue: LibraryFlowTemplate.id to resolve to this tenant's live FMSFlow at close time
     library_version_at_deploy= Column(Integer)                       # version at time of deploy (2-B-5)
     ticket_form_fields_json  = Column(Text,    default="[]")          # JSON array of custom field defs for ticket creation form
     closing_rule_json        = Column(Text)                           # {col_id, op, value} — must hold true before a ticket on this flow can close
@@ -933,6 +937,7 @@ class FMSStage(Base):
     is_mandatory            = Column(Boolean, default=True)
     completion_note_required= Column(Boolean, default=False)
     is_terminal             = Column(Boolean, default=False)         # reaching this = COMPLETED
+    linked_library_flow_id  = Column(String,  nullable=True)         # send-to-linked-flow: LibraryFlowTemplate.id to resolve to this tenant's live FMSFlow when triggered
     evidence_required       = Column(Boolean, default=False)         # P1-07: stage-level evidence
     custom_fields_json      = Column(Text,    default="[]")          # JSON array of custom field defs
     is_deleted              = Column(Boolean, default=False)
@@ -982,6 +987,12 @@ class FMSTicket(Base):
     completed_by_id     = Column(String,  ForeignKey("users.id"), nullable=True)  # who actually performed the completing action (terminal-stage transition)
     closed_at           = Column(DateTime)
     is_deleted          = Column(Boolean, default=False)
+    # Cross-flow linking (close-and-continue / send-to-linked-flow)
+    continued_from_ticket_id = Column(String, ForeignKey("fms_tickets.id"), nullable=True)  # set on the new ticket created by close-and-continue
+    continued_to_ticket_id   = Column(String, ForeignKey("fms_tickets.id"), nullable=True)  # set on the original ticket once continued
+    linked_child_ticket_id   = Column(String, ForeignKey("fms_tickets.id"), nullable=True)  # set on this ticket when it spawns a side-quest ticket on another flow
+    linked_parent_ticket_id  = Column(String, ForeignKey("fms_tickets.id"), nullable=True)  # set on the spawned ticket, points back at the ticket it's blocking
+    pause_reason              = Column(String, nullable=True)  # human-readable reason shown when status == ON_HOLD due to a link
     stage_assignees_json  = Column(Text, nullable=True)  # {"stage_id": "user_id", ...}
     stage_schedule_json   = Column(Text, nullable=True)  # {"stage_id": {"planned_start": ISO, "planned_end": ISO}}
     ticket_custom_fields_json = Column(Text, nullable=True)  # {"field_id": value, ...} from flow's ticket_form_fields_json
@@ -2371,6 +2382,44 @@ class LeaveRequest(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class NotificationRule(Base):
+    """Per-tenant, per-condition channel toggle — Setup > Notifications table.
+    One row per (tenant_id, condition_key); a missing row means "use the
+    registry default" (see app/notification_rules.py) rather than implying
+    disabled, so tenants that never touch this page keep sane defaults."""
+    __tablename__ = "notification_rules"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    condition_key = Column(String, nullable=False)
+    in_app_enabled = Column(Boolean, nullable=False, default=True)
+    push_enabled = Column(Boolean, nullable=False, default=True)
+    whatsapp_enabled = Column(Boolean, nullable=False, default=True)
+    # JSON list of role strings ("ADMIN"/"MANAGER"/"ASSIGNEE"/"HELPER") this
+    # tenant wants notified for this condition. NULL means "use the registry
+    # default" — same missing-row-means-default convention as the channel
+    # toggles above, so a tenant that never opens this page keeps sane
+    # defaults instead of silently notifying nobody.
+    recipients_json = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("tenant_id", "condition_key", name="uq_notification_rule_tenant_key"),)
+
+
+class NotificationDedupGuard(Base):
+    """Race-safe 'already fired' marker for scheduled/reminder notifications
+    (ticket_unacknowledged, ticket_tat_reminder, fms_tat_breach, checklist_reminder).
+    Those jobs used to dedup via a SELECT-then-INSERT check on Notification/
+    TicketEvent, which is safe against a single scheduler but not against two
+    scheduler instances (e.g. two server processes) both running the same
+    30-minute job at once — both can pass the SELECT before either commits
+    the INSERT. This table's UNIQUE constraint makes the guard atomic: a
+    second, concurrent attempt to claim the same dedup_key fails at the DB
+    level instead of racing past the check."""
+    __tablename__ = "notification_dedup_guards"
+    id = Column(String, primary_key=True, default=new_id)
+    dedup_key = Column(String, nullable=False, unique=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class AttendanceRule(Base):
     """Tenant-configurable attendance day-status rule — client's #6. Fixed
     condition catalog (see app/attendance_rules.py), first-match-wins by
@@ -2550,6 +2599,16 @@ def _pg_add_columns():
         # default branch_id is unchanged; this only affects which branch's
         # geofence is used for today's punches).
         "ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS branch_id VARCHAR REFERENCES branches(id)",
+        # FMS cross-flow linking: close-and-continue + send-to-linked-flow
+        "ALTER TABLE library_flow_templates ADD COLUMN IF NOT EXISTS next_flow_id VARCHAR REFERENCES library_flow_templates(id)",
+        "ALTER TABLE library_flow_stages ADD COLUMN IF NOT EXISTS linked_flow_id VARCHAR REFERENCES library_flow_templates(id)",
+        "ALTER TABLE fms_flows ADD COLUMN IF NOT EXISTS next_library_flow_id VARCHAR",
+        "ALTER TABLE fms_stages ADD COLUMN IF NOT EXISTS linked_library_flow_id VARCHAR",
+        "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS continued_from_ticket_id VARCHAR REFERENCES fms_tickets(id)",
+        "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS continued_to_ticket_id VARCHAR REFERENCES fms_tickets(id)",
+        "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS linked_child_ticket_id VARCHAR REFERENCES fms_tickets(id)",
+        "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS linked_parent_ticket_id VARCHAR REFERENCES fms_tickets(id)",
+        "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS pause_reason VARCHAR",
     ]
     try:
         with engine.begin() as conn:

@@ -155,9 +155,6 @@ class NotificationSettingsOut(BaseModel):
     ticket_notif_tat_pct: int
     ticket_notif_tat_pct_both: int
     checklist_notif_hours: list[int]
-    wa_notif_ticket_assigned: bool
-    wa_notif_ticket_escalated: bool
-    wa_notif_fms_ticket_created: bool
 
 
 def _to_settings_out(tenant: Tenant) -> NotificationSettingsOut:
@@ -171,9 +168,6 @@ def _to_settings_out(tenant: Tenant) -> NotificationSettingsOut:
         ticket_notif_tat_pct=tenant.ticket_notif_tat_pct or 80,
         ticket_notif_tat_pct_both=tenant.ticket_notif_tat_pct_both or 90,
         checklist_notif_hours=hours,
-        wa_notif_ticket_assigned=bool(tenant.wa_notif_ticket_assigned),
-        wa_notif_ticket_escalated=bool(tenant.wa_notif_ticket_escalated),
-        wa_notif_fms_ticket_created=bool(tenant.wa_notif_fms_ticket_created),
     )
 
 
@@ -185,9 +179,6 @@ def get_notification_settings(user: User = Depends(_require_admin_or_pm), db: Se
 
 class NotificationSettingsIn(BaseModel):
     suppress_notif_outside_hours: bool
-    wa_notif_ticket_assigned: bool
-    wa_notif_ticket_escalated: bool
-    wa_notif_fms_ticket_created: bool
 
 
 @router.put("/notifications", response_model=NotificationSettingsOut)
@@ -196,16 +187,91 @@ def update_notification_settings(
     user: User = Depends(_require_admin_or_pm),
     db: Session = Depends(get_db),
 ):
-    """Saves the subset of Setup > Notifications the app's design exposes
-    (WhatsApp per-event toggles + the office-hours suppression switch).
-    Office hours themselves, TaT thresholds and checklist reminder hours are
-    display-only here (same source of truth as the website, edited there) —
-    matching the design, which renders them read-only on this screen."""
+    """Saves the office-hours suppression switch. Every per-event channel
+    toggle (in-app/push/WhatsApp, for checklists/FMS/delegations) now lives
+    exclusively in the notification-rules table below — GET/PUT
+    /setup/notification-rules — not here, avoiding two knobs for the same
+    setting. Office hours themselves, TaT thresholds and checklist reminder
+    hours stay display-only here (edited on the website)."""
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     tenant.suppress_notif_outside_hours = payload.suppress_notif_outside_hours
-    tenant.wa_notif_ticket_assigned = payload.wa_notif_ticket_assigned
-    tenant.wa_notif_ticket_escalated = payload.wa_notif_ticket_escalated
-    tenant.wa_notif_fms_ticket_created = payload.wa_notif_fms_ticket_created
     db.commit()
     db.refresh(tenant)
     return _to_settings_out(tenant)
+
+
+# ── Notification rules — Setup > Notifications toggle table ────────────────
+# One row per condition (app/notification_rules.py registry); each has
+# independent In-App/Push/WhatsApp toggles, highly customizable per tenant.
+# Same registry/gate helper the desktop /setup/notifications page and every
+# notify_*/scheduler job now read — saving here takes effect everywhere.
+
+class NotificationConditionOut(BaseModel):
+    key: str
+    category: str
+    label: str
+    cadence: str
+    recipients: str
+
+
+class NotificationRuleOut(BaseModel):
+    condition_key: str
+    in_app: bool
+    push: bool
+    whatsapp: bool
+    recipients: list[str]
+
+
+class NotificationRulesOut(BaseModel):
+    conditions: list[NotificationConditionOut]
+    rules: list[NotificationRuleOut]
+    available_roles: list[str]
+    role_labels: dict
+
+
+@router.get("/notification-rules", response_model=NotificationRulesOut)
+def get_notification_rules(user: User = Depends(_require_admin_or_pm), db: Session = Depends(get_db)):
+    from ..notification_rules import REGISTRY, channel_enabled, get_recipient_roles, AVAILABLE_ROLES, ROLE_LABELS
+    conditions = [
+        NotificationConditionOut(key=c.key, category=c.category, label=c.label, cadence=c.cadence, recipients=c.recipients)
+        for c in REGISTRY
+    ]
+    rules = [
+        NotificationRuleOut(
+            condition_key=c.key,
+            in_app=channel_enabled(db, user.tenant_id, c.key, "in_app"),
+            push=channel_enabled(db, user.tenant_id, c.key, "push"),
+            whatsapp=channel_enabled(db, user.tenant_id, c.key, "whatsapp"),
+            recipients=sorted(get_recipient_roles(db, user.tenant_id, c.key)),
+        )
+        for c in REGISTRY
+    ]
+    return NotificationRulesOut(conditions=conditions, rules=rules, available_roles=AVAILABLE_ROLES, role_labels=ROLE_LABELS)
+
+
+class NotificationRuleIn(BaseModel):
+    condition_key: str
+    in_app: bool
+    push: bool
+    whatsapp: bool
+    recipients: list[str] = []
+
+
+@router.put("/notification-rules", response_model=NotificationRulesOut)
+def update_notification_rules(
+    payload: list[NotificationRuleIn],
+    user: User = Depends(_require_admin_or_pm),
+    db: Session = Depends(get_db),
+):
+    from ..notification_rules import get_condition, get_or_seed_rule, AVAILABLE_ROLES
+    import json as _json
+    for item in payload:
+        if not get_condition(item.condition_key):
+            continue  # ignore unknown keys rather than 400 — forward compatible
+        rule = get_or_seed_rule(db, user.tenant_id, item.condition_key)
+        rule.in_app_enabled = item.in_app
+        rule.push_enabled = item.push
+        rule.whatsapp_enabled = item.whatsapp
+        rule.recipients_json = _json.dumps([r for r in item.recipients if r in AVAILABLE_ROLES])
+    db.commit()
+    return get_notification_rules(user, db)

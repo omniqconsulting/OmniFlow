@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ..database import Customer, Product, SalesOrder, User, get_db
 from .features import require_feature
 from .pagination import paginate_cursor
-from .schemas import Page
+from .schemas import Page, UtcDateTime
 from .security import get_current_api_user
 
 router = APIRouter(prefix="/sales", tags=["Sales"], dependencies=[Depends(require_feature("SALES_MODULE"))])
@@ -22,7 +22,7 @@ class SalesOrderOut(BaseModel):
     agent_id: str
     status: str
     total_amount: float
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class CustomerOut(BaseModel):
@@ -34,7 +34,7 @@ class CustomerOut(BaseModel):
     email: Optional[str]
     customer_tier: str
     assigned_agent_id: Optional[str]
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class ProductOut(BaseModel):
@@ -43,7 +43,7 @@ class ProductOut(BaseModel):
     name: str
     description: Optional[str]
     is_active: bool
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 @router.get("/orders", response_model=Page[SalesOrderOut])

@@ -445,12 +445,10 @@ if (document.body.classList.contains('is-authed')) (function(){
   function applyMute(){
     const muted = localStorage.getItem('sound_muted') === '1';
     document.querySelectorAll('.js-sound-btn').forEach(function(btn){
-      // Mobile-only: the mobile top bar's mute button (.mt-sound-btn) uses a
-      // speaker glyph so it's visually distinct from the adjacent
-      // notifications bell — desktop's #sound-btn keeps its original bell
-      // glyph unchanged.
-      const isMobileTopbar = btn.classList.contains('mt-sound-btn');
-      btn.textContent = isMobileTopbar ? (muted ? '🔇' : '🔊') : (muted ? '🔕' : '🔔');
+      // Speaker glyph everywhere — the desktop nav's mute button used to
+      // reuse the bell glyph, which was visually identical to the adjacent
+      // notifications bell and confusing.
+      btn.textContent = muted ? '🔇' : '🔊';
       btn.title = muted ? 'Sounds muted — click to enable' : 'Notification sounds on — click to mute';
     });
   }
@@ -777,6 +775,27 @@ function syncStickyTableOffsets(){
       card.style.removeProperty('--sticky-stack-offset');
     }
   });
+
+  // A table's thead can only stick relative to whichever element actually
+  // scrolls it. Tables are commonly wrapped in a `<div style="overflow-x:auto">`
+  // for horizontal mobile scrolling (setup/notifications.html, checklists.html,
+  // tickets.html, etc). Per the CSS overflow spec, setting overflow-x to
+  // anything but visible forces the computed overflow-y to auto too, so that
+  // div becomes its own scroll container and the sticky containing block for
+  // th — not the page. Since the wrapper's height always equals the table's
+  // (it never actually scrolls vertically), applying the page-level
+  // --sticky-stack-offset there doesn't stick the header, it just shoves it
+  // down by that many px into row 1. That's the header-overlaps-first-row bug.
+  // Force these wrappers' offset back to 0 so the header sticks to the top of
+  // its own (non-scrolling) container instead of the unrelated page offset.
+  document.querySelectorAll('table').forEach(function(table){
+    var wrap = table.parentElement;
+    if(!wrap) return;
+    var cs = getComputedStyle(wrap);
+    if(cs.overflowX !== 'visible' || cs.overflowY !== 'visible'){
+      wrap.style.setProperty('--sticky-stack-offset', '0px');
+    }
+  });
 }
 window.addEventListener('load', syncStickyTableOffsets);
 var stickyOffsetResizeTimer;
@@ -784,3 +803,33 @@ window.addEventListener('resize', function(){
   clearTimeout(stickyOffsetResizeTimer);
   stickyOffsetResizeTimer = setTimeout(syncStickyTableOffsets, 150);
 });
+
+// `load` + `resize` alone miss every table whose surrounding content
+// changes AFTER initial page load without a full navigation — the actual
+// cause of the header-overlaps-first-row bug seen across multiple pages:
+// a preceding sticky filter-bar/KPI block that renders at a different
+// height once real data arrives (fetch()-populated filters, a tab/section
+// toggling into view, rows added/removed from a table that itself sits
+// above another sticky table further down the page), or a table that
+// exists in the DOM before `load` fires but whose card wasn't sized yet.
+// A MutationObserver catches all of these — and every future one — without
+// having to find and instrument each individual page's AJAX call site.
+// Only watches childList/subtree (not attributes), so the inline
+// `--sticky-stack-offset` style we set below never re-triggers itself.
+(function(){
+  if(typeof MutationObserver === 'undefined') return;
+  var pending = false;
+  function scheduleSync(){
+    if(pending) return;
+    pending = true;
+    requestAnimationFrame(function(){
+      pending = false;
+      syncStickyTableOffsets();
+    });
+  }
+  var stickyMutationObserver = new MutationObserver(scheduleSync);
+  document.addEventListener('DOMContentLoaded', function(){
+    stickyMutationObserver.observe(document.body, { childList: true, subtree: true });
+    scheduleSync();
+  });
+})();

@@ -219,7 +219,7 @@
       {% else %}
       <p style="font-size:12px;color:var(--text-faint);margin-bottom:12px">No helpers assigned yet.</p>
       {% endif %}
-      {% if user.role in ('ADMIN','MANAGER') %}
+      {% if user.role in ('ADMIN','MANAGER') or ticket.current_assignee_id == user.id %}
       <button onclick="show('add-helper-form')" class="btn btn-sm btn-outline">+ Add Helper</button>
       <div id="add-helper-form" class="form-panel" style="display:none">
         <form method="post" action="/tickets/{{ ticket.id }}/add-helper">
@@ -338,6 +338,10 @@
           {# Log a Delay — current assignee only #}
           {% if ticket.current_assignee_id == user.id %}
           <button onclick="show('delay-form')" class="btn btn-sm btn-amber">⏱ Log a Delay</button>
+          {% endif %}
+          {# Request Help — current assignee only #}
+          {% if ticket.current_assignee_id == user.id %}
+          <button onclick="show('help-form')" class="btn btn-sm btn-orange">🆘 Request Help</button>
           {% endif %}
           {# Reassign — assignee or admin/manager #}
           {% if ticket.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER') %}

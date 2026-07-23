@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 // Anchors content to the bottom of the screen via absolute positioning
 // (mirrors the design's own sheetStyle/detailSheetStyle) instead of RN's
@@ -17,12 +17,15 @@ export default function BottomSheet({ visible, onClose, children }: Props) {
   return (
     <View style={styles.backdropWrap} pointerEvents="box-none">
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      <View style={styles.sheet}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.sheet}
+      >
         <View style={styles.grabber} />
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           {children}
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }

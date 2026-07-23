@@ -147,45 +147,11 @@ def mark_overdue_checklists():
         db.close()
 
 
-def send_checklist_reminders():
-    """Legacy per-assignment reminder — kept for overdue repeat alerts only."""
-    from .database import SessionLocal, ChecklistAssignment, Notification
-    from .notifications import create_notification
-    db = SessionLocal()
-    try:
-        now = datetime.utcnow()
-        # Overdue repeat every 4 hours (simple fallback — main notifications via consolidated job)
-        overdue_list = db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.status == "OVERDUE",
-            ChecklistAssignment.is_deleted == False,
-        ).all()
-        for a in overdue_list:
-            dup = db.query(Notification).filter(
-                Notification.user_id == a.user_id,
-                Notification.notif_type == "CHECKLIST_OVERDUE",
-                Notification.created_at > (now - timedelta(hours=4)),
-            ).first()
-            if not dup:
-                label = a.template.title if a.template else "Checklist"
-                create_notification(
-                    db, tenant_id=a.tenant_id, user_id=a.user_id,
-                    notif_type="CHECKLIST_OVERDUE",
-                    title="⚠ Overdue checklist",
-                    body=f'"{label}" is overdue. Please complete it now.',
-                    link="/checklists",
-                )
-        db.commit()
-    except Exception as e:
-        logger.error("send_checklist_reminders error: %s", e)
-        db.rollback()
-    finally:
-        db.close()
-
-
 def escalate_unacknowledged_tickets():
     """Phase 0-D-5: alert admins/managers for tickets unacknowledged >2 hours."""
-    from .database import SessionLocal, Ticket, Notification, User
-    from .notifications import create_notification
+    from .database import SessionLocal, Ticket, User
+    from .notifications import create_notification, claim_dedup_key
+    from .notification_rules import filter_recipients
     db = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -199,27 +165,32 @@ def escalate_unacknowledged_tickets():
         ).all()
 
         for ticket in unacked:
-            recipients = db.query(User).filter(
+            role_ids = db.query(User).filter(
                 User.tenant_id == ticket.tenant_id,
                 User.role.in_(["ADMIN", "MANAGER"]),
                 User.is_deleted == False,
                 User.is_active == True,
             ).all()
-            for u in recipients:
+            admin_ids = [u.id for u in role_ids if u.role == "ADMIN"]
+            manager_ids = [u.id for u in role_ids if u.role == "MANAGER"]
+            recipient_ids = filter_recipients(
+                db, ticket.tenant_id, "ticket_unacknowledged",
+                admin_ids=admin_ids, manager_ids=manager_ids,
+                assignee_id=ticket.current_assignee_id,
+            )
+            for uid in recipient_ids:
                 # Fire once per ticket per recipient for its whole unacknowledged
                 # lifetime -- not a rolling window, which caused repeat spam.
-                dup = db.query(Notification).filter(
-                    Notification.user_id == u.id,
-                    Notification.notif_type == "TICKET_ESCALATION",
-                    Notification.link == f"/tickets/{ticket.id}",
-                ).first()
-                if not dup:
+                # Atomic claim (not just a SELECT check) so two scheduler
+                # instances racing on the same 30-min tick can't both send it.
+                if claim_dedup_key(db, f"ticket_unacknowledged:{uid}:{ticket.id}"):
                     create_notification(
-                        db, tenant_id=ticket.tenant_id, user_id=u.id,
+                        db, tenant_id=ticket.tenant_id, user_id=uid,
                         notif_type="TICKET_ESCALATION",
                         title="⚠ Ticket not acknowledged",
                         body=f'"{ticket.title}" has been open for 2+ hours without acknowledgement.',
                         link=f"/tickets/{ticket.id}",
+                        condition_key="ticket_unacknowledged",
                     )
         db.commit()
     except Exception as e:
@@ -232,14 +203,18 @@ def escalate_unacknowledged_tickets():
 # ── Phase 5 jobs ─────────────────────────────────────────────────────────────
 
 def morning_ticket_summary():
-    """P5-05: 8:00 AM daily — notify each user of their open/in-progress tickets due today or overdue."""
+    """P5-05: 8:00 AM IST daily — notify each user of their open/in-progress
+    tickets due today or overdue. condition_key "ticket_morning_summary"
+    (in-app + push + WhatsApp)."""
     from datetime import date as _date
     from .database import SessionLocal, Ticket, User, Notification
-    from .notifications import create_notification
+    from .notifications import create_notification, _send_gupshup_wa, claim_dedup_key
+    from .notification_rules import channel_enabled, get_recipient_roles
     db = SessionLocal()
     try:
         now = datetime.utcnow()
         today_end = datetime.combine(_date.today(), datetime.max.time())
+        today_key = _date.today().isoformat()
 
         # Group open tickets by assignee
         open_statuses = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
@@ -256,6 +231,9 @@ def morning_ticket_summary():
         for uid, user_tickets in by_user.items():
             if not uid:
                 continue
+            tenant_id_check = user_tickets[0].tenant_id
+            if "ASSIGNEE" not in get_recipient_roles(db, tenant_id_check, "ticket_morning_summary"):
+                continue  # this tenant has turned the digest's only possible recipient off
             overdue = [t for t in user_tickets if t.due_at and t.due_at < now]
             due_today = [t for t in user_tickets if t.due_at and t.due_at >= now]
             parts = []
@@ -265,14 +243,29 @@ def morning_ticket_summary():
                 parts.append(f"{len(due_today)} due today")
             if not parts:
                 continue
+            # Atomic claim (per user, per day) so two scheduler instances
+            # both waking on the same daily cron tick can't both send it.
+            if not claim_dedup_key(db, f"ticket_morning_summary:{uid}:{today_key}"):
+                continue
             tenant_id = user_tickets[0].tenant_id
+            body = f"You have {', '.join(parts)} ticket(s) needing attention."
             create_notification(
                 db, tenant_id=tenant_id, user_id=uid,
                 notif_type="TICKET_REMINDER",
                 title="🌅 Morning ticket summary",
-                body=f"You have {', '.join(parts)} ticket(s) needing attention.",
+                body=body,
                 link="/tickets?status=OPEN",
+                condition_key="ticket_morning_summary",
             )
+            if channel_enabled(db, tenant_id, "ticket_morning_summary", "whatsapp"):
+                try:
+                    u = db.query(User).filter(User.id == uid).first()
+                    if u and u.phone:
+                        _send_gupshup_wa(db, tenant_id, u, "omniflow_ticket_morning_summary",
+                                          [u.name, body], related_entity_type="ticket_summary",
+                                          related_entity_id=uid, event_key="ticket_morning_summary")
+                except Exception:
+                    logger.exception("Morning summary WhatsApp failed for user=%s", uid)
         db.commit()
         logger.info("Morning ticket summary sent to %d users", len(by_user))
     except Exception as e:
@@ -317,56 +310,81 @@ def _parse_notif_hours(raw: str | None) -> list[int]:
 
 
 def send_consolidated_checklist_notifications():
-    """Run every 30 minutes. For each tenant, fire consolidated per-employee
-    checklist notifications at their configured UTC hours (default 8, 13, 18).
+    """THE checklist reminder job (merges the old per-assignment "remind" job
+    and this consolidated job into one — condition_key "checklist_reminder",
+    in-app + push only, no WhatsApp).
 
-    Each employee receives a single notification listing ALL their pending
-    checklists due today — not one per checklist."""
+    Runs every 30 minutes; for each tenant, fires once at each of the
+    tenant-configured hours (Setup > Notifications), one notification per
+    employee listing everything due **today** — never the overdue backlog
+    (that's tracked via status only, not re-reminded here).
+
+    Leave/branch aware: a checklist due on the assignee's leave day or their
+    branch's weekly-off day is deferred — it's included on the run whose
+    calendar day is that assignee's next actual working day, not on the
+    literal due date.
+    """
     from datetime import date as _date
     from .database import SessionLocal, Tenant, ChecklistAssignment, Notification
-    from .notifications import create_notification
+    from .notifications import create_notification, claim_dedup_key
+    from .notification_rules import channel_enabled, next_working_day_for, get_recipient_roles
     db = SessionLocal()
     try:
         now = datetime.utcnow()
         current_hour = now.hour
-        today_start = datetime.combine(_date.today(), datetime.min.time())
-        today_end   = datetime.combine(_date.today(), datetime.max.time())
+        today = _date.today()
+        today_start = datetime.combine(today, datetime.min.time())
+        today_end   = datetime.combine(today, datetime.max.time())
+        # Small lookback window so an item deferred off a recent leave/off day
+        # still gets swept up once its assignee's next working day arrives,
+        # without reaching back into the general overdue backlog.
+        lookback_start = today_start - timedelta(days=3)
 
-        # Fire if we're within the first 30 minutes of any configured hour
         tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
         for tenant in tenants:
             notif_hours = _parse_notif_hours(getattr(tenant, "checklist_notif_hours", None))
             if current_hour not in notif_hours:
                 continue
 
-            # Dedup: already sent for this tenant+hour today?
+            # Dedup: already sent for this tenant+hour today? Atomic claim so
+            # two scheduler instances racing on the same tick can't both send.
             window_start = now.replace(minute=0, second=0, microsecond=0)
-            already_sent = db.query(Notification).filter(
-                Notification.tenant_id == tenant.id,
-                Notification.notif_type == "CHECKLIST_REMINDER",
-                Notification.created_at >= window_start,
-            ).first()
-            if already_sent:
+            if not claim_dedup_key(db, f"checklist_reminder:{tenant.id}:{window_start.isoformat()}"):
                 continue
 
-            # All pending/in-progress assignments due today for this tenant
-            pending = db.query(ChecklistAssignment).filter(
+            in_app_on = channel_enabled(db, tenant.id, "checklist_reminder", "in_app")
+            push_on = channel_enabled(db, tenant.id, "checklist_reminder", "push")
+            if not in_app_on and not push_on:
+                continue
+            if "ASSIGNEE" not in get_recipient_roles(db, tenant.id, "checklist_reminder"):
+                continue  # this tenant has turned the reminder's only possible recipient off
+
+            # Candidates: still-open (never OVERDUE — that's the backlog,
+            # tracked by status only) assignments due within the lookback
+            # window through end of today.
+            candidates = db.query(ChecklistAssignment).filter(
                 ChecklistAssignment.tenant_id == tenant.id,
-                ChecklistAssignment.due_at >= today_start,
+                ChecklistAssignment.due_at >= lookback_start,
                 ChecklistAssignment.due_at <= today_end,
-                ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS", "OVERDUE"]),
+                ChecklistAssignment.status.in_(["PENDING", "IN_PROGRESS"]),
                 ChecklistAssignment.is_deleted == False,
             ).all()
-
-            if not pending:
+            if not candidates:
                 continue
 
-            # Group by user — each employee gets their own notification
+            # Leave/branch-aware eligibility: only include an item if today
+            # is the assignee's resolved reminder day.
+            eligible = [
+                a for a in candidates
+                if a.user and next_working_day_for(db, a.user, a.due_at.date()) == today
+            ]
+            if not eligible:
+                continue
+
             by_user: dict = {}
-            for a in pending:
+            for a in eligible:
                 by_user.setdefault(a.user_id, []).append(a)
 
-            # Choose title emoji based on hour
             if current_hour <= 10:
                 time_label = "🌅 Morning"
             elif current_hour <= 15:
@@ -376,19 +394,8 @@ def send_consolidated_checklist_notifications():
 
             for uid, items in by_user.items():
                 titles = [a.template.title for a in items if a.template]
-                overdue_count = sum(1 for a in items if a.status == "OVERDUE")
-                pending_count = len(items) - overdue_count
-
-                parts = []
-                if pending_count:
-                    parts.append(f"{pending_count} pending")
-                if overdue_count:
-                    parts.append(f"{overdue_count} overdue")
-                summary = ", ".join(parts)
-
-                # Build body with the actual checklist titles (up to 5)
                 listed = titles[:5]
-                body = f"You have {summary} checklist(s) for today:\n• " + "\n• ".join(listed)
+                body = f"You have {len(items)} checklist(s) due today:\n• " + "\n• ".join(listed)
                 if len(titles) > 5:
                     body += f"\n… and {len(titles) - 5} more."
 
@@ -398,117 +405,13 @@ def send_consolidated_checklist_notifications():
                     title=f"{time_label} checklist reminder ({len(items)} due)",
                     body=body,
                     link="/checklists",
+                    condition_key="checklist_reminder",
                 )
-
-                # Pipeline 2A: WhatsApp for PENDING + IN_PROGRESS only (OVERDUE excluded)
-                wa_items = [a for a in items if a.status in ("PENDING", "IN_PROGRESS")]
-                if wa_items:
-                    _send_wa_checklist_due(db, tenant.id, uid, wa_items)
 
         db.commit()
         logger.info("Consolidated checklist notifications processed for %d tenants", len(tenants))
     except Exception as e:
         logger.error("send_consolidated_checklist_notifications error: %s", e)
-        db.rollback()
-    finally:
-        db.close()
-
-
-def _send_wa_checklist_due(db, tenant_id: str, user_id: str, assignments: list):
-    """Pipeline 2A — omniflow_checklist_due. Never raises."""
-    from .database import User
-    from .notifications import _send_gupshup_wa
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user or not user.phone:
-            return
-        titles_csv = _build_checklist_titles_csv(assignments)
-        if not titles_csv:
-            return
-        variables = [user.name, titles_csv]
-        _send_gupshup_wa(db, tenant_id, user, "omniflow_checklist_due", variables,
-                          related_entity_type="checklist_reminder", related_entity_id=user_id)
-    except Exception:
-        logger.exception("_send_wa_checklist_due failed for user=%s", user_id)
-
-
-def _send_wa_checklist_overdue(db, tenant_id: str, user_id: str, assignments: list):
-    """Pipeline 2B — omniflow_checklist_overdue. Never raises."""
-    from .database import User
-    from .notifications import _send_gupshup_wa
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user or not user.phone:
-            return
-        titles_csv = _build_checklist_titles_csv(assignments)
-        if not titles_csv:
-            return
-        variables = [user.name, titles_csv]
-        _send_gupshup_wa(db, tenant_id, user, "omniflow_checklist_overdue", variables,
-                          related_entity_type="checklist_overdue_reminder", related_entity_id=user_id)
-    except Exception:
-        logger.exception("_send_wa_checklist_overdue failed for user=%s", user_id)
-
-
-def send_consolidated_checklist_overdue_notifications():
-    """Pipeline 2B — omniflow_checklist_overdue.
-    Run every 30 minutes. At the single configured IST overdue hour, sends one
-    WhatsApp per employee listing all their today assignments that are not DONE
-    and not FAILED. Deduped per tenant per day. Fires only if
-    tenant.checklist_overdue_hour is set.
-    """
-    from datetime import date as _date
-    from .database import SessionLocal, Tenant, ChecklistAssignment, WhatsAppMessageLog
-    db = SessionLocal()
-    try:
-        now = datetime.utcnow()
-        current_hour = now.hour
-        today_start = datetime.combine(_date.today(), datetime.min.time())
-        today_end   = datetime.combine(_date.today(), datetime.max.time())
-
-        tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
-        for tenant in tenants:
-            raw_overdue = getattr(tenant, "checklist_overdue_hour", None)
-            if not raw_overdue:
-                continue
-            try:
-                overdue_utc = (int(raw_overdue.strip()) - 5) % 24
-            except (ValueError, AttributeError):
-                continue
-            if current_hour != overdue_utc:
-                continue
-
-            # Dedup: already sent overdue WhatsApp for this tenant today?
-            already_sent = db.query(WhatsAppMessageLog).filter(
-                WhatsAppMessageLog.tenant_id == tenant.id,
-                WhatsAppMessageLog.template_name == "omniflow_checklist_overdue",
-                WhatsAppMessageLog.created_at >= today_start,
-            ).first()
-            if already_sent:
-                continue
-
-            # Today's assignments that are not DONE and not FAILED
-            incomplete = db.query(ChecklistAssignment).filter(
-                ChecklistAssignment.tenant_id == tenant.id,
-                ChecklistAssignment.due_at >= today_start,
-                ChecklistAssignment.due_at <= today_end,
-                ChecklistAssignment.status.notin_(["DONE", "FAILED"]),
-                ChecklistAssignment.is_deleted == False,
-            ).all()
-            if not incomplete:
-                continue
-
-            by_user: dict = {}
-            for a in incomplete:
-                by_user.setdefault(a.user_id, []).append(a)
-
-            for uid, items in by_user.items():
-                _send_wa_checklist_overdue(db, tenant.id, uid, items)
-
-        db.commit()
-        logger.info("Checklist overdue WhatsApp processed for %d tenants", len(tenants))
-    except Exception as e:
-        logger.error("send_consolidated_checklist_overdue_notifications error: %s", e)
         db.rollback()
     finally:
         db.close()
@@ -786,11 +689,14 @@ def invoice_overdue_check():
 
 def delegation_tat_monitor():
     """E-15: Every 30 min — notify manager at ticket_notif_tat_pct and ticket_notif_tat_pct_both of TaT elapsed."""
+    from datetime import date as _date
     from .database import SessionLocal, Tenant, Ticket, TicketEvent, User, Notification
-    from .notifications import business_hours_elapsed, send_whatsapp_for_ticket_tat_reminder, create_notification
+    from .notifications import business_hours_elapsed, send_whatsapp_for_ticket_tat_reminder, create_notification, claim_dedup_key
+    from .notification_rules import channel_enabled, is_working_day_for
     db = SessionLocal()
     try:
         now = datetime.utcnow()
+        today = _date.today()
         tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
         for tenant in tenants:
             pct1 = getattr(tenant, 'ticket_notif_tat_pct', 80) or 0
@@ -805,6 +711,12 @@ def delegation_tat_monitor():
             ).all()
             for ticket in open_tickets:
                 if not ticket.due_at or not ticket.created_at:
+                    continue
+                # Leave/branch-aware: defer the reminder while the assignee
+                # is on approved leave or their branch's weekly-off — the TaT
+                # clock itself keeps running, only the notification is held.
+                _assignee_for_leave = db.query(User).filter(User.id == ticket.current_assignee_id).first() if ticket.current_assignee_id else None
+                if _assignee_for_leave and not is_working_day_for(db, _assignee_for_leave, today):
                     continue
                 total_biz = business_hours_elapsed(tenant, ticket.created_at, ticket.due_at)
                 if total_biz <= 0:
@@ -825,23 +737,33 @@ def delegation_tat_monitor():
                         manager = db.query(User).filter(User.id == assignee.manager_id).first()
                 assignee_name = assignee.name if assignee else "—"
 
-                # pct1: manager + employee; pct2: manager + admin + employee
+                # pct1: manager + employee; pct2: manager + admin + employee.
+                # This escalation ladder (fewer recipients at the earlier
+                # threshold, admin added in at the later one) is intentional
+                # and separate from the tenant's recipients config — the
+                # config below only prunes roles the tenant doesn't want
+                # notified at all, it doesn't collapse the two tiers together.
+                from .notification_rules import filter_recipients
                 mgr_id = manager.id if manager else None
+                configured_audience = set(filter_recipients(
+                    db, tenant.id, "ticket_tat_reminder",
+                    admin_ids=[u.id for u in admins],
+                    manager_ids=[mgr_id] if mgr_id else [],
+                    assignee_id=ticket.current_assignee_id,
+                ))
                 for threshold_pct, audience_ids in [
                     (pct1, ([mgr_id] if mgr_id else []) + ([ticket.current_assignee_id] if ticket.current_assignee_id else [])),
                     (pct2, [u.id for u in admins] + ([mgr_id] if mgr_id else []) + ([ticket.current_assignee_id] if ticket.current_assignee_id else [])),
                 ]:
+                    audience_ids = [uid for uid in audience_ids if uid in configured_audience]
                     if threshold_pct == 0 or pct_elapsed < threshold_pct:
                         continue
                     # Dedup: already notified at this threshold? Exact bracketed
                     # tag avoids substring collisions (e.g. threshold 8 matching "80").
+                    # Atomic claim so two scheduler instances racing on the same
+                    # tick can't both pass this check and double-send.
                     tat_tag = f'[tat_alert:{threshold_pct}]'
-                    already = db.query(TicketEvent).filter(
-                        TicketEvent.ticket_id == ticket.id,
-                        TicketEvent.event_type == 'TAT_ALERT',
-                        TicketEvent.detail.like(f'%{tat_tag}%'),
-                    ).first()
-                    if already:
+                    if not claim_dedup_key(db, f"ticket_tat_reminder:{ticket.id}:{threshold_pct}"):
                         continue
                     # Log audit event. TicketEvent.actor_id is NOT NULL and this
                     # is a system-generated event — attribute it to the ticket
@@ -861,11 +783,13 @@ def delegation_tat_monitor():
                             title=f'⏱ TaT alert: {ticket.display_id or ticket.title}',
                             body=f'{pct_elapsed:.0f}% of allowed time used on this ticket.',
                             link=f'/tickets/{ticket.id}',
+                            condition_key='ticket_tat_reminder',
                         )
-                        recipient = db.query(User).filter(User.id == uid).first()
-                        if recipient:
-                            send_whatsapp_for_ticket_tat_reminder(
-                                db, ticket, recipient, assignee_name, round(pct_elapsed))
+                        if channel_enabled(db, tenant.id, 'ticket_tat_reminder', 'whatsapp'):
+                            recipient = db.query(User).filter(User.id == uid).first()
+                            if recipient:
+                                send_whatsapp_for_ticket_tat_reminder(
+                                    db, ticket, recipient, assignee_name, round(pct_elapsed))
             db.commit()
     except Exception as e:
         logger.error("delegation_tat_monitor error: %s", e)
@@ -882,11 +806,14 @@ def fms_stage_tat_monitor():
     FMSTicket directly — two splits of the same ticket can breach TAT
     independently, at different stages, at different times, so a per-ticket
     check would only ever catch one of them."""
+    from datetime import date as _date
     from .database import SessionLocal, Tenant, FMSTicket, FMSTicketSplit, FMSStage, FMSStageHistory, User, Notification
-    from .notifications import business_hours_elapsed, create_notification
+    from .notifications import business_hours_elapsed, create_notification, claim_dedup_key
+    from .notification_rules import is_working_day_for
     db = SessionLocal()
     try:
         now = datetime.utcnow()
+        today = _date.today()
         tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
         for tenant in tenants:
             tat_pct = getattr(tenant, 'fms_notif_tat_pct', 80) or 0
@@ -927,12 +854,9 @@ def fms_stage_tat_monitor():
                 # ensures a re-visit to the same stage (entered_at changes)
                 # is treated as a fresh window, not a repeat.
                 stage_entry_tag = f"[ref:{split.id}:{entry.entered_at.isoformat()}]"
-                already = db.query(Notification).filter(
-                    Notification.notif_type == "TICKET_REMINDER",
-                    Notification.link == f"/fms/tickets/{ticket.id}",
-                    Notification.body.like(f"%{stage_entry_tag}%"),
-                ).first()
-                if already:
+                # Atomic claim so two scheduler instances racing on the same
+                # tick can't both pass this check and double-send.
+                if not claim_dedup_key(db, f"fms_tat_breach:{split.id}:{entry.entered_at.isoformat()}"):
                     continue
                 # Audience: admins + manager + assignee
                 admins = db.query(User).filter(
@@ -940,8 +864,18 @@ def fms_stage_tat_monitor():
                     User.is_deleted == False, User.is_active == True,
                 ).all()
                 assignee = db.query(User).filter(User.id == split.current_assignee_id).first() if split.current_assignee_id else None
+                # Leave/branch-aware: defer while the assignee is off today —
+                # the TaT clock keeps running, only the notification is held.
+                if assignee and not is_working_day_for(db, assignee, today):
+                    continue
                 manager = db.query(User).filter(User.id == assignee.manager_id).first() if assignee and assignee.manager_id else None
-                audience = list({u.id for u in admins} | ({manager.id} if manager else set()) | ({assignee.id} if assignee else set()))
+                from .notification_rules import filter_recipients
+                audience = filter_recipients(
+                    db, tenant.id, "fms_tat_breach",
+                    admin_ids=[u.id for u in admins],
+                    manager_ids=[manager.id] if manager else [],
+                    assignee_id=assignee.id if assignee else None,
+                )
                 for uid in audience:
                     create_notification(
                         db, tenant_id=tenant.id, user_id=uid,
@@ -949,6 +883,7 @@ def fms_stage_tat_monitor():
                         title=f"⏱ Stage TaT alert: {ticket.title}{label_suffix}",
                         body=f"{pct_used:.0f}% of stage TaT used at '{stage.name}' stage. {stage_entry_tag}",
                         link=f"/fms/tickets/{ticket.id}",
+                        condition_key="fms_tat_breach",
                     )
             db.commit()
     except Exception as e:
@@ -985,70 +920,6 @@ def fms_qty_discrepancy_monitor():
         db.commit()
     except Exception as e:
         logger.error("fms_qty_discrepancy_monitor error: %s", e)
-        db.rollback()
-    finally:
-        db.close()
-
-
-def delegation_unacknowledged_monitor():
-    """E-15: Every 30 min — notify manager if ticket OPEN with no activity for ticket_notif_unack_hours business hours."""
-    from .database import SessionLocal, Tenant, Ticket, TicketEvent, User, Notification
-    from .notifications import business_hours_elapsed, create_notification
-    db = SessionLocal()
-    try:
-        now = datetime.utcnow()
-        tenants = db.query(Tenant).filter(Tenant.is_suspended == False).all()
-        for tenant in tenants:
-            unack_hours = getattr(tenant, 'ticket_notif_unack_hours', 4) or 0
-            if unack_hours == 0:
-                continue
-            open_tickets = db.query(Ticket).filter(
-                Ticket.tenant_id == tenant.id,
-                Ticket.status == 'OPEN',
-                Ticket.is_deleted == False,
-                Ticket.priority.in_(['HIGH', 'CRITICAL']),
-            ).all()
-            for ticket in open_tickets:
-                # Any event logged since creation?
-                any_event = db.query(TicketEvent).filter(
-                    TicketEvent.ticket_id == ticket.id,
-                ).first()
-                if any_event:
-                    continue
-                biz_elapsed = business_hours_elapsed(tenant, ticket.created_at, now)
-                if biz_elapsed < unack_hours:
-                    continue
-                # Find manager
-                manager = None
-                if ticket.current_assignee_id:
-                    assignee = db.query(User).filter(User.id == ticket.current_assignee_id).first()
-                    if assignee and assignee.manager_id:
-                        manager = db.query(User).filter(User.id == assignee.manager_id).first()
-                admins = db.query(User).filter(
-                    User.tenant_id == tenant.id, User.role == 'ADMIN',
-                    User.is_deleted == False, User.is_active == True,
-                ).all()
-                recipients = list({u.id for u in admins} | ({manager.id} if manager else set()))
-                for uid in recipients:
-                    # Dedup for the lifetime of the ticket, not just the unack
-                    # window — otherwise this refires every tick once the
-                    # window elapses, even though nothing changed.
-                    dup = db.query(Notification).filter(
-                        Notification.user_id == uid,
-                        Notification.notif_type == 'TICKET_ESCALATION',
-                        Notification.link == f'/tickets/{ticket.id}',
-                    ).first()
-                    if not dup:
-                        create_notification(
-                            db, tenant_id=tenant.id, user_id=uid,
-                            notif_type='TICKET_ESCALATION',
-                            title=f'⚠ No activity on {ticket.display_id or ticket.title}',
-                            body=f'Ticket has had no activity for {unack_hours}+ business hours.',
-                            link=f'/tickets/{ticket.id}',
-                        )
-            db.commit()
-    except Exception as e:
-        logger.error("delegation_unacknowledged_monitor error: %s", e)
         db.rollback()
     finally:
         db.close()
@@ -1141,18 +1012,17 @@ def start_scheduler():
                       IntervalTrigger(hours=1), id="gen_cl",    replace_existing=True)
     scheduler.add_job(mark_overdue_checklists,
                       IntervalTrigger(minutes=15), id="overdue", replace_existing=True)
-    scheduler.add_job(send_checklist_reminders,
-                      IntervalTrigger(minutes=15), id="remind",  replace_existing=True)
     scheduler.add_job(escalate_unacknowledged_tickets,
                       IntervalTrigger(minutes=30), id="escalate",replace_existing=True)
-    # Phase 5 jobs
+    # Phase 5 jobs — 8:00 AM IST = 2:30 UTC (previously wrongly registered at
+    # 8:00 UTC = 1:30 PM IST despite the "morning" name — fixed)
     scheduler.add_job(morning_ticket_summary,
-                      CronTrigger(hour=8, minute=0, timezone="UTC"), id="morning_tickets", replace_existing=True)
-    # Phase 6 jobs — consolidated per-employee, per-tenant notifications every 30 min
+                      CronTrigger(hour=2, minute=30, timezone="UTC"), id="morning_tickets", replace_existing=True)
+    # The single checklist reminder job — merges the old "remind" (legacy
+    # per-assignment) + "cl_consolidated" jobs into one: due-today only,
+    # fires once at each tenant-configured hour, leave/branch-aware.
     scheduler.add_job(send_consolidated_checklist_notifications,
                       IntervalTrigger(minutes=30), id="cl_consolidated", replace_existing=True)
-    scheduler.add_job(send_consolidated_checklist_overdue_notifications,
-                      IntervalTrigger(minutes=30), id="cl_overdue", replace_existing=True)
     scheduler.add_job(send_unacknowledged_ticket_notifications,
                       IntervalTrigger(minutes=30), id="ticket_unacked_wa", replace_existing=True)
     scheduler.add_job(checklist_eod_overdue,

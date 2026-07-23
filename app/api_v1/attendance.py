@@ -12,7 +12,7 @@ from ..database import (
 from ..uploads import save_upload
 from .features import require_feature
 from .pagination import paginate_cursor
-from .schemas import Page
+from .schemas import Page, UtcDateTime
 from .security import get_current_api_user, limiter
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"], dependencies=[Depends(require_feature("ATTENDANCE"))])
@@ -28,12 +28,12 @@ class AttendanceRecordOut(BaseModel):
     work_date: date
     branch_id: Optional[str]
     branch_name: Optional[str]
-    check_in_at: Optional[datetime]
+    check_in_at: Optional[UtcDateTime]
     check_in_lat: Optional[float]
     check_in_lng: Optional[float]
     check_in_in_fence: Optional[bool]
     check_in_reason: Optional[str]
-    check_out_at: Optional[datetime]
+    check_out_at: Optional[UtcDateTime]
     check_out_lat: Optional[float]
     check_out_lng: Optional[float]
     check_out_in_fence: Optional[bool]
@@ -53,7 +53,10 @@ class LeaveRequestOut(BaseModel):
     end_date: date
     is_half_day: bool
     status: str
-    created_at: datetime
+    created_at: UtcDateTime
+    approver_id: Optional[str] = None
+    decided_at: Optional[UtcDateTime] = None
+    decision_note: Optional[str] = None
 
 
 def _record_out(record: AttendanceRecord, branch_names: dict, user_names: dict) -> AttendanceRecordOut:
@@ -98,14 +101,123 @@ def list_attendance_records(
 def list_leave_requests(
     cursor: Optional[str] = Query(None),
     limit: int = Query(25, ge=1, le=100),
+    scope: Optional[str] = Query(None, description="'team' to see direct reports'/tenant's requests (ADMIN/MANAGER only)"),
+    status: Optional[str] = Query(None),
     user: User = Depends(get_current_api_user),
     db: Session = Depends(get_db),
 ):
     q = db.query(LeaveRequest).filter(LeaveRequest.tenant_id == user.tenant_id)
-    if user.role not in ("ADMIN", "MANAGER"):
+    if scope == "team" and user.role in ("ADMIN", "MANAGER"):
+        if user.role == "MANAGER":
+            report_ids = [u.id for u in db.query(User.id).filter(User.tenant_id == user.tenant_id, User.manager_id == user.id)]
+            q = q.filter(LeaveRequest.user_id.in_(report_ids))
+    else:
         q = q.filter(LeaveRequest.user_id == user.id)
+    if status:
+        q = q.filter(LeaveRequest.status == status)
     rows, next_cursor = paginate_cursor(q, LeaveRequest, cursor, limit, created_col="created_at")
     return Page(items=rows, next_cursor=next_cursor)
+
+
+def _authorize_leave_decision(db: Session, user: User, req: LeaveRequest) -> None:
+    if user.role == "ADMIN":
+        return
+    if user.role == "MANAGER":
+        target = db.query(User).filter(User.id == req.user_id).first()
+        if target and target.manager_id == user.id:
+            return
+    raise HTTPException(status_code=403, detail="You're not authorized to decide this leave request.")
+
+
+@router.post("/leave/{req_id}/approve", response_model=LeaveRequestOut)
+def leave_approve(req_id: str, user: User = Depends(get_current_api_user), db: Session = Depends(get_db)):
+    req = db.query(LeaveRequest).filter(LeaveRequest.id == req_id, LeaveRequest.tenant_id == user.tenant_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+    _authorize_leave_decision(db, user, req)
+    req.status = "APPROVED"
+    req.approver_id = user.id
+    req.decided_at = datetime.utcnow()
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+class LeaveDecisionRequest(BaseModel):
+    decision_note: Optional[str] = None
+
+
+@router.post("/leave/{req_id}/reject", response_model=LeaveRequestOut)
+def leave_reject(
+    req_id: str, body: LeaveDecisionRequest = LeaveDecisionRequest(),
+    user: User = Depends(get_current_api_user), db: Session = Depends(get_db),
+):
+    req = db.query(LeaveRequest).filter(LeaveRequest.id == req_id, LeaveRequest.tenant_id == user.tenant_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+    _authorize_leave_decision(db, user, req)
+    req.status = "REJECTED"
+    req.approver_id = user.id
+    req.decided_at = datetime.utcnow()
+    req.decision_note = (body.decision_note or "").strip() or None
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+class TeamLogEntryOut(BaseModel):
+    user_id: str
+    name: str
+    check_in_at: Optional[UtcDateTime]
+    check_out_at: Optional[UtcDateTime]
+    status: str
+
+
+@router.get("/team-log", response_model=list[TeamLogEntryOut])
+def team_log(
+    for_date: Optional[date] = Query(None),
+    user: User = Depends(get_current_api_user),
+    db: Session = Depends(get_db),
+):
+    if user.role not in ("ADMIN", "MANAGER"):
+        raise HTTPException(status_code=403, detail="Admin or manager only")
+    target_date = for_date or date.today()
+
+    if user.role == "ADMIN":
+        team = db.query(User).filter(User.tenant_id == user.tenant_id, User.is_deleted == False, User.id != user.id).all()
+    else:
+        team = db.query(User).filter(User.tenant_id == user.tenant_id, User.is_deleted == False, User.manager_id == user.id).all()
+
+    records = {
+        r.user_id: r for r in db.query(AttendanceRecord).filter(
+            AttendanceRecord.tenant_id == user.tenant_id, AttendanceRecord.work_date == target_date,
+        ).all()
+    }
+    on_leave_ids = {
+        lr.user_id for lr in db.query(LeaveRequest).filter(
+            LeaveRequest.tenant_id == user.tenant_id, LeaveRequest.status == "APPROVED",
+            LeaveRequest.start_date <= target_date, LeaveRequest.end_date >= target_date,
+        ).all()
+    }
+
+    entries = []
+    for u in team:
+        record = records.get(u.id)
+        if u.id in on_leave_ids:
+            status = "ON_LEAVE"
+        elif record and record.is_half_day:
+            status = "HALF_DAY"
+        elif record and record.check_in_at:
+            status = "PRESENT"
+        else:
+            status = "ABSENT"
+        entries.append(TeamLogEntryOut(
+            user_id=u.id, name=u.name,
+            check_in_at=record.check_in_at if record else None,
+            check_out_at=record.check_out_at if record else None,
+            status=status,
+        ))
+    return sorted(entries, key=lambda e: e.name)
 
 
 # ── Punch in/out — Phase 0.6/0.7. Mirrors app/attendance.py's punch_page /
@@ -230,8 +342,8 @@ def list_on_behalf_targets(user: User = Depends(get_current_api_user), db: Sessi
 
 
 class TodayRecordOut(BaseModel):
-    check_in_at: Optional[datetime]
-    check_out_at: Optional[datetime]
+    check_in_at: Optional[UtcDateTime]
+    check_out_at: Optional[UtcDateTime]
     check_in_in_fence: Optional[bool]
     check_out_in_fence: Optional[bool]
     checkin_distance_m: Optional[int]
@@ -289,7 +401,7 @@ def punch_status(
 
 class CheckInOut(BaseModel):
     ok: bool
-    check_in_at: datetime
+    check_in_at: UtcDateTime
     in_fence: bool
     branch_name: Optional[str]
     recorded_for_name: Optional[str]
@@ -297,7 +409,7 @@ class CheckInOut(BaseModel):
 
 class CheckOutOut(BaseModel):
     ok: bool
-    check_out_at: datetime
+    check_out_at: UtcDateTime
     in_fence: bool
     recorded_for_name: Optional[str]
 

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from markupsafe import Markup
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 import os
 
 from .database import (
@@ -826,6 +827,13 @@ async def add_end_product(
 ):
     if not name.strip():
         return _redir("/setup/end-products?err=Name+is+required")
+    name_exists = db.query(EndProduct).filter(
+        EndProduct.tenant_id == user.tenant_id,
+        func.lower(EndProduct.name) == name.strip().lower(),
+        EndProduct.is_deleted == False,
+    ).first()
+    if name_exists:
+        return _redir(f"/setup/end-products?err=An+end+product+named+'{name.strip()}'+already+exists")
     sku = sku_code.strip() or None
     if sku:
         exists = db.query(EndProduct).filter(
@@ -1042,6 +1050,12 @@ async def import_end_products(
             if not name:
                 errors.append({"row": i, "error": "name is required", "data": dict(row)})
             continue
+        if db.query(EndProduct).filter(
+            EndProduct.tenant_id == user.tenant_id,
+            func.lower(EndProduct.name) == name.lower(), EndProduct.is_deleted == False,
+        ).first():
+            errors.append({"row": i, "error": f"An end product named '{name}' already exists", "data": dict(row)})
+            continue
         sku = (row.get("sku_code") or "").strip() or None
         if sku:
             exists = db.query(EndProduct).filter(
@@ -1202,6 +1216,13 @@ async def end_products_bulk_confirm(request: Request, user: User = Depends(requi
     warnings = []
     try:
         for r in rows:
+            name = (r.get("name") or "").strip()
+            if db.query(EndProduct).filter(
+                EndProduct.tenant_id == user.tenant_id,
+                func.lower(EndProduct.name) == name.lower(), EndProduct.is_deleted == False,
+            ).first():
+                warnings.append(f"'{name}' already exists — skipped")
+                continue
             sku = r.get("sku_code")
             if sku:
                 exists = db.query(EndProduct).filter(
@@ -2850,7 +2871,7 @@ def _apply_access_rule(db, tenant_id: str, target_type: str, target_id: str, tab
     for u in _matching_users(db, tenant_id, target_type, target_id):
         if u.id in protected_ids and target_type != "EMPLOYEE":
             continue
-        if u.role in ("ADMIN", "MANAGER", "PRODUCT_MANAGER"):
+        if u.role in ("ADMIN", "MANAGER"):
             continue  # these roles always see everything regardless of tab_access_json
         u.tab_access_json = json.dumps(tab_keys)
         u.module_access_json = json.dumps([t for t in tab_keys if t in ("SALES", "INVENTORY")])
@@ -2876,7 +2897,7 @@ def access_control(request: Request, target_type: str = "", target_id: str = "",
         Branch.tenant_id == user.tenant_id, Branch.is_deleted == False).order_by(Branch.name).all()
     employees = db.query(User).filter(
         User.tenant_id == user.tenant_id, User.is_deleted == False,
-        User.role.notin_(["ADMIN", "MANAGER", "PRODUCT_MANAGER"]),
+        User.role.notin_(["ADMIN", "MANAGER"]),
     ).order_by(User.name).all()
 
     rules = db.query(AccessRule).filter(AccessRule.tenant_id == user.tenant_id).all()
@@ -2898,7 +2919,7 @@ def access_control(request: Request, target_type: str = "", target_id: str = "",
 
     return templates.TemplateResponse(request, "setup/access_control.html", {
         "user": user, "L": get_labels(db, user.tenant_id),
-        **get_nav_flags(db, user, tenant, for_setup=True),
+        **_nav_ctx(db, user),
         "active_section": "access_control",
         "module_groups": visible_groups, "tab_labels": tab_labels,
         "departments": departments, "branches": branches, "employees": employees,
@@ -2947,7 +2968,7 @@ def access_control_delete(rule_id: str, user: User = Depends(require_admin), db:
         for u in _matching_users(db, user.tenant_id, rule.target_type, rule.target_id):
             if u.id in protected_ids and rule.target_type != "EMPLOYEE":
                 continue
-            if u.role in ("ADMIN", "MANAGER", "PRODUCT_MANAGER"):
+            if u.role in ("ADMIN", "MANAGER"):
                 continue
             u.tab_access_json = None
             u.module_access_json = json.dumps([])

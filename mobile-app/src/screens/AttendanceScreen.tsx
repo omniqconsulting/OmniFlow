@@ -3,7 +3,9 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,18 +22,22 @@ import type { AuthStackParamList } from "../navigation/AuthNavigator";
 import { ApiError, API_BASE_URL } from "../api/client";
 import {
   applyLeave,
+  approveLeave,
   checkIn,
   checkOut,
   getMonthCalendar,
   getPunchStatus,
+  getTeamLog,
   listAttendanceRecords,
   listLeaveRequests,
   listOnBehalfTargets,
+  rejectLeave,
   type AttendanceRecord,
   type CalendarDay,
   type LeaveRequest,
   type OnBehalfTarget,
   type PunchStatus,
+  type TeamLogEntry,
 } from "../api/attendance";
 import { formatIstDate, formatIstDateWithWeekday, formatIstTime, getIstYearMonth, toIstIsoDate } from "../utils/dateFormat";
 
@@ -82,7 +88,50 @@ function formatAddress(result: Location.LocationGeocodedAddress | undefined): st
   return parts.length ? parts.join(", ") : "Unknown location";
 }
 
-export default function AttendanceScreen({ navigation }: Props) {
+export default function AttendanceScreen({ navigation, route }: Props) {
+  const currentUser = route.params.user;
+  const isAdminOrManager = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
+  const [tab, setTab] = useState<"me" | "team">("me");
+  const [pendingApprovals, setPendingApprovals] = useState<LeaveRequest[]>([]);
+  const [teamLog, setTeamLog] = useState<TeamLogEntry[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamError, setTeamError] = useState<string | null>(null);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+
+  const loadTeam = useCallback(async () => {
+    setTeamLoading(true);
+    try {
+      const [pending, log] = await Promise.all([
+        listLeaveRequests({ scope: "team", status: "PENDING" }),
+        getTeamLog(),
+      ]);
+      setPendingApprovals(pending.items);
+      setTeamLog(log);
+      setTeamError(null);
+    } catch (e) {
+      setTeamError(e instanceof ApiError ? e.detail : "Couldn't load team attendance.");
+    } finally {
+      setTeamLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "team" && isAdminOrManager) loadTeam();
+  }, [tab, isAdminOrManager, loadTeam]);
+
+  const decide = async (id: string, action: "approve" | "reject") => {
+    setDecidingId(id);
+    try {
+      if (action === "approve") await approveLeave(id);
+      else await rejectLeave(id);
+      setPendingApprovals((prev) => prev.filter((p) => p.id !== id));
+    } catch (e) {
+      Alert.alert("Couldn't update", e instanceof ApiError ? e.detail : "Something went wrong.");
+    } finally {
+      setDecidingId(null);
+    }
+  };
+
   const initialYearMonth = getIstYearMonth();
   const [year, setYear] = useState(initialYearMonth.year);
   const [month, setMonth] = useState(initialYearMonth.month); // 1-12
@@ -355,6 +404,68 @@ export default function AttendanceScreen({ navigation }: Props) {
         </View>
       </View>
 
+      {isAdminOrManager ? (
+        <View style={styles.tabRow}>
+          <TouchableOpacity style={[styles.tabBtn, tab === "me" && styles.tabBtnActive]} onPress={() => setTab("me")}>
+            <Text style={[styles.tabBtnText, tab === "me" && styles.tabBtnTextActive]}>Me</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.tabBtn, tab === "team" && styles.tabBtnActive]} onPress={() => setTab("team")}>
+            <Text style={[styles.tabBtnText, tab === "team" && styles.tabBtnTextActive]}>Team</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {tab === "team" && isAdminOrManager ? (
+        <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+          {teamError ? <Text style={styles.error}>{teamError}</Text> : null}
+          {teamLoading ? <ActivityIndicator color={TEAL} style={{ marginTop: 16 }} /> : null}
+
+          <Text style={styles.sectionTitle}>Pending approvals</Text>
+          {pendingApprovals.length === 0 && !teamLoading ? (
+            <Text style={styles.emptyText}>No pending leave requests.</Text>
+          ) : (
+            pendingApprovals.map((pa) => (
+              <View key={pa.id} style={styles.approvalCard}>
+                <Text style={styles.leaveType}>{pa.leave_type} Leave</Text>
+                <Text style={styles.leaveDates}>{pa.start_date} – {pa.end_date}{pa.is_half_day ? " · Half day" : ""}</Text>
+                <View style={styles.approvalActions}>
+                  <TouchableOpacity
+                    style={styles.approveButton}
+                    onPress={() => decide(pa.id, "approve")}
+                    disabled={decidingId === pa.id}
+                  >
+                    <Text style={styles.approveButtonText}>Approve</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.rejectButton}
+                    onPress={() => decide(pa.id, "reject")}
+                    disabled={decidingId === pa.id}
+                  >
+                    <Text style={styles.rejectButtonText}>Reject</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+
+          <Text style={styles.sectionTitle}>Today's team log</Text>
+          {teamLog.length === 0 && !teamLoading ? (
+            <Text style={styles.emptyText}>No team members found.</Text>
+          ) : (
+            teamLog.map((tl) => (
+              <View key={tl.user_id} style={styles.leaveRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.leaveType}>{tl.name}</Text>
+                  <Text style={styles.leaveDates}>
+                    {tl.check_in_at ? `In ${formatIstTime(tl.check_in_at)}` : "—"} · {tl.check_out_at ? `Out ${formatIstTime(tl.check_out_at)}` : "—"}
+                  </Text>
+                </View>
+                <Text style={[styles.leaveStatus, { color: STATUS_STYLE[tl.status]?.fg ?? "#94a3b8" }]}>{tl.status.replace("_", " ")}</Text>
+              </View>
+            ))
+          )}
+        </ScrollView>
+      ) : (
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
         {onBehalfTargets.length > 0 ? (
           <TouchableOpacity style={styles.onBehalfRow} onPress={() => setTargetPickerOpen(true)}>
@@ -447,6 +558,7 @@ export default function AttendanceScreen({ navigation }: Props) {
           </>
         ) : null}
       </ScrollView>
+      )}
 
       {/* Recording-for picker */}
       <Modal visible={targetPickerOpen} transparent animationType="fade" onRequestClose={() => setTargetPickerOpen(false)}>
@@ -484,7 +596,7 @@ export default function AttendanceScreen({ navigation }: Props) {
 
       {/* Location confirmation */}
       <Modal visible={!!confirmDraft} transparent animationType="fade" onRequestClose={() => setConfirmDraft(null)}>
-        <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>
               {confirmDraft?.kind === "none" ? "Check in here?" : "Check out here?"}
@@ -513,12 +625,12 @@ export default function AttendanceScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Out-of-fence reason */}
       <Modal visible={!!reasonPrompt} transparent animationType="fade" onRequestClose={() => setReasonPrompt(null)}>
-        <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>You're outside the office zone</Text>
             <Text style={styles.modalSubtitle}>Add a reason to continue.</Text>
@@ -539,7 +651,7 @@ export default function AttendanceScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Day detail — photo, check-in/out times, location */}
@@ -595,7 +707,7 @@ export default function AttendanceScreen({ navigation }: Props) {
 
       {/* Apply for leave */}
       <Modal visible={leaveFormOpen} transparent animationType="fade" onRequestClose={() => setLeaveFormOpen(false)}>
-        <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalBackdrop}>
           <ScrollView style={styles.modalCardScroll} contentContainerStyle={styles.modalCard}>
             <View style={styles.modalHeaderRow}>
               <View style={{ flex: 1 }}>
@@ -676,7 +788,7 @@ export default function AttendanceScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -694,6 +806,20 @@ const styles = StyleSheet.create({
   headerSub: { fontSize: 11.5, color: "#64748b" },
   body: { flex: 1 },
   bodyContent: { padding: 20, paddingBottom: 40 },
+  tabRow: { flexDirection: "row", gap: 6, paddingHorizontal: 20, paddingTop: 10 },
+  tabBtn: { flex: 1, textAlign: "center", paddingVertical: 9, borderRadius: 9, alignItems: "center" },
+  tabBtnActive: { backgroundColor: "#1e293b", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
+  tabBtnText: { fontSize: 12.5, fontWeight: "700", color: "#64748b" },
+  tabBtnTextActive: { color: "#f1f5f9" },
+  approvalCard: {
+    backgroundColor: "#111827", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 12, padding: 13, marginBottom: 8,
+  },
+  approvalActions: { flexDirection: "row", gap: 8, marginTop: 10 },
+  approveButton: { flex: 1, height: 36, borderRadius: 8, backgroundColor: "rgba(34,197,94,0.14)", alignItems: "center", justifyContent: "center" },
+  approveButtonText: { fontSize: 12, fontWeight: "700", color: "#22c55e" },
+  rejectButton: { flex: 1, height: 36, borderRadius: 8, backgroundColor: "rgba(239,68,68,0.14)", alignItems: "center", justifyContent: "center" },
+  rejectButtonText: { fontSize: 12, fontWeight: "700", color: "#ef4444" },
   statusBanner: {
     flexDirection: "row", alignItems: "center", gap: 10, padding: 14, borderRadius: 14,
     backgroundColor: "rgba(148,163,184,0.1)", borderWidth: 1, borderColor: "rgba(148,163,184,0.18)",

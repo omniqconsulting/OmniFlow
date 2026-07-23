@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
   Animated,
   Easing,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -30,6 +31,61 @@ const INDIGO = "#6657F2";
 const SHEET_HEIGHT = 460;
 const SPLASH_MS = 1150;
 
+const FORGOT_STEPS = [
+  { num: 1, title: "Contact your organization admin", body: "Ask them to go to the Employees page and generate a temporary password for your account." },
+  { num: 2, title: "Sign in with the temporary password", body: "Use the temporary password you receive to sign in, then change it from your profile immediately." },
+  { num: 3, title: "No admin access? Contact platform support", body: "Reach out to your OmniFlow account manager for help if you are the admin and are locked out." },
+];
+
+const CONTACT_STEPS = [
+  { num: 1, title: "Organization Admin", body: "Your organization admin can reset passwords, create accounts, and manage roles on the Employees page." },
+  { num: 2, title: "Platform Support", body: "If your admin is unavailable or you are the admin and are locked out, contact OmniFlow support directly." },
+];
+
+function InfoSheet({
+  visible,
+  onClose,
+  icon,
+  title,
+  intro,
+  steps,
+  children,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  icon: string;
+  title: string;
+  intro: string;
+  steps: { num: number; title: string; body: string }[];
+  children?: ReactNode;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={sheetStyles.backdrop} onPress={onClose} />
+      <View style={sheetStyles.sheet}>
+        <View style={sheetStyles.handle} />
+        <Text style={sheetStyles.title}>{icon} {title}</Text>
+        <Text style={sheetStyles.intro}>{intro}</Text>
+        {steps.map((s) => (
+          <View key={s.num} style={sheetStyles.step}>
+            <View style={sheetStyles.stepNum}>
+              <Text style={sheetStyles.stepNumText}>{s.num}</Text>
+            </View>
+            <View style={sheetStyles.stepBody}>
+              <Text style={sheetStyles.stepTitle}>{s.title}</Text>
+              <Text style={sheetStyles.stepText}>{s.body}</Text>
+            </View>
+          </View>
+        ))}
+        {children}
+        <TouchableOpacity style={sheetStyles.closeButton} onPress={onClose}>
+          <Text style={sheetStyles.closeButtonText}>Close</Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
 type Props = NativeStackScreenProps<AuthStackParamList, "Login">;
 
 export default function LoginScreen({ navigation }: Props) {
@@ -40,6 +96,7 @@ export default function LoginScreen({ navigation }: Props) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modal, setModal] = useState<"forgot" | "contact" | null>(null);
 
   const sheetY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const splashOpacity = useRef(new Animated.Value(1)).current;
@@ -273,10 +330,44 @@ export default function LoginScreen({ navigation }: Props) {
             >
               {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.signInButtonText}>Sign In</Text>}
             </TouchableOpacity>
-            <Text style={styles.footerHint}>Trouble signing in? Contact your admin.</Text>
+            <View style={styles.footerLinks}>
+              <TouchableOpacity onPress={() => setModal("forgot")}>
+                <Text style={styles.footerLinkAccent}>Forgot password?</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setModal("contact")}>
+                <Text style={styles.footerLinkAccent}>Contact your administrator</Text>
+              </TouchableOpacity>
+              <Text style={styles.footerHint}>
+                New here? <Text style={styles.footerLinkAccent} onPress={() => navigation.navigate("Register")}>Create account</Text>
+              </Text>
+            </View>
           </ScrollView>
         </Animated.View>
       </KeyboardAvoidingView>
+
+      <InfoSheet
+        visible={modal === "forgot"}
+        onClose={() => setModal(null)}
+        icon="🔐"
+        title="Reset Your Password"
+        intro="Passwords can't be reset by yourself for security reasons. Your organization admin or platform support can generate a temporary password for you."
+        steps={FORGOT_STEPS}
+      />
+      <InfoSheet
+        visible={modal === "contact"}
+        onClose={() => setModal(null)}
+        icon="📞"
+        title="Contact Your Administrator"
+        intro="Reach out to your organization administrator for account help, access issues, or onboarding support."
+        steps={CONTACT_STEPS}
+      >
+        <View style={sheetStyles.contactButton}>
+          <Text style={sheetStyles.contactButtonText}>📞 Call · +91 99714 53045</Text>
+        </View>
+        <View style={[sheetStyles.contactButton, sheetStyles.contactButtonSecondary]}>
+          <Text style={sheetStyles.contactButtonSecondaryText}>✉️ Email · customersupport@omniqconsulting.com</Text>
+        </View>
+      </InfoSheet>
     </Pressable>
   );
 }
@@ -466,11 +557,129 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
+  footerLinks: {
+    alignItems: "center",
+    gap: 9,
+    marginTop: 16,
+  },
+  footerLinkAccent: {
+    fontSize: 11.5,
+    color: TEAL,
+    fontWeight: "600",
+  },
   footerHint: {
     textAlign: "center",
-    fontSize: 12,
+    fontSize: 11.5,
     color: "#64748b",
-    marginTop: 16,
     lineHeight: 18,
+  },
+});
+
+const sheetStyles = StyleSheet.create({
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  sheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    maxHeight: "82%",
+    backgroundColor: "#111827",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 26,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#f1f5f9",
+    marginBottom: 6,
+  },
+  intro: {
+    fontSize: 12.5,
+    color: "#94a3b8",
+    lineHeight: 19,
+    marginBottom: 14,
+  },
+  step: {
+    flexDirection: "row",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  stepNum: {
+    width: 22,
+    height: 22,
+    borderRadius: 99,
+    backgroundColor: "rgba(59,130,246,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  stepNumText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#60a5fa",
+  },
+  stepBody: { flex: 1 },
+  stepTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#e2e8f0",
+    marginBottom: 2,
+  },
+  stepText: {
+    fontSize: 12,
+    color: "#94a3b8",
+    lineHeight: 17,
+  },
+  contactButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 9,
+    paddingVertical: 10,
+    backgroundColor: "#3b82f6",
+    marginTop: 8,
+  },
+  contactButtonText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  contactButtonSecondary: {
+    backgroundColor: "#1e293b",
+  },
+  contactButtonSecondaryText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#f1f5f9",
+  },
+  closeButton: {
+    marginTop: 16,
+    borderRadius: 9,
+    paddingVertical: 11,
+    backgroundColor: "#1e293b",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#f1f5f9",
   },
 });

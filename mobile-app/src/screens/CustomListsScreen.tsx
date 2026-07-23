@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { AuthStackParamList } from "../navigation/AuthNavigator";
@@ -202,7 +202,7 @@ export default function CustomListsScreen({ navigation }: Props) {
 
       <Modal visible={newListModalOpen} animationType="slide" transparent onRequestClose={() => setNewListModalOpen(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>New Custom List</Text>
@@ -215,7 +215,7 @@ export default function CustomListsScreen({ navigation }: Props) {
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </View>

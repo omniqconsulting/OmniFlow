@@ -27,7 +27,7 @@ from .auth import (
     require_admin, require_manager,
     require_admin_or_redirect, require_manager_or_redirect,
     require_admin_or_pm, require_admin_or_pm_or_redirect,
-    require_manager_or_pm_or_redirect,
+    require_manager_or_pm_or_redirect, require_admin_or_pm_or_manager,
     get_user_modules, has_module, get_user_tabs, get_nav_flags,
 )
 from .notifications import (
@@ -769,7 +769,12 @@ def login(request: Request, slug: str = Form(...), phone: str = Form(...),
     db.add(LoginEvent(tenant_id=tenant.id, user_id=user.id))
     db.commit()
     token = create_token(user.id, tenant.id, user.role)
-    landing = "/home" if user.role in ("ADMIN", "MANAGER") else "/dashboard"
+    if user.role in ("ADMIN", "MANAGER"):
+        landing = "/home"
+    elif user.role == "PRODUCT_MANAGER":
+        landing = "/employees"
+    else:
+        landing = "/dashboard"
     resp = redirect(landing)
     resp.set_cookie("token", token, httponly=True, max_age=86400)
     return resp
@@ -1261,8 +1266,11 @@ def home_grouped(request: Request, user: User = Depends(get_current_user_or_redi
                   db: Session = Depends(get_db)):
     """C1 — grouped post-login landing page for ADMIN/MANAGER on desktop.
     Pure nav/landing restructuring: every box links to an existing, unchanged
-    internal page. EMPLOYEE/PRODUCT_MANAGER get the desktop-only flat
-    /dashboard landing instead."""
+    internal page. EMPLOYEE gets the desktop-only flat /dashboard landing
+    instead. PRODUCT_MANAGER has no dashboard concept at all — it's scoped
+    to Employees + Setup only — so it lands on /employees instead."""
+    if user.role == "PRODUCT_MANAGER":
+        return redirect("/employees")
     if user.role not in ("ADMIN", "MANAGER"):
         return redirect("/dashboard")
     tenant = db.query(Tenant).get(user.tenant_id)
@@ -1359,6 +1367,9 @@ def organization_hub(user: User = Depends(require_manager_or_pm_or_redirect)):
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, user: User = Depends(get_current_user_or_redirect),
               db: Session = Depends(get_db)):
+    if user.role == "PRODUCT_MANAGER":
+        # PM has no dashboard concept — scoped to Employees + Setup only.
+        return redirect("/employees")
     tid = user.tenant_id
 
     tenant = db.query(Tenant).get(tid)
@@ -2037,14 +2048,16 @@ async def create_ticket(
             uploaded_by_id=user.id, **info,
         ))
         log_event(db, ticket.id, user.id, "DOC_UPLOADED", info["file_name"])
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for_ticket(db, user.tenant_id, assignee_id)
     if assignee:
-        notify_ticket_assigned(db, ticket, assignee)
+        notify_ticket_assigned(db, ticket, assignee, admins, managers)
     # P5-10: save linked entities
     form_data = await request.form()
     from .linked_entities import save_linked_entities_from_form
     save_linked_entities_from_form(db, dict(form_data), "TICKET", ticket.id, user.tenant_id, user.id)
     db.commit()
-    audience = list(set(_admin_ids(db, user.tenant_id) + _manager_ids_for_ticket(db, user.tenant_id, assignee_id) + [assignee_id]))
+    audience = list(set(admins + managers + [assignee_id]))
     broadcast_sync(user.tenant_id, audience, TICKET_ASSIGNED, {
         "ticket_id": ticket.id, "display_id": ticket.display_id,
         "title": ticket.title, "assignee_id": assignee_id,
@@ -2146,6 +2159,9 @@ def acknowledge_ticket(ticket_id: str,
     if not ticket.acknowledged_at:
         ticket.acknowledged_at = datetime.utcnow()
         log_event(db, ticket_id, user.id, "ACKNOWLEDGED", "")
+        admins = _admin_ids(db, user.tenant_id)
+        managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+        notify_ticket_status_changed(db, ticket, user.id, "OPEN", "ACKNOWLEDGED", admins, managers)
         db.commit()
     return redirect(f"/tickets/{ticket_id}")
 
@@ -2367,7 +2383,9 @@ def ticket_edit(ticket_id: str, title: str = Form(...), description: str = Form(
     if assignee_id != old_assignee_id:
         new_assignee = db.query(User).filter(User.id == assignee_id).first()
         if new_assignee:
-            notify_ticket_assigned(db, ticket, new_assignee)
+            admins = _admin_ids(db, user.tenant_id)
+            managers = _manager_ids_for_ticket(db, user.tenant_id, assignee_id)
+            notify_ticket_assigned(db, ticket, new_assignee, admins, managers)
     return redirect(f"/tickets/{ticket_id}")
 
 
@@ -2506,6 +2524,7 @@ async def tickets_bulk_confirm(request: Request, user: User = Depends(require_ma
     rows = body.get("rows", [])
     tenant = db.query(Tenant).get(user.tenant_id)
     created = 0
+    admins = _admin_ids(db, user.tenant_id)
     for r in rows:
         assignee = db.query(User).filter(User.id == r.get("assignee_id"), User.tenant_id == user.tenant_id).first()
         if not assignee:
@@ -2528,7 +2547,8 @@ async def tickets_bulk_confirm(request: Request, user: User = Depends(require_ma
         tenant.ticket_seq = (tenant.ticket_seq or 0) + 1
         ticket.display_id = f"T-{tenant.ticket_seq:04d}"
         log_event(db, ticket.id, user.id, "CREATED", f"Bulk upload — assigned to {assignee.name}")
-        notify_ticket_assigned(db, ticket, assignee)
+        managers = _manager_ids_for_ticket(db, user.tenant_id, assignee.id)
+        notify_ticket_assigned(db, ticket, assignee, admins, managers)
         created += 1
 
     try:
@@ -2583,7 +2603,7 @@ async def ticket_action(ticket_id: str, action: str = Form(...),
     elif action == "comment" and comment.strip():
         db.add(TicketComment(ticket_id=ticket_id, user_id=user.id, body=comment.strip()))
         helper_ids = [h.user_id for h in ticket.helpers]
-        notify_ticket_commented(db, ticket, user.id, helper_ids)
+        notify_ticket_commented(db, ticket, user.id, helper_ids, admins, managers)
     elif action == "reassign" and new_assignee_id and what_completed and why_reassigning:
         helper_ids_chk = [h.user_id for h in ticket.helpers]
         can_reassign = (
@@ -2599,7 +2619,8 @@ async def ticket_action(ticket_id: str, action: str = Form(...),
                   f"Completed: {what_completed} | Reason: {why_reassigning} | To: {new_assignee_id}")
         new_assignee = db.query(User).get(new_assignee_id)
         if new_assignee:
-            notify_ticket_assigned(db, ticket, new_assignee)
+            new_managers = _manager_ids_for_ticket(db, user.tenant_id, new_assignee_id)
+            notify_ticket_assigned(db, ticket, new_assignee, admins, new_managers)
     elif action == "flag" and flag_reason:
         if user.role == "EMPLOYEE":
             if ticket.current_assignee_id != user.id:
@@ -2613,6 +2634,11 @@ async def ticket_action(ticket_id: str, action: str = Form(...),
         ticket.is_flagged = False
         ticket.flagged_reason = None
         log_event(db, ticket_id, user.id, "UNFLAGGED")
+    elif action == "help_request" and comment.strip():
+        if ticket.current_assignee_id != user.id:
+            raise HTTPException(status_code=403, detail="Only the current assignee can request help")
+        log_event(db, ticket_id, user.id, "HELP_REQUESTED", comment.strip())
+        notify_ticket_help_requested(db, ticket, user.id, admins, managers)
     elif action == "reopen":
         ticket.status = "OPEN"
         ticket.closed_at = None
@@ -2638,6 +2664,11 @@ async def ticket_action(ticket_id: str, action: str = Form(...),
         audience = list(set(admins + [ticket.current_assignee_id]))
         broadcast_sync(user.tenant_id, audience, TICKET_FLAGGED, {
             "ticket_id": ticket_id, "display_id": ticket.display_id, "flagged": ticket.is_flagged,
+        })
+    elif action == "help_request" and comment.strip():
+        audience = list(set(admins + managers))
+        broadcast_sync(user.tenant_id, audience, TICKET_HELP_REQUESTED, {
+            "ticket_id": ticket_id, "display_id": ticket.display_id,
         })
 
     return redirect(f"/tickets/{ticket_id}")
@@ -2676,12 +2707,16 @@ async def ticket_log_delay(ticket_id: str, request: Request,
 
 @app.post("/tickets/{ticket_id}/add-helper")
 def add_helper(ticket_id: str, helper_id: str = Form(...), note: str = Form(""),
-               user: User = Depends(require_manager), db: Session = Depends(get_db)):
-    """Phase 0-C-1/2: add a helper to a ticket."""
+               user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Phase 0-C-1/2: add a helper to a ticket. ADMIN/MANAGER can add a helper
+    to any ticket; the ticket's own assignee can ask for help on their own
+    ticket too."""
     ticket = db.query(Ticket).filter(
         Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id).first()
     if not ticket:
         raise HTTPException(404)
+    if user.role not in ("ADMIN", "MANAGER") and ticket.current_assignee_id != user.id:
+        raise HTTPException(403, "Only the ticket's assignee, a manager or an admin can add a helper")
     # Avoid duplicates
     existing = db.query(TicketAssignee).filter(
         TicketAssignee.ticket_id == ticket_id,
@@ -2693,9 +2728,12 @@ def add_helper(ticket_id: str, helper_id: str = Form(...), note: str = Form(""),
         helper = db.query(User).get(helper_id)
         log_event(db, ticket_id, user.id, "HELPER_ADDED", f"Helper: {helper.name if helper else helper_id}")
         if helper:
-            notify_helper_added(db, ticket, helper)
+            admins = _admin_ids(db, user.tenant_id)
+            managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+            notify_helper_added(db, ticket, helper, admins, managers)
     db.commit()
     # Notify the new helper and the ticket owner in real-time
+    admins = _admin_ids(db, user.tenant_id)
     audience = list(set([helper_id, ticket.current_assignee_id] + admins))
     broadcast_sync(user.tenant_id, audience, TICKET_ASSIGNED, {
         "ticket_id": ticket_id, "display_id": ticket.display_id,
@@ -3276,9 +3314,11 @@ def assign_checklist(template_id: str, due_at: str = Form(...),
         db.add(a)
         new_assignments.append(a)
     db.commit()
+    admins = _admin_ids(db, user.tenant_id)
     for a in new_assignments:
         db.refresh(a)
-        notify_checklist_assigned(db, a)
+        managers = _manager_ids_for_ticket(db, user.tenant_id, a.user_id)
+        notify_checklist_assigned(db, a, admins, managers)
     return redirect("/checklists")
 
 
@@ -4177,18 +4217,20 @@ async def checklist_bulk_confirm(request: Request, user: User = Depends(require_
 
 @app.get("/employees", response_class=HTMLResponse)
 def employees_page(request: Request, user: User = Depends(require_manager_or_pm_or_redirect),
-                   search: str = "", opt_in_status: str = "", db: Session = Depends(get_db)):
+                   search: str = "", opt_in_status: str = "", my_team: str = "", db: Session = Depends(get_db)):
     tid = user.tenant_id
+    # Manager sees every employee in the tenant (edit access/performance are
+    # still scoped to direct reports in the row actions below and enforced
+    # server-side) — "My Team Only" is an optional filter, not the default.
+    team_ids = set()
     if user.role == "MANAGER":
-        # Manager sees only their direct reports (+ themselves)
-        team_ids = [u.id for u in db.query(User).filter(
-            User.manager_id == user.id, User.is_deleted == False).all()]
-        team_ids.append(user.id)
-        employees_q = db.query(User).filter(
-            User.id.in_(team_ids), User.is_deleted == False)
-    else:
-        employees_q = db.query(User).filter(
-            User.tenant_id == tid, User.is_deleted == False)
+        team_ids = {u.id for u in db.query(User).filter(
+            User.manager_id == user.id, User.is_deleted == False).all()}
+        team_ids.add(user.id)
+    employees_q = db.query(User).filter(
+        User.tenant_id == tid, User.is_deleted == False)
+    if user.role == "MANAGER" and my_team:
+        employees_q = employees_q.filter(User.id.in_(team_ids))
     if search:
         like = f"%{search}%"
         employees_q = employees_q.filter(or_(
@@ -4268,6 +4310,7 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_pm_
         **_nav_ctx(db, user),
         "employees": all_users, "departments": departments_unique,
         "branches": branches, "managers": managers,
+        "team_ids": team_ids, "my_team": my_team,
         "can_bulk": can_bulk, "search": search,
         "kpi_total": kpi_total, "kpi_active": kpi_active,
         "kpi_terminated": kpi_terminated, "kpi_departments": kpi_departments,
@@ -4585,7 +4628,7 @@ def edit_employee(
     department_id: str = Form(""), manager_id: str = Form(""),
     joining_date: str = Form(""), address: str = Form(""),
     branch_id: str = Form(""),
-    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm_or_manager), db: Session = Depends(get_db),
 ):
     phone_err = _validate_phone(phone)
     if phone_err:
@@ -4598,6 +4641,8 @@ def edit_employee(
     ).first()
     if not emp:
         raise HTTPException(404)
+    if user.role == "MANAGER" and emp.manager_id != user.id:
+        raise HTTPException(403, "You can only edit your direct reports")
     emp.name = name
     emp.phone = phone
     emp.email = email or None
@@ -5048,7 +5093,15 @@ def employee_performance(
     ).first()
     if not emp:
         raise HTTPException(404)
-    if user.role == "MANAGER" and emp.manager_id != user.id and emp.id != user.id:
+    if user.role == "PRODUCT_MANAGER":
+        # Product Manager can manage employee records/uploads but has no
+        # visibility into performance reports (for anyone, including themselves).
+        raise HTTPException(403)
+    if emp.role == "PRODUCT_MANAGER":
+        # Product Managers aren't subject to performance tracking, so no
+        # employee (including Admin) has a performance report to view for them.
+        raise HTTPException(403)
+    if user.role == "MANAGER" and emp.manager_id != user.id:
         raise HTTPException(403)
 
     now = datetime.utcnow()
@@ -5433,10 +5486,25 @@ def setup_notifications_get(request: Request, saved: str = "",
                              db: Session = Depends(get_db)):
     """E-15: Notification Settings page — Admin only."""
     tenant = db.query(Tenant).get(user.tenant_id)
+    from .notification_rules import REGISTRY, channel_enabled, get_recipient_roles, AVAILABLE_ROLES, ROLE_LABELS
+    rule_table = [
+        {
+            "key": c.key, "category": c.category, "label": c.label,
+            "cadence": c.cadence, "recipients": c.recipients,
+            "selected_roles": get_recipient_roles(db, user.tenant_id, c.key),
+            "in_app": channel_enabled(db, user.tenant_id, c.key, "in_app"),
+            "push": channel_enabled(db, user.tenant_id, c.key, "push"),
+            "whatsapp": channel_enabled(db, user.tenant_id, c.key, "whatsapp"),
+        }
+        for c in REGISTRY
+    ]
+    rule_categories = sorted({c.category for c in REGISTRY}, key=lambda cat: {"Checklist": 0, "Delegation": 1, "FMS": 2}.get(cat, 9))
     return templates.TemplateResponse("setup/notifications.html", {
         "request": request, "user": user, "tenant": tenant,
         "saved": saved == "1",
         "L": get_labels(db, user.tenant_id),
+        "rule_table": rule_table, "rule_categories": rule_categories,
+        "available_roles": AVAILABLE_ROLES, "role_labels": ROLE_LABELS,
         **_nav_ctx(db, user),
     })
 
@@ -5457,25 +5525,12 @@ async def setup_notifications_post(
     tenant.work_days = ",".join(work_days_raw) if work_days_raw else "0,1,2,3,4"
     tenant.timezone = form.get("timezone") or "Asia/Kolkata"
     tenant.suppress_notif_outside_hours = form.get("suppress_notif_outside_hours") == "true"
-    # Checklist schedule (replaces old checklist-notifications route)
-    import re as _re
+    # Checklist reminder schedule — distinct config, not covered by the rules
+    # table (feeds the merged checklist reminder job's firing hour(s)).
     raw_hours = form.get("checklist_notif_hours") or "8,13,18"
     valid_h = sorted(set(int(h.strip()) for h in raw_hours.split(",") if h.strip().isdigit() and 0 <= int(h.strip()) <= 23))
     tenant.checklist_notif_hours = ",".join(str(h) for h in valid_h) or "8,13,18"
-    raw_overdue = (form.get("checklist_overdue_hour") or "").strip()
-    tenant.checklist_overdue_hour = raw_overdue if raw_overdue.isdigit() and 0 <= int(raw_overdue) <= 23 else None
-    # Checklist notification rules
-    tenant.checklist_notif_on_assign = form.get("checklist_notif_on_assign") == "true"
-    try:
-        tenant.checklist_remind_before_hours = int(form.get("checklist_remind_before_hours") or 2)
-    except (ValueError, TypeError):
-        tenant.checklist_remind_before_hours = 2
-    try:
-        tenant.checklist_remind_repeat_hours = int(form.get("checklist_remind_repeat_hours") or 4)
-    except (ValueError, TypeError):
-        tenant.checklist_remind_repeat_hours = 4
-    # Delegation
-    tenant.ticket_notif_on_assign = form.get("ticket_notif_on_assign") == "true"
+    # Delegation TaT % thresholds — distinct config (feeds ticket_tat_reminder's cadence)
     try:
         tenant.ticket_notif_tat_pct = int(form.get("ticket_notif_tat_pct") or 80)
     except (ValueError, TypeError):
@@ -5484,28 +5539,34 @@ async def setup_notifications_post(
         tenant.ticket_notif_tat_pct_both = int(form.get("ticket_notif_tat_pct_both") or 90)
     except (ValueError, TypeError):
         tenant.ticket_notif_tat_pct_both = 90
-    # FMS
-    tenant.fms_notif_on_open = form.get("fms_notif_on_open") == "true"
-    tenant.fms_notif_on_stage_entry = form.get("fms_notif_on_stage_entry") == "true"
+    # FMS TaT % threshold — distinct config (feeds fms_tat_breach's cadence)
     try:
         tenant.fms_notif_tat_pct = int(form.get("fms_notif_tat_pct") or 80)
     except (ValueError, TypeError):
         tenant.fms_notif_tat_pct = 80
-    tenant.fms_notif_on_backward = form.get("fms_notif_on_backward") == "true"
-    tenant.fms_notif_on_flag = form.get("fms_notif_on_flag") == "true"
-    # WhatsApp per-event toggles
-    tenant.wa_notif_ticket_assigned = form.get("wa_notif_ticket_assigned") == "true"
-    tenant.wa_notif_ticket_escalated = form.get("wa_notif_ticket_escalated") == "true"
-    tenant.wa_notif_fms_ticket_created = form.get("wa_notif_fms_ticket_created") == "true"
-    tenant.wa_notif_fms_stage_transition = form.get("wa_notif_fms_stage_transition") == "true"
+    # Remaining WhatsApp per-event toggles NOT covered by the notification
+    # rules registry (Sales/Purchase-Order events — outside Checklist/FMS/
+    # Delegation scope). Every other wa_notif_* column (ticket/FMS/checklist)
+    # is now controlled exclusively via the rules table below — no longer
+    # read here, so this form can no longer silently reset them.
     tenant.wa_notif_order_placed = form.get("wa_notif_order_placed") == "true"
     tenant.wa_notif_order_dispatched = form.get("wa_notif_order_dispatched") == "true"
-    tenant.wa_notif_ticket_closed = form.get("wa_notif_ticket_closed") == "true"
-    tenant.wa_notif_ticket_tat_reminder = form.get("wa_notif_ticket_tat_reminder") == "true"
-    tenant.wa_notif_fms_ticket_closed = form.get("wa_notif_fms_ticket_closed") == "true"
-    tenant.wa_notif_fms_ticket_flagged = form.get("wa_notif_fms_ticket_flagged") == "true"
     tenant.wa_notif_po_placed = form.get("wa_notif_po_placed") == "true"
     tenant.wa_notif_po_accepted = form.get("wa_notif_po_accepted") == "true"
+    # Notification rules toggle table — one row per condition, 3 channels each
+    # (rule__{condition_key}__{channel} checkboxes). Same registry/gate the
+    # native app's Setup > Notifications screen reads/writes.
+    from .notification_rules import REGISTRY, get_or_seed_rule, AVAILABLE_ROLES
+    import json as _json_mod
+    for cond in REGISTRY:
+        if f"rule__{cond.key}__present" not in form:
+            continue  # row wasn't in the submitted form at all — leave untouched
+        rule = get_or_seed_rule(db, user.tenant_id, cond.key)
+        rule.in_app_enabled = form.get(f"rule__{cond.key}__in_app") == "true"
+        rule.push_enabled = form.get(f"rule__{cond.key}__push") == "true"
+        rule.whatsapp_enabled = form.get(f"rule__{cond.key}__whatsapp") == "true"
+        selected_roles = [r for r in AVAILABLE_ROLES if form.get(f"rule__{cond.key}__recipient__{r}") == "true"]
+        rule.recipients_json = _json_mod.dumps(selected_roles)
     db.commit()
     return redirect("/setup/notifications?saved=1")
 

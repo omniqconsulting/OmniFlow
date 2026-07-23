@@ -1,38 +1,85 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { AuthStackParamList } from "../navigation/AuthNavigator";
 import { ApiError } from "../api/client";
-import { getNotificationSettings, updateNotificationSettings, type NotificationSettings } from "../api/setup";
+import {
+  getNotificationRules,
+  getNotificationSettings,
+  updateNotificationRules,
+  updateNotificationSettings,
+  type NotificationCondition,
+  type NotificationRule,
+  type NotificationSettings,
+} from "../api/setup";
 import { useTheme, type ThemeColors } from "../theme/ThemeContext";
 
 type Props = NativeStackScreenProps<AuthStackParamList, "SetupNotifications">;
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-const WA_TOGGLES: { key: keyof NotificationSettings; label: string }[] = [
-  { key: "wa_notif_ticket_assigned", label: "Ticket assigned" },
-  { key: "wa_notif_ticket_escalated", label: "Ticket escalated / flagged" },
-  { key: "wa_notif_fms_ticket_created", label: "FMS ticket created" },
-];
-
 export default function SetupNotificationsScreen({ navigation }: Props) {
   const { colors } = useTheme();
   const styles = makeStyles(colors);
   const [settings, setSettings] = useState<NotificationSettings | null>(null);
+  const [conditions, setConditions] = useState<NotificationCondition[]>([]);
+  const [rules, setRules] = useState<NotificationRule[]>([]);
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+  const [roleLabels, setRoleLabels] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [rulesSaving, setRulesSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const data = await getNotificationSettings();
+      const [data, rulesData] = await Promise.all([getNotificationSettings(), getNotificationRules()]);
       setSettings(data);
+      setConditions(rulesData.conditions);
+      setRules(rulesData.rules);
+      setAvailableRoles(rulesData.available_roles);
+      setRoleLabels(rulesData.role_labels);
       setError(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.detail : "Couldn't load notification settings.");
     }
   }, []);
+
+  const rulesByCategory = useMemo(() => {
+    const order = ["Checklist", "Delegation", "FMS"];
+    const groups: Record<string, NotificationCondition[]> = {};
+    for (const c of conditions) {
+      (groups[c.category] ??= []).push(c);
+    }
+    return order.filter((cat) => groups[cat]?.length).map((cat) => ({ category: cat, items: groups[cat] }));
+  }, [conditions]);
+
+  const toggleRuleChannel = (conditionKey: string, channel: "in_app" | "push" | "whatsapp") => {
+    setRules((prev) => prev.map((r) => (r.condition_key === conditionKey ? { ...r, [channel]: !r[channel] } : r)));
+  };
+
+  const toggleRuleRecipient = (conditionKey: string, role: string) => {
+    setRules((prev) =>
+      prev.map((r) => {
+        if (r.condition_key !== conditionKey) return r;
+        const has = r.recipients.includes(role);
+        return { ...r, recipients: has ? r.recipients.filter((x) => x !== role) : [...r.recipients, role] };
+      })
+    );
+  };
+
+  const saveRules = async () => {
+    setRulesSaving(true);
+    try {
+      const updated = await updateNotificationRules(rules);
+      setRules(updated.rules);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : "Couldn't save notification rules.");
+    } finally {
+      setRulesSaving(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -48,9 +95,6 @@ export default function SetupNotificationsScreen({ navigation }: Props) {
     try {
       const updated = await updateNotificationSettings({
         suppress_notif_outside_hours: settings.suppress_notif_outside_hours,
-        wa_notif_ticket_assigned: settings.wa_notif_ticket_assigned,
-        wa_notif_ticket_escalated: settings.wa_notif_ticket_escalated,
-        wa_notif_fms_ticket_created: settings.wa_notif_fms_ticket_created,
       });
       setSettings(updated);
       setError(null);
@@ -140,21 +184,46 @@ export default function SetupNotificationsScreen({ navigation }: Props) {
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>WhatsApp Delivery</Text>
+              <Text style={styles.cardTitle}>Notification Rules</Text>
               <Text style={styles.cardDesc}>
-                Adds a WhatsApp send alongside the in-app notification, for opted-in employees.
+                Turn each notification on or off, per channel — fully customizable.
               </Text>
-              {WA_TOGGLES.map((wa, idx) => (
-                <View key={wa.key} style={[styles.waRow, idx !== 0 && styles.waRowBorder]}>
-                  <Text style={styles.waLabel}>{wa.label}</Text>
-                  <Switch
-                    value={Boolean(settings[wa.key])}
-                    onValueChange={() => toggle(wa.key)}
-                    trackColor={{ false: colors.border, true: colors.teal }}
-                    thumbColor="#ffffff"
-                  />
+              {rulesByCategory.map((group) => (
+                <View key={group.category} style={{ marginTop: 12 }}>
+                  <Text style={styles.ruleCategoryLabel}>{group.category}</Text>
+                  {group.items.map((cond) => {
+                    const rule = rules.find((r) => r.condition_key === cond.key);
+                    if (!rule) return null;
+                    return (
+                      <View key={cond.key} style={styles.ruleRow}>
+                        <Text style={styles.ruleLabel}>{cond.label}</Text>
+                        <Text style={styles.ruleMeta}>{cond.cadence}</Text>
+                        <Text style={styles.ruleRecipientsHeading}>Recipients</Text>
+                        <View style={styles.ruleChannels}>
+                          {availableRoles.map((role) => (
+                            <RuleChannelToggle
+                              key={role}
+                              label={roleLabels[role] || role}
+                              value={rule.recipients.includes(role)}
+                              onToggle={() => toggleRuleRecipient(cond.key, role)}
+                              colors={colors}
+                            />
+                          ))}
+                        </View>
+                        <Text style={[styles.ruleRecipientsHeading, { marginTop: 8 }]}>Channels</Text>
+                        <View style={styles.ruleChannels}>
+                          <RuleChannelToggle label="In-App" value={rule.in_app} onToggle={() => toggleRuleChannel(cond.key, "in_app")} colors={colors} />
+                          <RuleChannelToggle label="Push" value={rule.push} onToggle={() => toggleRuleChannel(cond.key, "push")} colors={colors} />
+                          <RuleChannelToggle label="WhatsApp" value={rule.whatsapp} onToggle={() => toggleRuleChannel(cond.key, "whatsapp")} colors={colors} />
+                        </View>
+                      </View>
+                    );
+                  })}
                 </View>
               ))}
+              <TouchableOpacity style={[styles.rulesSaveButton, rulesSaving && { opacity: 0.7 }]} onPress={saveRules} disabled={rulesSaving}>
+                {rulesSaving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>Save Rules</Text>}
+              </TouchableOpacity>
             </View>
           </ScrollView>
 
@@ -168,6 +237,29 @@ export default function SetupNotificationsScreen({ navigation }: Props) {
     </View>
   );
 }
+
+function RuleChannelToggle({
+  label, value, onToggle, colors,
+}: {
+  label: string; value: boolean; onToggle: () => void; colors: ThemeColors;
+}) {
+  return (
+    <TouchableOpacity
+      style={[
+        ruleToggleStyles.chip,
+        { backgroundColor: value ? colors.teal + "26" : colors.screenBg, borderColor: value ? colors.teal : colors.border },
+      ]}
+      onPress={onToggle}
+    >
+      <Text style={[ruleToggleStyles.chipText, { color: value ? colors.teal : colors.textMuted }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+const ruleToggleStyles = StyleSheet.create({
+  chip: { paddingVertical: 5, paddingHorizontal: 9, borderRadius: 999, borderWidth: 1 },
+  chipText: { fontSize: 10.5, fontWeight: "700" },
+});
 
 function makeStyles(colors: ThemeColors) {
   return StyleSheet.create({
@@ -214,5 +306,12 @@ function makeStyles(colors: ThemeColors) {
     },
     saveButton: { height: 48, borderRadius: 12, backgroundColor: colors.indigo, alignItems: "center", justifyContent: "center" },
     saveButtonText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+    ruleCategoryLabel: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, color: colors.textMuted, marginBottom: 8 },
+    ruleRow: { paddingVertical: 10, borderTopWidth: 1, borderColor: colors.border },
+    ruleLabel: { fontSize: 12.5, fontWeight: "700", color: colors.textPrimary },
+    ruleMeta: { fontSize: 10.5, color: colors.textMuted, marginTop: 2, marginBottom: 8 },
+    ruleRecipientsHeading: { fontSize: 9.5, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4, color: colors.textMuted, marginBottom: 5 },
+    ruleChannels: { flexDirection: "row", gap: 7 },
+    rulesSaveButton: { height: 44, borderRadius: 12, backgroundColor: colors.indigo, alignItems: "center", justifyContent: "center", marginTop: 16 },
   });
 }

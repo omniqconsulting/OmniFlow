@@ -616,6 +616,9 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
     {% if next_stage_for_bulk %}
     <script>window._bulkNextStageName = {{ next_stage_for_bulk.name | tojson }};</script>
     {% endif %}
+    {% set bulk_linked_flow = active_stage.linked_library_flow_id %}
+    {% set bulk_continue_flow = active_stage.is_terminal and active_flow.next_library_flow_id %}
+    {% set bulk_cb_visible = next_stage_for_bulk or bulk_linked_flow or bulk_continue_flow %}
     {% set earlier_stages = stage_table_stages | selectattr('order', 'lt', active_stage.order) | list %}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <div>
@@ -626,35 +629,61 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           {% if active_stage.evidence_required %} · <span style="color:#fbbf24">📎 Evidence Required</span>{% endif %}
         </div>
       </div>
-      {% if next_stage_for_bulk and stage_tickets and user.role in ('ADMIN','MANAGER') %}
-      <div id="bulkTransitionBar" style="display:none;align-items:center;gap:8px">
+      {% if bulk_cb_visible and stage_tickets and user.role in ('ADMIN','MANAGER') %}
+      <div id="bulkTransitionBar" style="display:none;align-items:center;gap:8px;flex-wrap:wrap">
         <span id="bulkSelCount" style="font-size:12px;color:var(--text-faint)">0 selected</span>
-        <button onclick="openBulkTransitionModal()"
-                class="btn btn-primary btn-sm">
+        {% if next_stage_for_bulk %}
+        <button onclick="openBulkTransitionModal()" class="btn btn-primary btn-sm">
           Transition <span id="bulkSelCountBtn">0</span> Selected →
         </button>
+        {% endif %}
+        {% if bulk_linked_flow %}
+        <button onclick="submitFmsTicketBulk('send_to_linked_flow')" class="btn btn-sm" style="border-color:rgba(56,189,248,.5);color:#38bdf8">
+          🔗 Send Selected to Linked Flow
+        </button>
+        {% endif %}
+        {% if bulk_continue_flow %}
+        <button onclick="submitFmsTicketBulk('close', true)" class="btn btn-sm" style="border-color:rgba(52,211,153,.5);color:#34d399">
+          ✔ Close &amp; Continue Selected
+        </button>
+        {% endif %}
       </div>
       {% endif %}
     </div>
 
     <!-- Sticky bulk bar — appears at top when scrolled and tickets are selected -->
-    {% if next_stage_for_bulk and stage_tickets and user.role in ('ADMIN','MANAGER') %}
-    <div id="stickyBulkBar" style="display:none;position:sticky;top:0;z-index:40;background:var(--bg-card);border:1px solid var(--border-med);border-radius:8px;padding:8px 14px;margin-bottom:10px;align-items:center;justify-content:space-between;gap:8px;box-shadow:0 4px 16px rgba(0,0,0,.35)">
+    {% if bulk_cb_visible and stage_tickets and user.role in ('ADMIN','MANAGER') %}
+    <div id="stickyBulkBar" style="display:none;position:sticky;top:0;z-index:40;background:var(--bg-card);border:1px solid var(--border-med);border-radius:8px;padding:8px 14px;margin-bottom:10px;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;box-shadow:0 4px 16px rgba(0,0,0,.35)">
       <div style="display:flex;align-items:center;gap:10px">
         <input type="checkbox" id="stickySelectAllCb" title="Select all" onchange="onSelectAll(this)" style="cursor:pointer;width:15px;height:15px">
         <span id="stickyBulkCount" style="font-size:12px;color:var(--text-faint)">0 selected</span>
       </div>
-      <button onclick="openBulkTransitionModal()" class="btn btn-primary btn-sm">
-        Transition <span id="stickyBulkCountBtn">0</span> Selected →
-      </button>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        {% if next_stage_for_bulk %}
+        <button onclick="openBulkTransitionModal()" class="btn btn-primary btn-sm">
+          Transition <span id="stickyBulkCountBtn">0</span> Selected →
+        </button>
+        {% endif %}
+        {% if bulk_linked_flow %}
+        <button onclick="submitFmsTicketBulk('send_to_linked_flow')" class="btn btn-sm" style="border-color:rgba(56,189,248,.5);color:#38bdf8">🔗 Send to Linked Flow</button>
+        {% endif %}
+        {% if bulk_continue_flow %}
+        <button onclick="submitFmsTicketBulk('close', true)" class="btn btn-sm" style="border-color:rgba(52,211,153,.5);color:#34d399">✔ Close &amp; Continue</button>
+        {% endif %}
+      </div>
     </div>
     {% endif %}
+
+    <form id="fmsTicketBulkActionForm" method="post" action="/fms/tickets/bulk-action" style="display:none">
+      <input type="hidden" name="action" id="fmsTicketBulkActionVal">
+      <input type="hidden" name="also_continue" id="fmsTicketBulkAlsoContinue" value="0">
+    </form>
 
     {% if stage_tickets %}
     <table class="list-table" id="stageTicketTable">
       <thead>
         <tr style="background:var(--bg-input)">
-          {% if next_stage_for_bulk and user.role in ('ADMIN','MANAGER') %}
+          {% if bulk_cb_visible and user.role in ('ADMIN','MANAGER') %}
           <th style="width:36px;padding:8px">
             <input type="checkbox" id="selectAllCb" title="Select all" onchange="onSelectAll(this)"
                    style="cursor:pointer;width:15px;height:15px">
@@ -689,7 +718,7 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
       {% for row in stage_tickets %}{% set t = row.ticket %}
       {% set can_act = user.role in ('ADMIN','MANAGER') or t.current_assignee_id == user.id %}
       <tr data-ticket-id="{{ t.id }}" data-split-id="{{ row.split_id or '' }}" data-cf='{{ row.cf_all | tojson | replace("'", "&#39;") }}'>
-        {% if next_stage_for_bulk and user.role in ('ADMIN','MANAGER') %}
+        {% if bulk_cb_visible and user.role in ('ADMIN','MANAGER') %}
         <td style="text-align:center;padding:8px 4px" onclick="event.stopPropagation()">
           {% set _tf_parts = [] %}
           {% for fdef in ticket_form_fields %}
@@ -711,6 +740,18 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
           </span>
           {% if t.is_flagged %} 🚩{% endif %}
           {% if t.has_qty_discrepancy %} <span title="Quantity drift: split totals don't match target_qty">⚠</span>{% endif %}
+          {% if t.status == 'ON_HOLD' and t.linked_child_ticket_id %}
+          <span title="{{ t.pause_reason or 'Paused — waiting on linked ticket' }}" style="font-size:10px;padding:1px 6px;border-radius:99px;background:#f59e0b26;color:#f59e0b;margin-left:4px">⏸ Paused</span>
+          {% endif %}
+          {% if t.linked_parent_ticket_id %}
+          <span title="Blocking a ticket on another flow" style="font-size:10px;padding:1px 6px;border-radius:99px;background:#38bdf826;color:#38bdf8;margin-left:4px">🔗 Linked</span>
+          {% endif %}
+          {% if t.continued_from_ticket_id %}
+          <span title="Continued from another flow" style="font-size:10px;padding:1px 6px;border-radius:99px;background:#34d39926;color:#34d399;margin-left:4px">← Continued</span>
+          {% endif %}
+          {% if t.continued_to_ticket_id %}
+          <span title="Continued onto another flow" style="font-size:10px;padding:1px 6px;border-radius:99px;background:#34d39926;color:#34d399;margin-left:4px">→ Continued</span>
+          {% endif %}
           {% if row.evidence_payload %}
           <button type="button" data-evidence='{{ row.evidence_payload | tojson | replace("'", "&#39;") }}'
                   onclick="event.stopPropagation();openEvidenceModal('{{ t.display_id or t.id[:8] }}',JSON.parse(this.dataset.evidence))"
@@ -876,6 +917,36 @@ html.light .jt thead .jt-s0{background:#f8fafc!important}
                       style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#a78bfa;cursor:pointer;font-family:inherit">
                 🆘 Help Needed
               </button>
+              {% endif %}
+
+              {# Send to Linked Flow — stage-level opt-in cross-flow handoff #}
+              {% if can_act and user.role in ('ADMIN','MANAGER') and active_stage.linked_library_flow_id and t.status not in ('COMPLETED','CLOSED','ON_HOLD') %}
+              <form method="post" action="/fms/tickets/{{ t.id }}/action" style="margin:0" onsubmit="return confirm('Send this ticket to the linked flow? It will pause here until that ticket is completed.')">
+                <input type="hidden" name="action" value="send_to_linked_flow">
+                <button type="submit" style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#38bdf8;cursor:pointer;font-family:inherit">
+                  🔗 Send to Linked Flow
+                </button>
+              </form>
+              {% endif %}
+
+              {# Resume — link-paused (or manually held) ticket #}
+              {% if user.role in ('ADMIN','MANAGER') and t.status == 'ON_HOLD' %}
+              <form method="post" action="/fms/tickets/{{ t.id }}/action" style="margin:0">
+                <input type="hidden" name="action" value="resume">
+                <button type="submit" style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#34d399;cursor:pointer;font-family:inherit">
+                  ▶ Resume
+                </button>
+              </form>
+              {% endif %}
+
+              {# Close & Continue — flow-level continuation on close #}
+              {% if user.role in ('ADMIN','MANAGER') and active_flow and active_flow.next_library_flow_id and t.status not in ('COMPLETED','CLOSED') %}
+              <form method="post" action="/fms/tickets/{{ t.id }}/action" style="margin:0" onsubmit="return confirm('Close this ticket and open a follow-on ticket on the continuation flow?')">
+                <input type="hidden" name="action" value="close_and_continue">
+                <button type="submit" style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;font-size:13px;color:#34d399;cursor:pointer;font-family:inherit">
+                  ✔ Close &amp; Continue
+                </button>
+              </form>
               {% endif %}
 
               {# Manage Splits — merge/close individual splits. The read-only
@@ -3432,6 +3503,25 @@ document.addEventListener('keydown', function(e) {
     closeCellEditModal();
   }
 });
+
+/* ── Bulk send-to-linked-flow / close-and-continue ───────────────────────── */
+function submitFmsTicketBulk(action, alsoContinue) {
+  var checked = document.querySelectorAll('.bulk-ticket-cb:checked');
+  if (!checked.length) return;
+  var label = action === 'send_to_linked_flow' ? 'send ' + checked.length + ' ticket(s) to the linked flow' :
+              alsoContinue ? 'close ' + checked.length + ' ticket(s) and open follow-on tickets on the continuation flow' :
+              'close ' + checked.length + ' ticket(s)';
+  if (!confirm('Are you sure you want to ' + label + '?')) return;
+  var form = document.getElementById('fmsTicketBulkActionForm');
+  document.getElementById('fmsTicketBulkActionVal').value = action;
+  document.getElementById('fmsTicketBulkAlsoContinue').value = alsoContinue ? '1' : '0';
+  checked.forEach(function(cb) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'ticket_ids'; inp.value = cb.value;
+    form.appendChild(inp);
+  });
+  form.submit();
+}
 
 /* ── Bulk Stage Transition ───────────────────────────────────────────────── */
 function onSelectAll(cb) {

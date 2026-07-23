@@ -32,6 +32,13 @@ import {
 
 type Props = NativeStackScreenProps<AuthStackParamList, "Home">;
 
+function nameInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export default function HomeScreen({ navigation, route }: Props) {
   const { user } = route.params;
   const { colors, toggleTheme } = useTheme();
@@ -109,6 +116,10 @@ export default function HomeScreen({ navigation, route }: Props) {
       Setup: () => navigation.navigate("Setup", { user }),
       Dashboard: () => navigation.navigate("Dashboard", { user }),
       Checklists: () => navigation.navigate("Checklists", { user }),
+      FMSFlowBoard: () => navigation.navigate("FMSFlowBoard", { user }),
+      MyTasks: () => navigation.navigate("MyTasks", { user }),
+      Organization: () => navigation.navigate("Organization", { user }),
+      OrgTraining: () => navigation.navigate("OrgTraining", { user }),
     };
     navigators[screen]?.(); // no-op for "Home" (already here)
   };
@@ -138,9 +149,12 @@ export default function HomeScreen({ navigation, route }: Props) {
               </View>
             ) : null}
           </TouchableOpacity>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{user.name.slice(0, 1).toUpperCase()}</Text>
-          </View>
+          <TouchableOpacity
+            style={styles.avatar}
+            onPress={() => navigation.navigate("Profile", { user, slug: route.params.slug })}
+          >
+            <Text style={styles.avatarText}>{nameInitials(user.name)}</Text>
+          </TouchableOpacity>
         </View>
       </View>
 

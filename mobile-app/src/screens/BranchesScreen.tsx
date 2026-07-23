@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import type { AuthStackParamList } from "../navigation/AuthNavigator";
@@ -134,7 +134,7 @@ export default function BranchesScreen({ navigation, route }: Props) {
 
       <Modal visible={modalOpen} animationType="slide" transparent onRequestClose={() => setModalOpen(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             <ScrollView contentContainerStyle={styles.modalContent}>
               <Text style={styles.modalTitle}>{editingId ? "Edit Branch" : "New Branch"}</Text>
@@ -182,7 +182,7 @@ export default function BranchesScreen({ navigation, route }: Props) {
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
             </ScrollView>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </View>

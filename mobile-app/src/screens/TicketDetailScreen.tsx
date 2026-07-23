@@ -36,6 +36,7 @@ import {
   logDelay,
   postComment,
   removeHelper,
+  requestHelp,
   unflagTicket,
   updateTicket,
   uploadAttachment,
@@ -92,7 +93,7 @@ function relTime(iso: string): string {
 
 const fmtDue = formatIstDateTime;
 
-type Sheet = null | "overflow" | "delay" | "reassign" | "flag" | "edit" | "evidence" | "delete";
+type Sheet = null | "overflow" | "delay" | "help" | "reassign" | "flag" | "edit" | "evidence" | "delete";
 
 export default function TicketDetailScreen({ navigation, route }: Props) {
   const { user, ticketId } = route.params;
@@ -115,6 +116,7 @@ export default function TicketDetailScreen({ navigation, route }: Props) {
 
   const [commentText, setCommentText] = useState("");
   const [delayReason, setDelayReason] = useState("");
+  const [helpReason, setHelpReason] = useState("");
   const [flagReason, setFlagReason] = useState("");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [editTitle, setEditTitle] = useState("");
@@ -146,10 +148,11 @@ export default function TicketDetailScreen({ navigation, route }: Props) {
   }, [load]);
 
   useEffect(() => {
-    if (canManage && (sheet === "reassign" || reassignPickerOpen || helperPickerOpen) && employees.length === 0) {
+    const canPickHelper = canManage || ticket?.current_assignee_id === user.id;
+    if (canPickHelper && (sheet === "reassign" || reassignPickerOpen || helperPickerOpen) && employees.length === 0) {
       listEmployeeOptions().then(setEmployees).catch(() => {});
     }
-  }, [canManage, sheet, reassignPickerOpen, helperPickerOpen, employees.length]);
+  }, [canManage, sheet, reassignPickerOpen, helperPickerOpen, employees.length, ticket, user.id]);
 
   useEffect(() => {
     if (linkPickerOpen && linkOptions.length === 0) {
@@ -321,13 +324,16 @@ export default function TicketDetailScreen({ navigation, route }: Props) {
   if (ticket.status === "OPEN" && isAssignee) {
     overflowItems.push({ icon: "⏱", label: "Log a Delay", onPress: () => setSheet("delay") });
   }
+  if (ticket.status === "OPEN" && isAssignee) {
+    overflowItems.push({ icon: "🆘", label: "Request Help", onPress: () => setSheet("help") });
+  }
   if (ticket.status === "OPEN" && (isAssignee || canManage)) {
     overflowItems.push({ icon: "↩", label: "Reassign", onPress: () => setSheet("reassign") });
   }
   if (canManage && ticket.status !== "CLOSED") {
     overflowItems.push({ icon: "✏", label: "Edit Ticket", onPress: openEdit });
   }
-  if (canManage && ticket.status !== "CLOSED") {
+  if ((canManage || isAssignee) && ticket.status !== "CLOSED") {
     overflowItems.push({ icon: "🧑‍🤝‍🧑", label: "Add Helper", onPress: () => { setSheet(null); setHelperPickerOpen(true); } });
   }
   if (canManage || isAssignee) {
@@ -453,7 +459,7 @@ export default function TicketDetailScreen({ navigation, route }: Props) {
               </View>
             ))
           )}
-          {canManage && ticket.status !== "CLOSED" ? (
+          {(canManage || isAssignee) && ticket.status !== "CLOSED" ? (
             <TouchableOpacity style={styles.dashedButton} onPress={() => setHelperPickerOpen(true)}>
               <Text style={styles.dashedButtonText}>+ Add helper</Text>
             </TouchableOpacity>
@@ -577,6 +583,27 @@ export default function TicketDetailScreen({ navigation, route }: Props) {
                   disabled={busy || !delayReason.trim()}
                 >
                   {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalSubmitText}>Submit Delay Log</Text>}
+                </TouchableOpacity>
+              </>
+            ) : null}
+
+            {sheet === "help" ? (
+              <>
+                <Text style={styles.modalTitle}>Request Help</Text>
+                <TextInput
+                  style={[styles.input, { height: 76, textAlignVertical: "top" }]}
+                  placeholder="Describe why you need help…"
+                  placeholderTextColor="#64748b"
+                  value={helpReason}
+                  onChangeText={setHelpReason}
+                  multiline
+                />
+                <TouchableOpacity
+                  style={[styles.modalSubmit, { marginTop: 14 }]}
+                  onPress={() => helpReason.trim() && runAction(() => requestHelp(ticketId, helpReason.trim()))}
+                  disabled={busy || !helpReason.trim()}
+                >
+                  {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalSubmitText}>Send Help Request</Text>}
                 </TouchableOpacity>
               </>
             ) : null}

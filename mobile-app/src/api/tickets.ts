@@ -162,6 +162,10 @@ export function logDelay(ticketId: string, reason: string): Promise<Ticket> {
   return apiRequest<Ticket>(`/api/v1/tickets/${ticketId}/log-delay`, { method: "POST", body: { reason } });
 }
 
+export function requestHelp(ticketId: string, reason: string): Promise<Ticket> {
+  return apiRequest<Ticket>(`/api/v1/tickets/${ticketId}/request-help`, { method: "POST", body: { reason } });
+}
+
 export function deleteTicket(ticketId: string): Promise<void> {
   return apiRequest<void>(`/api/v1/tickets/${ticketId}`, { method: "DELETE" });
 }

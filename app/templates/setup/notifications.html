@@ -33,7 +33,7 @@
 
     <form method="post" action="/setup/notifications">
 
-      {# ── Section 1: Office Hours ─────────────────────────────────────────── #}
+      {# ── 1. Office Hours ─────────────────────────────────────────────────── #}
       <div class="card" style="margin-bottom:20px;padding:20px">
         <h4 style="margin:0 0 4px;font-size:14px;font-weight:700;color:var(--text-strong)">Office Hours</h4>
 
@@ -91,196 +91,102 @@
         </div>
       </div>
 
-      {# ── Section 2: Checklist Notifications ─────────────────────────────── #}
+      {# ── 2/3/4. Notification Rules — ONE consolidated table, one row per
+           condition, grouped Checklist → Delegation → FMS, 3 independent
+           channel toggles each. Single source of truth: nothing below
+           duplicates a row that already exists here. ─────────────────────── #}
       <div class="card" style="margin-bottom:20px;padding:20px">
-        <h4 style="margin:0 0 4px;font-size:14px;font-weight:700;color:var(--text-strong)">Checklist Notifications</h4>
-
+        <h4 style="margin:0 0 4px;font-size:14px;font-weight:700;color:var(--text-strong)">Notification Rules</h4>
         <div class="notif-info">
-          <div style="margin-bottom:6px;font-weight:600;color:var(--text-primary)">What fires and when (current defaults):</div>
-          <div class="notif-trigger-row"><span class="trigger-label">On assignment</span><span class="trigger-default">In-app notification immediately</span></div>
-          <div class="notif-trigger-row"><span class="trigger-label">Daily reminder at</span><span class="trigger-default">08:00, 13:00, 18:00 IST</span><span style="font-size:11px;color:var(--text-faint)">— full list of pending checklists sent to each employee</span></div>
-          <div class="notif-trigger-row"><span class="trigger-label">Before due</span><span class="trigger-off">Off — set hours below to enable</span></div>
-          <div class="notif-trigger-row"><span class="trigger-label">End-of-day overdue</span><span class="trigger-off">Disabled — set hour below to enable</span></div>
+          Turn each notification on or off, per delivery channel. In-App shows in the bell/Notifications list, Push sends a phone notification, WhatsApp sends a message — independently of each other, fully customizable per condition.
         </div>
 
-        <div class="form-group" style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border-subtle)">
-          <label class="form-label">Daily reminder hours <span style="color:var(--text-faint);font-weight:400">(IST, comma-separated 0–23 · default: 8,13,18)</span></label>
-          <input type="text" name="checklist_notif_hours"
-                 value="{{ tenant.checklist_notif_hours or '8,13,18' }}"
-                 placeholder="8,13,18"
-                 class="form-input" style="max-width:220px;font-family:monospace">
-          <div style="font-size:11px;color:var(--text-faint);margin-top:6px">
-            Sends at:
-            {% set preview_hours = (tenant.checklist_notif_hours or '8,13,18').split(',') %}
-            {% for h in preview_hours %}
-            <span style="display:inline-block;background:var(--bg-elevated);border:1px solid var(--border-med);border-radius:5px;padding:1px 8px;font-size:11px;font-weight:600;color:var(--text-muted);margin-left:4px">
-              {{ '%02d:00 IST'|format(h|int) }}
-            </span>
-            {% endfor %}
-            — each employee receives their full pending checklist list
+        {% for cat in rule_categories %}
+        <div style="margin-top:{{ '0' if loop.first else '22px' }};padding-top:{{ '0' if loop.first else '18px' }};{% if not loop.first %}border-top:1px solid var(--border-subtle){% endif %}">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-faint);margin-bottom:10px">{{ cat }}</div>
+
+          {# Schedule / threshold config distinct from on-off toggles — lives once, inline with its category, not duplicated elsewhere #}
+          {% if cat == 'Checklist' %}
+          <div class="form-group" style="margin-bottom:14px">
+            <label class="form-label">Daily reminder hours <span style="color:var(--text-faint);font-weight:400">(IST, comma-separated 0–23 · default: 8,13,18)</span></label>
+            <input type="text" name="checklist_notif_hours" value="{{ tenant.checklist_notif_hours or '8,13,18' }}" placeholder="8,13,18" class="form-input" style="max-width:220px;font-family:monospace">
           </div>
-        </div>
-
-        <div class="form-group" style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border-subtle)">
-          <label class="form-label">End-of-day overdue hour <span style="color:var(--text-faint);font-weight:400">(IST, single hour · leave blank = disabled)</span></label>
-          <div style="display:flex;align-items:center;gap:12px">
-            <input type="text" name="checklist_overdue_hour"
-                   value="{{ tenant.checklist_overdue_hour or '' }}"
-                   placeholder="e.g. 19"
-                   class="form-input" style="max-width:90px;font-family:monospace">
-            <span style="font-size:12px;color:var(--text-faint)">
-              {% if tenant.checklist_overdue_hour %}⏰ Overdue summary fires at <strong>{{ '%02d:00 IST'|format(tenant.checklist_overdue_hour|int) }}</strong>{% else %}Disabled — no overdue summary sent{% endif %}
-            </span>
-          </div>
-        </div>
-
-        <div class="form-group" style="margin-bottom:14px">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="hidden" name="checklist_notif_on_assign" value="false">
-            <input type="checkbox" name="checklist_notif_on_assign" value="true"
-                   {% if tenant.checklist_notif_on_assign != False %}checked{% endif %}
-                   style="width:16px;height:16px">
-            <span style="font-size:13px">Notify employee when a new checklist is assigned <span style="color:var(--text-faint)">(default: on)</span></span>
-          </label>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Remind before due <span style="color:var(--text-faint);font-weight:400">(leave blank to disable)</span></label>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input type="number" name="checklist_remind_before_hours" class="form-input" min="0" style="width:80px"
-                   placeholder="off"
-                   value="{{ tenant.checklist_remind_before_hours if tenant.checklist_remind_before_hours else '' }}">
-            <span style="font-size:13px;color:var(--text-muted)">hours before due_at</span>
-          </div>
-        </div>
-      </div>
-
-      {# ── Section 3: Delegation Notifications ─────────────────────────────── #}
-      <div class="card" style="margin-bottom:20px;padding:20px">
-        <h4 style="margin:0 0 4px;font-size:14px;font-weight:700;color:var(--text-strong)">Delegation Ticket Notifications</h4>
-
-        <div class="notif-info">
-          <div style="margin-bottom:6px;font-weight:600;color:var(--text-primary)">What fires and when (current defaults):</div>
-          <div class="notif-trigger-row"><span class="trigger-label">On ticket assignment</span><span class="trigger-default">Assignee notified immediately</span></div>
-          <div class="notif-trigger-row"><span class="trigger-label">At 80% of TaT elapsed</span><span class="trigger-default">Manager + employee notified</span><span style="font-size:11px;color:var(--text-faint)">— fires once, not repeated</span></div>
-          <div class="notif-trigger-row"><span class="trigger-label">At 90% of TaT elapsed</span><span class="trigger-default">Admin + manager + employee</span><span style="font-size:11px;color:var(--text-faint)">— fires once, not repeated</span></div>
-          <div style="margin-top:6px;font-size:11px;color:var(--text-faint)">TaT elapsed % is measured in business hours (if office hours configured). Set to 0 to disable a threshold.</div>
-        </div>
-
-        <div class="form-group" style="margin-bottom:14px">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="hidden" name="ticket_notif_on_assign" value="false">
-            <input type="checkbox" name="ticket_notif_on_assign" value="true"
-                   {% if tenant.ticket_notif_on_assign != False %}checked{% endif %}
-                   style="width:16px;height:16px">
-            <span style="font-size:13px">Notify assignee when a ticket is assigned <span style="color:var(--text-faint)">(default: on)</span></span>
-          </label>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-          <div class="form-group">
-            <label class="form-label">Notify manager + employee at <span style="color:var(--text-faint);font-weight:400">(default: 80%)</span></label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <input type="number" name="ticket_notif_tat_pct" class="form-input" min="0" max="100" style="width:80px"
-                     value="{{ tenant.ticket_notif_tat_pct if tenant.ticket_notif_tat_pct is not none else 80 }}">
-              <span style="font-size:13px;color:var(--text-muted)">% of TaT (0 = disabled)</span>
+          {% elif cat == 'Delegation' %}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+            <div class="form-group">
+              <label class="form-label">TaT alert — manager + employee at <span style="color:var(--text-faint);font-weight:400">(default: 80%)</span></label>
+              <input type="number" name="ticket_notif_tat_pct" class="form-input" min="0" max="100" style="width:80px" value="{{ tenant.ticket_notif_tat_pct if tenant.ticket_notif_tat_pct is not none else 80 }}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">TaT alert — admin + manager + employee at <span style="color:var(--text-faint);font-weight:400">(default: 90%)</span></label>
+              <input type="number" name="ticket_notif_tat_pct_both" class="form-input" min="0" max="100" style="width:80px" value="{{ tenant.ticket_notif_tat_pct_both if tenant.ticket_notif_tat_pct_both is not none else 90 }}">
             </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Notify admin + manager + employee at <span style="color:var(--text-faint);font-weight:400">(default: 90%)</span></label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <input type="number" name="ticket_notif_tat_pct_both" class="form-input" min="0" max="100" style="width:80px"
-                     value="{{ tenant.ticket_notif_tat_pct_both if tenant.ticket_notif_tat_pct_both is not none else 90 }}">
-              <span style="font-size:13px;color:var(--text-muted)">% of TaT (0 = disabled)</span>
-            </div>
+          {% elif cat == 'FMS' %}
+          <div class="form-group" style="margin-bottom:14px">
+            <label class="form-label">Stage TaT alert threshold <span style="color:var(--text-faint);font-weight:400">(default: 80%)</span></label>
+            <input type="number" name="fms_notif_tat_pct" class="form-input" min="0" max="100" style="width:80px" value="{{ tenant.fms_notif_tat_pct if tenant.fms_notif_tat_pct is not none else 80 }}">
+          </div>
+          {% endif %}
+
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+              <thead>
+                <tr style="text-align:left;border-bottom:1px solid var(--border-subtle)">
+                  <th style="padding:8px 6px;color:var(--text-faint);font-weight:600">Condition</th>
+                  <th style="padding:8px 6px;color:var(--text-faint);font-weight:600">Cadence</th>
+                  <th style="padding:8px 6px;color:var(--text-faint);font-weight:600">Recipients</th>
+                  <th style="padding:8px 6px;color:var(--text-faint);font-weight:600;text-align:center">In-App</th>
+                  <th style="padding:8px 6px;color:var(--text-faint);font-weight:600;text-align:center">Push</th>
+                  <th style="padding:8px 6px;color:var(--text-faint);font-weight:600;text-align:center">WhatsApp</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rule_table if row.category == cat %}
+                <tr style="border-bottom:1px solid var(--border-subtle)">
+                  <td style="padding:8px 6px;font-weight:600;color:var(--text-strong)">
+                    {{ row.label }}
+                    <input type="hidden" name="rule__{{ row.key }}__present" value="1">
+                  </td>
+                  <td style="padding:8px 6px;color:var(--text-muted)">{{ row.cadence }}</td>
+                  <td style="padding:8px 6px;color:var(--text-muted)">
+                    <div style="display:flex;flex-direction:column;gap:3px;min-width:130px">
+                      {% for r in available_roles %}
+                      <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;cursor:pointer;color:var(--text-muted)">
+                        <input type="checkbox" name="rule__{{ row.key }}__recipient__{{ r }}" value="true"
+                               {{ 'checked' if r in row.selected_roles }} style="width:13px;height:13px">
+                        {{ role_labels[r] }}
+                      </label>
+                      {% endfor %}
+                    </div>
+                  </td>
+                  <td style="padding:8px 6px;text-align:center">
+                    <input type="checkbox" name="rule__{{ row.key }}__in_app" value="true" {{ 'checked' if row.in_app }}>
+                  </td>
+                  <td style="padding:8px 6px;text-align:center">
+                    <input type="checkbox" name="rule__{{ row.key }}__push" value="true" {{ 'checked' if row.push }}>
+                  </td>
+                  <td style="padding:8px 6px;text-align:center">
+                    <input type="checkbox" name="rule__{{ row.key }}__whatsapp" value="true" {{ 'checked' if row.whatsapp }}>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
           </div>
         </div>
+        {% endfor %}
       </div>
 
-      {# ── Section 4: FMS Notifications ────────────────────────────────────── #}
+      {# ── 5. Other WhatsApp Notifications — Sales & Purchase Orders only.
+           Not part of Checklist/FMS/Delegation, so not in the rules table
+           above; kept here as the sole remaining per-event WhatsApp config. ── #}
       <div class="card" style="margin-bottom:20px;padding:20px">
-        <h4 style="margin:0 0 4px;font-size:14px;font-weight:700;color:var(--text-strong)">FMS Ticket Notifications</h4>
-
-        <div class="notif-info">
-          <div style="margin-bottom:6px;font-weight:600;color:var(--text-primary)">What fires and when (current defaults):</div>
-          <div class="notif-trigger-row"><span class="trigger-label">New ticket opened</span><span class="trigger-default">Assignee + manager + admin notified</span></div>
-          <div class="notif-trigger-row"><span class="trigger-label">Stage entry</span><span class="trigger-default">New stage assignee notified</span></div>
-          <div class="notif-trigger-row"><span class="trigger-label">Stage TaT &gt; 80%</span><span class="trigger-default">Admin + manager + employee</span><span style="font-size:11px;color:var(--text-faint)">— fires once per stage</span></div>
-          <div class="notif-trigger-row"><span class="trigger-label">Backward transition</span><span class="trigger-default">Manager notified</span></div>
-          <div class="notif-trigger-row"><span class="trigger-label">Ticket flagged</span><span class="trigger-default">Admin notified</span></div>
-        </div>
-
-        <div class="form-group" style="margin-bottom:14px">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="hidden" name="fms_notif_on_open" value="false">
-            <input type="checkbox" name="fms_notif_on_open" value="true"
-                   {% if tenant.fms_notif_on_open != False %}checked{% endif %}
-                   style="width:16px;height:16px">
-            <span style="font-size:13px">Notify assignee + manager + admin when a new FMS ticket is opened <span style="color:var(--text-faint)">(default: on)</span></span>
-          </label>
-        </div>
-
-        <div class="form-group" style="margin-bottom:14px">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="hidden" name="fms_notif_on_stage_entry" value="false">
-            <input type="checkbox" name="fms_notif_on_stage_entry" value="true"
-                   {% if tenant.fms_notif_on_stage_entry != False %}checked{% endif %}
-                   style="width:16px;height:16px">
-            <span style="font-size:13px">Notify new assignee on each stage entry <span style="color:var(--text-faint)">(default: on)</span></span>
-          </label>
-        </div>
-
-        <div class="form-group" style="margin-bottom:14px">
-          <label class="form-label">Notify admin + manager + employee when stage TaT exceeds <span style="color:var(--text-faint);font-weight:400">(default: 80%)</span></label>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input type="number" name="fms_notif_tat_pct" class="form-input" min="0" max="100" style="width:80px"
-                   value="{{ tenant.fms_notif_tat_pct if tenant.fms_notif_tat_pct is not none else 80 }}">
-            <span style="font-size:13px;color:var(--text-muted)">% of stage TaT (0 = disabled) — fires once per stage per ticket</span>
-          </div>
-        </div>
-
-        <div class="form-group" style="margin-bottom:14px">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="hidden" name="fms_notif_on_backward" value="false">
-            <input type="checkbox" name="fms_notif_on_backward" value="true"
-                   {% if tenant.fms_notif_on_backward != False %}checked{% endif %}
-                   style="width:16px;height:16px">
-            <span style="font-size:13px">Notify manager on backward stage transition <span style="color:var(--text-faint)">(default: on)</span></span>
-          </label>
-        </div>
-
-        <div class="form-group">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input type="hidden" name="fms_notif_on_flag" value="false">
-            <input type="checkbox" name="fms_notif_on_flag" value="true"
-                   {% if tenant.fms_notif_on_flag != False %}checked{% endif %}
-                   style="width:16px;height:16px">
-            <span style="font-size:13px">Notify admin when a ticket is flagged <span style="color:var(--text-faint)">(default: on)</span></span>
-          </label>
-        </div>
-      </div>
-
-      {# ── Section 5: WhatsApp Notifications ──────────────────────────────── #}
-      <div class="card" style="margin-bottom:20px;padding:20px">
-        <h4 style="margin:0 0 4px;font-size:14px;font-weight:700;color:var(--text-strong)">WhatsApp Notifications</h4>
-
-        <div class="notif-info">
-          Controls whether each event below also sends a WhatsApp message, in addition to the in-app notification above.
-          Only recipients who have opted in via WhatsApp (Employees tab) ever receive these — turning an event off here
-          simply stops that WhatsApp send entirely for this tenant, regardless of opt-in status.
-        </div>
-
+        <h4 style="margin:0 0 4px;font-size:14px;font-weight:700;color:var(--text-strong)">Other WhatsApp Notifications</h4>
+        <div class="notif-info">Sales &amp; Purchase Order events — outside the Checklist/FMS/Delegation rules table above.</div>
         {% set wa_toggles = [
-          ('wa_notif_ticket_assigned', 'Ticket assigned', 'Sent to the assignee when a delegation ticket is assigned'),
-          ('wa_notif_ticket_escalated', 'Ticket escalated / flagged', 'Sent to admin + manager when a ticket is flagged'),
-          ('wa_notif_fms_ticket_created', 'FMS ticket created', 'Sent to the assignee when a new FMS ticket is opened'),
-          ('wa_notif_fms_stage_transition', 'FMS stage transition', 'Sent to the new assignee when a ticket moves to a new stage'),
           ('wa_notif_order_placed', 'Sales order placed', 'Sent to godown staff when a sales order is confirmed'),
           ('wa_notif_order_dispatched', 'Sales order dispatched', 'Sent to the sales agent when their order is dispatched'),
-          ('wa_notif_ticket_closed', 'Ticket closed', 'Sent to the assignee when a delegation ticket is closed'),
-          ('wa_notif_ticket_tat_reminder', 'Ticket TaT % elapsed reminder', 'Sent to manager/employee (and admin, at the higher threshold) when a ticket crosses the % elapsed thresholds set above'),
-          ('wa_notif_fms_ticket_closed', 'FMS ticket closed', 'Sent to admin + manager when an FMS ticket reaches a terminal stage or is manually closed'),
-          ('wa_notif_fms_ticket_flagged', 'FMS ticket flagged', 'Sent to admin + manager when an FMS ticket is flagged'),
           ('wa_notif_po_placed', 'Purchase order placed', 'Sent to admins when a purchase order is submitted to a vendor'),
           ('wa_notif_po_accepted', 'Purchase order accepted', 'Sent to the PO creator when a purchase order is approved'),
         ] %}

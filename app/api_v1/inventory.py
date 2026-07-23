@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ..database import PurchaseRequest, User, get_db
 from .features import require_feature
 from .pagination import paginate_cursor
-from .schemas import Page
+from .schemas import Page, UtcDateTime
 from .security import get_current_api_user
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"], dependencies=[Depends(require_feature("INVENTORY_MODULE"))])
@@ -21,7 +21,7 @@ class PurchaseRequestOut(BaseModel):
     requested_by_id: str
     qty_requested: Optional[float]
     status: str
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 @router.get("/po", response_model=Page[PurchaseRequestOut])

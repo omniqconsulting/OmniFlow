@@ -115,7 +115,7 @@ a:hover{color:#93c5fd}
 
 /* ── CONTAINER ── */
 .container{max-width:1600px;margin:0 auto;padding:28px 36px}
-.container.full-width{max-width:100%;padding:0}
+.container.full-width{max-width:100%;padding:28px 0 0}
 
 /* ── CARDS ── */
 .card{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;padding:22px 24px;margin-bottom:16px}

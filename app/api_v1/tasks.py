@@ -10,6 +10,7 @@ from ..notifications import notify_checklist_completed
 from ..uploads import save_upload
 from ..ws_manager import CHECKLIST_COMPLETED, broadcast_sync
 from .features import require_feature
+from .schemas import UtcDateTime
 from .security import get_current_api_user, limiter
 
 router = APIRouter(tags=["My Tasks / Checklists"])
@@ -35,7 +36,7 @@ class MyTaskItem(BaseModel):
     id: str
     title: str
     status: str
-    due_at: Optional[datetime]
+    due_at: Optional[UtcDateTime]
     is_flagged: bool = False
 
 
@@ -44,8 +45,8 @@ class ChecklistAssignmentOut(BaseModel):
     id: str
     template_id: str
     user_id: str
-    due_at: datetime
-    completed_at: Optional[datetime]
+    due_at: UtcDateTime
+    completed_at: Optional[UtcDateTime]
     status: str
     delay_reason: Optional[str]
     is_flagged: bool

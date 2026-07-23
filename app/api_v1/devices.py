@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import DeviceToken, User, get_db
+from .schemas import UtcDateTime
 from .security import get_current_api_user, limiter
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
@@ -19,7 +20,7 @@ class DeviceRegisterRequest(BaseModel):
 class DeviceRegisterOut(BaseModel):
     device_id: str
     platform: str
-    last_seen_at: datetime
+    last_seen_at: UtcDateTime
 
 
 @router.post("/register", response_model=DeviceRegisterOut)

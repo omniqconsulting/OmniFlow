@@ -1,12 +1,16 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import LoginScreen from "../screens/LoginScreen";
+import RegisterScreen from "../screens/RegisterScreen";
+import ProfileScreen from "../screens/ProfileScreen";
 import HomeScreen from "../screens/HomeScreen";
 import AttendanceScreen from "../screens/AttendanceScreen";
 import TicketsScreen from "../screens/TicketsScreen";
 import TicketDetailScreen from "../screens/TicketDetailScreen";
 import DashboardScreen from "../screens/DashboardScreen";
 import ChecklistsScreen from "../screens/ChecklistsScreen";
+import FMSFlowBoardScreen from "../screens/FMSFlowBoardScreen";
+import MyTasksScreen from "../screens/MyTasksScreen";
 import SetupScreen from "../screens/SetupScreen";
 import SetupNotificationsScreen from "../screens/SetupNotificationsScreen";
 import BranchesScreen from "../screens/BranchesScreen";
@@ -22,16 +26,22 @@ import PerformanceScreen from "../screens/PerformanceScreen";
 import DayStatusRulesScreen from "../screens/DayStatusRulesScreen";
 import FlowsScreen from "../screens/FlowsScreen";
 import NotificationsScreen from "../screens/NotificationsScreen";
+import OrganizationScreen from "../screens/OrganizationScreen";
+import OrgTrainingScreen from "../screens/OrgTrainingScreen";
 import type { SessionUser } from "../api/auth";
 
 export type AuthStackParamList = {
   Login: undefined;
+  Register: undefined;
+  Profile: { user: SessionUser; slug: string };
   Home: { user: SessionUser; slug: string };
   Attendance: { user: SessionUser };
   Tickets: { user: SessionUser };
   TicketDetail: { user: SessionUser; ticketId: string };
   Dashboard: { user: SessionUser };
   Checklists: { user: SessionUser };
+  FMSFlowBoard: { user: SessionUser; initialFlowId?: string; initialTicketId?: string };
+  MyTasks: { user: SessionUser };
   Notifications: { user: SessionUser };
   Setup: { user: SessionUser };
   SetupNotifications: { user: SessionUser };
@@ -47,6 +57,8 @@ export type AuthStackParamList = {
   SetupPerformance: { user: SessionUser };
   SetupDayStatusRules: { user: SessionUser };
   SetupFlows: { user: SessionUser };
+  Organization: { user: SessionUser };
+  OrgTraining: { user: SessionUser };
 };
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
@@ -55,12 +67,16 @@ export default function AuthNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="Home" component={HomeScreen} />
       <Stack.Screen name="Attendance" component={AttendanceScreen} />
       <Stack.Screen name="Tickets" component={TicketsScreen} />
       <Stack.Screen name="TicketDetail" component={TicketDetailScreen} />
       <Stack.Screen name="Dashboard" component={DashboardScreen} />
       <Stack.Screen name="Checklists" component={ChecklistsScreen} />
+      <Stack.Screen name="FMSFlowBoard" component={FMSFlowBoardScreen} />
+      <Stack.Screen name="MyTasks" component={MyTasksScreen} />
       <Stack.Screen name="Setup" component={SetupScreen} />
       <Stack.Screen name="SetupNotifications" component={SetupNotificationsScreen} />
       <Stack.Screen name="SetupBranches" component={BranchesScreen} />
@@ -76,6 +92,8 @@ export default function AuthNavigator() {
       <Stack.Screen name="SetupDayStatusRules" component={DayStatusRulesScreen} />
       <Stack.Screen name="SetupFlows" component={FlowsScreen} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
+      <Stack.Screen name="Organization" component={OrganizationScreen} />
+      <Stack.Screen name="OrgTraining" component={OrgTrainingScreen} />
     </Stack.Navigator>
   );
 }

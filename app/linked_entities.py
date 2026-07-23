@@ -28,6 +28,22 @@ router = APIRouter()
 
 # ── P3-01: Helper ─────────────────────────────────────────────────────────────
 
+def _dedupe_by_name(rows: list) -> list:
+    """Collapse rows sharing the same (case-insensitive, trimmed) name down to
+    the first one seen — the search/select lists these feed shouldn't show
+    the same record repeated just because duplicate rows exist upstream
+    (e.g. a bulk import re-run without a name-uniqueness check)."""
+    seen = set()
+    result = []
+    for r in rows:
+        key = (r.name or "").strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(r)
+    return result
+
+
 def get_linked_entity_options(db: Session, tenant_id: str) -> dict:
     """
     Returns a dict of entity_type → list of {id, label, detail} dicts.
@@ -43,6 +59,7 @@ def get_linked_entity_options(db: Session, tenant_id: str) -> dict:
         Customer.is_active == True,
         (Customer.approval_status != "PENDING") | (Customer.approval_status.is_(None)),
     ).order_by(Customer.name).all()
+    customers = _dedupe_by_name(customers)
     if customers:
         options["CUSTOMER"] = [
             {
@@ -58,6 +75,7 @@ def get_linked_entity_options(db: Session, tenant_id: str) -> dict:
         EndProduct.is_active == True,
         (EndProduct.approval_status != "PENDING") | (EndProduct.approval_status.is_(None)),
     ).order_by(EndProduct.name).all()
+    products = _dedupe_by_name(products)
     if products:
         options["END_PRODUCT"] = [
             {

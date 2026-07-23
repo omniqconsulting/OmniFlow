@@ -14,8 +14,9 @@
     <h2 style="margin:0 0 4px">Access Control</h2>
     <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px">
       Grant module/tab access by department, branch, or individual employee. A more specific rule
-      (employee) always overrides a broader one (branch, then department). Admin, Manager and
-      Product Manager always see every module regardless of these rules.
+      (employee) always overrides a broader one (branch, then department). Admin and Manager
+      always see every module regardless of these rules; Product Manager gets no extra modules
+      by default and is scoped by whatever rule you configure here.
     </p>
 
     {% if msg %}<div class="alert alert-green" style="margin-bottom:14px">{{ msg }}</div>{% endif %}

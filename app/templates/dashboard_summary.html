@@ -3,12 +3,12 @@
 {% block content %}
 <style>
 /* ── Summary dashboard layout ───────────────────────────────────────── */
-.sum-wrap { display:flex; gap:0; min-height:calc(100vh - 52px); }
+.sum-wrap { display:flex; gap:0; min-height:calc(100vh - 80px); }
 .sum-filters {
   width:210px; min-width:210px; background:var(--bg-input);
   border-right:1px solid var(--border-subtle);
   padding:16px 14px; display:flex; flex-direction:column; gap:14px;
-  position:sticky; top:52px; height:calc(100vh - 52px); overflow-y:auto;
+  position:sticky; top:80px; height:calc(100vh - 80px); overflow-y:auto;
   scrollbar-width:thin;
 }
 .filter-group:has(> .filter-label + label) {

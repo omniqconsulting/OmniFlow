@@ -13,7 +13,7 @@ from ..constants import within_limit
 from ..database import Tenant, User, get_db
 from .features import require_feature
 from .pagination import paginate_cursor
-from .schemas import Page
+from .schemas import Page, UtcDateTime
 from .security import get_current_api_user, require_api_manager
 
 router = APIRouter(prefix="/employees", tags=["Employees"], dependencies=[Depends(require_feature("EMPLOYEES"))])
@@ -22,6 +22,12 @@ router = APIRouter(prefix="/employees", tags=["Employees"], dependencies=[Depend
 def _require_admin_or_pm(user: User = Depends(get_current_api_user)) -> User:
     if user.role not in ("ADMIN", "PRODUCT_MANAGER"):
         raise HTTPException(status_code=403, detail="Admin or Product Manager only")
+    return user
+
+
+def _require_admin_or_pm_or_manager(user: User = Depends(get_current_api_user)) -> User:
+    if user.role not in ("ADMIN", "MANAGER", "PRODUCT_MANAGER"):
+        raise HTTPException(status_code=403, detail="Admin, Manager or Product Manager only")
     return user
 
 
@@ -65,17 +71,22 @@ class EmployeeOut(BaseModel):
     manager_id: Optional[str]
     status: str
     joining_date: Optional[date]
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 @router.get("", response_model=Page[EmployeeOut])
 def list_employees(
     cursor: Optional[str] = Query(None),
     limit: int = Query(25, ge=1, le=100),
+    my_team: bool = Query(False, description="Managers only: filter to direct reports (+ self)"),
     user: User = Depends(require_api_manager),
     db: Session = Depends(get_db),
 ):
     q = db.query(User).filter(User.tenant_id == user.tenant_id, User.is_deleted == False)
+    if user.role == "MANAGER" and my_team:
+        # Optional "My Team Only" filter — Managers see every employee by
+        # default (edit/performance stay scoped to direct reports elsewhere).
+        q = q.filter((User.manager_id == user.id) | (User.id == user.id))
     rows, next_cursor = paginate_cursor(q, User, cursor, limit)
     return Page(items=rows, next_cursor=next_cursor)
 
@@ -149,10 +160,12 @@ class EmployeeUpdateIn(BaseModel):
 
 
 @router.put("/{employee_id}", response_model=EmployeeOut)
-def update_employee(employee_id: str, payload: EmployeeUpdateIn, user: User = Depends(_require_admin_or_pm), db: Session = Depends(get_db)):
+def update_employee(employee_id: str, payload: EmployeeUpdateIn, user: User = Depends(_require_admin_or_pm_or_manager), db: Session = Depends(get_db)):
     emp = db.query(User).filter(User.id == employee_id, User.tenant_id == user.tenant_id, User.is_deleted == False).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
+    if user.role == "MANAGER" and emp.manager_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only edit your direct reports")
     phone_err = _validate_phone(payload.phone)
     if phone_err:
         raise HTTPException(status_code=422, detail=phone_err)

@@ -31,6 +31,9 @@ export type LeaveRequest = {
   is_half_day: boolean;
   status: string;
   created_at: string;
+  approver_id: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
 };
 
 type Page<T> = { items: T[]; next_cursor: string | null };
@@ -43,8 +46,36 @@ export function listAttendanceRecords(params: { year?: number; month?: number; l
   return apiRequest<Page<AttendanceRecord>>(`/api/v1/attendance/records?${q.toString()}`);
 }
 
-export function listLeaveRequests(limit = 25): Promise<Page<LeaveRequest>> {
-  return apiRequest<Page<LeaveRequest>>(`/api/v1/attendance/leave?limit=${limit}`);
+export function listLeaveRequests(params: { limit?: number; scope?: "team"; status?: string } = {}): Promise<Page<LeaveRequest>> {
+  const q = new URLSearchParams();
+  q.set("limit", String(params.limit ?? 25));
+  if (params.scope) q.set("scope", params.scope);
+  if (params.status) q.set("status", params.status);
+  return apiRequest<Page<LeaveRequest>>(`/api/v1/attendance/leave?${q.toString()}`);
+}
+
+export function approveLeave(id: string): Promise<LeaveRequest> {
+  return apiRequest<LeaveRequest>(`/api/v1/attendance/leave/${id}/approve`, { method: "POST" });
+}
+
+export function rejectLeave(id: string, decisionNote?: string): Promise<LeaveRequest> {
+  return apiRequest<LeaveRequest>(`/api/v1/attendance/leave/${id}/reject`, {
+    method: "POST",
+    body: { decision_note: decisionNote },
+  });
+}
+
+export type TeamLogEntry = {
+  user_id: string;
+  name: string;
+  check_in_at: string | null;
+  check_out_at: string | null;
+  status: string;
+};
+
+export function getTeamLog(forDate?: string): Promise<TeamLogEntry[]> {
+  const qs = forDate ? `?for_date=${encodeURIComponent(forDate)}` : "";
+  return apiRequest<TeamLogEntry[]>(`/api/v1/attendance/team-log${qs}`);
 }
 
 export type TodayRecord = {

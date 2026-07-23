@@ -26,6 +26,7 @@ from ..database import (
     get_db,
 )
 from .features import require_feature
+from .schemas import UtcDateTime
 from .security import get_current_api_user, require_api_admin, require_api_manager
 
 router = APIRouter(prefix="/checklists", tags=["Checklists"], dependencies=[Depends(require_feature("CHECKLISTS"))])
@@ -96,8 +97,8 @@ class ChecklistItemOut(BaseModel):
     evidence_required: bool
     is_active: bool
     status: Optional[str]
-    due_at: Optional[datetime]
-    completed_at: Optional[datetime]
+    due_at: Optional[UtcDateTime]
+    completed_at: Optional[UtcDateTime]
     failure_note: Optional[str]
     delay_reason: Optional[str]
     employee_id: Optional[str]
@@ -285,7 +286,7 @@ def get_checklist_template(template_id: str, employee_id: Optional[str] = Query(
 
 
 class HistoryRecordOut(BaseModel):
-    date: Optional[datetime]
+    date: Optional[UtcDateTime]
     status: str
     note: Optional[str]
 
@@ -368,6 +369,8 @@ def create_checklist_template(body: ChecklistFormIn, user: User = Depends(requir
     created_assignment = None
     if due:
         from ..notifications import notify_checklist_assigned
+        from ..main import _admin_ids, _manager_ids_for_ticket
+        admins = _admin_ids(db, tid)
         for target in _resolve_targets(db, tmpl, tid):
             a = ChecklistAssignment(
                 template_id=tmpl.id, tenant_id=tid, user_id=target.id, due_at=due,
@@ -375,7 +378,8 @@ def create_checklist_template(body: ChecklistFormIn, user: User = Depends(requir
             )
             db.add(a)
             db.flush()
-            notify_checklist_assigned(db, a)
+            managers = _manager_ids_for_ticket(db, tid, target.id)
+            notify_checklist_assigned(db, a, admins, managers)
             if target.id == user.id or created_assignment is None:
                 created_assignment = a
         db.commit()
