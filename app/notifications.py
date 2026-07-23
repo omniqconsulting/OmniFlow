@@ -8,6 +8,26 @@ from datetime import datetime, timedelta
 logger = logging.getLogger("notifications")
 
 
+def claim_dedup_key(db, dedup_key: str) -> bool:
+    """Atomically claim a one-time dedup key for a scheduled/reminder
+    notification. Returns True the first time a key is claimed (caller should
+    proceed to send), False if it's already been claimed (caller should skip)
+    — including by a different, concurrently-running scheduler process, since
+    the guarantee comes from the DB's UNIQUE constraint on NotificationDedupGuard,
+    not from a SELECT-then-INSERT check in application code."""
+    from .database import NotificationDedupGuard, new_id
+    from sqlalchemy.exc import IntegrityError
+    try:
+        with db.begin_nested():
+            db.add(NotificationDedupGuard(id=new_id(), dedup_key=dedup_key))
+        return True
+    except IntegrityError:
+        # begin_nested()'s context manager already rolled back to the
+        # SAVEPOINT on exception — the outer session/transaction is still
+        # perfectly usable, don't roll that back too.
+        return False
+
+
 # ── E-15: Office Hours Helpers ────────────────────────────────────────────────
 
 def is_within_office_hours(tenant, dt=None):
@@ -74,6 +94,24 @@ def business_hours_elapsed(tenant, start_dt, end_dt):
     return elapsed
 
 
+def parse_ist_datetime_local(value: str) -> datetime:
+    """Parses an HTML <input type="datetime-local"> submitted value.
+
+    That input type is always a naive wall-clock string with no timezone
+    info — the browser just shows whatever the OS clock says. Every due_at
+    field fed by one of these inputs (ticket create/edit/reschedule,
+    checklist assign/edit) was previously stored via a bare
+    datetime.fromisoformat(), which silently treated the admin's IST input
+    as if it were UTC — due dates ended up 5.5 hours off from what was
+    actually typed. This converts the IST wall-clock value the admin
+    intended into the naive UTC the rest of the codebase stores
+    (see add_business_hours below for the same naive-UTC convention)."""
+    import pytz
+    naive = datetime.fromisoformat(value)
+    ist = pytz.timezone("Asia/Kolkata")
+    return ist.localize(naive).astimezone(pytz.utc).replace(tzinfo=None)
+
+
 def add_business_hours(tenant, start_dt, hours):
     """Forward counterpart to business_hours_elapsed: return the datetime
     that is `hours` of business hours after start_dt, respecting the
@@ -138,34 +176,81 @@ from .ws_manager import (
 )
 
 
+def resolve_notification_link(link: str) -> tuple:
+    """Only '/tickets/{id}' deep-links today — it's the one destination
+    (TicketDetailScreen) that exists natively. Everything else (FMS
+    dashboard, inventory, sales orders, checklists) has no native screen
+    yet, so it resolves to ('none', None) and the app just marks it read
+    instead of dead-ending on a blank screen. Shared by the in-app list
+    (api_v1/notifications.py) and native push payloads (push.py) so a
+    tapped push opens the same place tapping the in-app row would."""
+    if link and link.startswith("/tickets/"):
+        ticket_id = link[len("/tickets/"):].split("?")[0]
+        if ticket_id:
+            return "ticket", ticket_id
+    return "none", None
+
+
 def create_notification(db, tenant_id: str, user_id: str,
                          notif_type: str, title: str,
-                         body: str = "", link: str = ""):
+                         body: str = "", link: str = "",
+                         condition_key: str = None):
     """
     Add a notification record and fire a NOTIFICATION_NEW WS event.
     Caller must commit the DB session after calling this.
+
+    condition_key: Setup > Notifications registry key (app/notification_rules.py)
+    gating the in-app row and push sends independently. None (the default,
+    used by call sites not yet migrated to the registry) means "always send
+    both" — unchanged legacy behavior.
     """
-    db.add(Notification(
-        tenant_id=tenant_id,
-        user_id=user_id,
-        notif_type=notif_type,
-        title=title,
-        body=body,
-        link=link,
-    ))
-    # Real-time push — audience: specific user (1-6 NOTIFICATION_NEW)
-    broadcast_sync(tenant_id, [user_id], NOTIFICATION_NEW, {
-        "notif_type": notif_type,
-        "title": title,
-        "body": body,
-        "link": link,
-    })
-    # Web Push — third, additive channel alongside in-app + WhatsApp (Phase 6)
-    try:
-        from .push import send_push_for_user
-        send_push_for_user(db, user_id, title, body, link)
-    except Exception:
-        logger.warning("Web push send skipped for user %s", user_id, exc_info=True)
+    in_app_ok = push_ok = True
+    if condition_key:
+        from .notification_rules import channel_enabled
+        in_app_ok = channel_enabled(db, tenant_id, condition_key, "in_app")
+        push_ok = channel_enabled(db, tenant_id, condition_key, "push")
+    if not in_app_ok and not push_ok:
+        return
+
+    if in_app_ok:
+        db.add(Notification(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            notif_type=notif_type,
+            title=title,
+            body=body,
+            link=link,
+        ))
+        # Unread count for the nav badge — the WS client only refreshes the
+        # badge when a payload carries "unread_count" (see app-shell.js
+        # handleEvent()); the poll fallback already includes it, but this
+        # primary real-time path previously didn't, so the badge silently
+        # never updated over an open WebSocket connection.
+        unread_count = db.query(Notification).filter(
+            Notification.user_id == user_id, Notification.is_read == False,
+        ).count()
+        # Real-time push — audience: specific user (1-6 NOTIFICATION_NEW)
+        broadcast_sync(tenant_id, [user_id], NOTIFICATION_NEW, {
+            "notif_type": notif_type,
+            "title": title,
+            "body": body,
+            "link": link,
+            "unread_count": unread_count,
+        })
+    if push_ok:
+        # Web Push — third, additive channel alongside in-app + WhatsApp (Phase 6)
+        try:
+            from .push import send_push_for_user
+            send_push_for_user(db, user_id, title, body, link)
+        except Exception:
+            logger.warning("Web push send skipped for user %s", user_id, exc_info=True)
+        # Native app push — fourth, additive channel (lock-screen/background
+        # delivery for the mobile app; see push.py send_expo_push_for_user).
+        try:
+            from .push import send_expo_push_for_user
+            send_expo_push_for_user(db, user_id, title, body, link)
+        except Exception:
+            logger.warning("Expo push send skipped for user %s", user_id, exc_info=True)
 
 
 _OPTED_IN_STATUSES = ("OPTED_IN", "MANUALLY_VERIFIED")
@@ -299,29 +384,39 @@ def _log_notif_suppressed(db, ticket_id, event_label: str):
         logger.exception("Failed to log NOTIFICATION_SUPPRESSED for ticket=%s", ticket_id)
 
 
-def notify_ticket_assigned(db, ticket, assignee):
-    """Phase 0-D-2  |  1-6: TICKET_ASSIGNED — audience: assignee"""
+def notify_ticket_assigned(db, ticket, assignee, admin_ids: list = None, manager_ids: list = None):
+    """Phase 0-D-2  |  1-6: TICKET_ASSIGNED — audience: assignee by default,
+    plus admin/manager if the tenant has configured them as recipients too
+    (condition_key "ticket_assigned")."""
     tenant = _get_tenant(db, ticket.tenant_id)
     if tenant and not is_within_office_hours(tenant):
         if tenant.suppress_notif_outside_hours:
             _log_notif_suppressed(db, ticket.id, "notify_ticket_assigned")
             return
+    from .notification_rules import filter_recipients, channel_enabled
     due_str = ticket.due_at.strftime("%d %b") if ticket.due_at else "N/A"
-    create_notification(
-        db, ticket.tenant_id, assignee.id,
-        "TICKET_ASSIGNED",
-        f"New ticket: {ticket.title}",
-        f"Priority: {ticket.priority} · Due: {due_str}",
-        f"/tickets/{ticket.id}",
+    audience = filter_recipients(
+        db, ticket.tenant_id, "ticket_assigned",
+        admin_ids=admin_ids, manager_ids=manager_ids, assignee_id=assignee.id,
     )
+    for uid in audience:
+        create_notification(
+            db, ticket.tenant_id, uid,
+            "TICKET_ASSIGNED",
+            f"New ticket: {ticket.title}",
+            f"Priority: {ticket.priority} · Due: {due_str}",
+            f"/tickets/{ticket.id}",
+            condition_key="ticket_assigned",
+        )
     # Additional direct TICKET_ASSIGNED broadcast (separate from notification bubble)
-    broadcast_sync(ticket.tenant_id, [assignee.id], TICKET_ASSIGNED, {
+    broadcast_sync(ticket.tenant_id, audience, TICKET_ASSIGNED, {
         "ticket_id":   ticket.id,
         "ticket_title": ticket.title,
         "priority":    ticket.priority,
         "link":        f"/tickets/{ticket.id}",
     })
-    send_whatsapp_for_ticket_assigned(db, ticket, assignee)
+    if channel_enabled(db, ticket.tenant_id, "ticket_assigned", "whatsapp") and assignee.id in audience:
+        send_whatsapp_for_ticket_assigned(db, ticket, assignee)
 
 
 def notify_ticket_reminder(db, ticket, assignee):
@@ -343,15 +438,23 @@ def notify_ticket_reminder(db, ticket, assignee):
     })
 
 
-def notify_helper_added(db, ticket, helper):
-    """Phase 0-C-1/2  |  1-6: TICKET_ASSIGNED variant for helpers"""
-    create_notification(
-        db, ticket.tenant_id, helper.id,
-        "TICKET_HELPER",
-        f"Added as helper: {ticket.title}",
-        link=f"/tickets/{ticket.id}",
+def notify_helper_added(db, ticket, helper, admin_ids: list = None, manager_ids: list = None):
+    """Phase 0-C-1/2  |  1-6: TICKET_ASSIGNED variant for helpers —
+    condition_key "ticket_helper_added", configurable in Setup > Notifications."""
+    from .notification_rules import filter_recipients
+    audience = filter_recipients(
+        db, ticket.tenant_id, "ticket_helper_added",
+        admin_ids=admin_ids, manager_ids=manager_ids, helper_ids=[helper.id],
     )
-    broadcast_sync(ticket.tenant_id, [helper.id], TICKET_ASSIGNED, {
+    for uid in audience:
+        create_notification(
+            db, ticket.tenant_id, uid,
+            "TICKET_HELPER",
+            f"Added as helper: {ticket.title}",
+            link=f"/tickets/{ticket.id}",
+            condition_key="ticket_helper_added",
+        )
+    broadcast_sync(ticket.tenant_id, audience, TICKET_ASSIGNED, {
         "ticket_id":    ticket.id,
         "ticket_title": ticket.title,
         "role":         "helper",
@@ -364,11 +467,16 @@ def notify_ticket_status_changed(db, ticket, actor_id: str,
                                   admin_ids: list, manager_ids: list):
     """
     1-6: TICKET_STATUS_CHANGED
-    Audience: admin + scoped managers + assignee.
+    Closed: configurable recipients (condition_key "ticket_closed") — WhatsApp
+    via its own send pipeline, plus in-app/push via create_notification.
+    Any other status change (ack/in-progress): configurable recipients
+    (condition_key "ticket_status_change") — no WhatsApp.
+    The actor is always excluded from their own notification.
     """
-    audience = list(set(admin_ids + manager_ids + [ticket.current_assignee_id or ""]))
-    audience = [uid for uid in audience if uid]
-    broadcast_sync(ticket.tenant_id, audience, TICKET_STATUS_CHANGED, {
+    from .notification_rules import filter_recipients
+    broadcast_sync(ticket.tenant_id, list(set(
+        [uid for uid in (admin_ids + manager_ids + [ticket.current_assignee_id or ""]) if uid]
+    )), TICKET_STATUS_CHANGED, {
         "ticket_id":    ticket.id,
         "ticket_title": ticket.title,
         "old_status":   old_status,
@@ -377,23 +485,49 @@ def notify_ticket_status_changed(db, ticket, actor_id: str,
         "link":         f"/tickets/{ticket.id}",
     })
     if new_status == "CLOSED" and old_status != "CLOSED":
-        _send_wa_ticket_closed(db, ticket, actor_id)
+        _send_wa_ticket_closed(db, ticket, actor_id, admin_ids, manager_ids)
+        audience = filter_recipients(
+            db, ticket.tenant_id, "ticket_closed",
+            admin_ids=admin_ids, manager_ids=manager_ids,
+            assignee_id=ticket.current_assignee_id, actor_id=actor_id,
+        )
+        for uid in audience:
+            create_notification(
+                db, ticket.tenant_id, uid, "TICKET_STATUS_CHANGED",
+                f"{ticket.title}: closed",
+                "", f"/tickets/{ticket.id}", condition_key="ticket_closed",
+            )
+        return
+    audience = filter_recipients(
+        db, ticket.tenant_id, "ticket_status_change",
+        admin_ids=admin_ids, manager_ids=manager_ids,
+        assignee_id=ticket.current_assignee_id, actor_id=actor_id,
+    )
+    for uid in audience:
+        create_notification(
+            db, ticket.tenant_id, uid, "TICKET_STATUS_CHANGED",
+            f"{ticket.title}: {old_status} → {new_status}",
+            "", f"/tickets/{ticket.id}", condition_key="ticket_status_change",
+        )
 
 
-def _send_wa_ticket_closed(db, ticket, actor_id: str):
-    """omniflow_ticket_closed — notify the assignee their ticket was closed. Never raises."""
+def _send_wa_ticket_closed(db, ticket, actor_id: str, admin_ids: list = None, manager_ids: list = None):
+    """omniflow_ticket_closed — notify admins/managers their ticket was closed. Never raises."""
     from .database import User
+    from .notification_rules import channel_enabled
     try:
-        if not ticket.current_assignee_id:
+        if not channel_enabled(db, ticket.tenant_id, "ticket_closed", "whatsapp"):
             return
-        assignee = db.query(User).filter(User.id == ticket.current_assignee_id).first()
-        if not assignee:
-            return
+        recipient_ids = list(set((admin_ids or []) + (manager_ids or [])))
         actor = db.query(User).filter(User.id == actor_id).first() if actor_id else None
-        variables = [assignee.name, ticket.title, actor.name if actor else "an admin"]
-        _send_gupshup_wa(db, ticket.tenant_id, assignee, "omniflow_ticket_closed", variables,
-                          related_entity_type="ticket", related_entity_id=ticket.id,
-                          event_key="ticket_closed")
+        for uid in recipient_ids:
+            recipient = db.query(User).filter(User.id == uid).first()
+            if not recipient or not recipient.phone:
+                continue
+            variables = [recipient.name, ticket.title, actor.name if actor else "a team member"]
+            _send_gupshup_wa(db, ticket.tenant_id, recipient, "omniflow_ticket_closed", variables,
+                              related_entity_type="ticket", related_entity_id=ticket.id,
+                              event_key="ticket_closed")
     except Exception:
         logger.exception("_send_wa_ticket_closed failed for ticket=%s", ticket.id)
 
@@ -416,8 +550,13 @@ def send_whatsapp_for_ticket_tat_reminder(db, ticket, recipient, assignee_name, 
 def send_whatsapp_for_fms_ticket_closed(db, tenant_id, fms_ticket, admin_ids, manager_ids, actor_name):
     """omniflow_fms_ticket_closed — notify admins/managers. Never raises."""
     from .database import User
+    from .notification_rules import channel_enabled, filter_recipients
     try:
-        recipient_ids = list(set((admin_ids or []) + (manager_ids or [])))
+        if not channel_enabled(db, tenant_id, "fms_closed", "whatsapp"):
+            return
+        recipient_ids = filter_recipients(
+            db, tenant_id, "fms_closed", admin_ids=admin_ids, manager_ids=manager_ids,
+        )
         for uid in recipient_ids:
             recipient = db.query(User).filter(User.id == uid).first()
             if not recipient or not recipient.phone:
@@ -428,6 +567,26 @@ def send_whatsapp_for_fms_ticket_closed(db, tenant_id, fms_ticket, admin_ids, ma
                               event_key="fms_ticket_closed")
     except Exception:
         logger.exception("send_whatsapp_for_fms_ticket_closed failed for ticket=%s", fms_ticket.id)
+
+
+def notify_fms_flagged(db, tenant_id, fms_ticket, admin_ids, manager_ids, flag_reason, actor_name, actor_id=None):
+    """FMS ticket flagged — in-app + push + WhatsApp, configurable recipients
+    (condition_key "fms_flagged"). The actor is always excluded from their
+    own notification."""
+    from .notification_rules import channel_enabled, filter_recipients
+    audience = filter_recipients(
+        db, tenant_id, "fms_flagged",
+        admin_ids=admin_ids, manager_ids=manager_ids,
+        assignee_id=getattr(fms_ticket, "current_assignee_id", None), actor_id=actor_id,
+    )
+    for uid in audience:
+        create_notification(
+            db, tenant_id, uid, "FMS_FLAGGED",
+            f"Flow ticket flagged: {fms_ticket.title}", flag_reason or "",
+            f"/fms/tickets/{fms_ticket.id}", condition_key="fms_flagged",
+        )
+    if channel_enabled(db, tenant_id, "fms_flagged", "whatsapp"):
+        send_whatsapp_for_fms_ticket_flagged(db, tenant_id, fms_ticket, admin_ids, manager_ids, flag_reason, actor_name)
 
 
 def send_whatsapp_for_fms_ticket_flagged(db, tenant_id, fms_ticket, admin_ids, manager_ids,
@@ -481,40 +640,64 @@ def send_whatsapp_for_po_accepted(db, tenant_id, po):
         logger.exception("send_whatsapp_for_po_accepted failed for po=%s", po.id)
 
 
-def notify_ticket_commented(db, ticket, commenter_id: str, helper_ids: list):
+def notify_ticket_commented(db, ticket, commenter_id: str, helper_ids: list,
+                             admin_ids: list = None, manager_ids: list = None):
     """
-    1-6: TICKET_COMMENTED
-    Audience: assignee + helpers + creator.
+    1-6: TICKET_COMMENTED — in-app + push, configurable recipients
+    (condition_key "ticket_comment"). No WhatsApp. The commenter is always
+    excluded from their own notification.
     """
-    audience = list(set(
-        [ticket.current_assignee_id or "", ticket.created_by_id or ""]
-        + helper_ids
-    ))
-    audience = [uid for uid in audience if uid and uid != commenter_id]
+    from .notification_rules import filter_recipients
+    audience = filter_recipients(
+        db, ticket.tenant_id, "ticket_comment",
+        admin_ids=admin_ids, manager_ids=manager_ids,
+        assignee_id=ticket.current_assignee_id, helper_ids=helper_ids,
+        actor_id=commenter_id,
+    )
     broadcast_sync(ticket.tenant_id, audience, TICKET_COMMENTED, {
         "ticket_id":    ticket.id,
         "ticket_title": ticket.title,
         "commenter_id": commenter_id,
         "link":         f"/tickets/{ticket.id}",
     })
+    for uid in audience:
+        create_notification(
+            db, ticket.tenant_id, uid, "TICKET_COMMENTED",
+            f"New comment: {ticket.title}", "", f"/tickets/{ticket.id}",
+            condition_key="ticket_comment",
+        )
 
 
 def notify_ticket_flagged(db, ticket, actor_id: str, admin_ids: list,
                           manager_ids: list = None, actor_name: str = ""):
     """
-    1-6: TICKET_FLAGGED
-    Audience (in-app/WS): admin + assignee — unchanged.
-    Audience (WhatsApp): admin + direct manager only — not assignee.
+    1-6: TICKET_FLAGGED — in-app + push + WhatsApp, configurable recipients
+    (condition_key "ticket_flagged"). Flagging can be done by the assignee
+    (self-escalating), a manager, or an admin — whoever performed the action
+    is always excluded from its own notification.
     """
-    audience = list(set(admin_ids + [ticket.current_assignee_id or ""]))
-    audience = [uid for uid in audience if uid]
+    from .notification_rules import filter_recipients
+    manager_ids = manager_ids or []
+    audience = filter_recipients(
+        db, ticket.tenant_id, "ticket_flagged",
+        admin_ids=admin_ids, manager_ids=manager_ids,
+        assignee_id=ticket.current_assignee_id, actor_id=actor_id,
+    )
     broadcast_sync(ticket.tenant_id, audience, TICKET_FLAGGED, {
         "ticket_id":     ticket.id,
         "ticket_title":  ticket.title,
         "flagged_reason": ticket.flagged_reason or "",
         "link":          f"/tickets/{ticket.id}",
     })
-    _send_wa_ticket_escalated(db, ticket, admin_ids, manager_ids or [], actor_name)
+    for uid in audience:
+        create_notification(
+            db, ticket.tenant_id, uid, "TICKET_FLAGGED",
+            f"Ticket flagged: {ticket.title}", ticket.flagged_reason or "",
+            f"/tickets/{ticket.id}", condition_key="ticket_flagged",
+        )
+    from .notification_rules import channel_enabled
+    if channel_enabled(db, ticket.tenant_id, "ticket_flagged", "whatsapp"):
+        _send_wa_ticket_escalated(db, ticket, admin_ids, manager_ids, actor_name)
 
 
 def _send_wa_ticket_escalated(db, ticket, admin_ids: list, manager_ids: list, actor_name: str):
@@ -537,16 +720,44 @@ def _send_wa_ticket_escalated(db, ticket, admin_ids: list, manager_ids: list, ac
 def notify_ticket_help_requested(db, ticket, actor_id: str,
                                   admin_ids: list, manager_ids: list):
     """
-    1-6: TICKET_HELP_REQUESTED
-    Audience: admin + scoped managers.
+    1-6: TICKET_HELP_REQUESTED — in-app + push + WhatsApp, configurable
+    recipients (condition_key "ticket_help_requested"). The actor is always
+    the ticket's own assignee asking for help, so they're excluded from
+    their own notification.
     """
-    audience = list(set(admin_ids + manager_ids))
+    from .database import User
+    from .notification_rules import channel_enabled, filter_recipients
+
+    audience = filter_recipients(
+        db, ticket.tenant_id, "ticket_help_requested",
+        admin_ids=admin_ids, manager_ids=manager_ids,
+        assignee_id=ticket.current_assignee_id, actor_id=actor_id,
+    )
     broadcast_sync(ticket.tenant_id, audience, TICKET_HELP_REQUESTED, {
         "ticket_id":    ticket.id,
         "ticket_title": ticket.title,
         "actor_id":     actor_id,
         "link":         f"/tickets/{ticket.id}",
     })
+    for uid in audience:
+        create_notification(
+            db, ticket.tenant_id, uid, "TICKET_HELP_REQUESTED",
+            f"Help requested: {ticket.title}", "", f"/tickets/{ticket.id}",
+            condition_key="ticket_help_requested",
+        )
+    if channel_enabled(db, ticket.tenant_id, "ticket_help_requested", "whatsapp"):
+        try:
+            actor = db.query(User).filter(User.id == actor_id).first() if actor_id else None
+            for uid in set(admin_ids + manager_ids):
+                recipient = db.query(User).filter(User.id == uid).first()
+                if not recipient or not recipient.phone:
+                    continue
+                variables = [recipient.name, ticket.title, actor.name if actor else "a team member"]
+                _send_gupshup_wa(db, ticket.tenant_id, recipient, "omniflow_ticket_help_requested", variables,
+                                  related_entity_type="ticket", related_entity_id=ticket.id,
+                                  event_key="ticket_help_requested")
+        except Exception:
+            logger.exception("WhatsApp send failed for ticket_help_requested ticket=%s", ticket.id)
 
 
 def notify_delay_logged(db, ticket, actor_id: str, reason: str,
@@ -607,56 +818,95 @@ def notify_checklist_overdue(db, assignment, admin_ids: list, manager_ids: list)
 
 def notify_checklist_completed(db, assignment, admin_ids: list, manager_ids: list):
     """
-    1-6: CHECKLIST_COMPLETED
-    Audience: admin + managers.
+    CHECKLIST_COMPLETED — in-app + push, configurable recipients (condition_key
+    "checklist_completed"). No WhatsApp. The assignee who completed it is
+    always excluded from their own notification.
     """
+    from .notification_rules import filter_recipients
     title = assignment.template.title if assignment.template else "Checklist"
-    audience = list(set(admin_ids + manager_ids))
-    broadcast_sync(assignment.tenant_id, audience, CHECKLIST_COMPLETED, {
+    audience = filter_recipients(
+        db, assignment.tenant_id, "checklist_completed",
+        admin_ids=admin_ids, manager_ids=manager_ids,
+        assignee_id=assignment.user_id, actor_id=assignment.user_id,
+    )
+    broadcast_sync(assignment.tenant_id, list(set(admin_ids + (manager_ids or []))), CHECKLIST_COMPLETED, {
         "assignment_id": assignment.id,
         "title":         title,
         "user_id":       assignment.user_id,
         "link":          "/checklists",
     })
+    for uid in audience:
+        create_notification(
+            db, assignment.tenant_id, uid, "CHECKLIST_COMPLETED",
+            f"Checklist completed: {title}", "", "/checklists",
+            condition_key="checklist_completed",
+        )
 
 
-def notify_checklist_assigned(db, assignment):
-    """E-15: Notify employee when a new checklist is assigned to them (if tenant setting enabled)."""
+def notify_checklist_assigned(db, assignment, admin_ids: list = None, manager_ids: list = None):
+    """E-15: Notify employee when a new checklist is assigned to them
+    (condition_key "checklist_assigned" — in-app + push + WhatsApp); admin/
+    manager can also be added as recipients via Setup > Notifications."""
     tenant = _get_tenant(db, assignment.tenant_id)
     if not getattr(tenant, 'checklist_notif_on_assign', True):
         return
     if tenant and not is_within_office_hours(tenant):
         if tenant.suppress_notif_outside_hours:
             return
+    from .notification_rules import filter_recipients
     title = assignment.template.title if assignment.template else "Checklist"
     due_str = assignment.due_at.strftime("%d %b") if assignment.due_at else ""
-    create_notification(
-        db, assignment.tenant_id, assignment.user_id,
-        "CHECKLIST_DUE",
-        f"New checklist assigned: {title}",
-        f"Due: {due_str}" if due_str else "",
-        "/checklists",
+    audience = filter_recipients(
+        db, assignment.tenant_id, "checklist_assigned",
+        admin_ids=admin_ids, manager_ids=manager_ids, assignee_id=assignment.user_id,
     )
+    for uid in audience:
+        create_notification(
+            db, assignment.tenant_id, uid,
+            "CHECKLIST_DUE",
+            f"New checklist assigned: {title}",
+            f"Due: {due_str}" if due_str else "",
+            "/checklists",
+            condition_key="checklist_assigned",
+        )
+    from .notification_rules import channel_enabled
+    if channel_enabled(db, assignment.tenant_id, "checklist_assigned", "whatsapp") and assignment.user_id in audience:
+        try:
+            from .database import User
+            assignee = db.query(User).filter(User.id == assignment.user_id).first()
+            if assignee and assignee.phone:
+                variables = [assignee.name, title, due_str or "N/A"]
+                _send_gupshup_wa(db, assignment.tenant_id, assignee, "omniflow_checklist_assigned", variables,
+                                  related_entity_type="checklist_assignment", related_entity_id=assignment.id,
+                                  event_key="checklist_assigned")
+        except Exception:
+            logger.exception("WhatsApp send failed for checklist_assigned assignment=%s", assignment.id)
 
 
 def notify_fms_ticket_opened(db, fms_ticket, assignee, admin_ids: list, manager_ids: list):
-    """E-15: In-app notification when a new FMS ticket is opened."""
+    """E-15: In-app notification when a new FMS ticket is opened
+    (condition_key "fms_ticket_created")."""
     tenant = _get_tenant(db, fms_ticket.tenant_id)
     if not getattr(tenant, 'fms_notif_on_open', True):
         return
     if tenant and not is_within_office_hours(tenant):
         if tenant.suppress_notif_outside_hours:
             return
-    audience = list(set(admin_ids + manager_ids + ([assignee.id] if assignee else [])))
+    from .notification_rules import filter_recipients
+    audience = filter_recipients(
+        db, fms_ticket.tenant_id, "fms_ticket_created",
+        admin_ids=admin_ids, manager_ids=manager_ids,
+        assignee_id=assignee.id if assignee else None,
+    )
     for uid in audience:
-        if uid:
-            create_notification(
-                db, fms_ticket.tenant_id, uid,
-                "TICKET_ASSIGNED",
-                f"New FMS ticket: {fms_ticket.title}",
-                f"Flow: {getattr(fms_ticket, 'flow_name', '')}",
-                f"/fms/tickets/{fms_ticket.id}",
-            )
+        create_notification(
+            db, fms_ticket.tenant_id, uid,
+            "TICKET_ASSIGNED",
+            f"New FMS ticket: {fms_ticket.title}",
+            f"Flow: {getattr(fms_ticket, 'flow_name', '')}",
+            f"/fms/tickets/{fms_ticket.id}",
+            condition_key="fms_ticket_created",
+        )
 
 
 # ── Phase 2/4 stubs — routing logic defined now (per §18.2 plan) ─────────────
@@ -688,23 +938,39 @@ def send_whatsapp_for_fms_ticket_created(db, fms_ticket, assignee):
                       event_key="fms_ticket_created")
 
 
-def notify_fms_stage_transition(tenant_id: str, ticket_id: str, ticket_title: str,
+def notify_fms_stage_transition(db, tenant_id: str, ticket_id: str, ticket_title: str,
                                  new_stage: str, actor_id: str,
-                                 admin_ids: list, manager_ids: list, new_assignee_id: str):
+                                 admin_ids: list, manager_ids: list, new_assignee_id: str,
+                                 backward: bool = False):
     """
-    1-6: FMS_STAGE_TRANSITION (used in Phase 2)
-    Audience: admin + scoped managers + new assignee.
-    WhatsApp is sent separately via send_whatsapp_for_fms_stage_transition().
+    1-6: FMS_STAGE_TRANSITION
+    Audience: admin + scoped managers + new assignee (assignee included in
+    both directions — previously excluded on backward moves).
+    In-app + push now fire here too (condition_key "fms_stage_forward" /
+    "fms_stage_backward"); WhatsApp is sent separately via
+    send_whatsapp_for_fms_stage_transition() and is excluded from both
+    directions per the client's rules — no WhatsApp call from this function.
     """
     from .ws_manager import FMS_STAGE_TRANSITION
-    audience = list(set(admin_ids + manager_ids + [new_assignee_id or ""]))
-    audience = [uid for uid in audience if uid]
+    from .notification_rules import filter_recipients
+    condition_key = "fms_stage_backward" if backward else "fms_stage_forward"
+    audience = filter_recipients(
+        db, tenant_id, condition_key,
+        admin_ids=admin_ids, manager_ids=manager_ids,
+        assignee_id=new_assignee_id, actor_id=actor_id,
+    )
     broadcast_sync(tenant_id, audience, FMS_STAGE_TRANSITION, {
         "ticket_id":    ticket_id,
         "ticket_title": ticket_title,
         "new_stage":    new_stage,
         "actor_id":     actor_id,
     })
+    for uid in audience:
+        create_notification(
+            db, tenant_id, uid, "FMS_STAGE_TRANSITION",
+            f"{ticket_title} moved to {new_stage}", "",
+            f"/fms/tickets/{ticket_id}", condition_key=condition_key,
+        )
 
 
 def notify_fms_split_created(tenant_id: str, ticket_id: str, ticket_display_id: str,

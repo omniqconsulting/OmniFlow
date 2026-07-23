@@ -10,15 +10,6 @@
      zoom+pan) worked while 1-finger scroll silently did nothing. Removing
      zoom as a possibility removes the ambiguity. -->
 <title>OmniFlow</title>
-<!-- P6-01: PWA installability — manifest + iOS-specific tags (iOS ignores parts of the manifest spec) -->
-<link rel="manifest" href="/static/manifest.json">
-<!-- Native-Feel UI Brief Section 5.3: theme-color/status-bar values are sourced
-     from --color-primary in theme-tokens.css — keep these three in sync. -->
-<meta name="theme-color" content="#3b82f6">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="OmniFlow">
-<link rel="apple-touch-icon" href="/static/icon-192.png">
 <!-- Native-Feel UI Brief Section 4: theme-tokens.css must load first, before
      any other stylesheet, since app-shell.css depends on its custom properties. -->
 <link rel="stylesheet" href="/static/css/theme-tokens.css">
@@ -34,16 +25,12 @@
 </head>
 <body class="{% if user %}is-authed{% endif %}">
 {% if user %}
-{# Native-Feel UI Brief follow-up: mobile/standalone-only top bar. Replaces
+{# Native-Feel UI Brief follow-up: mobile-web-only top bar. Replaces
    the desktop .nav's branding + bell/mute/account controls on small
    screens, since .nav is hidden there (app-shell.css). Notifications/theme/
    profile/logout live here instead of the "Others" bottom-sheet now. #}
 <header class="mobile-topbar">
-  {% if request.cookies.get('pwa_ui') == '1' %}
-  <a href="/home" class="mt-logo" style="text-decoration:none;color:inherit" title="Back to home grid">OmniFlow</a>
-  {% else %}
   <span class="mt-logo">OmniFlow</span>
-  {% endif %}
   <div class="mt-actions">
     <a href="/notifications" class="mt-icon-btn" title="Notifications">
       🔔
@@ -120,7 +107,7 @@
 </style>
 {% endif %}
 <nav class="nav">
-  <a class="logo" href="{{ '/home' if user.role in ('ADMIN','MANAGER') else '/dashboard' }}" style="text-decoration:none;color:inherit">OmniFlow</a>
+  <a class="logo" href="{{ '/home' if user.role in ('ADMIN','MANAGER') else ('/employees' if user.role == 'PRODUCT_MANAGER' else '/dashboard') }}" style="text-decoration:none;color:inherit">OmniFlow</a>
   {% if user.role in ('ADMIN','MANAGER','EMPLOYEE') %}
   {% if path != '/home' %}
   {# Home page already surfaces every module as a tile grid, so the tab row's
@@ -152,7 +139,7 @@
     <div class="module-item {% if active_group=='crm' %}active{% endif %}">
       <button type="button" class="module-btn" onclick="toggleModuleMenu(this)">🤝 CRM ▾</button>
       <div class="module-menu">
-        <a href="/sales/contacts" class="active">Customers</a>
+        <a href="/sales/contacts" class="{% if '/sales/contacts' in path %}active{% endif %}">Customers</a>
       </div>
     </div>
     {% endif %}
@@ -219,7 +206,7 @@
   <!-- Phase 1: WS connection status dot -->
   <span id="ws-dot" title="Real-time sync: disconnected"></span>
   <!-- P10-03: Sound mute toggle -->
-  <button id="sound-btn" class="nav-icon-btn js-sound-btn" onclick="toggleSound()" title="Notification sounds: on" style="margin-right:4px">🔔</button>
+  <button id="sound-btn" class="nav-icon-btn js-sound-btn" onclick="toggleSound()" title="Notification sounds: on" style="margin-right:4px">🔊</button>
   <!-- P10-02: Theme toggle -->
   <button id="theme-btn" class="nav-icon-btn" onclick="toggleTheme()" title="Switch theme" style="margin-right:8px">🌙</button>
   <a href="/notifications" style="position:relative;padding:6px 9px" title="Notifications">
@@ -242,7 +229,7 @@
 <a href="/ai" class="ai-fab {% if '/ai' in request.url.path %}active{% endif %}" title="Ask AI">✦ Ask AI</a>
 <style>
 .ai-fab {
-  position: fixed; right: 22px; bottom: 22px; z-index: 500;
+  position: fixed; right: 22px; bottom: 86px; z-index: 500;
   display: flex; align-items: center; gap: 6px;
   padding: 12px 18px; border-radius: 999px; text-decoration: none;
   font-size: 13px; font-weight: 650; color: #fff;
@@ -252,7 +239,7 @@
 }
 .ai-fab:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(102, 87, 242, 0.5); }
 .ai-fab.active { outline: 2px solid rgba(255,255,255,0.5); outline-offset: 2px; }
-@media (max-width: 640px) { .ai-fab { bottom: 76px; right: 16px; padding: 10px 14px; } }
+@media (max-width: 640px) { .ai-fab { bottom: 72px; right: 16px; padding: 10px 14px; } }
 </style>
 {% endif %}
 <div class="container{% block container_class %}{% endblock %}">{% block content %}{% endblock %}</div>

@@ -83,7 +83,6 @@ def get_my_task_items(db: Session, user: User, tid: str) -> dict:
         Ticket.is_deleted == False,
         (
             (Ticket.current_assignee_id == user.id) |
-            (Ticket.created_by_id == user.id) |
             (Ticket.id.in_(helper_ticket_ids))
         ),
     ).order_by(Ticket.created_at.desc()).all()
@@ -98,7 +97,10 @@ def get_my_task_items(db: Session, user: User, tid: str) -> dict:
 
     fms_hist_tids = [
         h.ticket_id for h in db.query(FMSStageHistory).filter(
-            FMSStageHistory.assignee_id == user.id).all()
+            FMSStageHistory.assignee_id == user.id,
+            FMSStageHistory.exited_at.is_(None),  # only the currently active stage visit —
+            # a past (exited) stage assignment isn't current responsibility.
+        ).all()
     ]
     fms_helper_tids = [
         h.ticket_id for h in db.query(FMSTicketHelper).filter(
@@ -272,7 +274,7 @@ def my_tasks(request: Request,
         my_attendance_month = get_self_month_calendar(db, user)
     ctx["my_attendance_month"] = my_attendance_month
 
-    template_name = "my_tasks_mobile.html" if request.cookies.get("pwa_ui") == "1" else "my_tasks.html"
+    template_name = "my_tasks.html"
     return templates.TemplateResponse(request, template_name, ctx)
 
 

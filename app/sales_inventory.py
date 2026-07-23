@@ -29,6 +29,7 @@ from .setup_routes import _nav_ctx, _L, _unread
 from .constants import BULK_IMPORT_MAX_ROWS
 from .bulk_common import check_required_headers
 from .uploads import save_upload
+from .sales_common import get_or_404
 
 router = APIRouter()
 
@@ -509,7 +510,7 @@ def inventory_dashboard(
     filter_params = [(k, v) for k, v in request.query_params.multi_items() if k != "page"]
     page_qs = urlencode(filter_params)
 
-    template_name = "inventory_v2/dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/dashboard.html"
+    template_name = "inventory_v2/dashboard.html"
     return templates.TemplateResponse(request, template_name, _ctx(
         db, user,
         stock_rows=stock_rows,
@@ -552,11 +553,7 @@ async def stock_adjust_submit(
     user: User = Depends(_require_inventory_manager),
     db: Session = Depends(get_db),
 ):
-    variant = db.query(ProductVariant).filter(
-        ProductVariant.id == variant_id, ProductVariant.tenant_id == user.tenant_id, ProductVariant.is_deleted == False,
-    ).first()
-    if not variant:
-        raise HTTPException(404, "Variant not found")
+    variant = get_or_404(db, ProductVariant, variant_id, user.tenant_id, "Variant")
     try:
         ledger_entry_id = handle_stock_adjustment(
             db, variant_id, new_qty, reason, user.id, user.tenant_id,
@@ -842,7 +839,7 @@ def po_list(
         PurchaseRequest.tenant_id == user.tenant_id, PurchaseRequest.status == "PENDING",
     ).order_by(PurchaseRequest.created_at.asc()).all()
 
-    po_template_name = "inventory_v2/po_list_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/po_list.html"
+    po_template_name = "inventory_v2/po_list.html"
     return templates.TemplateResponse(request, po_template_name, _ctx(
         db, user, pos=pos, variants=variants, vendors=vendors, units=units,
         purchase_requests=purchase_requests,
@@ -962,13 +959,7 @@ async def po_create(
 
 
 def _get_po_or_404(db: Session, po_id: str, tenant_id: str) -> InventoryPurchaseOrder:
-    po = db.query(InventoryPurchaseOrder).filter(
-        InventoryPurchaseOrder.id == po_id, InventoryPurchaseOrder.tenant_id == tenant_id,
-        InventoryPurchaseOrder.is_deleted == False,
-    ).first()
-    if not po:
-        raise HTTPException(404, "Purchase order not found")
-    return po
+    return get_or_404(db, InventoryPurchaseOrder, po_id, tenant_id, "Purchase order")
 
 
 @router.get("/inventory-v2/purchase-orders/{po_id}", response_class=HTMLResponse)
@@ -1587,7 +1578,7 @@ def dispatch_queue(
             pass
     dispatched_orders = dq.order_by(SalesOrder.dispatched_at.desc().nullslast()).limit(100).all()
 
-    dq_template_name = "inventory_v2/dispatch_queue_mobile.html" if request.cookies.get("pwa_ui") == "1" else "inventory_v2/dispatch_queue.html"
+    dq_template_name = "inventory_v2/dispatch_queue.html"
     return templates.TemplateResponse(request, dq_template_name, _ctx(
         db, user, rows=rows, dispatched_orders=dispatched_orders, branches=branches, demand_projection=demand_projection,
         order_no=order_no, customer=customer, sku=sku,

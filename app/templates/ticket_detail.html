@@ -168,7 +168,7 @@
       <div class="form-group">
         <label class="form-label">Due Date & Time</label>
         <input type="datetime-local" name="due_at" class="form-input"
-               value="{{ ticket.due_at.strftime('%Y-%m-%dT%H:%M') if ticket.due_at else '' }}">
+               value="{{ ticket.due_at | ist('%Y-%m-%dT%H:%M') if ticket.due_at else '' }}">
       </div>
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-muted);margin-bottom:14px;cursor:pointer">
@@ -219,7 +219,7 @@
       {% else %}
       <p style="font-size:12px;color:var(--text-faint);margin-bottom:12px">No helpers assigned yet.</p>
       {% endif %}
-      {% if user.role in ('ADMIN','MANAGER') %}
+      {% if user.role in ('ADMIN','MANAGER') or ticket.current_assignee_id == user.id %}
       <button onclick="show('add-helper-form')" class="btn btn-sm btn-outline">+ Add Helper</button>
       <div id="add-helper-form" class="form-panel" style="display:none">
         <form method="post" action="/tickets/{{ ticket.id }}/add-helper">
@@ -338,6 +338,10 @@
           {# Log a Delay — current assignee only #}
           {% if ticket.current_assignee_id == user.id %}
           <button onclick="show('delay-form')" class="btn btn-sm btn-amber">⏱ Log a Delay</button>
+          {% endif %}
+          {# Request Help — current assignee only #}
+          {% if ticket.current_assignee_id == user.id %}
+          <button onclick="show('help-form')" class="btn btn-sm btn-orange">🆘 Request Help</button>
           {% endif %}
           {# Reassign — assignee or admin/manager #}
           {% if ticket.current_assignee_id == user.id or user.role in ('ADMIN','MANAGER') %}

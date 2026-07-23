@@ -1,10 +1,10 @@
 {# ── bottom_nav.html ──────────────────────────────────────────────────────
-   Native-Feel UI Brief, Section 5.1. Mobile/standalone-only tab bar.
+   Native-Feel UI Brief, Section 5.1. Mobile-web-only tab bar.
    Visibility is CSS-only (see .bottom-nav in app-shell.css, shown below
-   768px or in display-mode: standalone) — this partial always renders in
-   the DOM so it degrades gracefully if that CSS feature isn't supported.
-   On mobile/standalone the top .nav is hidden entirely (app-shell.css) so
-   this partial is the sole nav surface there.
+   768px) — this partial always renders in the DOM so it degrades
+   gracefully if that CSS feature isn't supported.
+   On mobile the top .nav is hidden entirely (app-shell.css) so this
+   partial is the sole nav surface there.
 
    All destinations render as one horizontally-scrollable row — same
    has_*/user.role conditionals as the desktop nav in base.html.

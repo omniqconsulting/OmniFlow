@@ -6,10 +6,25 @@ import enum, uuid, os
 # Use DATABASE_URL env var on Render (Postgres); fall back to local SQLite for dev.
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+if not DATABASE_URL and os.environ.get("RENDER"):
+    # Render sets RENDER=true automatically. If we're on Render but DATABASE_URL
+    # is missing, failing fast beats silently writing to ephemeral SQLite that
+    # gets wiped on every redeploy/restart.
+    raise RuntimeError(
+        "DATABASE_URL is not set on Render — refusing to fall back to local "
+        "SQLite in production. Check the Postgres add-on is linked to this service."
+    )
+
 if DATABASE_URL:
     # Render still issues legacy postgres:// URLs — SQLAlchemy requires postgresql://
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    # Security audit Part 3: enforce TLS on the Postgres connection even if
+    # the DATABASE_URL Render hands us ever omits sslmode — belt-and-braces,
+    # since Render's own connection strings already include it today.
+    if "sslmode=" not in DATABASE_URL:
+        _sep = "&" if "?" in DATABASE_URL else "?"
+        DATABASE_URL = f"{DATABASE_URL}{_sep}sslmode=require"
     # pool_pre_ping: validates connections before use (handles Render idle-timeout drops)
     engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
 else:
@@ -217,6 +232,27 @@ class Department(Base):
     branch = relationship("Branch", back_populates="departments")
     users = relationship("User", back_populates="department")
 
+
+class AccessRule(Base):
+    """Setup > Access Control — bulk module/tab access by department, branch,
+    or individual employee (replaces the old per-employee tab checkboxes on
+    the Employees page). Rules are applied at save-time onto each matching
+    User's existing tab_access_json/module_access_json columns (not resolved
+    live per-request) — saving a DEPARTMENT/BRANCH rule skips any employee
+    who already has their own EMPLOYEE-level rule, so "most specific wins"
+    without needing to touch the many has_module()/get_user_tabs() call
+    sites across the codebase."""
+    __tablename__ = "access_rules"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    target_type = Column(String, nullable=False)   # DEPARTMENT / BRANCH / EMPLOYEE
+    target_id = Column(String, nullable=False)      # department_id / branch_id / user_id
+    tab_keys_json = Column(Text, nullable=False, default='[]')
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("tenant_id", "target_type", "target_id", name="uq_access_rule_target"),)
+
+
 class User(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, default=new_id)
@@ -345,6 +381,14 @@ class Ticket(Base):
     comments = relationship("TicketComment", back_populates="ticket", order_by="TicketComment.created_at")
     events = relationship("TicketEvent", back_populates="ticket", order_by="TicketEvent.created_at")
     helpers = relationship("TicketAssignee", back_populates="ticket", foreign_keys="TicketAssignee.ticket_id")
+
+    @property
+    def assignee_name(self):
+        return self.current_assignee.name if self.current_assignee else None
+
+    @property
+    def created_by_name(self):
+        return self.created_by.name if self.created_by else None
     media = relationship("MediaUpload", primaryjoin="and_(MediaUpload.entity_type=='ticket', foreign(MediaUpload.entity_id)==Ticket.id)", viewonly=True)
     whatsapp_logs = relationship(
         "WhatsAppMessageLog",
@@ -367,6 +411,10 @@ class TicketAssignee(Base):
     user = relationship("User", foreign_keys=[user_id])
     added_by = relationship("User", foreign_keys=[added_by_id])
 
+    @property
+    def user_name(self):
+        return self.user.name if self.user else None
+
 class TicketComment(Base):
     __tablename__ = "ticket_comments"
     id = Column(String, primary_key=True, default=new_id)
@@ -377,6 +425,10 @@ class TicketComment(Base):
 
     ticket = relationship("Ticket", back_populates="comments")
     user = relationship("User")
+
+    @property
+    def user_name(self):
+        return self.user.name if self.user else None
 
 class TicketEvent(Base):
     __tablename__ = "ticket_events"
@@ -389,6 +441,10 @@ class TicketEvent(Base):
 
     ticket = relationship("Ticket", back_populates="events")
     actor = relationship("User")
+
+    @property
+    def actor_name(self):
+        return self.actor.name if self.actor else None
 
 class ChecklistTemplate(Base):
     __tablename__ = "checklist_templates"
@@ -482,6 +538,41 @@ class PushSubscription(Base):
     auth_key = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_used_at = Column(DateTime)
+
+    user = relationship("User")
+
+
+class ApiRefreshToken(Base):
+    """Phase 0 — /api/v1 mobile auth. Opaque refresh token, stored hashed
+    (never the raw token) so a DB leak alone can't be replayed. Revocable
+    server-side (logout, or a future "sign out this device" action) — the
+    short-lived JWT access token stays stateless and isn't tracked here."""
+    __tablename__ = "api_refresh_tokens"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    token_hash = Column(String, nullable=False, index=True)
+    device_label = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+
+    user = relationship("User")
+
+
+class DeviceToken(Base):
+    """Phase 0.5-C — native push notification device registration. Storage
+    and upsert-by-device_id only; no send logic yet (that's a later phase
+    once the app exists and can be tested end-to-end)."""
+    __tablename__ = "device_tokens"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    device_id = Column(String, nullable=False, index=True)
+    expo_push_token = Column(String, nullable=False)
+    platform = Column(String, nullable=False)  # "ios" / "android"
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
 
@@ -602,12 +693,14 @@ class LibraryFlowTemplate(Base):
     status      = Column(String,  default="DRAFT")   # DRAFT / ACTIVE / DEPRECATED
     is_system   = Column(Boolean, default=False)     # built-in, cannot be deleted
     notes       = Column(Text)
+    next_flow_id= Column(String,  ForeignKey("library_flow_templates.id"), nullable=True)  # close-and-continue target
     created_by  = Column(String,  ForeignKey("super_admins.id"))
     created_at  = Column(DateTime, default=datetime.utcnow)
     updated_at  = Column(DateTime, default=datetime.utcnow)
 
     stages = relationship("LibraryFlowStage",
                           back_populates="template",
+                          foreign_keys="LibraryFlowStage.template_id",
                           order_by="LibraryFlowStage.order",
                           cascade="all, delete-orphan")
 
@@ -622,6 +715,7 @@ class LibraryFlowStage(Base):
     order       = Column(Integer, default=0)
     color       = Column(String,  default="#3b82f6")
     is_terminal = Column(Boolean, default=False)
+    linked_flow_id                = Column(String,  ForeignKey("library_flow_templates.id"), nullable=True)  # send-to-linked-flow target
     allowed_next_stages_json     = Column(Text,    default="[]")
     target_tat_hours             = Column(Integer, nullable=True)
     sub_module_tag               = Column(String,  nullable=True)   # PMS|DISPATCH|INVOICE|CUSTOM
@@ -633,7 +727,7 @@ class LibraryFlowStage(Base):
     split_target_field           = Column(String,  nullable=True)   # custom field name holding target/expected value
     split_actual_field           = Column(String,  nullable=True)   # custom field name holding entered/received value
 
-    template   = relationship("LibraryFlowTemplate", back_populates="stages")
+    template   = relationship("LibraryFlowTemplate", back_populates="stages", foreign_keys=[template_id])
     submodule  = relationship("LibrarySubmoduleDefinition", foreign_keys=[submodule_id])
 
 
@@ -801,6 +895,7 @@ class FMSFlow(Base):
     restrict_to_assignee     = Column(Boolean, default=False)         # only specific whitelisted employees (allowed_opener_ids_json) may open/act on any ticket in this flow
     allowed_opener_ids_json  = Column(Text,    nullable=True)         # JSON array of user ids — the whitelist restrict_to_assignee enforces
     library_flow_id          = Column(String)                        # source library template (if any)
+    next_library_flow_id     = Column(String,  nullable=True)         # close-and-continue: LibraryFlowTemplate.id to resolve to this tenant's live FMSFlow at close time
     library_version_at_deploy= Column(Integer)                       # version at time of deploy (2-B-5)
     ticket_form_fields_json  = Column(Text,    default="[]")          # JSON array of custom field defs for ticket creation form
     closing_rule_json        = Column(Text)                           # {col_id, op, value} — must hold true before a ticket on this flow can close
@@ -842,6 +937,7 @@ class FMSStage(Base):
     is_mandatory            = Column(Boolean, default=True)
     completion_note_required= Column(Boolean, default=False)
     is_terminal             = Column(Boolean, default=False)         # reaching this = COMPLETED
+    linked_library_flow_id  = Column(String,  nullable=True)         # send-to-linked-flow: LibraryFlowTemplate.id to resolve to this tenant's live FMSFlow when triggered
     evidence_required       = Column(Boolean, default=False)         # P1-07: stage-level evidence
     custom_fields_json      = Column(Text,    default="[]")          # JSON array of custom field defs
     is_deleted              = Column(Boolean, default=False)
@@ -891,6 +987,12 @@ class FMSTicket(Base):
     completed_by_id     = Column(String,  ForeignKey("users.id"), nullable=True)  # who actually performed the completing action (terminal-stage transition)
     closed_at           = Column(DateTime)
     is_deleted          = Column(Boolean, default=False)
+    # Cross-flow linking (close-and-continue / send-to-linked-flow)
+    continued_from_ticket_id = Column(String, ForeignKey("fms_tickets.id"), nullable=True)  # set on the new ticket created by close-and-continue
+    continued_to_ticket_id   = Column(String, ForeignKey("fms_tickets.id"), nullable=True)  # set on the original ticket once continued
+    linked_child_ticket_id   = Column(String, ForeignKey("fms_tickets.id"), nullable=True)  # set on this ticket when it spawns a side-quest ticket on another flow
+    linked_parent_ticket_id  = Column(String, ForeignKey("fms_tickets.id"), nullable=True)  # set on the spawned ticket, points back at the ticket it's blocking
+    pause_reason              = Column(String, nullable=True)  # human-readable reason shown when status == ON_HOLD due to a link
     stage_assignees_json  = Column(Text, nullable=True)  # {"stage_id": "user_id", ...}
     stage_schedule_json   = Column(Text, nullable=True)  # {"stage_id": {"planned_start": ISO, "planned_end": ISO}}
     ticket_custom_fields_json = Column(Text, nullable=True)  # {"field_id": value, ...} from flow's ticket_form_fields_json
@@ -2251,9 +2353,15 @@ class AttendanceRecord(Base):
     check_out_reason = Column(Text, nullable=True)     # required if check_out_in_fence is False
     photo_path = Column(String, nullable=True)         # captured once, on first punch of the day
     is_half_day = Column(Boolean, default=False)        # manual admin/manager override toggle
+    # Phase 0.7 — mobile "record on behalf" (a manager/admin physically with
+    # an employee captures their photo/GPS and submits it for them, e.g. no
+    # smartphone of their own). NULL means the employee punched themselves.
+    recorded_by_id = Column(String, ForeignKey("users.id"), nullable=True)
+    on_behalf_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     branch = relationship("Branch", foreign_keys=[branch_id])
+    recorded_by = relationship("User", foreign_keys=[recorded_by_id])
     __table_args__ = (UniqueConstraint("user_id", "work_date", name="uq_attendance_user_day"),)
 
 
@@ -2271,6 +2379,44 @@ class LeaveRequest(Base):
     approver_id = Column(String, ForeignKey("users.id"), nullable=True)
     decided_at = Column(DateTime, nullable=True)
     decision_note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class NotificationRule(Base):
+    """Per-tenant, per-condition channel toggle — Setup > Notifications table.
+    One row per (tenant_id, condition_key); a missing row means "use the
+    registry default" (see app/notification_rules.py) rather than implying
+    disabled, so tenants that never touch this page keep sane defaults."""
+    __tablename__ = "notification_rules"
+    id = Column(String, primary_key=True, default=new_id)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    condition_key = Column(String, nullable=False)
+    in_app_enabled = Column(Boolean, nullable=False, default=True)
+    push_enabled = Column(Boolean, nullable=False, default=True)
+    whatsapp_enabled = Column(Boolean, nullable=False, default=True)
+    # JSON list of role strings ("ADMIN"/"MANAGER"/"ASSIGNEE"/"HELPER") this
+    # tenant wants notified for this condition. NULL means "use the registry
+    # default" — same missing-row-means-default convention as the channel
+    # toggles above, so a tenant that never opens this page keeps sane
+    # defaults instead of silently notifying nobody.
+    recipients_json = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("tenant_id", "condition_key", name="uq_notification_rule_tenant_key"),)
+
+
+class NotificationDedupGuard(Base):
+    """Race-safe 'already fired' marker for scheduled/reminder notifications
+    (ticket_unacknowledged, ticket_tat_reminder, fms_tat_breach, checklist_reminder).
+    Those jobs used to dedup via a SELECT-then-INSERT check on Notification/
+    TicketEvent, which is safe against a single scheduler but not against two
+    scheduler instances (e.g. two server processes) both running the same
+    30-minute job at once — both can pass the SELECT before either commits
+    the INSERT. This table's UNIQUE constraint makes the guard atomic: a
+    second, concurrent attempt to claim the same dedup_key fails at the DB
+    level instead of racing past the check."""
+    __tablename__ = "notification_dedup_guards"
+    id = Column(String, primary_key=True, default=new_id)
+    dedup_key = Column(String, nullable=False, unique=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -2292,6 +2438,11 @@ class AttendanceRule(Base):
 
 
 def create_tables():
+    # Migration strategy: create_all() for brand-new tables, then Alembic
+    # (versioned, applies to both backends) for tracked schema changes, then
+    # backend-specific column backfills for anything not yet captured in an
+    # Alembic revision — _pg_add_columns() for Postgres, migrate.py for SQLite.
+    # These are complementary layers, not competing/duplicate migration tools.
     Base.metadata.create_all(bind=engine)
     # Run any pending Alembic migrations on startup
     try:
@@ -2448,6 +2599,16 @@ def _pg_add_columns():
         # default branch_id is unchanged; this only affects which branch's
         # geofence is used for today's punches).
         "ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS branch_id VARCHAR REFERENCES branches(id)",
+        # FMS cross-flow linking: close-and-continue + send-to-linked-flow
+        "ALTER TABLE library_flow_templates ADD COLUMN IF NOT EXISTS next_flow_id VARCHAR REFERENCES library_flow_templates(id)",
+        "ALTER TABLE library_flow_stages ADD COLUMN IF NOT EXISTS linked_flow_id VARCHAR REFERENCES library_flow_templates(id)",
+        "ALTER TABLE fms_flows ADD COLUMN IF NOT EXISTS next_library_flow_id VARCHAR",
+        "ALTER TABLE fms_stages ADD COLUMN IF NOT EXISTS linked_library_flow_id VARCHAR",
+        "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS continued_from_ticket_id VARCHAR REFERENCES fms_tickets(id)",
+        "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS continued_to_ticket_id VARCHAR REFERENCES fms_tickets(id)",
+        "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS linked_child_ticket_id VARCHAR REFERENCES fms_tickets(id)",
+        "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS linked_parent_ticket_id VARCHAR REFERENCES fms_tickets(id)",
+        "ALTER TABLE fms_tickets ADD COLUMN IF NOT EXISTS pause_reason VARCHAR",
     ]
     try:
         with engine.begin() as conn:

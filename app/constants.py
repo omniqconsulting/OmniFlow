@@ -7,6 +7,12 @@ import os
 # ── Bulk import ──────────────────────────────────────────────────────────────────
 BULK_IMPORT_MAX_ROWS = int(os.environ.get("BULK_IMPORT_MAX_ROWS", "5000"))
 
+# ── FMS ticket/split lifecycle ────────────────────────────────────────────────────
+# Terminal statuses for FMSTicket/FMSTicketSplit.status — used across fms.py,
+# ai_router.py, analytics.py, main.py, scheduler.py, setup_routes.py, superadmin.py
+# and superadmin_library.py to distinguish active tickets from finished ones.
+FMS_INACTIVE_STATUSES = ("COMPLETED", "CLOSED")
+
 # ── Plans ──────────────────────────────────────────────────────────────────────
 PLAN_TRIAL        = "TRIAL"
 PLAN_STARTER      = "STARTER"
@@ -140,6 +146,26 @@ def get_tenant_enabled_tabs(tenant, db=None) -> list:
     if tenant is None:
         return []
     return [key for key, _label, feat in TAB_CATALOG if has_feature(tenant, feat, db)]
+
+
+# ── Setup > Access Control module/sub-module grouping ─────────────────────────
+# Mirrors the nav's parent groups (base.html) so "grant full module" vs.
+# "grant specific sub-modules only" maps onto the same mental model as the
+# nav bar. Built from TAB_CATALOG keys only — nothing hardcoded beyond the
+# grouping itself, so any future TAB_CATALOG addition just needs one entry
+# here to show up in Access Control automatically.
+# NOTE: the SALES tab key drives both the CRM group's "Customers" link and
+# the Sales & Inventory group's "Sell" link (they share one permission bit
+# in the current nav — see get_nav_flags' has_sales) — listed once under
+# CRM & Sales below rather than duplicated, to avoid implying they're
+# independently controllable when they aren't.
+MODULE_GROUPS = [
+    ("operations",       "Operations",        ["TICKETS", "CHECKLISTS", "FMS"]),
+    ("task",             "Task",              ["ATTENDANCE"]),
+    ("crm_sales",        "CRM & Sales",       ["SALES", "SALES_ANALYTICS"]),
+    ("inventory",        "Inventory",         ["INVENTORY"]),
+    ("organization",     "Organization",      ["KNOWLEDGE"]),
+]
 
 
 def get_limit(tenant, limit_name: str) -> "int | None":

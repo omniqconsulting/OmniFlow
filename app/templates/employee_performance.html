@@ -231,8 +231,8 @@
               <div style="font-size:11px;color:var(--text-xfaint);max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.ticket_title }}</div>
             </td>
             <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.stage_name }}</td>
-            <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.entered_at.strftime('%d %b %H:%M') if s.entered_at else '—' }}</td>
-            <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.exited_at.strftime('%d %b %H:%M') if s.exited_at else '—' }}</td>
+            <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.entered_at | ist('%d %b %H:%M') if s.entered_at else '—' }}</td>
+            <td style="padding:7px 10px;color:var(--text-secondary)">{{ s.exited_at | ist('%d %b %H:%M') if s.exited_at else '—' }}</td>
             <td style="padding:7px 10px;color:var(--text-secondary);text-align:right">{{ s.net_hours if s.net_hours is not none else '—' }}{% if s.target_tat %} / {{ s.target_tat }}h{% endif %}</td>
             <td style="padding:7px 10px;color:var(--text-secondary);text-align:center">{{ s.visit_count }}</td>
             <td style="padding:7px 10px;text-align:center">

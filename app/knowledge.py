@@ -124,20 +124,7 @@ def knowledge_index(
     ).distinct().all()
     categories = sorted(set(r[0] for r in all_cats if r[0]))
 
-    # Training (PWA mobile, design 19a): counts per media kind for the tab bar.
-    kind_counts = {}
-    if request.cookies.get("pwa_ui") == "1":
-        base_q = db.query(KnowledgeItem).filter(
-            KnowledgeItem.tenant_id == user.tenant_id,
-            KnowledgeItem.is_deleted == False,
-        )
-        if category:
-            base_q = base_q.filter(KnowledgeItem.category == category)
-        kind_counts["all"] = base_q.count()
-        for k in ("document", "video", "audio", "image", "link"):
-            kind_counts[k] = base_q.filter(KnowledgeItem.media_kind == k).count()
-
-    template_name = "knowledge/index_mobile.html" if request.cookies.get("pwa_ui") == "1" else "knowledge/index.html"
+    template_name = "knowledge/index.html"
 
     return templates.TemplateResponse(request, template_name, _ctx(
         request, user, db,
@@ -149,7 +136,6 @@ def knowledge_index(
         category=category,
         kind=kind,
         categories=categories,
-        kind_counts=kind_counts,
         size_label=_size_label,
     ))
 

@@ -22,7 +22,7 @@ from .database import (
     LibraryLabelBundle, LibraryOnboardingBundle,
 )
 from .superadmin_auth import get_current_sa
-from .constants import get_limit, PLAN_LABELS
+from .constants import get_limit, PLAN_LABELS, FMS_INACTIVE_STATUSES
 
 router = APIRouter(prefix="/superadmin/library")
 import logging as _lib_log, traceback as _lib_tb
@@ -141,11 +141,14 @@ def lib_flow_new_page(request: Request, sa: SuperAdmin = Depends(get_current_sa)
     ).order_by(LibrarySubmoduleDefinition.is_system.desc(),
                LibrarySubmoduleDefinition.sub_module_type,
                LibrarySubmoduleDefinition.name).all()
+    all_flows = db.query(LibraryFlowTemplate).order_by(LibraryFlowTemplate.name).all()
     return templates.TemplateResponse(request, "superadmin/library_flow_edit.html",
         _lib_ctx(sa, "flows", flow=None, stages=[], error=None,
                  stages_json="[]",
                  submodules=submodules,
                  submodules_json=json.dumps([{"id": s.id, "name": s.name, "type": s.sub_module_type} for s in submodules]),
+                 all_flows=all_flows,
+                 all_flows_json=json.dumps([{"id": f.id, "name": f.name} for f in all_flows]),
                  status_options=STATUS_OPTIONS))
 
 
@@ -154,11 +157,13 @@ def lib_flow_create(
     name: str = Form(...), description: str = Form(""),
     industry: str = Form(""), status: str = Form("DRAFT"),
     notes: str = Form(""), stages_json: str = Form("[]"),
+    next_flow_id: str = Form(""),
     sa: SuperAdmin = Depends(get_current_sa), db: Session = Depends(get_db),
 ):
     flow = LibraryFlowTemplate(
         name=name, description=description or None,
         industry=industry or None, status=status, notes=notes or None,
+        next_flow_id=next_flow_id or None,
         created_by=sa.id,
     )
     db.add(flow)
@@ -186,11 +191,16 @@ def lib_flow_edit_page(flow_id: str, request: Request,
     ).order_by(LibrarySubmoduleDefinition.is_system.desc(),
                LibrarySubmoduleDefinition.sub_module_type,
                LibrarySubmoduleDefinition.name).all()
+    all_flows = db.query(LibraryFlowTemplate).filter(
+        LibraryFlowTemplate.id != flow_id
+    ).order_by(LibraryFlowTemplate.name).all()
     return templates.TemplateResponse(request, "superadmin/library_flow_edit.html",
         _lib_ctx(sa, "flows", flow=flow, stages=flow.stages,
                  stages_json=json.dumps([_stage_to_dict(s) for s in flow.stages]),
                  submodules=submodules,
                  submodules_json=json.dumps([{"id": s.id, "name": s.name, "type": s.sub_module_type} for s in submodules]),
+                 all_flows=all_flows,
+                 all_flows_json=json.dumps([{"id": f.id, "name": f.name} for f in all_flows]),
                  error=None, status_options=STATUS_OPTIONS,
                  deployments=deployments, tenants=tenants,
                  deployed_tenant_ids=deployed_tenant_ids,
@@ -205,6 +215,7 @@ def lib_flow_save(
     industry: str = Form(""), status: str = Form("DRAFT"),
     notes: str = Form(""), stages_json: str = Form("[]"),
     bump_version: bool = Form(False),
+    next_flow_id: str = Form(""),
     sa: SuperAdmin = Depends(get_current_sa), db: Session = Depends(get_db),
 ):
     flow = _get_flow(db, flow_id)
@@ -213,6 +224,7 @@ def lib_flow_save(
     flow.industry = industry or None
     flow.status = status
     flow.notes = notes or None
+    flow.next_flow_id = next_flow_id or None
     flow.updated_at = datetime.utcnow()
     if bump_version:
         flow.version += 1
@@ -241,7 +253,7 @@ def lib_flow_delete(flow_id: str, sa: SuperAdmin = Depends(get_current_sa),
         count = db.query(FMSTicket).filter(
             FMSTicket.flow_id == fms.id,
             FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
         ).count()
         if count > 0:
             return _r(f"/superadmin/library/flows?msg=delete_blocked&flow={flow.name}")
@@ -314,6 +326,7 @@ def lib_flow_deploy(flow_id: str, tenant_id: str = Form(...),
             description=flow.description,
             library_flow_id=flow_id,
             library_version_at_deploy=flow.version,
+            next_library_flow_id=flow.next_flow_id,
         )
         db.add(fms_flow)
         db.flush()
@@ -323,6 +336,7 @@ def lib_flow_deploy(flow_id: str, tenant_id: str = Form(...),
         fms_flow.name = flow.name
         fms_flow.description = flow.description
         fms_flow.library_version_at_deploy = flow.version
+        fms_flow.next_library_flow_id = flow.next_flow_id
         fms_flow.updated_at = datetime.utcnow()
         for stage in list(fms_flow.stages):
             db.delete(stage)
@@ -346,6 +360,7 @@ def lib_flow_deploy(flow_id: str, tenant_id: str = Form(...),
             completion_note_required=bool(lib_stage.completion_note_required),
             evidence_required=bool(lib_stage.evidence_required),
             is_terminal=bool(lib_stage.is_terminal),
+            linked_library_flow_id=lib_stage.linked_flow_id,
             custom_fields_json=lib_stage.custom_fields_json or '[]',
             is_deleted=False,
             split_enabled=bool(getattr(lib_stage, 'split_enabled', False)),
@@ -965,6 +980,7 @@ def _stage_to_dict(s: LibraryFlowStage) -> dict:
         "id": s.id, "name": s.name,
         "description": s.description or "",
         "color": s.color, "order": s.order, "is_terminal": s.is_terminal,
+        "linked_flow_id": s.linked_flow_id or "",
         "target_tat_hours": s.target_tat_hours or "",
         "completion_note_required": bool(s.completion_note_required),
         "evidence_required": bool(s.evidence_required),
@@ -991,6 +1007,7 @@ def _save_stages(db, template_id: str, stages_json: str):
             color=s.get("color") or "#3b82f6",
             order=i,
             is_terminal=bool(s.get("is_terminal")),
+            linked_flow_id=(s.get("linked_flow_id") or None),
             target_tat_hours=int(tat) if tat not in (None, "", 0, "0") else None,
             completion_note_required=bool(s.get("completion_note_required")),
             evidence_required=bool(s.get("evidence_required")),

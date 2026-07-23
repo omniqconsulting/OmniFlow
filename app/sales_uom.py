@@ -1,13 +1,13 @@
 """
 Sales Foundation — Units of Measure (UOM) CRUD routes.
-Admin-only setup routes under /setup/units.
+Admin/Product Manager setup routes under /setup/units.
 """
 from fastapi import APIRouter, Depends, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from .database import get_db, new_id, UnitOfMeasure
-from .auth import require_admin, require_admin_or_redirect
+from .auth import require_admin_or_pm, require_admin_or_pm_or_redirect
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread
 
@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/setup/units", response_class=HTMLResponse)
-def list_uoms(request: Request, user=Depends(require_admin_or_redirect), db: Session = Depends(get_db)):
+def list_uoms(request: Request, user=Depends(require_admin_or_pm_or_redirect), db: Session = Depends(get_db)):
     uoms = (
         db.query(UnitOfMeasure)
         .filter(UnitOfMeasure.tenant_id == user.tenant_id, UnitOfMeasure.is_deleted == False)
@@ -37,7 +37,7 @@ async def create_uom(
     request: Request,
     name: str = Form(...),
     abbreviation: str = Form(...),
-    user=Depends(require_admin),
+    user=Depends(require_admin_or_pm),
     db: Session = Depends(get_db),
 ):
     name = name.strip()
@@ -61,7 +61,7 @@ async def edit_uom(
     unit_id: str,
     name: str = Form(...),
     abbreviation: str = Form(...),
-    user=Depends(require_admin),
+    user=Depends(require_admin_or_pm),
     db: Session = Depends(get_db),
 ):
     uom = db.query(UnitOfMeasure).filter(
@@ -80,7 +80,7 @@ async def edit_uom(
 @router.post("/setup/units/{unit_id}/toggle")
 async def toggle_uom(
     unit_id: str,
-    user=Depends(require_admin),
+    user=Depends(require_admin_or_pm),
     db: Session = Depends(get_db),
 ):
     uom = db.query(UnitOfMeasure).filter(

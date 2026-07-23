@@ -1,4 +1,5 @@
 import json as _json
+import os
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
@@ -7,7 +8,20 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from .database import get_db, User, Tenant
 
-SECRET_KEY = "omniflow-secret-key-change-in-production-32chars"
+_DEV_SECRET_KEY = "omniflow-secret-key-change-in-production-32chars"
+SECRET_KEY = os.environ.get("SECRET_KEY")
+
+if not SECRET_KEY and os.environ.get("RENDER"):
+    # Security audit Part 1/3: never silently sign JWTs with the well-known
+    # dev default in production — anyone who's read this source (it's
+    # public in git history regardless) could forge valid tokens.
+    raise RuntimeError(
+        "SECRET_KEY is not set on Render — refusing to fall back to the "
+        "dev default in production. Set a real SECRET_KEY in the Render "
+        "environment settings."
+    )
+
+SECRET_KEY = SECRET_KEY or _DEV_SECRET_KEY
 ALGORITHM = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -95,6 +109,14 @@ def require_manager_or_pm_or_redirect(user: User = Depends(get_current_user_or_r
         raise HTTPException(status_code=403, detail="Manager or Admin only")
     return user
 
+def require_admin_or_pm_or_manager(user: User = Depends(get_current_user)) -> User:
+    """require_admin_or_pm plus MANAGER — for employee-edit-style POST routes
+    where a MANAGER may act, but only on their own direct reports (the
+    ownership check happens in the route itself, not here)."""
+    if user.role not in ("ADMIN", "MANAGER", "PRODUCT_MANAGER"):
+        raise HTTPException(status_code=403, detail="Admin, Manager or Product Manager only")
+    return user
+
 def require_manager_or_redirect(user: User = Depends(get_current_user_or_redirect)) -> User:
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(status_code=403, detail="Manager or Admin only")
@@ -119,14 +141,24 @@ def get_user_tabs(user, tenant, db: Session = None, for_setup: bool = False) -> 
     ADMIN and users with no tab_access_json set (None) get every tenant-enabled
     tab — restriction is opt-in per employee/manager. PRODUCT_MANAGER is a
     fixed, non-configurable scope (Setup + Employees only, handled outside
-    the nav-tabs list), so it never inherits the "no tab_access_json = all
-    tabs" default — except within Setup itself (for_setup=True), where PM
-    must see the same tenant-enabled modules (e.g. Flows) as ADMIN so the
-    Setup page reconciles exactly between the two roles."""
+    the nav-tabs list): with no explicit access rule it gets none of these
+    extra tabs — except within Setup itself (for_setup=True), where PM must
+    see the same tenant-enabled modules as ADMIN so the Setup page reconciles
+    exactly between the two roles. If an Admin *does* grant a PM extra tabs
+    via Setup > Access Control (tab_access_json gets set), that grant is
+    respected instead of being silently ignored."""
     from .constants import get_tenant_enabled_tabs
     tenant_tabs = get_tenant_enabled_tabs(tenant, db)
     if user.role == "PRODUCT_MANAGER":
-        return tenant_tabs if for_setup else []
+        if for_setup:
+            return tenant_tabs
+        if not user.tab_access_json:
+            return []
+        try:
+            selected = set(_json.loads(user.tab_access_json))
+        except Exception:
+            return []
+        return [t for t in tenant_tabs if t in selected]
     if user.role == "ADMIN" or not user.tab_access_json:
         return tenant_tabs
     try:

@@ -34,20 +34,25 @@ from .auth import (
     get_nav_flags,
 )
 from .labels import get_labels, DEFAULT_L
-from .constants import has_feature, PLAN_LIMITS, BULK_IMPORT_MAX_ROWS
+from .constants import has_feature, PLAN_LIMITS, BULK_IMPORT_MAX_ROWS, FMS_INACTIVE_STATUSES
 from .bulk_common import check_required_headers
 from .notifications import (
     create_notification,
     notify_fms_stage_transition,
-    send_whatsapp_for_fms_stage_transition,
+    notify_fms_flagged,
     send_whatsapp_for_fms_ticket_created,
     send_whatsapp_for_fms_ticket_closed,
-    send_whatsapp_for_fms_ticket_flagged,
     notify_fms_ticket_opened,
     notify_fms_split_created,
 )
+from .notification_rules import channel_enabled
 from .ws_manager import broadcast_sync, FMS_STAGE_TRANSITION
 import json as _json_module
+
+# Terminal statuses for FMSTicket/FMSTicketSplit — "not one of these" means still
+# active/open. Alias of the shared constant (also used by ai_router.py, analytics.py,
+# main.py, scheduler.py, setup_routes.py, superadmin.py, superadmin_library.py).
+_INACTIVE_STATUSES = FMS_INACTIVE_STATUSES
 
 
 def _build_ref_lists_json(tenant_id: str, db) -> str:
@@ -559,6 +564,74 @@ def _init_first_split(db, ticket: FMSTicket, stage_id: str, assignee_id: str) ->
     return split
 
 
+def _resolve_linked_flow(db, tenant_id: str, library_flow_id: str):
+    """Resolve a LibraryFlowTemplate id (stored on FMSFlow.next_library_flow_id /
+    FMSStage.linked_library_flow_id) to this tenant's live deployed FMSFlow, if any."""
+    if not library_flow_id:
+        return None
+    return db.query(FMSFlow).filter(
+        FMSFlow.tenant_id == tenant_id,
+        FMSFlow.library_flow_id == library_flow_id,
+        FMSFlow.is_active == True,
+        FMSFlow.is_deleted == False,
+    ).first()
+
+
+def _spawn_linked_ticket(db, source: FMSTicket, target_flow: FMSFlow, user: User, title: str = None) -> FMSTicket:
+    """Create a new FMSTicket on target_flow, carrying over title/description/
+    priority/qty from `source`. Seeds the first stage/split exactly like a
+    normal manual ticket creation (_init_first_split). Used by both
+    close-and-continue and send-to-linked-flow."""
+    first_stage = min(
+        [s for s in target_flow.stages if not s.is_deleted],
+        key=lambda s: s.order, default=None,
+    )
+    if not first_stage:
+        raise HTTPException(400, f"Linked flow '{target_flow.name}' has no stages")
+    assignee_id = first_stage.default_assignee_id or source.created_by_id
+
+    new_ticket = FMSTicket(
+        tenant_id=user.tenant_id, flow_id=target_flow.id,
+        current_stage_id=first_stage.id,
+        title=title or source.title,
+        description=source.description,
+        priority=source.priority,
+        target_qty=source.target_qty, qty_unit=source.qty_unit,
+        current_assignee_id=assignee_id,
+        created_by_id=user.id, status="ACTIVE",
+    )
+    db.add(new_ticket)
+    db.flush()
+
+    tenant = db.query(Tenant).get(user.tenant_id)
+    new_ticket.display_id = _next_fms_display_id(db, tenant)
+
+    split = _init_first_split(db, new_ticket, first_stage.id, assignee_id)
+    db.add(FMSStageHistory(
+        ticket_id=new_ticket.id, split_id=split.id, stage_id=first_stage.id,
+        stage_name=first_stage.name, assignee_id=assignee_id,
+        direction="FORWARD",
+    ))
+    _log(db, new_ticket.id, user.id, "CREATED",
+         f"Auto-created from {source.display_id} on '{source.flow.name}'")
+    _log(db, new_ticket.id, user.id, "STAGE_ENTERED", f"Stage: {first_stage.name}")
+    return new_ticket
+
+
+def _notify_linked_parent_if_ready(db, ticket: FMSTicket) -> None:
+    """When a ticket that was spawned via 'send to linked flow' reaches
+    COMPLETED/CLOSED, flag the original (parent) ticket as ready to resume.
+    Resuming stays a manual action (existing 'resume' sub-action) — this only
+    surfaces it."""
+    if not ticket.linked_parent_ticket_id or ticket.status not in ("COMPLETED", "CLOSED"):
+        return
+    parent = db.query(FMSTicket).get(ticket.linked_parent_ticket_id)
+    if not parent or parent.linked_child_ticket_id != ticket.id:
+        return
+    parent.is_flagged = True
+    parent.flagged_reason = f"Linked ticket {ticket.display_id} completed — ready to resume"
+
+
 def _next_split_label(db, ticket_id) -> str:
     """Next auto-numbered split label (S1, S2, ...) — counts every split ever
     created for this ticket (including consumed/inactive ones) so labels never
@@ -904,7 +977,7 @@ def fms_flows(request: Request, user: User = Depends(require_admin_or_redirect),
         active_tickets = db.query(FMSTicket).filter(
             FMSTicket.flow_id == f.id,
             FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(_INACTIVE_STATUSES),
         ).count()
         flow_info.append({"flow": f, "stage_count": len(active_stages),
                            "active_tickets": active_tickets})
@@ -1431,13 +1504,13 @@ def _fms_dashboard_inner(
         base_q = base_q.filter(FMSTicket.current_assignee_id.in_(_kpi_assignee_ids))
 
     active_tickets = base_q.filter(
-        FMSTicket.status.notin_(["COMPLETED", "CLOSED"])).count()
+        FMSTicket.status.notin_(_INACTIVE_STATUSES)).count()
     flagged_count  = base_q.filter(FMSTicket.is_flagged == True).count()
     awaiting_count = base_q.filter(FMSTicket.status == "ACTIVE").count()
 
     tat_breaches = 0
     open_tickets = base_q.filter(
-        FMSTicket.status.notin_(["COMPLETED", "CLOSED"])).all()
+        FMSTicket.status.notin_(_INACTIVE_STATUSES)).all()
     for t in open_tickets:
         # Phase 0: check every currently-open split, not just one — two splits
         # of the same ticket can breach TAT independently at different stages.
@@ -1482,7 +1555,7 @@ def _fms_dashboard_inner(
     for f in flows:
         flow_counts[f.id] = db.query(FMSTicket).filter(
             FMSTicket.flow_id == f.id, FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(_INACTIVE_STATUSES),
         ).count()
 
     # ── Flow dropdown: ungrouped flows shown individually, grouped flows
@@ -1572,7 +1645,7 @@ def _fms_dashboard_inner(
         swimlane_q = db.query(FMSTicket).filter(
             FMSTicket.flow_id == active_flow.id,
             FMSTicket.is_deleted == False,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(_INACTIVE_STATUSES),
         )
         if user.role == "MANAGER":
             swimlane_q = swimlane_q.filter(
@@ -1631,9 +1704,9 @@ def _fms_dashboard_inner(
             list_q = list_q.filter(FMSTicket.flow_id == active_flow.id)
         # Status filter
         if status_filter == "open":
-            list_q = list_q.filter(FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+            list_q = list_q.filter(FMSTicket.status.notin_(_INACTIVE_STATUSES))
         elif status_filter == "closed":
-            list_q = list_q.filter(FMSTicket.status.in_(["COMPLETED", "CLOSED"]))
+            list_q = list_q.filter(FMSTicket.status.in_(_INACTIVE_STATUSES))
         elif status_filter:
             list_q = list_q.filter(FMSTicket.status == status_filter.upper())
         # Assignee/dept/manager/branch filter (shared computation above)
@@ -1697,7 +1770,7 @@ def _fms_dashboard_inner(
     if user.role in ("ADMIN", "MANAGER"):
         flagged_tickets = base_q.filter(
             FMSTicket.is_flagged == True,
-            FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+            FMSTicket.status.notin_(_INACTIVE_STATUSES),
         ).limit(10).all()
 
     can_drag = user.role in ("ADMIN", "MANAGER")
@@ -1847,7 +1920,7 @@ def _fms_dashboard_inner(
             ).filter(
                 FMSTicketSplit.current_stage_id == s.id,
                 FMSTicketSplit.is_deleted == False,
-                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicketSplit.status.notin_(_INACTIVE_STATUSES),
             ).all()
             if user.role == "MANAGER":
                 _badge_tids = {r[0] for r in _badge_rows}
@@ -1897,7 +1970,7 @@ def _fms_dashboard_inner(
                     FMSTicket.is_deleted == False,
                     FMSTicketSplit.current_assignee_id == user.id,
                     FMSTicketSplit.is_deleted == False,
-                    FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                    FMSTicketSplit.status.notin_(_INACTIVE_STATUSES),
                 ).distinct().all() if row[0]
             }
 
@@ -1923,7 +1996,7 @@ def _fms_dashboard_inner(
             ).filter(
                 FMSTicketSplit.current_stage_id == active_stage.id,
                 FMSTicketSplit.is_deleted == False,
-                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicketSplit.status.notin_(_INACTIVE_STATUSES),
             ).all()
             _stage_split_ticket_ids = list({row[0] for row in _stage_splits_here})
             # Ticket -> set of assignee ids among the splits actually parked at
@@ -1937,7 +2010,7 @@ def _fms_dashboard_inner(
             q = db.query(FMSTicket).filter(
                 FMSTicket.id.in_(_stage_split_ticket_ids),
                 FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicket.status.notin_(_INACTIVE_STATUSES),
             ) if _stage_split_ticket_ids else db.query(FMSTicket).filter(FMSTicket.id == None)
             if user.role == "MANAGER":
                 _stage_team_ticket_ids = {
@@ -1969,7 +2042,7 @@ def _fms_dashboard_inner(
                         FMSTicketSplit.current_stage_id == active_stage.id,
                         FMSTicketSplit.current_assignee_id == user.id,
                         FMSTicketSplit.is_deleted == False,
-                        FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                        FMSTicketSplit.status.notin_(_INACTIVE_STATUSES),
                     ).distinct()
                 ]
                 q = q.filter(FMSTicket.id.in_(_my_work_ticket_ids))
@@ -2349,7 +2422,7 @@ def _fms_dashboard_inner(
             ).filter(
                 FMSTicketSplit.current_stage_id == s.id,
                 FMSTicketSplit.is_deleted == False,
-                FMSTicketSplit.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicketSplit.status.notin_(_INACTIVE_STATUSES),
                 FMSTicket.flow_id == active_flow.id,
                 FMSTicket.is_deleted == False,
             )
@@ -2484,7 +2557,7 @@ def _fms_dashboard_inner(
         if row.get("split_id") and row.get("split_last_cumulative") is not None
     })
 
-    template_name = "fms/dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "fms/dashboard.html"
+    template_name = "fms/dashboard.html"
     return templates.TemplateResponse(request, template_name, _ctx(
         request, user, db,
         can_create_ticket=can_create_ticket,
@@ -2724,7 +2797,7 @@ async def fms_ticket_create(
     admins   = _admin_ids(db, user.tenant_id)
     managers = _manager_ids_for(db, assignee_id)
     notify_fms_stage_transition(
-        user.tenant_id, ticket.id, ticket.title,
+        db, user.tenant_id, ticket.id, ticket.title,
         stage.name, user.id, admins, managers, assignee_id)
 
     assignee_obj = db.query(User).filter(User.id == assignee_id).first()
@@ -3450,7 +3523,7 @@ async def fms_bulk_create_post(
         if first_aid:
             mgrs = _manager_ids_for(db, first_aid)
             notify_fms_stage_transition(
-                user.tenant_id, ticket.id, ticket.title,
+                db, user.tenant_id, ticket.id, ticket.title,
                 first_stage.name, user.id, admins, mgrs, first_aid,
             )
 
@@ -3653,12 +3726,13 @@ async def fms_bulk_transition(
         _sync_ticket_cache(db, ticket)
         _mark_completed_by(ticket, user.id)
         _check_qty_discrepancy(db, ticket, user.id)
+        _notify_linked_parent_if_ready(db, ticket)
 
         # Notify assignees of the moved split(s)
         for new_assignee_id in moved_assignees:
             mgrs = _manager_ids_for(db, new_assignee_id)
             notify_fms_stage_transition(
-                tid, t_id, ticket.title, next_stage.name, user.id,
+                db, tid, t_id, ticket.title, next_stage.name, user.id,
                 admins, mgrs, new_assignee_id,
             )
         moved += 1
@@ -4339,6 +4413,7 @@ async def fms_transition(
     _sync_ticket_cache(db, ticket)
     _mark_completed_by(ticket, user.id)
     _check_qty_discrepancy(db, ticket, user.id)
+    _notify_linked_parent_if_ready(db, ticket)
 
     event_type = "RETURNED" if direction == "BACKWARD" else (
         "MANAGER_OVERRIDE" if direction == "MANAGER_OVERRIDE" else "STAGE_ENTERED")
@@ -4365,12 +4440,11 @@ async def fms_transition(
     admins   = _admin_ids(db, user.tenant_id)
     managers = _manager_ids_for(db, new_assignee_id)
     notify_fms_stage_transition(
-        user.tenant_id, ticket_id, f"{ticket.title}{split_label_suffix}",
-        next_stage.name, user.id, admins, managers, new_assignee_id)
-    if new_assignee_obj:
-        send_whatsapp_for_fms_stage_transition(
-            db, user.tenant_id, ticket_id, f"{ticket.title}{split_label_suffix}",
-            next_stage.name, new_assignee_obj)
+        db, user.tenant_id, ticket_id, f"{ticket.title}{split_label_suffix}",
+        next_stage.name, user.id, admins, managers, new_assignee_id,
+        backward=(direction == "BACKWARD"))
+    # WhatsApp excluded from both forward and backward stage transitions per
+    # client rules — no send_whatsapp_for_fms_stage_transition call here.
     if next_stage.is_terminal:
         send_whatsapp_for_fms_ticket_closed(db, user.tenant_id, ticket, admins, managers, user.name)
     audience = list(set(admins + managers + [new_assignee_id]))
@@ -4380,10 +4454,13 @@ async def fms_transition(
         "status": ticket.status,
     })
 
-    # Backward move: notify managers with a 2-hour override window message
+    # Backward move: notify managers + admin + the new assignee (previously
+    # excluded — a real gap, now fixed) with a 2-hour override window message
     if direction == "BACKWARD":
         mgr_ids = _manager_ids_for(db, new_assignee_id)
-        for mid in mgr_ids + admins:
+        for mid in set(mgr_ids + admins + [new_assignee_id]):
+            if not mid:
+                continue
             create_notification(
                 db, user.tenant_id,
                 user_id=mid,
@@ -4710,13 +4787,10 @@ async def fms_split_ticket(
     admins = _admin_ids(db, user.tenant_id)
     managers = _manager_ids_for(db, new_assignee)
     notify_fms_stage_transition(
-        user.tenant_id, ticket_id, f"{ticket.title} [{new_label}]",
+        db, user.tenant_id, ticket_id, f"{ticket.title} [{new_label}]",
         target_stage.name, user.id, admins, managers, new_assignee)
     new_assignee_obj = db.query(User).filter(User.id == new_assignee).first() if new_assignee else None
-    if new_assignee_obj:
-        send_whatsapp_for_fms_stage_transition(
-            db, user.tenant_id, ticket_id, f"{ticket.title} [{new_label}]",
-            target_stage.name, new_assignee_obj)
+    # WhatsApp excluded from stage transitions per client rules.
     if target_stage.is_terminal:
         send_whatsapp_for_fms_ticket_closed(db, user.tenant_id, ticket, admins, managers, user.name)
     audience = list(set(admins + managers + ([new_assignee] if new_assignee else [])))
@@ -4826,13 +4900,15 @@ async def fms_bulk_action(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Bulk send-back or bulk close for FMS tickets from list view."""
+    """Bulk send-back, bulk close (optionally + continue), or bulk send-to-linked-flow
+    for FMS tickets from list view."""
     if user.role not in ("ADMIN", "MANAGER"):
         raise HTTPException(403)
     form = await request.form()
     action = form.get("action", "")
     ids = form.getlist("ticket_ids")
-    if not ids or action not in ("send_back", "close"):
+    also_continue = form.get("also_continue", "") == "1"
+    if not ids or action not in ("send_back", "close", "send_to_linked_flow"):
         return _redirect("/fms/dashboard?view=stage")
 
     tid = user.tenant_id
@@ -4840,12 +4916,39 @@ async def fms_bulk_action(
         FMSTicket.id.in_(ids), FMSTicket.tenant_id == tid,
         FMSTicket.is_deleted == False).all()
 
+    skipped = []
     for t in tickets:
         if action == "close":
             if t.status not in ("COMPLETED", "CLOSED"):
                 t.status = "CLOSED"
                 t.updated_at = datetime.utcnow()
                 _log(db, t.id, user.id, "CLOSED", "Bulk closed from list view")
+                _notify_linked_parent_if_ready(db, t)
+                if also_continue:
+                    target_flow = _resolve_linked_flow(db, tid, t.flow.next_library_flow_id if t.flow else None)
+                    if target_flow:
+                        continuation = _spawn_linked_ticket(db, t, target_flow, user)
+                        continuation.continued_from_ticket_id = t.id
+                        t.continued_to_ticket_id = continuation.id
+                        _log(db, t.id, user.id, "CONTINUED", f"Continued as {continuation.display_id} on '{target_flow.name}' (bulk)")
+                    else:
+                        skipped.append(f"{t.display_id or t.id[:8]}: no continuation flow configured")
+        elif action == "send_to_linked_flow":
+            if t.status in ("COMPLETED", "CLOSED", "ON_HOLD"):
+                skipped.append(f"{t.display_id or t.id[:8]}: not active")
+                continue
+            stage = t.current_stage
+            target_flow = _resolve_linked_flow(db, tid, stage.linked_library_flow_id if stage else None)
+            if not target_flow:
+                skipped.append(f"{t.display_id or t.id[:8]}: no linked flow configured on current stage")
+                continue
+            linked = _spawn_linked_ticket(db, t, target_flow, user,
+                                           title=f"{t.title} — linked from {t.display_id}")
+            linked.linked_parent_ticket_id = t.id
+            t.status = "ON_HOLD"
+            t.linked_child_ticket_id = linked.id
+            t.pause_reason = f"Waiting on {linked.display_id} ({target_flow.name})"
+            _log(db, t.id, user.id, "SENT_TO_LINKED_FLOW", f"Spawned {linked.display_id} on '{target_flow.name}' (bulk)")
         elif action == "send_back":
             # Find the last exited stage and send back to it
             prev_h = db.query(FMSStageHistory).filter(
@@ -4873,6 +4976,10 @@ async def fms_bulk_action(
                      f"Bulk send-back to {prev_h.stage.name if prev_h.stage else '?'}")
 
     db.commit()
+    if skipped:
+        from urllib.parse import quote as _q
+        msg = _q(f"{len(tickets) - len(skipped)} done; {len(skipped)} skipped: {'; '.join(skipped[:3])}")
+        return _redirect(f"/fms/dashboard?view=stage&msg={msg}")
     return _redirect("/fms/dashboard?view=stage")
 
 
@@ -5053,9 +5160,9 @@ async def fms_action(
             _log(db, ticket_id, user.id, "FLAGGED", flag_reason.strip())
         _flag_admins = _admin_ids(db, user.tenant_id)
         _flag_managers = _manager_ids_for(db, ticket.current_assignee_id)
-        send_whatsapp_for_fms_ticket_flagged(
+        notify_fms_flagged(
             db, user.tenant_id, ticket, _flag_admins, _flag_managers,
-            flag_reason.strip(), user.name)
+            flag_reason.strip(), user.name, actor_id=user.id)
 
     elif action == "unflag":
         if user.role == "EMPLOYEE":
@@ -5086,7 +5193,44 @@ async def fms_action(
         if user.role not in ("ADMIN", "MANAGER"):
             raise HTTPException(403, "Managers only")
         ticket.status = "ACTIVE"
+        ticket.pause_reason = None
+        ticket.linked_child_ticket_id = None
+        ticket.is_flagged = False
+        ticket.flagged_reason = None
         _log(db, ticket_id, user.id, "RESUMED")
+
+    elif action == "send_to_linked_flow":
+        if user.role not in ("ADMIN", "MANAGER"):
+            raise HTTPException(403, "Managers only")
+        stage = ticket.current_stage
+        target_flow = _resolve_linked_flow(db, user.tenant_id, stage.linked_library_flow_id if stage else None)
+        if not target_flow:
+            raise HTTPException(400, "This stage has no linked flow configured (or it isn't deployed to this tenant)")
+        linked = _spawn_linked_ticket(db, ticket, target_flow, user,
+                                       title=f"{ticket.title} — linked from {ticket.display_id}")
+        linked.linked_parent_ticket_id = ticket.id
+        ticket.status = "ON_HOLD"
+        ticket.linked_child_ticket_id = linked.id
+        ticket.pause_reason = f"Waiting on {linked.display_id} ({target_flow.name})"
+        _log(db, ticket_id, user.id, "SENT_TO_LINKED_FLOW",
+             f"Spawned {linked.display_id} on '{target_flow.name}'" + (f" | Reason: {reason.strip()}" if reason.strip() else ""))
+
+    elif action == "close_and_continue":
+        if user.role not in ("ADMIN", "MANAGER"):
+            raise HTTPException(403, "Managers only")
+        target_flow = _resolve_linked_flow(db, user.tenant_id, ticket.flow.next_library_flow_id)
+        if not target_flow:
+            raise HTTPException(400, "This flow has no continuation flow configured (or it isn't deployed to this tenant)")
+        ticket.status    = "CLOSED"
+        ticket.closed_at = datetime.utcnow()
+        _log(db, ticket_id, user.id, "CLOSED", reason)
+        continuation = _spawn_linked_ticket(db, ticket, target_flow, user)
+        continuation.continued_from_ticket_id = ticket.id
+        ticket.continued_to_ticket_id = continuation.id
+        _log(db, ticket_id, user.id, "CONTINUED", f"Continued as {continuation.display_id} on '{target_flow.name}'")
+        _fms_admins = _admin_ids(db, user.tenant_id)
+        _fms_managers = _manager_ids_for(db, ticket.current_assignee_id)
+        send_whatsapp_for_fms_ticket_closed(db, user.tenant_id, ticket, _fms_admins, _fms_managers, user.name)
 
     elif action == "close":
         if user.role not in ("ADMIN", "MANAGER"):
@@ -5094,6 +5238,7 @@ async def fms_action(
         ticket.status    = "CLOSED"
         ticket.closed_at = datetime.utcnow()
         _log(db, ticket_id, user.id, "CLOSED", reason)
+        _notify_linked_parent_if_ready(db, ticket)
         _fms_admins = _admin_ids(db, user.tenant_id)
         _fms_managers = _manager_ids_for(db, ticket.current_assignee_id)
         send_whatsapp_for_fms_ticket_closed(db, user.tenant_id, ticket, _fms_admins, _fms_managers, user.name)
@@ -5182,10 +5327,16 @@ def fms_help_request(
     else:
         ticket.status = "HELP_REQUESTED"
         _log(db, ticket_id, user.id, "HELP_REQUESTED", reason.strip())
-    # Notify all admins and managers
+    # Notify configured recipients (default admin + manager) — in-app + push + WhatsApp
+    from .notification_rules import filter_recipients
     admins = _admin_ids(db, user.tenant_id)
     mgrs   = _manager_ids_for(db, ticket.current_assignee_id)
-    for uid in set(admins + mgrs):
+    recipients = filter_recipients(
+        db, user.tenant_id, "fms_help_needed",
+        admin_ids=admins, manager_ids=mgrs,
+        assignee_id=ticket.current_assignee_id, actor_id=user.id,
+    )
+    for uid in recipients:
         create_notification(
             db, user.tenant_id,
             user_id=uid,
@@ -5193,7 +5344,21 @@ def fms_help_request(
             title=f"Help needed: {ticket.title}",
             body=f"{user.name} needs help on {ticket.display_id or ticket_id}. Reason: {reason[:200]}",
             link=f"/fms/dashboard?view=stage&flow_id={ticket.flow_id}&stage_id={ticket.current_stage_id}",
+            condition_key="fms_help_needed",
         )
+    if channel_enabled(db, user.tenant_id, "fms_help_needed", "whatsapp"):
+        from .notifications import _send_gupshup_wa
+        try:
+            for uid in recipients:
+                recipient = db.query(User).filter(User.id == uid).first()
+                if not recipient or not recipient.phone:
+                    continue
+                variables = [recipient.name, ticket.title, user.name, reason[:200]]
+                _send_gupshup_wa(db, user.tenant_id, recipient, "omniflow_fms_help_needed", variables,
+                                  related_entity_type="fms_ticket", related_entity_id=ticket_id,
+                                  event_key="fms_help_needed")
+        except Exception:
+            pass
     if helper_id:
         existing = db.query(FMSTicketHelper).filter(
             FMSTicketHelper.ticket_id == ticket_id,

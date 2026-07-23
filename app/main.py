@@ -27,7 +27,7 @@ from .auth import (
     require_admin, require_manager,
     require_admin_or_redirect, require_manager_or_redirect,
     require_admin_or_pm, require_admin_or_pm_or_redirect,
-    require_manager_or_pm_or_redirect,
+    require_manager_or_pm_or_redirect, require_admin_or_pm_or_manager,
     get_user_modules, has_module, get_user_tabs, get_nav_flags,
 )
 from .notifications import (
@@ -36,6 +36,7 @@ from .notifications import (
     notify_ticket_flagged, notify_ticket_help_requested,
     notify_checklist_completed,
     notify_checklist_assigned,
+    parse_ist_datetime_local,
 )
 from .ws_manager import (
     manager as ws_manager, set_main_loop, broadcast_sync,
@@ -60,17 +61,88 @@ from .constants import (
     FEATURE_CATALOG, PLAN_LIMITS, PLAN_LABELS, PLAN_ORDER,
     LIMIT_LABELS, feature_label, next_plan, get_plan_features,
     TAB_CATALOG, get_tenant_enabled_tabs,
-    BULK_IMPORT_MAX_ROWS,
+    BULK_IMPORT_MAX_ROWS, FMS_INACTIVE_STATUSES,
 )
 from .labels import get_labels, DEFAULT_L, INDUSTRY_NAMES, INDUSTRY_PRESETS
-from .bulk_common import check_required_headers
+from .bulk_common import check_required_headers, run_bulk_upload, run_bulk_revalidate
 from .services.qr_optin import build_opt_in_link
 
-app = FastAPI(title="OmniFlow")
+# Security audit Part 5: auto-generated API docs expose every /api/v1 route
+# shape publicly by default. Default to internal-only (disabled) in
+# production; override with ENABLE_API_DOCS=true if you decide they should
+# be public. Always on locally for development convenience.
+_docs_enabled = (not os.environ.get("RENDER")) or os.environ.get("ENABLE_API_DOCS", "").lower() == "true"
+app = FastAPI(
+    title="OmniFlow",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
+
+# Phase 0.5 — CORS for the Expo dev client / Expo web preview to call /api/v1.
+# Does not affect the server-rendered website: CORS only governs cross-origin
+# browser/webview requests, which the site never makes against itself.
+from fastapi.middleware.cors import CORSMiddleware
+_cors_env = os.environ.get("CORS_ALLOWED_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] or [
+    "http://localhost:8081",   # Expo dev server default
+    "http://localhost:19006",  # Expo web preview
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Security audit Part 3 — baseline security response headers. CSP keeps
+# 'unsafe-inline' for script/style because the existing Jinja2 templates
+# rely heavily on inline <script>/style= throughout (a nonce-based refactor
+# to drop unsafe-inline is a larger follow-up, not done here to avoid
+# breaking the live site) — still meaningfully restricts cross-origin
+# script/resource loading and framing.
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'"
+    )
+    return response
+
+# Phase 0 — /api/v1 rate limiting (login/refresh brute-force protection).
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from .api_v1.security import limiter as _api_v1_limiter
+app.state.limiter = _api_v1_limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @app.exception_handler(RedirectToLogin)
 def _redirect_to_login_handler(request: Request, exc: RedirectToLogin):
     return redirect("/login")
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    import logging as _logging, traceback as _traceback, uuid as _uuid
+    correlation_id = str(_uuid.uuid4())
+    _logging.getLogger("omniflow.unhandled").error(
+        "Unhandled exception [%s] on %s %s: %s\n%s",
+        correlation_id, request.method, request.url.path, exc,
+        "".join(_traceback.format_exception(type(exc), exc, exc.__traceback__)),
+    )
+    # Security audit Part 3: never leak stack trace/SQL/file paths to the
+    # client — generic message + correlation ID only; full detail stays
+    # server-side in the log line above.
+    return JSONResponse(status_code=500, content={"detail": "Internal server error", "correlation_id": correlation_id})
 
 
 # ── Super Admin routers — Phase 0-H / 0-K ────────────────────────────────────
@@ -115,6 +187,13 @@ from .my_tasks import router as my_tasks_router
 app.include_router(my_tasks_router)
 from .attendance import router as attendance_router
 app.include_router(attendance_router)
+
+# Phase 0 — versioned JSON API for the native app. Additive: does not touch
+# any HTML route above. See docs on the pwa-cleanup/phase-0 branch history
+# for the full contract.
+from .api_v1 import router as api_v1_router
+app.include_router(api_v1_router)
+
 from .templates_env import templates, _OrmEncoder, _to_ist, _format_tat  # shared filters
 BASE_DIR = os.path.dirname(__file__)
 
@@ -189,9 +268,9 @@ async def _service_worker():
     # The service worker script must never be served from the browser's HTTP
     # cache — StaticFiles' default headers (Last-Modified/ETag, no
     # Cache-Control) let browsers apply heuristic freshness and skip
-    # revalidation for hours, so a bumped SHELL_CACHE version inside sw.js
-    # can go undetected across app restarts. Route matches before the
-    # StaticFiles mount below and forces revalidation on every load.
+    # revalidation for hours, which would leave push notifications broken
+    # on a stale worker after a deploy. Route matches before the StaticFiles
+    # mount below and forces revalidation on every load.
     from fastapi.responses import FileResponse
     return FileResponse(
         os.path.join(_static_dir, "sw.js"),
@@ -669,13 +748,12 @@ def root():
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    template_name = "login_mobile.html" if request.cookies.get("pwa_ui") == "1" else "login.html"
-    return templates.TemplateResponse(request, template_name, {"error": None})
+    return templates.TemplateResponse(request, "login.html", {"error": None})
 
 @app.post("/login")
 def login(request: Request, slug: str = Form(...), phone: str = Form(...),
           password: str = Form(...), db: Session = Depends(get_db)):
-    template_name = "login_mobile.html" if request.cookies.get("pwa_ui") == "1" else "login.html"
+    template_name = "login.html"
     tenant = db.query(Tenant).filter(Tenant.slug == slug).first()
     if not tenant:
         return templates.TemplateResponse(request, template_name, {"error": "Factory not found"})
@@ -691,12 +769,12 @@ def login(request: Request, slug: str = Form(...), phone: str = Form(...),
     db.add(LoginEvent(tenant_id=tenant.id, user_id=user.id))
     db.commit()
     token = create_token(user.id, tenant.id, user.role)
-    # Mobile/PWA sessions always land on the box-grid home for every role
-    # (client feedback #7); desktop keeps ADMIN/MANAGER -> /home, others -> /dashboard.
-    if request.cookies.get("pwa_ui") == "1":
+    if user.role in ("ADMIN", "MANAGER"):
         landing = "/home"
+    elif user.role == "PRODUCT_MANAGER":
+        landing = "/employees"
     else:
-        landing = "/home" if user.role in ("ADMIN", "MANAGER") else "/dashboard"
+        landing = "/dashboard"
     resp = redirect(landing)
     resp.set_cookie("token", token, httponly=True, max_age=86400)
     return resp
@@ -712,15 +790,14 @@ def check_slug_public(slug: str, db: Session = Depends(get_db)):
 
 @app.get("/register", response_class=HTMLResponse)
 def register_page(request: Request):
-    template_name = "register_mobile.html" if request.cookies.get("pwa_ui") == "1" else "register.html"
-    return templates.TemplateResponse(request, template_name, {"error": None})
+    return templates.TemplateResponse(request, "register.html", {"error": None})
 
 @app.post("/register")
 def register(request: Request, factory_name: str = Form(...), slug: str = Form(...),
              name: str = Form(...), phone: str = Form(...), password: str = Form(...),
              contact_email: str = Form(""),
              db: Session = Depends(get_db)):
-    template_name = "register_mobile.html" if request.cookies.get("pwa_ui") == "1" else "register.html"
+    template_name = "register.html"
     if db.query(Tenant).filter(Tenant.slug == slug).first():
         return templates.TemplateResponse(request, template_name,
                                           {"error": "Factory ID already taken"})
@@ -812,7 +889,7 @@ async def submit_help_request(
 def help_page(request: Request, user: User = Depends(get_current_user_or_redirect),
               db: Session = Depends(get_db)):
     unread = _unread_count(db, user)
-    template_name = "help_mobile.html" if request.cookies.get("pwa_ui") == "1" else "help.html"
+    template_name = "help.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": unread, "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -834,7 +911,7 @@ def profile_page(request: Request, user: User = Depends(get_current_user_or_redi
     unread = _unread_count(db, user)
     msg = request.query_params.get("msg", "")
     error = request.query_params.get("error", "")
-    template_name = "profile_mobile.html" if request.cookies.get("pwa_ui") == "1" else "profile.html"
+    template_name = "profile.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": unread, "L": _L(db, user),
         "msg": msg, "error": error,
@@ -995,7 +1072,7 @@ def pending_approval(request: Request, user: User = Depends(get_current_user_or_
                                        "L": _L(db, user)})
 
 
-def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manager_ids=None, dept_name=None):
+def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manager_ids=None, dept_name=None, branch_ids=None):
     """Compute lightweight KPIs for the Summary dashboard view."""
     from datetime import date as _date, datetime as _dt
     try:
@@ -1016,6 +1093,12 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
             Department.tenant_id == tid, Department.name == dept_name,
             Department.is_deleted == False).all()]
     scoped_uids = _rfu(db, tid, _dept_ids or None, manager_ids or None)
+    if branch_ids:
+        _branch_uids = [u.id for u in db.query(User).filter(
+            User.tenant_id == tid, User.branch_id.in_(branch_ids),
+            User.is_deleted == False).all()]
+        scoped_uids = [uid for uid in scoped_uids if uid in _branch_uids] \
+            if scoped_uids is not None else _branch_uids
     if scoped_uids is not None:
         q = q.filter(Ticket.current_assignee_id.in_(scoped_uids))
 
@@ -1077,8 +1160,12 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
         from .database import FMSTicket as _FT
         fms_active = db.query(_FT).filter(
             _FT.tenant_id == tid, _FT.is_deleted == False,
-            _FT.status.notin_(["COMPLETED", "CLOSED"])).count()
-        fms_tat_breaches = 0  # expensive to compute inline; keep 0 for now
+            _FT.status.notin_(FMS_INACTIVE_STATUSES)).count()
+        # TaT breach — active FMS tickets already past their due date.
+        fms_tat_breaches = db.query(_FT).filter(
+            _FT.tenant_id == tid, _FT.is_deleted == False,
+            _FT.status.notin_(FMS_INACTIVE_STATUSES),
+            _FT.due_at.isnot(None), _FT.due_at < _dt.utcnow()).count()
     except Exception:
         fms_active = fms_tat_breaches = 0
 
@@ -1114,7 +1201,7 @@ def _calc_summary_kpis(db, tid, date_from_str, date_to_str, dept_ids=None, manag
         from .database import FMSTicket as _FT2
         fms_completed = db.query(_FT2).filter(
             _FT2.tenant_id == tid, _FT2.is_deleted == False,
-            _FT2.status.in_(["COMPLETED", "CLOSED"]),
+            _FT2.status.in_(FMS_INACTIVE_STATUSES),
             _FT2.updated_at >= df, _FT2.updated_at <= dt).count()
         _all_emps = db.query(User).filter(
             User.tenant_id == tid, User.is_deleted == False, User.is_active == True).all()
@@ -1179,20 +1266,13 @@ def home_grouped(request: Request, user: User = Depends(get_current_user_or_redi
                   db: Session = Depends(get_db)):
     """C1 — grouped post-login landing page for ADMIN/MANAGER on desktop.
     Pure nav/landing restructuring: every box links to an existing, unchanged
-    internal page. On mobile/PWA (pwa_ui cookie), ALL roles land here — see
-    home_grouped_mobile.html, which role-scopes its own tile set — instead of
-    EMPLOYEE/PRODUCT_MANAGER's desktop-only flat /dashboard landing."""
-    is_pwa = request.cookies.get("pwa_ui") == "1"
+    internal page. EMPLOYEE gets the desktop-only flat /dashboard landing
+    instead. PRODUCT_MANAGER has no dashboard concept at all — it's scoped
+    to Employees + Setup only — so it lands on /employees instead."""
+    if user.role == "PRODUCT_MANAGER":
+        return redirect("/employees")
     if user.role not in ("ADMIN", "MANAGER"):
-        if not is_pwa:
-            return redirect("/dashboard")
-        tenant = db.query(Tenant).get(user.tenant_id)
-        if not getattr(tenant, "is_approved", True):
-            return redirect("/pending")
-        return templates.TemplateResponse(request, "home_grouped_mobile.html", {
-            "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
-            **_nav_ctx(db, user, tenant=tenant),
-        })
+        return redirect("/dashboard")
     tenant = db.query(Tenant).get(user.tenant_id)
     if not getattr(tenant, "is_approved", True):
         return redirect("/pending")
@@ -1268,7 +1348,7 @@ def home_grouped(request: Request, user: User = Depends(get_current_user_or_redi
     for a in activity:
         a["rel"] = _relative_time(a["ts"])
 
-    template_name = "home_grouped_mobile.html" if is_pwa else "home_grouped.html"
+    template_name = "home_grouped.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user, tenant=tenant),
@@ -1287,6 +1367,9 @@ def organization_hub(user: User = Depends(require_manager_or_pm_or_redirect)):
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, user: User = Depends(get_current_user_or_redirect),
               db: Session = Depends(get_db)):
+    if user.role == "PRODUCT_MANAGER":
+        # PM has no dashboard concept — scoped to Employees + Setup only.
+        return redirect("/employees")
     tid = user.tenant_id
 
     tenant = db.query(Tenant).get(tid)
@@ -1355,7 +1438,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
                     active_preset = label
                     break
 
-            kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids, dept_name)
+            kpis       = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids, dept_name, [branch_id] if branch_id else None)
             dept_health= _calc_dept_health(db, tid, date_from, date_to)
 
             # ── Summary Performance Score (formula-driven) ────────────────────
@@ -1389,7 +1472,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
             hot_tasks_count = len(hot_tasks)
             hot_tasks = hot_tasks[:10]
 
-            template_name = "dashboard_summary_mobile.html" if request.cookies.get("pwa_ui") == "1" else "dashboard_summary.html"
+            template_name = "dashboard_summary.html"
             return templates.TemplateResponse(request, template_name, {
                 "user": user, "unread": unread, "L": _L(db, user),
                 "now": datetime.utcnow(),
@@ -1457,7 +1540,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
                       if (has_fms and expand_flow) else None
 
         # ── Overall Performance Score (formula-driven) ───────────────────────
-        _sk = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids)
+        _sk = _calc_summary_kpis(db, tid, date_from, date_to, dept_ids, manager_ids, None, [branch_id] if branch_id else None)
         _fw = _get_active_formula(db, tid)
         _kv = {
             "ticket_on_time":       _sk.on_time_pct if _sk.total_count > 0 else None,
@@ -1587,7 +1670,7 @@ def dashboard(request: Request, user: User = Depends(get_current_user_or_redirec
         _emp_fw = _get_active_formula(db, user.tenant_id)
         emp_perf_score, emp_perf_components = _compute_perf_score(_emp_kv, _emp_fw)
 
-        template_name = "employee_dashboard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "employee_dashboard.html"
+        template_name = "employee_dashboard.html"
         return templates.TemplateResponse(request, template_name, {
             "user": user, "unread": unread, "L": _L(db, user),
             "now": datetime.utcnow(),
@@ -1752,11 +1835,7 @@ def tickets_list(request: Request, status: str = "OPEN", view: str = "table",
             ).distinct().all()
         }
 
-    # Tickets Redesign (2026-07): installed-PWA sessions get the redesigned
-    # mobile-only templates (tickets_mobile.html), detected via the `pwa_ui`
-    # cookie set by app-shell.js's standalone-mode check. Desktop/browser-tab
-    # traffic is unaffected — same context, same tickets.html as before.
-    template_name = "tickets_mobile.html" if request.cookies.get("pwa_ui") == "1" else "tickets.html"
+    template_name = "tickets.html"
 
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
@@ -1948,7 +2027,7 @@ async def create_ticket(
         tenant_id=user.tenant_id, title=title, description=description,
         priority=priority, created_by_id=user.id,
         current_assignee_id=assignee_id,
-        due_at=datetime.fromisoformat(due_at),
+        due_at=parse_ist_datetime_local(due_at),
         ticket_type="D",
     )
     if hasattr(ticket, "evidence_required"):
@@ -1969,14 +2048,16 @@ async def create_ticket(
             uploaded_by_id=user.id, **info,
         ))
         log_event(db, ticket.id, user.id, "DOC_UPLOADED", info["file_name"])
+    admins = _admin_ids(db, user.tenant_id)
+    managers = _manager_ids_for_ticket(db, user.tenant_id, assignee_id)
     if assignee:
-        notify_ticket_assigned(db, ticket, assignee)
+        notify_ticket_assigned(db, ticket, assignee, admins, managers)
     # P5-10: save linked entities
     form_data = await request.form()
     from .linked_entities import save_linked_entities_from_form
     save_linked_entities_from_form(db, dict(form_data), "TICKET", ticket.id, user.tenant_id, user.id)
     db.commit()
-    audience = list(set(_admin_ids(db, user.tenant_id) + _manager_ids_for_ticket(db, user.tenant_id, assignee_id) + [assignee_id]))
+    audience = list(set(admins + managers + [assignee_id]))
     broadcast_sync(user.tenant_id, audience, TICKET_ASSIGNED, {
         "ticket_id": ticket.id, "display_id": ticket.display_id,
         "title": ticket.title, "assignee_id": assignee_id,
@@ -2078,6 +2159,9 @@ def acknowledge_ticket(ticket_id: str,
     if not ticket.acknowledged_at:
         ticket.acknowledged_at = datetime.utcnow()
         log_event(db, ticket_id, user.id, "ACKNOWLEDGED", "")
+        admins = _admin_ids(db, user.tenant_id)
+        managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+        notify_ticket_status_changed(db, ticket, user.id, "OPEN", "ACKNOWLEDGED", admins, managers)
         db.commit()
     return redirect(f"/tickets/{ticket_id}")
 
@@ -2133,8 +2217,7 @@ def ticket_detail(ticket_id: str, request: Request,
         KnowledgeItem.tenant_id == user.tenant_id, KnowledgeItem.is_deleted == False,
     ).order_by(KnowledgeItem.title).all()
     # Tickets Redesign (2026-07): see tickets_list() above for the same
-    # installed-PWA branching via the `pwa_ui` cookie.
-    template_name = "ticket_detail_mobile.html" if request.cookies.get("pwa_ui") == "1" else "ticket_detail.html"
+    template_name = "ticket_detail.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
@@ -2288,7 +2371,7 @@ def ticket_edit(ticket_id: str, title: str = Form(...), description: str = Form(
     ticket.priority = priority
     ticket.current_assignee_id = assignee_id
     try:
-        ticket.due_at = datetime.fromisoformat(due_at)
+        ticket.due_at = parse_ist_datetime_local(due_at)
     except Exception:
         pass
     if hasattr(ticket, "evidence_required"):
@@ -2300,7 +2383,9 @@ def ticket_edit(ticket_id: str, title: str = Form(...), description: str = Form(
     if assignee_id != old_assignee_id:
         new_assignee = db.query(User).filter(User.id == assignee_id).first()
         if new_assignee:
-            notify_ticket_assigned(db, ticket, new_assignee)
+            admins = _admin_ids(db, user.tenant_id)
+            managers = _manager_ids_for_ticket(db, user.tenant_id, assignee_id)
+            notify_ticket_assigned(db, ticket, new_assignee, admins, managers)
     return redirect(f"/tickets/{ticket_id}")
 
 
@@ -2317,7 +2402,7 @@ def ticket_reschedule(ticket_id: str, due_at: str = Form(...), comment: str = Fo
     if not ticket:
         raise HTTPException(404)
     try:
-        new_due = datetime.fromisoformat(due_at)
+        new_due = parse_ist_datetime_local(due_at)
     except Exception:
         raise HTTPException(400, "Invalid due date")
     old_due = ticket.due_at
@@ -2414,22 +2499,23 @@ def _run_ticket_validation(rows_in: list, tenant_id: str, db: Session, start_ind
 async def tickets_bulk_upload(file: UploadFile = File(...),
                                user: User = Depends(require_manager),
                                db: Session = Depends(get_db)):
-    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
-    fmt_err = check_required_headers(fieldnames, ["title", "description", "assignee_phone", "due_at"], _TICKET_BULK_COLS)
-    if fmt_err:
-        return JSONResponse({"format_error": fmt_err})
-    for i, row in enumerate(reader, start=2):
-        row["_row"] = i
-    return JSONResponse(_run_ticket_validation(reader, user.tenant_id, db))
+    result = run_bulk_upload(
+        await file.read(), file.filename, read_rows_fn=_read_csv_rows_with_headers,
+        required_headers=["title", "description", "assignee_phone", "due_at"],
+        all_expected_cols=_TICKET_BULK_COLS, validation_fn=_run_ticket_validation,
+        tenant_id=user.tenant_id, db=db,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/tickets/bulk-upload/revalidate")
 async def tickets_bulk_revalidate(request: Request, user: User = Depends(require_manager), db: Session = Depends(get_db)):
     body = await request.json()
-    rows_in = body.get("rows", [])
-    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
-        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    return JSONResponse(_run_ticket_validation(rows_in, user.tenant_id, db))
+    result = run_bulk_revalidate(
+        body.get("rows", []), validation_fn=_run_ticket_validation,
+        tenant_id=user.tenant_id, db=db, max_rows=BULK_IMPORT_MAX_ROWS,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/tickets/bulk-upload/confirm")
@@ -2438,6 +2524,7 @@ async def tickets_bulk_confirm(request: Request, user: User = Depends(require_ma
     rows = body.get("rows", [])
     tenant = db.query(Tenant).get(user.tenant_id)
     created = 0
+    admins = _admin_ids(db, user.tenant_id)
     for r in rows:
         assignee = db.query(User).filter(User.id == r.get("assignee_id"), User.tenant_id == user.tenant_id).first()
         if not assignee:
@@ -2460,7 +2547,8 @@ async def tickets_bulk_confirm(request: Request, user: User = Depends(require_ma
         tenant.ticket_seq = (tenant.ticket_seq or 0) + 1
         ticket.display_id = f"T-{tenant.ticket_seq:04d}"
         log_event(db, ticket.id, user.id, "CREATED", f"Bulk upload — assigned to {assignee.name}")
-        notify_ticket_assigned(db, ticket, assignee)
+        managers = _manager_ids_for_ticket(db, user.tenant_id, assignee.id)
+        notify_ticket_assigned(db, ticket, assignee, admins, managers)
         created += 1
 
     try:
@@ -2515,7 +2603,7 @@ async def ticket_action(ticket_id: str, action: str = Form(...),
     elif action == "comment" and comment.strip():
         db.add(TicketComment(ticket_id=ticket_id, user_id=user.id, body=comment.strip()))
         helper_ids = [h.user_id for h in ticket.helpers]
-        notify_ticket_commented(db, ticket, user.id, helper_ids)
+        notify_ticket_commented(db, ticket, user.id, helper_ids, admins, managers)
     elif action == "reassign" and new_assignee_id and what_completed and why_reassigning:
         helper_ids_chk = [h.user_id for h in ticket.helpers]
         can_reassign = (
@@ -2531,7 +2619,8 @@ async def ticket_action(ticket_id: str, action: str = Form(...),
                   f"Completed: {what_completed} | Reason: {why_reassigning} | To: {new_assignee_id}")
         new_assignee = db.query(User).get(new_assignee_id)
         if new_assignee:
-            notify_ticket_assigned(db, ticket, new_assignee)
+            new_managers = _manager_ids_for_ticket(db, user.tenant_id, new_assignee_id)
+            notify_ticket_assigned(db, ticket, new_assignee, admins, new_managers)
     elif action == "flag" and flag_reason:
         if user.role == "EMPLOYEE":
             if ticket.current_assignee_id != user.id:
@@ -2545,6 +2634,11 @@ async def ticket_action(ticket_id: str, action: str = Form(...),
         ticket.is_flagged = False
         ticket.flagged_reason = None
         log_event(db, ticket_id, user.id, "UNFLAGGED")
+    elif action == "help_request" and comment.strip():
+        if ticket.current_assignee_id != user.id:
+            raise HTTPException(status_code=403, detail="Only the current assignee can request help")
+        log_event(db, ticket_id, user.id, "HELP_REQUESTED", comment.strip())
+        notify_ticket_help_requested(db, ticket, user.id, admins, managers)
     elif action == "reopen":
         ticket.status = "OPEN"
         ticket.closed_at = None
@@ -2570,6 +2664,11 @@ async def ticket_action(ticket_id: str, action: str = Form(...),
         audience = list(set(admins + [ticket.current_assignee_id]))
         broadcast_sync(user.tenant_id, audience, TICKET_FLAGGED, {
             "ticket_id": ticket_id, "display_id": ticket.display_id, "flagged": ticket.is_flagged,
+        })
+    elif action == "help_request" and comment.strip():
+        audience = list(set(admins + managers))
+        broadcast_sync(user.tenant_id, audience, TICKET_HELP_REQUESTED, {
+            "ticket_id": ticket_id, "display_id": ticket.display_id,
         })
 
     return redirect(f"/tickets/{ticket_id}")
@@ -2608,12 +2707,16 @@ async def ticket_log_delay(ticket_id: str, request: Request,
 
 @app.post("/tickets/{ticket_id}/add-helper")
 def add_helper(ticket_id: str, helper_id: str = Form(...), note: str = Form(""),
-               user: User = Depends(require_manager), db: Session = Depends(get_db)):
-    """Phase 0-C-1/2: add a helper to a ticket."""
+               user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Phase 0-C-1/2: add a helper to a ticket. ADMIN/MANAGER can add a helper
+    to any ticket; the ticket's own assignee can ask for help on their own
+    ticket too."""
     ticket = db.query(Ticket).filter(
         Ticket.id == ticket_id, Ticket.tenant_id == user.tenant_id).first()
     if not ticket:
         raise HTTPException(404)
+    if user.role not in ("ADMIN", "MANAGER") and ticket.current_assignee_id != user.id:
+        raise HTTPException(403, "Only the ticket's assignee, a manager or an admin can add a helper")
     # Avoid duplicates
     existing = db.query(TicketAssignee).filter(
         TicketAssignee.ticket_id == ticket_id,
@@ -2625,9 +2728,12 @@ def add_helper(ticket_id: str, helper_id: str = Form(...), note: str = Form(""),
         helper = db.query(User).get(helper_id)
         log_event(db, ticket_id, user.id, "HELPER_ADDED", f"Helper: {helper.name if helper else helper_id}")
         if helper:
-            notify_helper_added(db, ticket, helper)
+            admins = _admin_ids(db, user.tenant_id)
+            managers = _manager_ids_for_ticket(db, user.tenant_id, ticket.current_assignee_id)
+            notify_helper_added(db, ticket, helper, admins, managers)
     db.commit()
     # Notify the new helper and the ticket owner in real-time
+    admins = _admin_ids(db, user.tenant_id)
     audience = list(set([helper_id, ticket.current_assignee_id] + admins))
     broadcast_sync(user.tenant_id, audience, TICKET_ASSIGNED, {
         "ticket_id": ticket_id, "display_id": ticket.display_id,
@@ -3080,23 +3186,8 @@ def checklists(request: Request, user: User = Depends(get_current_user_or_redire
         KnowledgeItem.tenant_id == tid, KnowledgeItem.is_deleted == False,
     ).order_by(KnowledgeItem.title).all()
 
-    # Checklists Redesign (2026-07): installed-PWA sessions get the
-    # redesigned mobile-only template (checklists_mobile.html — design
-    # option 3a "Task Feed"), detected via the `pwa_ui` cookie set by
-    # app-shell.js's standalone-mode check. On mobile this is always the
-    # viewer's own worklist (Overdue / Upcoming / History) regardless of
-    # role — template creation, bulk upload and team compliance tables
-    # stay desktop-only. Desktop/browser-tab traffic is unaffected — same
-    # context, same checklists.html as before.
-    template_name = "checklists_mobile.html" if request.cookies.get("pwa_ui") == "1" else "checklists.html"
+    template_name = "checklists.html"
     my_history = []
-    if template_name == "checklists_mobile.html":
-        my_history = db.query(ChecklistAssignment).filter(
-            ChecklistAssignment.tenant_id == tid,
-            ChecklistAssignment.user_id == user.id,
-            ChecklistAssignment.status.in_(["DONE", "FAILED"]),
-            ChecklistAssignment.is_deleted == False,
-        ).order_by(ChecklistAssignment.completed_at.desc()).limit(50).all()
 
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
@@ -3213,7 +3304,7 @@ def assign_checklist(template_id: str, due_at: str = Form(...),
             User.role == tmpl.assigned_to_role,
             User.is_active == True, User.is_deleted == False).all()
 
-    due = datetime.fromisoformat(due_at)
+    due = parse_ist_datetime_local(due_at)
     new_assignments = []
     for u in target_users:
         a = ChecklistAssignment(
@@ -3223,9 +3314,11 @@ def assign_checklist(template_id: str, due_at: str = Form(...),
         db.add(a)
         new_assignments.append(a)
     db.commit()
+    admins = _admin_ids(db, user.tenant_id)
     for a in new_assignments:
         db.refresh(a)
-        notify_checklist_assigned(db, a)
+        managers = _manager_ids_for_ticket(db, user.tenant_id, a.user_id)
+        notify_checklist_assigned(db, a, admins, managers)
     return redirect("/checklists")
 
 
@@ -3897,7 +3990,7 @@ def edit_checklist_assignment(
     ).first()
     if not a:
         raise HTTPException(404, "Assignment not found or already started")
-    a.due_at = datetime.fromisoformat(due_at)
+    a.due_at = parse_ist_datetime_local(due_at)
     db.commit()
     return redirect("/checklists")
 
@@ -4080,22 +4173,22 @@ def checklist_bulk_upload_page(request: Request, user: User = Depends(require_ad
 async def checklist_bulk_upload(file: UploadFile = File(...),
                                  user: User = Depends(require_admin),
                                  db: Session = Depends(get_db)):
-    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
-    fmt_err = check_required_headers(fieldnames, ["title"], _CHECKLIST_BULK_COLS)
-    if fmt_err:
-        return JSONResponse({"format_error": fmt_err})
-    for i, row in enumerate(reader, start=2):
-        row["_row"] = i
-    return JSONResponse(_run_checklist_validation(reader, user.tenant_id, db))
+    result = run_bulk_upload(
+        await file.read(), file.filename, read_rows_fn=_read_csv_rows_with_headers,
+        required_headers=["title"], all_expected_cols=_CHECKLIST_BULK_COLS,
+        validation_fn=_run_checklist_validation, tenant_id=user.tenant_id, db=db,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/checklists/bulk-upload/revalidate")
 async def checklist_bulk_revalidate(request: Request, user: User = Depends(require_admin), db: Session = Depends(get_db)):
     body = await request.json()
-    rows_in = body.get("rows", [])
-    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
-        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    return JSONResponse(_run_checklist_validation(rows_in, user.tenant_id, db))
+    result = run_bulk_revalidate(
+        body.get("rows", []), validation_fn=_run_checklist_validation,
+        tenant_id=user.tenant_id, db=db, max_rows=BULK_IMPORT_MAX_ROWS,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/checklists/bulk-upload/confirm")
@@ -4124,18 +4217,20 @@ async def checklist_bulk_confirm(request: Request, user: User = Depends(require_
 
 @app.get("/employees", response_class=HTMLResponse)
 def employees_page(request: Request, user: User = Depends(require_manager_or_pm_or_redirect),
-                   search: str = "", opt_in_status: str = "", db: Session = Depends(get_db)):
+                   search: str = "", opt_in_status: str = "", my_team: str = "", db: Session = Depends(get_db)):
     tid = user.tenant_id
+    # Manager sees every employee in the tenant (edit access/performance are
+    # still scoped to direct reports in the row actions below and enforced
+    # server-side) — "My Team Only" is an optional filter, not the default.
+    team_ids = set()
     if user.role == "MANAGER":
-        # Manager sees only their direct reports (+ themselves)
-        team_ids = [u.id for u in db.query(User).filter(
-            User.manager_id == user.id, User.is_deleted == False).all()]
-        team_ids.append(user.id)
-        employees_q = db.query(User).filter(
-            User.id.in_(team_ids), User.is_deleted == False)
-    else:
-        employees_q = db.query(User).filter(
-            User.tenant_id == tid, User.is_deleted == False)
+        team_ids = {u.id for u in db.query(User).filter(
+            User.manager_id == user.id, User.is_deleted == False).all()}
+        team_ids.add(user.id)
+    employees_q = db.query(User).filter(
+        User.tenant_id == tid, User.is_deleted == False)
+    if user.role == "MANAGER" and my_team:
+        employees_q = employees_q.filter(User.id.in_(team_ids))
     if search:
         like = f"%{search}%"
         employees_q = employees_q.filter(or_(
@@ -4209,12 +4304,13 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_pm_
         e.gadget_list = gadgets_by_user.get(e.id, [])
         e.effective_tabs = get_user_tabs(e, tenant, db)
 
-    template_name = "employees_mobile.html" if request.cookies.get("pwa_ui") == "1" else "employees.html"
+    template_name = "employees.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),
         "employees": all_users, "departments": departments_unique,
         "branches": branches, "managers": managers,
+        "team_ids": team_ids, "my_team": my_team,
         "can_bulk": can_bulk, "search": search,
         "kpi_total": kpi_total, "kpi_active": kpi_active,
         "kpi_terminated": kpi_terminated, "kpi_departments": kpi_departments,
@@ -4437,22 +4533,22 @@ async def bulk_import_employees(file: UploadFile = File(...),
     tenant = db.query(Tenant).get(user.tenant_id)
     if not has_feature(tenant, "BULK_IMPORT", db):
         raise HTTPException(403, "Bulk import requires Professional plan")
-    reader, fieldnames = _read_csv_rows_with_headers(await file.read(), file.filename)
-    fmt_err = check_required_headers(fieldnames, ["name", "phone", "password"], _EMPLOYEE_BULK_COLS)
-    if fmt_err:
-        return JSONResponse({"format_error": fmt_err})
-    for i, row in enumerate(reader, start=2):
-        row["_row"] = i
-    return JSONResponse(_run_employee_validation(reader, user.tenant_id, db))
+    result = run_bulk_upload(
+        await file.read(), file.filename, read_rows_fn=_read_csv_rows_with_headers,
+        required_headers=["name", "phone", "password"], all_expected_cols=_EMPLOYEE_BULK_COLS,
+        validation_fn=_run_employee_validation, tenant_id=user.tenant_id, db=db,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/employees/import/revalidate")
 async def bulk_import_employees_revalidate(request: Request, user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db)):
     body = await request.json()
-    rows_in = body.get("rows", [])
-    if len(rows_in) > BULK_IMPORT_MAX_ROWS:
-        raise HTTPException(400, f"Too many rows — maximum allowed is {BULK_IMPORT_MAX_ROWS}.")
-    return JSONResponse(_run_employee_validation(rows_in, user.tenant_id, db))
+    result = run_bulk_revalidate(
+        body.get("rows", []), validation_fn=_run_employee_validation,
+        tenant_id=user.tenant_id, db=db, max_rows=BULK_IMPORT_MAX_ROWS,
+    )
+    return JSONResponse(result)
 
 
 @app.post("/employees/import/confirm")
@@ -4532,9 +4628,7 @@ def edit_employee(
     department_id: str = Form(""), manager_id: str = Form(""),
     joining_date: str = Form(""), address: str = Form(""),
     branch_id: str = Form(""),
-    tabs: list[str] = Form(default=[]),
-    tabs_submitted: str = Form(""),
-    user: User = Depends(require_admin_or_pm), db: Session = Depends(get_db),
+    user: User = Depends(require_admin_or_pm_or_manager), db: Session = Depends(get_db),
 ):
     phone_err = _validate_phone(phone)
     if phone_err:
@@ -4547,6 +4641,8 @@ def edit_employee(
     ).first()
     if not emp:
         raise HTTPException(404)
+    if user.role == "MANAGER" and emp.manager_id != user.id:
+        raise HTTPException(403, "You can only edit your direct reports")
     emp.name = name
     emp.phone = phone
     emp.email = email or None
@@ -4561,16 +4657,8 @@ def edit_employee(
             emp.joining_date = _date.fromisoformat(joining_date)
         except ValueError:
             pass
-    import json as _json
-    if tabs_submitted:
-        # Only touch tab access when the submitting form actually rendered the
-        # checkboxes (desktop edit form) — the mobile/PWA edit form has no tab
-        # selector and must not silently wipe out the employee's existing access.
-        tenant = db.query(Tenant).get(user.tenant_id)
-        tenant_tabs = set(get_tenant_enabled_tabs(tenant, db))
-        selected_tabs = [t for t in tabs if t in tenant_tabs]
-        emp.tab_access_json = _json.dumps(selected_tabs)
-        emp.module_access_json = _json.dumps([t for t in selected_tabs if t in ("SALES", "INVENTORY")])
+    # Module/tab access is now managed centrally at Setup > Access Control
+    # (by department, branch, or individual employee) instead of here.
     db.commit()
     return redirect(f"/employees?msg=Profile+updated+for+{emp.name}")
 
@@ -4616,7 +4704,7 @@ def emp_open_work(emp_id: str, user: User = Depends(require_admin_or_pm),
         .join(_FTH, _FTH.ticket_id == FMSTicket.id)
         .filter(_FTH.user_id == emp_id,
                 FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+                FMSTicket.status.notin_(FMS_INACTIVE_STATUSES))
         .all()
     )
     return JSONResponse({
@@ -4660,7 +4748,7 @@ def emp_open_work_export(emp_id: str, user: User = Depends(require_admin_or_pm),
         .join(_FTH, _FTH.ticket_id == FMSTicket.id)
         .filter(_FTH.user_id == emp_id,
                 FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+                FMSTicket.status.notin_(FMS_INACTIVE_STATUSES))
         .all()
     )
     buf = io.StringIO()
@@ -4758,7 +4846,7 @@ def terminate_employee(
                 FMSTicket.tenant_id == tid,
                 FMSTicket.current_assignee_id == emp_id,
                 FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
             ).all()
             for ft in open_fms:
                 ft.current_assignee_id = fms_reassign_to
@@ -4773,7 +4861,7 @@ def terminate_employee(
                 .filter(_FTH.user_id == emp_id)
                 .join(FMSTicket, FMSTicket.id == _FTH.ticket_id)
                 .filter(FMSTicket.tenant_id == tid, FMSTicket.is_deleted == False,
-                        FMSTicket.status.notin_(["COMPLETED", "CLOSED"]))
+                        FMSTicket.status.notin_(FMS_INACTIVE_STATUSES))
                 .all()
             ):
                 fh.user_id = fms_reassign_to
@@ -5005,7 +5093,15 @@ def employee_performance(
     ).first()
     if not emp:
         raise HTTPException(404)
-    if user.role == "MANAGER" and emp.manager_id != user.id and emp.id != user.id:
+    if user.role == "PRODUCT_MANAGER":
+        # Product Manager can manage employee records/uploads but has no
+        # visibility into performance reports (for anyone, including themselves).
+        raise HTTPException(403)
+    if emp.role == "PRODUCT_MANAGER":
+        # Product Managers aren't subject to performance tracking, so no
+        # employee (including Admin) has a performance report to view for them.
+        raise HTTPException(403)
+    if user.role == "MANAGER" and emp.manager_id != user.id:
         raise HTTPException(403)
 
     now = datetime.utcnow()
@@ -5390,10 +5486,25 @@ def setup_notifications_get(request: Request, saved: str = "",
                              db: Session = Depends(get_db)):
     """E-15: Notification Settings page — Admin only."""
     tenant = db.query(Tenant).get(user.tenant_id)
+    from .notification_rules import REGISTRY, channel_enabled, get_recipient_roles, AVAILABLE_ROLES, ROLE_LABELS
+    rule_table = [
+        {
+            "key": c.key, "category": c.category, "label": c.label,
+            "cadence": c.cadence, "recipients": c.recipients,
+            "selected_roles": get_recipient_roles(db, user.tenant_id, c.key),
+            "in_app": channel_enabled(db, user.tenant_id, c.key, "in_app"),
+            "push": channel_enabled(db, user.tenant_id, c.key, "push"),
+            "whatsapp": channel_enabled(db, user.tenant_id, c.key, "whatsapp"),
+        }
+        for c in REGISTRY
+    ]
+    rule_categories = sorted({c.category for c in REGISTRY}, key=lambda cat: {"Checklist": 0, "Delegation": 1, "FMS": 2}.get(cat, 9))
     return templates.TemplateResponse("setup/notifications.html", {
         "request": request, "user": user, "tenant": tenant,
         "saved": saved == "1",
         "L": get_labels(db, user.tenant_id),
+        "rule_table": rule_table, "rule_categories": rule_categories,
+        "available_roles": AVAILABLE_ROLES, "role_labels": ROLE_LABELS,
         **_nav_ctx(db, user),
     })
 
@@ -5414,25 +5525,12 @@ async def setup_notifications_post(
     tenant.work_days = ",".join(work_days_raw) if work_days_raw else "0,1,2,3,4"
     tenant.timezone = form.get("timezone") or "Asia/Kolkata"
     tenant.suppress_notif_outside_hours = form.get("suppress_notif_outside_hours") == "true"
-    # Checklist schedule (replaces old checklist-notifications route)
-    import re as _re
+    # Checklist reminder schedule — distinct config, not covered by the rules
+    # table (feeds the merged checklist reminder job's firing hour(s)).
     raw_hours = form.get("checklist_notif_hours") or "8,13,18"
     valid_h = sorted(set(int(h.strip()) for h in raw_hours.split(",") if h.strip().isdigit() and 0 <= int(h.strip()) <= 23))
     tenant.checklist_notif_hours = ",".join(str(h) for h in valid_h) or "8,13,18"
-    raw_overdue = (form.get("checklist_overdue_hour") or "").strip()
-    tenant.checklist_overdue_hour = raw_overdue if raw_overdue.isdigit() and 0 <= int(raw_overdue) <= 23 else None
-    # Checklist notification rules
-    tenant.checklist_notif_on_assign = form.get("checklist_notif_on_assign") == "true"
-    try:
-        tenant.checklist_remind_before_hours = int(form.get("checklist_remind_before_hours") or 2)
-    except (ValueError, TypeError):
-        tenant.checklist_remind_before_hours = 2
-    try:
-        tenant.checklist_remind_repeat_hours = int(form.get("checklist_remind_repeat_hours") or 4)
-    except (ValueError, TypeError):
-        tenant.checklist_remind_repeat_hours = 4
-    # Delegation
-    tenant.ticket_notif_on_assign = form.get("ticket_notif_on_assign") == "true"
+    # Delegation TaT % thresholds — distinct config (feeds ticket_tat_reminder's cadence)
     try:
         tenant.ticket_notif_tat_pct = int(form.get("ticket_notif_tat_pct") or 80)
     except (ValueError, TypeError):
@@ -5441,28 +5539,34 @@ async def setup_notifications_post(
         tenant.ticket_notif_tat_pct_both = int(form.get("ticket_notif_tat_pct_both") or 90)
     except (ValueError, TypeError):
         tenant.ticket_notif_tat_pct_both = 90
-    # FMS
-    tenant.fms_notif_on_open = form.get("fms_notif_on_open") == "true"
-    tenant.fms_notif_on_stage_entry = form.get("fms_notif_on_stage_entry") == "true"
+    # FMS TaT % threshold — distinct config (feeds fms_tat_breach's cadence)
     try:
         tenant.fms_notif_tat_pct = int(form.get("fms_notif_tat_pct") or 80)
     except (ValueError, TypeError):
         tenant.fms_notif_tat_pct = 80
-    tenant.fms_notif_on_backward = form.get("fms_notif_on_backward") == "true"
-    tenant.fms_notif_on_flag = form.get("fms_notif_on_flag") == "true"
-    # WhatsApp per-event toggles
-    tenant.wa_notif_ticket_assigned = form.get("wa_notif_ticket_assigned") == "true"
-    tenant.wa_notif_ticket_escalated = form.get("wa_notif_ticket_escalated") == "true"
-    tenant.wa_notif_fms_ticket_created = form.get("wa_notif_fms_ticket_created") == "true"
-    tenant.wa_notif_fms_stage_transition = form.get("wa_notif_fms_stage_transition") == "true"
+    # Remaining WhatsApp per-event toggles NOT covered by the notification
+    # rules registry (Sales/Purchase-Order events — outside Checklist/FMS/
+    # Delegation scope). Every other wa_notif_* column (ticket/FMS/checklist)
+    # is now controlled exclusively via the rules table below — no longer
+    # read here, so this form can no longer silently reset them.
     tenant.wa_notif_order_placed = form.get("wa_notif_order_placed") == "true"
     tenant.wa_notif_order_dispatched = form.get("wa_notif_order_dispatched") == "true"
-    tenant.wa_notif_ticket_closed = form.get("wa_notif_ticket_closed") == "true"
-    tenant.wa_notif_ticket_tat_reminder = form.get("wa_notif_ticket_tat_reminder") == "true"
-    tenant.wa_notif_fms_ticket_closed = form.get("wa_notif_fms_ticket_closed") == "true"
-    tenant.wa_notif_fms_ticket_flagged = form.get("wa_notif_fms_ticket_flagged") == "true"
     tenant.wa_notif_po_placed = form.get("wa_notif_po_placed") == "true"
     tenant.wa_notif_po_accepted = form.get("wa_notif_po_accepted") == "true"
+    # Notification rules toggle table — one row per condition, 3 channels each
+    # (rule__{condition_key}__{channel} checkboxes). Same registry/gate the
+    # native app's Setup > Notifications screen reads/writes.
+    from .notification_rules import REGISTRY, get_or_seed_rule, AVAILABLE_ROLES
+    import json as _json_mod
+    for cond in REGISTRY:
+        if f"rule__{cond.key}__present" not in form:
+            continue  # row wasn't in the submitted form at all — leave untouched
+        rule = get_or_seed_rule(db, user.tenant_id, cond.key)
+        rule.in_app_enabled = form.get(f"rule__{cond.key}__in_app") == "true"
+        rule.push_enabled = form.get(f"rule__{cond.key}__push") == "true"
+        rule.whatsapp_enabled = form.get(f"rule__{cond.key}__whatsapp") == "true"
+        selected_roles = [r for r in AVAILABLE_ROLES if form.get(f"rule__{cond.key}__recipient__{r}") == "true"]
+        rule.recipients_json = _json_mod.dumps(selected_roles)
     db.commit()
     return redirect("/setup/notifications?saved=1")
 
@@ -5737,7 +5841,7 @@ def onboarding_wizard(request: Request, step: Optional[int] = None,
         5: checklist_count > 0,
     }
 
-    template_name = "onboarding_wizard_mobile.html" if request.cookies.get("pwa_ui") == "1" else "onboarding_wizard.html"
+    template_name = "onboarding_wizard.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         "tenant": tenant, "step": step,
@@ -5759,7 +5863,7 @@ def notifications_page(request: Request, user: User = Depends(get_current_user_o
     push_subscribed = db.query(PushSubscription).filter(
         PushSubscription.user_id == user.id,
     ).first() is not None
-    template_name = "notifications_mobile.html" if request.cookies.get("pwa_ui") == "1" else "notifications.html"
+    template_name = "notifications.html"
     return templates.TemplateResponse(request, template_name, {
         "user": user, "unread": _unread_count(db, user), "L": _L(db, user),
         **_nav_ctx(db, user),

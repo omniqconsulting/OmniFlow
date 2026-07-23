@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .database import get_db, new_id, Customer, CRMCallLog, User, Tenant, SalesOrder, PriceList, SalesOrderItem, ProductVariant
+from .sales_common import get_or_404
 from .auth import get_current_user, has_module, require_module
 from .templates_env import templates
 from .setup_routes import _nav_ctx, _L, _unread, resolve_customer_agent, _CUSTOMER_TIERS, _CUSTOMER_COLS
@@ -45,14 +46,7 @@ def _redir(url: str):
 
 
 def get_customer_or_404(db: Session, customer_id: str, tenant_id: str) -> Customer:
-    c = db.query(Customer).filter(
-        Customer.id == customer_id,
-        Customer.tenant_id == tenant_id,
-        Customer.is_deleted == False,
-    ).first()
-    if not c:
-        raise HTTPException(404, "Customer not found")
-    return c
+    return get_or_404(db, Customer, customer_id, tenant_id, "Customer")
 
 
 def _can_edit_customer(user: User, customer: Customer) -> bool:
@@ -258,8 +252,7 @@ def contacts_queue(
 
     # PWA-installed sessions get the mobile-redesigned "Priority Feed" (design
     # section 4a); desktop keeps contacts_queue.html — see tickets_list() /
-    # checklists_list() in app/main.py for the same pwa_ui-cookie pattern.
-    template_name = "sales/contacts_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/contacts_queue.html"
+    template_name = "sales/contacts_queue.html"
 
     return templates.TemplateResponse(request, template_name, _ctx(
         db, user,
@@ -853,7 +846,7 @@ def contact_detail(
 
     # PWA-installed sessions get the mobile-redesigned "record view" (design
     # section 5a); desktop keeps contact_detail.html.
-    template_name = "sales/contact_detail_mobile.html" if request.cookies.get("pwa_ui") == "1" else "sales/contact_detail.html"
+    template_name = "sales/contact_detail.html"
 
     return templates.TemplateResponse(request, template_name, _ctx(
         db, user,

@@ -48,6 +48,18 @@
       <label>Internal Notes</label>
       <textarea name="notes" rows="2" placeholder="Notes visible only to SA team">{{ flow.notes if flow else '' }}</textarea>
     </div>
+    <div class="form-group">
+      <label>Continue into flow (close-and-continue)</label>
+      <select name="next_flow_id">
+        <option value="">— None —</option>
+        {% for f in all_flows %}
+        <option value="{{ f.id }}" {% if flow and flow.next_flow_id == f.id %}selected{% endif %}>{{ f.name }}</option>
+        {% endfor %}
+      </select>
+      <p style="font-size:11px;color:var(--sb-text-muted);margin-top:4px">
+        When a ticket on this flow is closed, assignees get a "Close &amp; Continue" option that opens a follow-on ticket on the selected flow.
+      </p>
+    </div>
     {% if flow %}
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 10px;background:var(--sb-bump-bg);border:1px solid var(--sb-card-bdr);border-radius:6px">
       <input type="checkbox" name="bump_version" id="bumpVersion" value="true">
@@ -290,6 +302,7 @@ html.sa-light .sm-badge { background: rgba(99,102,241,0.12); color: #4338ca; }
 
 <script>
 var stages = {{ stages_json | safe if stages_json else '[]' }};
+const ALL_FLOWS = {{ all_flows_json | safe if all_flows_json else '[]' }};
 const FIELD_TYPES = [
   {v:'text',      l:'Text'},
   {v:'longtext',  l:'Long Text'},
@@ -431,6 +444,7 @@ function renderStages() {
                onchange="stages[${i}].color=this.value;syncJson();renderPipeline();document.querySelector('#stage-header-name-${i}').textContent=stages[${i}].name||'Unnamed Stage'">
         <span id="stage-header-name-${i}" style="flex:1;font-weight:600;font-size:13px;color:var(--sb-text)">${escHtml(s.name || 'Unnamed Stage')}</span>
         ${s.is_terminal ? '<span class="badge badge-green" style="font-size:10px">terminal</span>' : ''}
+        ${s.linked_flow_id ? '<span class="badge badge-blue" style="font-size:10px">🔗 linked</span>' : ''}
         ${fields.length ? `<span style="font-size:10px;color:#a5b4fc">📋 ${fields.length} field${fields.length>1?'s':''}</span>` : ''}
         ${s.target_tat_hours ? `<span style="font-size:10px;color:var(--sb-label-clr)">⏱ ${s.target_tat_hours}h TaT</span>` : ''}
         <div style="display:flex;gap:4px;margin-left:auto">
@@ -456,6 +470,16 @@ function renderStages() {
             <label>TaT Target (hours)</label>
             <input type="number" min="0" value="${s.target_tat_hours || ''}" placeholder="e.g. 24"
                    oninput="stages[${i}].target_tat_hours=this.value?parseInt(this.value):null;syncJson();renderPipeline()">
+          </div>
+          <div class="stage-field">
+            <label>Linked flow (send-to)</label>
+            <select onchange="stages[${i}].linked_flow_id=this.value;syncJson();renderStages()">
+              <option value="">— None —</option>
+              ${ALL_FLOWS.map(f => `<option value="${f.id}" ${s.linked_flow_id===f.id?'selected':''}>${escHtml(f.name)}</option>`).join('')}
+            </select>
+            <p style="font-size:10px;color:var(--sb-label-clr);margin-top:3px">
+              Adds a "Send to linked flow" action on this stage; the ticket pauses here until that side flow finishes.
+            </p>
           </div>
           <div class="stage-field" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">
             <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:var(--sb-text-muted);cursor:pointer">

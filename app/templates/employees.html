@@ -48,8 +48,14 @@
 <div class="page-header">
   <h2 class="page-title">{{ L.Employees }}</h2>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-    <form method="get" action="/employees" style="display:flex">
+    <form method="get" action="/employees" style="display:flex;gap:8px;align-items:center">
       <input type="search" name="search" value="{{ search }}" placeholder="Search name, phone, email, ID…" style="min-width:220px;padding:7px 10px;border:1px solid var(--border-med);border-radius:8px;background:var(--bg-input);color:var(--text-primary);font-size:13px">
+      {% if user.role == 'MANAGER' %}
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);white-space:nowrap;cursor:pointer">
+        <input type="checkbox" name="my_team" value="1" {% if my_team %}checked{% endif %} onchange="this.form.submit()" style="cursor:pointer">
+        My Team Only
+      </label>
+      {% endif %}
     </form>
     <div style="display:flex;border:1px solid var(--border-med);border-radius:8px;overflow:hidden">
       <button class="view-btn active" id="btn-list" onclick="switchView('list')">List</button>
@@ -58,10 +64,10 @@
     {% if whatsapp_opt_in_link %}
     <button onclick="show('optin-qr-modal')" class="btn btn-outline btn-sm">📱 Share Opt-in QR</button>
     {% endif %}
-    {% if can_bulk and user.role == 'ADMIN' %}
+    {% if can_bulk and user.role in ('ADMIN', 'PRODUCT_MANAGER') %}
     <a href="/employees/bulk-upload-page" class="btn btn-outline btn-sm">⬆ Bulk Import</a>
     {% endif %}
-    {% if user.role == 'ADMIN' %}
+    {% if user.role in ('ADMIN', 'PRODUCT_MANAGER') %}
     <button onclick="show('create-modal')" class="btn btn-primary">+ Add Employee</button>
     {% endif %}
   </div>
@@ -201,20 +207,27 @@
         {% endif %}
       </td>
       <td>
+        {% set is_direct_report = (user.role == 'MANAGER' and emp.manager_id == user.id) %}
         <div style="display:flex;gap:6px;align-items:center">
+          {% if user.role != 'PRODUCT_MANAGER' and emp.role != 'PRODUCT_MANAGER' and (user.role != 'MANAGER' or is_direct_report) %}
           <a href="/employees/{{ emp.id }}/performance" class="btn btn-sm btn-outline" title="Performance" style="padding:3px 8px">📊</a>
-          {% if user.role == 'ADMIN' %}
+          {% endif %}
+          {% if user.role in ('ADMIN', 'PRODUCT_MANAGER') or (user.role == 'MANAGER' and is_direct_report) %}
           {# Three-dot menu #}
           <div class="emp-action-menu" style="position:relative">
             <button type="button" onclick="empToggleMenu(this)" style="background:none;border:1px solid var(--border-subtle);border-radius:6px;padding:2px 7px;font-size:16px;cursor:pointer;color:var(--text-faint);line-height:1.4;font-family:inherit">&#8942;</button>
             <div class="emp-dropdown" style="display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:150px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.18);z-index:200;overflow:hidden;font-family:inherit">
+              {% if user.role in ('ADMIN', 'PRODUCT_MANAGER') %}
               <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));toggleRow('pw-{{ emp.id }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:var(--text-primary);background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">🔑 Reset Password</button>
+              {% endif %}
               <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));toggleRow('edit-{{ emp.id }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:var(--text-primary);background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">✏ Edit</button>
+              {% if user.role in ('ADMIN', 'PRODUCT_MANAGER') %}
               <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));toggleRow('docs-{{ emp.id }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:var(--text-primary);background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">📁 Documents & Gadgets</button>
-              {% if emp.status != 'TERMINATED' and emp.id != user.id %}
+              {% endif %}
+              {% if user.role in ('ADMIN', 'PRODUCT_MANAGER') and emp.status != 'TERMINATED' and emp.id != user.id %}
               <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));openTerminate('{{ emp.id }}','{{ emp.name | e }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:#f87171;background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='var(--hover-bg)'" onmouseleave="this.style.background=''">⛔ Terminate</button>
               {% endif %}
-              {% if emp.id != user.id %}
+              {% if user.role in ('ADMIN', 'PRODUCT_MANAGER') and emp.id != user.id %}
               <div style="height:1px;background:var(--border-subtle);margin:2px 0"></div>
               <button type="button" onclick="empToggleMenu(this.closest('.emp-action-menu').querySelector('button'));confirmDelete('{{ emp.id }}','{{ emp.name | e }}')" style="display:block;width:100%;text-align:left;padding:9px 14px;font-size:12px;color:#f87171;background:none;border:none;cursor:pointer;font-family:inherit" onmouseenter="this.style.background='rgba(239,68,68,0.08)'" onmouseleave="this.style.background=''">🗑 Delete</button>
               {% endif %}
@@ -283,7 +296,9 @@
             </div>
             <div class="form-group" style="margin:0">
               <label>Phone</label>
-              <input name="phone" value="{{ emp.phone }}" required>
+              <input name="phone" value="{{ emp.phone }}" required
+                     pattern="[0-9]{10}" maxlength="10"
+                     title="Enter a valid 10-digit phone number">
             </div>
             <div class="form-group" style="margin:0">
               <label>Email</label>
@@ -301,10 +316,10 @@
             </div>
             <div class="form-group" style="margin:0">
               <label>{{ L.Department }}</label>
-              <select name="department_id">
+              <select name="department_id" class="dept-branch-sync" data-branch-target="branch-{{ emp.id }}">
                 <option value="">— None —</option>
                 {% for d in departments %}
-                <option value="{{ d.id }}" {% if emp.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+                <option value="{{ d.id }}" data-branch-id="{{ d.branch_id or '' }}" {% if emp.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -327,12 +342,13 @@
             </div>
             <div class="form-group" style="margin:0">
               <label>{{ L.Branch }}</label>
-              <select name="branch_id">
+              <select name="branch_id" id="branch-{{ emp.id }}">
                 <option value="">— None —</option>
                 {% for b in branches %}
                 <option value="{{ b.id }}" {% if emp.branch_id == b.id %}selected{% endif %}>{{ b.name }}</option>
                 {% endfor %}
               </select>
+              <p class="dept-branch-note" style="font-size:11px;color:var(--text-faint);margin:4px 0 0;display:none">Auto-filled from {{ L.Department | lower }} — you can still override it.</p>
             </div>
             <div class="form-group" style="margin:0">
               <label>Address</label>
@@ -340,31 +356,13 @@
             </div>
           </div>
           <div class="form-section" style="margin-bottom:12px">
-            <label>Visible Tabs</label>
+            <label>Module Access</label>
             <p class="help-text" style="font-size:11px;color:var(--text-faint);margin:2px 0 6px">
-              Admin automatically sees all modules.
-              For Manager and Employee roles, select which tabs this user can access.
-              Only tabs your organization currently has enabled are shown below.
+              Module/tab access is now managed centrally at
+              <a href="/setup/access-control?target_type=EMPLOYEE&target_id={{ emp.id }}">Setup &rarr; Access Control</a>
+              (by department, branch, or individual employee).
             </p>
-            {% if emp.role in ("EMPLOYEE", "MANAGER") %}
-            {% if tab_catalog %}
-            <div class="checkbox-group" style="display:flex;gap:16px;flex-wrap:wrap">
-              {% for tkey, tlabel in tab_catalog %}
-              <label style="font-size:12px;display:flex;align-items:center;gap:5px">
-                <input type="checkbox" name="tabs" value="{{ tkey }}"
-                       {% if tkey in emp.effective_tabs %}checked{% endif %}>
-                {{ tlabel }}
-              </label>
-              {% endfor %}
-            </div>
-            {% else %}
-            <p class="muted" style="font-size:12px;color:var(--text-faint)">No optional tabs are currently enabled for your organization.</p>
-            {% endif %}
-            {% else %}
-            <p class="muted" style="font-size:12px;color:var(--text-faint)">All modules visible (Admin role).</p>
-            {% endif %}
           </div>
-          <input type="hidden" name="tabs_submitted" value="1">
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-sm btn-primary">Save Changes</button>
             <button type="button" onclick="toggleRow('edit-{{ emp.id }}')" class="btn btn-sm btn-gray">Cancel</button>
@@ -586,21 +584,22 @@
         </div>
         <div class="form-group">
           <label>{{ L.Department }}</label>
-          <select name="department_id">
+          <select name="department_id" class="dept-branch-sync" data-branch-target="create-branch">
             <option value="">— None —</option>
             {% for d in departments %}
-            <option value="{{ d.id }}">{{ d.name }}</option>
+            <option value="{{ d.id }}" data-branch-id="{{ d.branch_id or '' }}">{{ d.name }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="form-group">
           <label>{{ L.Branch }}</label>
-          <select name="branch_id">
+          <select name="branch_id" id="create-branch">
             <option value="">— None —</option>
             {% for b in branches %}
             <option value="{{ b.id }}">{{ b.name }}</option>
             {% endfor %}
           </select>
+          <p class="dept-branch-note" style="font-size:11px;color:var(--text-faint);margin:4px 0 0;display:none">Auto-filled from {{ L.Department | lower }} — you can still override it.</p>
         </div>
       </div>
       <div class="form-group">
@@ -736,9 +735,36 @@ document.addEventListener('click', function(e) {
   }
 });
 
+// ── Department → Branch auto-sync: picking a department pre-fills its
+// mapped branch; the branch select stays editable so the user can override.
+document.querySelectorAll('.dept-branch-sync').forEach(function(deptSel){
+  deptSel.addEventListener('change', function(){
+    var branchSel = document.getElementById(deptSel.dataset.branchTarget);
+    if (!branchSel) return;
+    var note = branchSel.parentElement.querySelector('.dept-branch-note');
+    var opt = deptSel.options[deptSel.selectedIndex];
+    var branchId = opt ? opt.dataset.branchId : '';
+    if (branchId) {
+      branchSel.value = branchId;
+      if (note) note.style.display = 'block';
+    } else if (note) {
+      note.style.display = 'none';
+    }
+  });
+  var branchSel = document.getElementById(deptSel.dataset.branchTarget);
+  if (branchSel) {
+    branchSel.addEventListener('change', function(){
+      var note = branchSel.parentElement.querySelector('.dept-branch-note');
+      if (note) note.style.display = 'none';
+    });
+  }
+});
+
 function toggleRow(id){
   var el = document.getElementById(id);
-  el.style.display = (el.style.display === 'none' || el.style.display === '') ? 'table-row' : 'none';
+  var opening = (el.style.display === 'none' || el.style.display === '');
+  el.style.display = opening ? 'table-row' : 'none';
+  if (opening) el.scrollIntoView({block: 'center'});
 }
 
 function empOnSelectAll(cb) {

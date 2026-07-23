@@ -3,11 +3,10 @@
 //
 // Section A below is the site's existing JS, moved here verbatim from the
 // inline <script> blocks that used to live in base.html (July 2026
-// Native-Feel PWA refactor) so it can be cached as a static asset by the
-// service worker (see Section 6.2 of the Native-Feel UI Brief).
+// Native-Feel refactor).
 //
-// Section B is the new native-feel layer: standalone-mode detection,
-// install-prompt capture, and small reusable utilities (toast, vibrate).
+// Section B is the native-feel layer: mobile-web UX helpers (toast,
+// vibrate, draggable help-fab, bottom-nav behavior).
 //
 // Note: the tiny inline theme-flash-prevention script in base.html's <head>
 // intentionally stays inline — it must run synchronously before first paint
@@ -64,7 +63,8 @@ function makeSortable(tableId) {
    SECTION A — existing site JS (moved from base.html, unchanged)
    ══════════════════════════════════════════════════════════════════════ */
 
-// P6-02: service worker registration (app shell caching + web push)
+// Web Push: service worker registration. This worker (sw.js) does nothing
+// but receive push events — no offline caching, no install shell.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('/static/sw.js').catch(function (err) {
@@ -73,12 +73,11 @@ if ('serviceWorker' in navigator) {
   });
 
   // Reload once when a new service worker takes control (e.g. after a
-  // SHELL_CACHE version bump). Without this, an Android PWA that gets
-  // resumed from the recent-apps tray rather than freshly navigated can
-  // keep running against the OLD worker/cache indefinitely — the new
-  // worker installs and calls clients.claim(), but nothing ever tells the
-  // already-open page to actually pick it up. The _reloaded guard stops a
-  // reload loop if a browser fires controllerchange more than once.
+  // sw.js deploy). Without this, a tab left open across a deploy can keep
+  // running against the OLD worker indefinitely — the new worker installs
+  // and calls clients.claim(), but nothing ever tells the already-open page
+  // to actually pick it up. The _reloaded guard stops a reload loop if a
+  // browser fires controllerchange more than once.
   var _reloaded = false;
   navigator.serviceWorker.addEventListener('controllerchange', function () {
     if (_reloaded) return;
@@ -150,9 +149,9 @@ function setPushButtonEnabled(btn) {
   btn.disabled = true;
 }
 
-// P6-05: reflect the device's actual push subscription state on every page
-// load, instead of always showing "Enable push notifications" regardless
-// of whether this device already granted permission and subscribed.
+// Reflect the device's actual push subscription state on every page load,
+// instead of always showing "Enable push notifications" regardless of
+// whether this device already granted permission and subscribed.
 document.addEventListener('DOMContentLoaded', async function () {
   var buttons = document.querySelectorAll('[data-push-btn]');
   if (!buttons.length) return;
@@ -446,12 +445,10 @@ if (document.body.classList.contains('is-authed')) (function(){
   function applyMute(){
     const muted = localStorage.getItem('sound_muted') === '1';
     document.querySelectorAll('.js-sound-btn').forEach(function(btn){
-      // PWA-only: the mobile top bar's mute button (.mt-sound-btn) uses a
-      // speaker glyph so it's visually distinct from the adjacent
-      // notifications bell — desktop's #sound-btn keeps its original bell
-      // glyph unchanged.
-      const isMobileTopbar = btn.classList.contains('mt-sound-btn');
-      btn.textContent = isMobileTopbar ? (muted ? '🔇' : '🔊') : (muted ? '🔕' : '🔔');
+      // Speaker glyph everywhere — the desktop nav's mute button used to
+      // reuse the bell glyph, which was visually identical to the adjacent
+      // notifications bell and confusing.
+      btn.textContent = muted ? '🔇' : '🔊';
       btn.title = muted ? 'Sounds muted — click to enable' : 'Notification sounds on — click to mute';
     });
   }
@@ -532,30 +529,6 @@ if (document.body.classList.contains('is-authed')) (function(){
    SECTION B — native-feel layer (Native-Feel UI Brief, Section 5)
    ══════════════════════════════════════════════════════════════════════ */
 
-// 5.4 — Standalone detection: add an `is-standalone` class to <html> so any
-// JS-driven behaviour (haptics, install prompt, future skeleton loaders) can
-// branch on it. Falls back silently to "not standalone" everywhere this
-// isn't supported (older Android WebViews, desktop browsers).
-(function(){
-  const isStandalone =
-    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-    window.navigator.standalone === true; // iOS Safari
-  if(isStandalone) document.documentElement.classList.add('is-standalone');
-
-  // Tickets Redesign (2026-07): mirror standalone-ness into a `pwa_ui` cookie
-  // so server routes can pick the PWA-only templates without any UA sniffing.
-  // Only flips (and reloads) when the signal actually changes, so this never
-  // loops and never affects a normal browser tab (isStandalone stays false there).
-  const hasPwaCookie = document.cookie.split('; ').some(c => c === 'pwa_ui=1');
-  if(isStandalone && !hasPwaCookie){
-    document.cookie = 'pwa_ui=1;path=/;max-age=31536000';
-    window.location.reload();
-  } else if(!isStandalone && hasPwaCookie){
-    document.cookie = 'pwa_ui=;path=/;max-age=0';
-    window.location.reload();
-  }
-})();
-
 // 5.1 — Bottom-nav active state: the partial already renders `.active` from
 // the server (same request.url.path check the desktop nav uses), this just
 // keeps a body-level class in sync for any CSS that needs to know a bottom
@@ -565,7 +538,7 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 
 // Checklists Redesign (2026-07): make the "Need Help" SOS button a draggable
-// floating button on mobile/PWA layouts only (desktop keeps the static
+// floating button on mobile-web layouts only (desktop keeps the static
 // bottom-right pill — see .help-fab in app-shell.css, unaffected here). This
 // lets the user park it wherever it doesn't collide with a module's own FAB
 // (Tickets/Delegation "+", Checklists "+", etc.) instead of every module
@@ -677,14 +650,6 @@ document.addEventListener('DOMContentLoaded', function(){
 
   document.addEventListener('DOMContentLoaded', initDraggableFab);
 })();
-
-// 5.4 — Install prompt capture: stash the deferred prompt so a future
-// "Install OmniFlow" button (not part of this brief) can trigger it on
-// demand instead of relying on the browser's own mini-infobar timing.
-window.addEventListener('beforeinstallprompt', function(e){
-  e.preventDefault();
-  window._omniDeferredInstallPrompt = e;
-});
 
 // 5.5 — Vibration helper: no-ops silently on unsupported browsers (iOS).
 window.omniVibrate = function(pattern){
@@ -810,6 +775,27 @@ function syncStickyTableOffsets(){
       card.style.removeProperty('--sticky-stack-offset');
     }
   });
+
+  // A table's thead can only stick relative to whichever element actually
+  // scrolls it. Tables are commonly wrapped in a `<div style="overflow-x:auto">`
+  // for horizontal mobile scrolling (setup/notifications.html, checklists.html,
+  // tickets.html, etc). Per the CSS overflow spec, setting overflow-x to
+  // anything but visible forces the computed overflow-y to auto too, so that
+  // div becomes its own scroll container and the sticky containing block for
+  // th — not the page. Since the wrapper's height always equals the table's
+  // (it never actually scrolls vertically), applying the page-level
+  // --sticky-stack-offset there doesn't stick the header, it just shoves it
+  // down by that many px into row 1. That's the header-overlaps-first-row bug.
+  // Force these wrappers' offset back to 0 so the header sticks to the top of
+  // its own (non-scrolling) container instead of the unrelated page offset.
+  document.querySelectorAll('table').forEach(function(table){
+    var wrap = table.parentElement;
+    if(!wrap) return;
+    var cs = getComputedStyle(wrap);
+    if(cs.overflowX !== 'visible' || cs.overflowY !== 'visible'){
+      wrap.style.setProperty('--sticky-stack-offset', '0px');
+    }
+  });
 }
 window.addEventListener('load', syncStickyTableOffsets);
 var stickyOffsetResizeTimer;
@@ -817,3 +803,33 @@ window.addEventListener('resize', function(){
   clearTimeout(stickyOffsetResizeTimer);
   stickyOffsetResizeTimer = setTimeout(syncStickyTableOffsets, 150);
 });
+
+// `load` + `resize` alone miss every table whose surrounding content
+// changes AFTER initial page load without a full navigation — the actual
+// cause of the header-overlaps-first-row bug seen across multiple pages:
+// a preceding sticky filter-bar/KPI block that renders at a different
+// height once real data arrives (fetch()-populated filters, a tab/section
+// toggling into view, rows added/removed from a table that itself sits
+// above another sticky table further down the page), or a table that
+// exists in the DOM before `load` fires but whose card wasn't sized yet.
+// A MutationObserver catches all of these — and every future one — without
+// having to find and instrument each individual page's AJAX call site.
+// Only watches childList/subtree (not attributes), so the inline
+// `--sticky-stack-offset` style we set below never re-triggers itself.
+(function(){
+  if(typeof MutationObserver === 'undefined') return;
+  var pending = false;
+  function scheduleSync(){
+    if(pending) return;
+    pending = true;
+    requestAnimationFrame(function(){
+      pending = false;
+      syncStickyTableOffsets();
+    });
+  }
+  var stickyMutationObserver = new MutationObserver(scheduleSync);
+  document.addEventListener('DOMContentLoaded', function(){
+    stickyMutationObserver.observe(document.body, { childList: true, subtree: true });
+    scheduleSync();
+  });
+})();

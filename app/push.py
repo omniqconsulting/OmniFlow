@@ -28,7 +28,7 @@ _DEV_VAPID_PRIVATE_KEY = (
     "-----END PRIVATE KEY-----\n"
 )
 
-def _resolve_vapid_private_key(raw: str) -> str:
+def _resolve_vapid_private_key(raw: str, is_dev_default: bool) -> str:
     """
     Accepts either a raw multi-line PEM string, or that same PEM
     base64-encoded onto a single line (for env-var UIs that don't support
@@ -41,13 +41,29 @@ def _resolve_vapid_private_key(raw: str) -> str:
     try:
         return base64.b64decode(raw).decode()
     except Exception:
-        logger.warning("VAPID_PRIVATE_KEY is set but not valid PEM or base64 — falling back to dev key")
-        return _DEV_VAPID_PRIVATE_KEY
+        if is_dev_default:
+            return _DEV_VAPID_PRIVATE_KEY
+        # A real VAPID_PRIVATE_KEY was explicitly set but couldn't be parsed —
+        # fail loudly rather than silently signing with the compromised dev
+        # key instead (security audit Part 1/3).
+        raise RuntimeError("VAPID_PRIVATE_KEY is set but is not valid PEM or base64-encoded PEM.")
 
+
+if os.environ.get("RENDER") and not (os.environ.get("VAPID_PUBLIC_KEY") and os.environ.get("VAPID_PRIVATE_KEY")):
+    # Security audit Part 1/3: this dev keypair is checked into source
+    # control and public in git history — treat it as compromised. Refuse
+    # to sign push messages with it in production.
+    raise RuntimeError(
+        "VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY are not set on Render — refusing "
+        "to fall back to the checked-in dev keypair in production. Generate a "
+        "real VAPID keypair and set both env vars."
+    )
 
 VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", _DEV_VAPID_PUBLIC_KEY)
+_raw_vapid_private_key = os.environ.get("VAPID_PRIVATE_KEY")
 VAPID_PRIVATE_KEY = _resolve_vapid_private_key(
-    os.environ.get("VAPID_PRIVATE_KEY", _DEV_VAPID_PRIVATE_KEY)
+    _raw_vapid_private_key or _DEV_VAPID_PRIVATE_KEY,
+    is_dev_default=not _raw_vapid_private_key,
 )
 VAPID_CLAIM_EMAIL = os.environ.get("VAPID_CLAIM_EMAIL", "mailto:admin@omniflow.app")
 
@@ -93,6 +109,71 @@ def unsubscribe(
     ).delete()
     db.commit()
     return JSONResponse({"ok": True})
+
+
+EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+_EXPO_BATCH_SIZE = 100  # Expo's documented max messages per request
+
+
+def send_expo_push_for_user(db: Session, user_id: str, title: str, body: str = "", link: str = ""):
+    """
+    Native app push — fourth, additive notification channel (in-app row +
+    Web Push above + WhatsApp elsewhere). Fans out to every device this user
+    has registered (see api_v1/devices.py DeviceRegister), via Expo's push
+    API rather than talking to APNs/FCM directly — Expo brokers that for us.
+
+    Never raises back into the caller, same contract as send_push_for_user:
+    a push failure must not break in-app notification creation.
+    """
+    import httpx
+    from .database import DeviceToken
+    from .notifications import resolve_notification_link
+
+    tokens = db.query(DeviceToken).filter(DeviceToken.user_id == user_id).all()
+    if not tokens:
+        return
+
+    link_type, link_id = resolve_notification_link(link)
+    messages = [
+        {
+            "to": t.expo_push_token,
+            "title": title,
+            "body": body,
+            "sound": "default",
+            "data": {"link": link, "link_type": link_type, "link_id": link_id},
+        }
+        for t in tokens
+    ]
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            for i in range(0, len(messages), _EXPO_BATCH_SIZE):
+                batch = messages[i:i + _EXPO_BATCH_SIZE]
+                resp = client.post(EXPO_PUSH_URL, json=batch, headers={
+                    "Accept": "application/json", "Content-Type": "application/json",
+                })
+                if resp.status_code != 200:
+                    logger.warning("Expo push batch failed for user %s: HTTP %s", user_id, resp.status_code)
+                    continue
+                _handle_expo_tickets(db, tokens[i:i + _EXPO_BATCH_SIZE], resp.json().get("data", []))
+    except httpx.TimeoutException:
+        logger.warning("Expo push timed out for user %s", user_id)
+    except Exception:
+        logger.warning("Expo push failed for user %s", user_id, exc_info=True)
+
+
+def _handle_expo_tickets(db: Session, tokens_in_batch, tickets: list):
+    """Expo returns one delivery ticket per message, same order as sent.
+    DeviceNotRegistered means the token is dead (app uninstalled, etc.) —
+    same cleanup-on-410 pattern as send_push_for_user's WebPushException
+    handling above."""
+    changed = False
+    for token_row, ticket in zip(tokens_in_batch, tickets):
+        if ticket.get("status") == "error" and ticket.get("details", {}).get("error") == "DeviceNotRegistered":
+            db.delete(token_row)
+            changed = True
+    if changed:
+        db.commit()
 
 
 def send_push_for_user(db: Session, user_id: str, title: str, body: str = "", link: str = ""):

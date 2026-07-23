@@ -31,7 +31,7 @@ from .database import (
 )
 from .auth import get_current_user, get_current_user_or_redirect, get_nav_flags
 from .labels import get_labels
-from .constants import has_feature, get_limit
+from .constants import has_feature, get_limit, FMS_INACTIVE_STATUSES
 from .ai_context import build_context
 
 log = logging.getLogger(__name__)
@@ -321,11 +321,11 @@ def _report_data_snapshot(db: Session, tenant_id: str, section: str,
             fms_done = db.query(FMSTicket).filter(
                 FMSTicket.tenant_id == tenant_id, FMSTicket.is_deleted == False,
                 FMSTicket.created_at >= since,
-                FMSTicket.status.in_(["COMPLETED", "CLOSED"]),
+                FMSTicket.status.in_(FMS_INACTIVE_STATUSES),
             ).count()
             fms_open = db.query(FMSTicket).filter(
                 FMSTicket.tenant_id == tenant_id, FMSTicket.is_deleted == False,
-                FMSTicket.status.notin_(["COMPLETED", "CLOSED"]),
+                FMSTicket.status.notin_(FMS_INACTIVE_STATUSES),
             ).count()
             fms_flows = db.query(FMSFlow).filter(
                 FMSFlow.tenant_id == tenant_id, FMSFlow.is_deleted == False,
@@ -405,7 +405,7 @@ def ai_home(request: Request,
     usage_row = _get_today_usage(db, user.tenant_id)
     ai_limit = _get_ai_limit(tenant) if tenant else 20
     sections = _active_sections(db, user.tenant_id)
-    template_name = "ai/ask_mobile.html" if request.cookies.get("pwa_ui") == "1" else "ai/ask.html"
+    template_name = "ai/ask.html"
     return templates.TemplateResponse(request, template_name, _ctx(
         request, user, db,
         api_configured=api_configured,

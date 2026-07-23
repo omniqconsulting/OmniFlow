@@ -343,7 +343,7 @@
       <!-- Edit due inline -->
       <div id="toed-{{ a.id }}" style="display:none;margin-top:8px">
         <form method="post" action="/checklists/assignments/{{ a.id }}/edit" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <input type="datetime-local" name="due_at" value="{{ a.due_at.strftime('%Y-%m-%dT%H:%M') if a.due_at else '' }}"
+          <input type="datetime-local" name="due_at" value="{{ a.due_at | ist('%Y-%m-%dT%H:%M') if a.due_at else '' }}"
                  style="background:var(--bg-card);border:1px solid var(--border-med);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text-primary);color-scheme:dark;outline:none" required>
           <button type="submit" class="btn btn-sm btn-primary">Save</button>
           <button type="button" onclick="toggleForm('toed-{{ a.id }}')" class="btn btn-sm btn-gray">Cancel</button>
