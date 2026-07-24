@@ -145,7 +145,7 @@
   {% set vmedia = v.media_urls_json | from_json if v.media_urls_json else [] %}
   <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:8px;flex-wrap:wrap">
     <div style="width:34px;height:34px;border-radius:7px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">
-      {% if vmedia %}<img src="/static/{{ vmedia[0] }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:14px;opacity:.45">&#128230;</span>{% endif %}
+      {% if vmedia %}<img src="{{ vmedia[0] | media_url }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:14px;opacity:.45">&#128230;</span>{% endif %}
     </div>
     <div style="min-width:110px;font-weight:600;font-size:13px">{{ v.sku_code }}</div>
     <div style="flex:1;min-width:100px;font-size:13px;color:var(--text-muted)">{{ v.variant_label or '—' }}</div>
@@ -219,7 +219,7 @@
   {% set vmedia = v.media_urls_json | from_json if v.media_urls_json else [] %}
   {% for m in vmedia %}
   <div style="height:120px;border-radius:8px;overflow:hidden;background:var(--bg-input);border:1px solid var(--border-subtle);position:relative">
-    <img src="/static/{{ m }}" style="width:100%;height:100%;object-fit:cover">
+    <img src="{{ m | media_url }}" style="width:100%;height:100%;object-fit:cover">
     <span style="position:absolute;bottom:0;left:0;right:0;padding:3px 6px;font-size:9px;font-family:monospace;background:rgba(0,0,0,0.55);color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ v.variant_label or v.sku_code }}</span>
   </div>
   {% endfor %}
@@ -283,7 +283,7 @@
   <div style="position:sticky;top:70px;display:flex;flex-direction:column;gap:12px">
     <div style="height:150px;background:var(--bg-input);border:1px solid var(--border-subtle);border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden">
       {% set first_media = (variants | map(attribute='media_urls_json') | select | map('from_json') | select | first) %}
-      {% if first_media %}<img src="/static/{{ first_media[0] }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:32px;opacity:.45">&#128230;</span>{% endif %}
+      {% if first_media %}<img src="{{ first_media[0] | media_url }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:32px;opacity:.45">&#128230;</span>{% endif %}
     </div>
     <div class="card" style="padding:16px;font-size:12.5px">
       <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text-muted)">Unit <span style="color:var(--text-primary)">{{ product.base_unit.abbreviation if product.base_unit else '—' }}</span></div>
@@ -386,6 +386,12 @@ const VARIANT_DATA = {
   {% endfor %}
 };
 
+function mediaUrl(m) {
+  // New R2-backed uploads store a full URL; legacy local uploads stored a
+  // bare relative path that needs the /static/ prefix.
+  return (m.startsWith('http://') || m.startsWith('https://') || m.startsWith('/static/')) ? m : `/static/${m}`;
+}
+
 function openVariantEdit(variantId) {
   const d = VARIANT_DATA[variantId];
   if (!d) return;
@@ -402,12 +408,12 @@ function openVariantEdit(variantId) {
   const emptyBox = document.getElementById('vem-gallery-empty');
   const thumbs = document.getElementById('vem-gallery-thumbs');
   if (d.media_urls && d.media_urls.length) {
-    mainImg.src = `/static/${d.media_urls[0]}`;
+    mainImg.src = mediaUrl(d.media_urls[0]);
     mainImg.style.display = '';
     emptyBox.style.display = 'none';
     thumbs.innerHTML = d.media_urls.map((m, i) => `
       <div style="position:relative">
-        <img src="/static/${m}" onclick="document.getElementById('vem-gallery-main').src=this.src" style="width:44px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border-subtle)">
+        <img src="${mediaUrl(m)}" onclick="document.getElementById('vem-gallery-main').src=this.src" style="width:44px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border-subtle)">
         <form method="post" action="/sales/catalog/variant/${variantId}/delete-media" style="position:absolute;top:-6px;right:-6px" onsubmit="return confirm('Remove this photo?')">
           <input type="hidden" name="index" value="${i}">
           <button type="submit" style="width:16px;height:16px;border-radius:50%;background:#ef4444;color:#fff;border:none;font-size:9px;line-height:1;cursor:pointer">&times;</button>

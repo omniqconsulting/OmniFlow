@@ -16,11 +16,11 @@
 <div style="display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start">
   <div class="card" style="padding:16px">
     {% if media_urls %}
-    <img id="gallery-main" src="/static/{{ media_urls[0] }}" style="width:100%;border-radius:8px;object-fit:cover;height:260px;margin-bottom:10px">
+    <img id="gallery-main" src="{{ media_urls[0] | media_url }}" style="width:100%;border-radius:8px;object-fit:cover;height:260px;margin-bottom:10px">
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       {% for m in media_urls %}
       <div style="position:relative">
-        <img src="/static/{{ m }}" onclick="document.getElementById('gallery-main').src=this.src" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border-subtle)">
+        <img src="{{ m | media_url }}" onclick="document.getElementById('gallery-main').src=this.src" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--border-subtle)">
         {% if user.role in ('ADMIN','MANAGER') %}
         <form method="post" action="/sales/catalog/variant/{{ variant.id }}/delete-media" style="position:absolute;top:-6px;right:-6px" onsubmit="return confirm('Remove this photo?')">
           <input type="hidden" name="index" value="{{ loop.index0 }}">

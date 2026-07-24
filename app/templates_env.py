@@ -132,6 +132,18 @@ def _wa_link(phone, text=""):
     return url
 
 
+def _media_url(value):
+    """Resolves a stored media reference for use in src="...": a full URL
+    (new R2-backed uploads) is returned unchanged; a bare legacy relative
+    path (old local-disk uploads, stored without a leading slash) gets the
+    /static/ prefix templates used to hardcode. Empty/None passes through."""
+    if not value:
+        return value
+    if value.startswith("http://") or value.startswith("https://") or value.startswith("/static/"):
+        return value
+    return f"/static/{value}"
+
+
 def _format_tat(hours):
     """Format TAT hours as '30m', '2h', '1d', '1d 4h' etc. Returns '' for null/zero."""
     if not hours:
@@ -155,3 +167,4 @@ templates.env.filters["cond_format"] = _cond_format_style
 templates.env.filters["priority_label"] = _priority_label
 templates.env.filters["tel_link"] = _tel_link
 templates.env.filters["wa_link"] = _wa_link
+templates.env.filters["media_url"] = _media_url

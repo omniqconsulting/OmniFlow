@@ -74,7 +74,7 @@ async def upload_employee_documents(
     for _dt, _lbl, f in rows:
         await _check_doc_constraints(f)
     for dt, lbl, f in rows:
-        info = await save_upload(f, user.tenant_id)
+        info = await save_upload(f, user.tenant_id, allowed_kinds=("image", "pdf"), private=True)
         db.add(EmployeeDocument(
             tenant_id=user.tenant_id, user_id=emp.id, doc_type=dt,
             label=lbl or None, file_name=info["file_name"], file_path=info["file_path"],
@@ -145,7 +145,7 @@ async def create_employee_gadgets(
         db.add(gadget)
         db.flush()
         for f in row["files"]:
-            info = await save_upload(f, user.tenant_id)
+            info = await save_upload(f, user.tenant_id, allowed_kinds=("image", "pdf"), private=True)
             db.add(EmployeeGadgetDocument(
                 gadget_id=gadget.id, file_name=info["file_name"], file_path=info["file_path"],
                 file_type=info["file_type"], file_size=info["file_size"],
@@ -172,7 +172,7 @@ async def add_gadget_documents(
     for f in files:
         await _check_doc_constraints(f)
     for f in files:
-        info = await save_upload(f, user.tenant_id)
+        info = await save_upload(f, user.tenant_id, allowed_kinds=("image", "pdf"), private=True)
         db.add(EmployeeGadgetDocument(
             gadget_id=gadget.id, file_name=info["file_name"], file_path=info["file_path"],
             file_type=info["file_type"], file_size=info["file_size"],

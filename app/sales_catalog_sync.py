@@ -11,12 +11,12 @@ setup_routes.py) to avoid an import cycle between those two files.
 import json
 import re
 import uuid as _uuid
-from pathlib import Path
 from typing import Optional
 
 import httpx
 from sqlalchemy.orm import Session
 
+from . import storage
 from .database import (
     new_id, Category, SubCategory, Product, ProductVariant, ProductStock,
     UnitOfMeasure, EndProduct,
@@ -102,14 +102,12 @@ async def attach_drive_photo(variant: ProductVariant, drive_link: str) -> Option
         return "Drive image exceeds 5MB limit"
     ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}.get(content_type.split(";")[0], "jpg")
     filename = f"{_uuid.uuid4().hex}.{ext}"
-    rel_path = f"uploads/{variant.tenant_id}/products/{variant.id}/{filename}"
-    full_path = Path(__file__).parent / "static" / rel_path
-    full_path.parent.mkdir(parents=True, exist_ok=True)
-    full_path.write_bytes(content)
+    key = f"{variant.tenant_id}/products/{variant.id}/{filename}"
+    url = storage.upload_object(key, content, content_type.split(";")[0], private=False)
 
     existing = json.loads(variant.media_urls_json or "[]")
     if len(existing) < 8:
-        existing.append(rel_path)
+        existing.append(url)
         variant.media_urls_json = json.dumps(existing)
     return None
 

@@ -9,10 +9,10 @@
 {% set _size = thumb_size|default(40) %}
 {% set _media = variant.media_urls_json | from_json if variant and variant.media_urls_json else [] %}
 {% if _media and _media|length > 0 %}
-  <button type="button" onclick="openPhotoLightbox('/static/{{ _media[0] }}', '{{ (variant.variant_label or variant.sku_code or 'Product') | e }}')"
+  <button type="button" onclick="openPhotoLightbox('{{ _media[0] | media_url }}', '{{ (variant.variant_label or variant.sku_code or 'Product') | e }}')"
           title="View photo"
           style="width:{{ _size }}px;height:{{ _size }}px;border-radius:8px;border:1px solid var(--border-subtle);overflow:hidden;flex-shrink:0;cursor:pointer;padding:0">
-    <img src="/static/{{ _media[0] }}" style="width:100%;height:100%;object-fit:cover;display:block">
+    <img src="{{ _media[0] | media_url }}" style="width:100%;height:100%;object-fit:cover;display:block">
   </button>
 {% else %}
   <div style="width:{{ _size }}px;height:{{ _size }}px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-muted);font-size:{{ (_size/2.2)|round|int }}px">📦</div>

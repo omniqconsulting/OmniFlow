@@ -299,8 +299,8 @@ async def dispatch_pod_upload(
 
     # Save POD file
     from .uploads import save_upload
-    url = await save_upload(pod_file, folder="dispatch_pod")
-    rec.proof_photo_url = url
+    result = await save_upload(pod_file, user.tenant_id)
+    rec.proof_photo_url = result["file_path"]
     rec.pod_uploaded_at = datetime.utcnow()
     rec.is_delivered    = True
     rec.delivered_at    = datetime.utcnow()
