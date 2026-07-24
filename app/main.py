@@ -1,4 +1,5 @@
 ﻿from fastapi import FastAPI, Request, Depends, Form, HTTPException, UploadFile, File, Query, WebSocket, WebSocketDisconnect
+from . import storage
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -4284,6 +4285,11 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_pm_
             EmployeeDocument.user_id.in_(emp_ids), EmployeeDocument.is_deleted == False,
         ).order_by(EmployeeDocument.created_at.desc()).all()
         for d in doc_rows:
+            # Mutate in-memory only, never persist a signed URL back over the
+            # stored object key — expunge before autoflush on any later query
+            # in this request could otherwise write it through.
+            d.file_path = storage.signed_url(d.file_path)
+            db.expunge(d)
             docs_by_user.setdefault(d.user_id, []).append(d)
         gadget_rows = db.query(EmployeeGadget).filter(
             EmployeeGadget.user_id.in_(emp_ids), EmployeeGadget.is_deleted == False,
@@ -4295,6 +4301,8 @@ def employees_page(request: Request, user: User = Depends(require_manager_or_pm_
                 EmployeeGadgetDocument.gadget_id.in_(gadget_ids),
             ).order_by(EmployeeGadgetDocument.created_at.desc()).all()
             for gd in gd_rows:
+                gd.file_path = storage.signed_url(gd.file_path)
+                db.expunge(gd)
                 gadget_docs_by_gadget.setdefault(gd.gadget_id, []).append(gd)
         for g in gadget_rows:
             g.doc_list = gadget_docs_by_gadget.get(g.id, [])

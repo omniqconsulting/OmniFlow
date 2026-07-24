@@ -162,7 +162,7 @@ async def knowledge_upload(
 
     if file and file.filename:
         from .uploads import save_upload
-        result = await save_upload(file, user.tenant_id)
+        result = await save_upload(file, user.tenant_id, allowed_kinds=("image", "video", "pdf", "audio"))
         file_url   = result["file_path"]
         file_name  = result["file_name"]
         file_type  = result["file_type"]
@@ -210,7 +210,7 @@ async def knowledge_bulk_upload(
         if not file or not file.filename:
             continue
         try:
-            result = await save_upload(file, user.tenant_id)
+            result = await save_upload(file, user.tenant_id, allowed_kinds=("image", "video", "pdf", "audio"))
             media_kind = _media_kind_from_mime(result["file_type"])
             db.add(KnowledgeItem(
                 tenant_id     = user.tenant_id,

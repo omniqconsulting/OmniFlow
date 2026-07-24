@@ -181,9 +181,15 @@ let cart = []; // {variant_id, label, sku_code, tier, photo, qty, price, price_s
 let selectedCustomerId = {{ ('"' + customer.id + '"')|safe if customer else 'null' }};
 let expandedProductId = null;
 
+function mediaUrl(m) {
+  // New R2-backed uploads store a full URL; legacy local uploads stored a
+  // bare relative path that needs the /static/ prefix.
+  return (m.startsWith('http://') || m.startsWith('https://') || m.startsWith('/static/')) ? m : `/static/${m}`;
+}
+
 function thumbHtml(photo, size) {
   size = size || 40;
-  if (photo) return `<img src="/static/${photo}" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:8px;border:1px solid var(--border-subtle);flex-shrink:0">`;
+  if (photo) return `<img src="${mediaUrl(photo)}" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:8px;border:1px solid var(--border-subtle);flex-shrink:0">`;
   return `<div style="width:${size}px;height:${size}px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-faint);font-size:${Math.round(size/2.2)}px">📦</div>`;
 }
 

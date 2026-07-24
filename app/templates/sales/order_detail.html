@@ -190,9 +190,15 @@ const priceSourceBadges = {'CUSTOMER_OVERRIDE':'🔵 Custom','PRICE_LIST':'🟢 
 const stockColors = {'AVAILABLE':'#22c55e','PARTIAL':'#f59e0b','UNAVAILABLE':'#ef4444'};
 const tierColors = {'A':'#22c55e','B':'#3b82f6','C':'#f59e0b','D':'#ef4444','UNRANKED':'#94a3b8'};
 
+function mediaUrl(m) {
+  // New R2-backed uploads store a full URL; legacy local uploads stored a
+  // bare relative path that needs the /static/ prefix.
+  return (m.startsWith('http://') || m.startsWith('https://') || m.startsWith('/static/')) ? m : `/static/${m}`;
+}
+
 function thumbHtml(photo, size) {
   size = size || 32;
-  if (photo) return `<img src="/static/${photo}" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle)">`;
+  if (photo) return `<img src="${mediaUrl(photo)}" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:6px;border:1px solid var(--border-subtle)">`;
   return `<div style="width:${size}px;height:${size}px;border-radius:6px;border:1px solid var(--border-subtle);background:var(--bg-input);display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:${Math.round(size/2.2)}px">📦</div>`;
 }
 

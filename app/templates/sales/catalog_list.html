@@ -105,7 +105,7 @@
           <div style="display:flex;align-items:center;gap:10px">
             <div style="width:34px;height:34px;border-radius:7px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">
               {% set first_vmedia = (p.variants | map(attribute='media_urls_json') | select | map('from_json') | select | first) %}
-              {% if first_vmedia %}<img src="/static/{{ first_vmedia[0] }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:14px;opacity:.45">📦</span>{% endif %}
+              {% if first_vmedia %}<img src="{{ first_vmedia[0] | media_url }}" style="width:100%;height:100%;object-fit:cover">{% else %}<span style="font-size:14px;opacity:.45">📦</span>{% endif %}
             </div>
             <span style="font-weight:600;color:var(--text-strong)">{{ p.name }}</span>
           </div>
@@ -136,7 +136,7 @@
   <div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="location.href='/sales/catalog/{{ p.id }}'">
     <div style="height:110px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;overflow:hidden">
       {% if first_vmedia %}
-      <img src="/static/{{ first_vmedia[0] }}" style="width:100%;height:100%;object-fit:cover">
+      <img src="{{ first_vmedia[0] | media_url }}" style="width:100%;height:100%;object-fit:cover">
       {% else %}
       <span style="font-size:28px;opacity:0.4">📦</span>
       {% endif %}
