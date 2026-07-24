@@ -8,7 +8,6 @@ import io
 import json
 import uuid as _uuid
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, Request, HTTPException, UploadFile, File, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
@@ -16,6 +15,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
+from . import storage
 from .database import (
     get_db, new_id, Product, ProductVariant, ProductSchemaField, UnitOfMeasure,
     User, ProductStock, Category, SubCategory, EndProduct,
@@ -701,11 +701,9 @@ async def upload_variant_media(
 
         ext = file.filename.rsplit(".", 1)[-1].lower()
         filename = f"{_uuid.uuid4().hex}.{ext}"
-        rel_path = f"uploads/{user.tenant_id}/products/{variant_id}/{filename}"
-        full_path = Path(__file__).parent / "static" / rel_path
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_bytes(content)
-        existing.append(rel_path)
+        key = f"{user.tenant_id}/products/{variant_id}/{filename}"
+        url = storage.upload_object(key, content, file.content_type, private=False)
+        existing.append(url)
 
     variant.media_urls_json = json.dumps(existing)
     variant.updated_at = datetime.utcnow()
