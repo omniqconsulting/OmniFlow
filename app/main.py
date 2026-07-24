@@ -103,6 +103,18 @@ app.add_middleware(
 # to drop unsafe-inline is a larger follow-up, not done here to avoid
 # breaking the live site) — still meaningfully restricts cross-origin
 # script/resource loading and framing.
+#
+# img-src includes the R2 public bucket's origin (parsed from
+# R2_PUBLIC_BASE_URL) — product/catalog/training photos are served from
+# there now (see app/storage.py), not just same-origin /static/. Falls back
+# to a bare same-origin policy when R2 isn't configured (local dev).
+import urllib.parse as _urlparse
+_r2_img_src = ""
+if storage.R2_PUBLIC_BASE_URL:
+    _r2_origin = _urlparse.urlparse(storage.R2_PUBLIC_BASE_URL)
+    if _r2_origin.scheme and _r2_origin.netloc:
+        _r2_img_src = f"{_r2_origin.scheme}://{_r2_origin.netloc} "
+
 @app.middleware("http")
 async def _security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -113,7 +125,7 @@ async def _security_headers(request: Request, call_next):
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob:; "
+        f"img-src 'self' data: blob: {_r2_img_src}; "
         "connect-src 'self'; "
         "frame-ancestors 'none'"
     )
